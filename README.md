@@ -12,17 +12,19 @@ ch_sinker is a sinker program that consumes kafka message and import to [ClickHo
 
 ## Install 
 
-```
-	go get -u github.com/houseflys/ch_sinker
-```
+* Install Golang
+
+* `go get -u github.com/houseflys/ch_sinker`
 
 
 ## Run
 
 ```
-	cd $GOPATH/src/github.com/houseflys/ch_sinker
-	go build -o ch_sinker bin/main.go
-	./ch_sinker -conf conf
+cd $GOPATH/src/github.com/houseflys/ch_sinker
+go build -o ch_sinker bin/main.go
+
+## modify the config files, then run it
+./ch_sinker -conf conf
 ```
 
 
