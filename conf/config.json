@@ -3,7 +3,7 @@
     "ch1": {
       "db": "default",
       "host": "172.27.138.8",
-      "maxLifeTime": 3,
+      "maxLifeTime": 300,
       "password": "",
       "port": 9000,
       "username": ""

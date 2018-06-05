@@ -1,14 +1,14 @@
 # ch_sinker
 
-ch_sinker is a sinker program that consumes kafka message and import to [ClickHouse](https://clickhouse.yandex/).
+ch_sinker is a sinker program that consumes kafka message and import them to [ClickHouse](https://clickhouse.yandex/).
 
 ## Features
 
 * Easy to use and deploy, you don't need write any hard code, just care about the configuration file
 * Support multiple sinker tasks, each runs on parallel.
+* Support multiply kafka and ClickHouse clusters.
 * Bulk insert (by config `bufferSize` and `flushInterval`).
-* Uses native ClickHouse client-server protocol, with higher performance than HTTP.
-
+* Uses Native ClickHouse client-server TCP protocol, with higher performance than HTTP.
 
 ## Install 
 
@@ -27,11 +27,9 @@ go build -o ch_sinker bin/main.go
 ./ch_sinker -conf conf
 ```
 
+## Support parsers
 
-## Configuration
-
-See config [example](./conf/config.json)
-
+* [x] Json
 
 ## Supported data types
 
@@ -40,8 +38,9 @@ See config [example](./conf/config.json)
 * [x] String
 * [x] FixedString
 * [ ] DateTime
-* [ ] Tuple
-* [ ] Nested
-* [ ] Array(T)
-* [ ] Enum
-* [ ] UUID
+
+
+## Configuration
+
+See config [example](./conf/config.json)
+
