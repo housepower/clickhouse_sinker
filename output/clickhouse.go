@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/houseflys/ch_sinker/model"
+	"github.com/houseflys/clickhouse_sinker/model"
 
 	"github.com/wswz/go_commons/log"
 	"github.com/wswz/go_commons/utils"

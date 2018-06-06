@@ -1,6 +1,6 @@
-# ch_sinker
+# clickhouse_sinker
 
-ch_sinker is a sinker program that consumes kafka message and import them to [ClickHouse](https://clickhouse.yandex/).
+clickhouse_sinker is a sinker program that consumes kafka message and import them to [ClickHouse](https://clickhouse.yandex/).
 
 ## Features
 
@@ -14,17 +14,17 @@ ch_sinker is a sinker program that consumes kafka message and import them to [Cl
 
 * Install Golang
 
-* `go get -u github.com/houseflys/ch_sinker`
+* `go get -u github.com/houseflys/clickhouse_sinker`
 
 
 ## Run
 
 ```
-cd $GOPATH/src/github.com/houseflys/ch_sinker
-go build -o ch_sinker bin/main.go
+cd $GOPATH/src/github.com/houseflys/clickhouse_sinker
+go build -o sinker bin/main.go
 
 ## modify the config files, then run it
-./ch_sinker -conf conf
+./sinker -conf conf
 ```
 
 ## Support parsers

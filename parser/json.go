@@ -3,7 +3,7 @@ package parser
 import (
 	"encoding/json"
 
-	"github.com/houseflys/ch_sinker/model"
+	"github.com/houseflys/clickhouse_sinker/model"
 )
 
 type JsonParser struct {

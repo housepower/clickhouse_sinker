@@ -8,10 +8,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/houseflys/ch_sinker/input"
-	"github.com/houseflys/ch_sinker/model"
-	"github.com/houseflys/ch_sinker/output"
-	"github.com/houseflys/ch_sinker/parser"
+	"github.com/houseflys/clickhouse_sinker/input"
+	"github.com/houseflys/clickhouse_sinker/model"
+	"github.com/houseflys/clickhouse_sinker/output"
+	"github.com/houseflys/clickhouse_sinker/parser"
 
 	"github.com/wswz/go_commons/log"
 )

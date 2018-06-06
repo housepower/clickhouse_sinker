@@ -6,8 +6,8 @@ import (
 	"os"
 	"runtime/pprof"
 
-	conf "github.com/houseflys/ch_sinker/internal"
-	"github.com/houseflys/ch_sinker/task"
+	conf "github.com/houseflys/clickhouse_sinker/internal"
+	"github.com/houseflys/clickhouse_sinker/task"
 	_ "github.com/kshvakov/clickhouse"
 
 	"github.com/wswz/go_commons/app"
@@ -38,7 +38,7 @@ func main() {
 		defer pprof.StopCPUProfile()
 	}
 
-	app.Run("ch_sinker", func() error {
+	app.Run("clickhouse_sinker", func() error {
 		cfg = *conf.InitConfig(config)
 		runner = NewSinker(cfg)
 		return runner.Init()

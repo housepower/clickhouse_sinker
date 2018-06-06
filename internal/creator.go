@@ -1,11 +1,11 @@
 package internal
 
 import (
-	"github.com/houseflys/ch_sinker/input"
-	"github.com/houseflys/ch_sinker/output"
-	"github.com/houseflys/ch_sinker/parser"
-	"github.com/houseflys/ch_sinker/task"
-	"github.com/houseflys/ch_sinker/util"
+	"github.com/houseflys/clickhouse_sinker/input"
+	"github.com/houseflys/clickhouse_sinker/output"
+	"github.com/houseflys/clickhouse_sinker/parser"
+	"github.com/houseflys/clickhouse_sinker/task"
+	"github.com/houseflys/clickhouse_sinker/util"
 )
 
 // Gentaskrs generate the taskrs via config
