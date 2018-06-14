@@ -1,7 +1,7 @@
 package column
 
 import (
-	"github.com/houseflys/clickhouse_sinker/column/impls"
+	"github.com/housepower/clickhouse_sinker/column/impls"
 )
 
 var (

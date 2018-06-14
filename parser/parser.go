@@ -1,7 +1,7 @@
 package parser
 
 import (
-	"github.com/houseflys/clickhouse_sinker/model"
+	"github.com/housepower/clickhouse_sinker/model"
 )
 
 type Parser interface {

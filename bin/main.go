@@ -6,8 +6,8 @@ import (
 	"os"
 	"runtime/pprof"
 
-	conf "github.com/houseflys/clickhouse_sinker/internal"
-	"github.com/houseflys/clickhouse_sinker/task"
+	conf "github.com/housepower/clickhouse_sinker/internal"
+	"github.com/housepower/clickhouse_sinker/task"
 	_ "github.com/kshvakov/clickhouse"
 
 	"github.com/wswz/go_commons/app"
