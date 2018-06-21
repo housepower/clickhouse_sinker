@@ -8,7 +8,7 @@ import (
 	"github.com/housepower/clickhouse_sinker/util"
 )
 
-// Gentaskrs generate the taskrs via config
+// GenTasks generate the tasks via config
 func (config *Config) GenTasks() []*task.TaskService {
 	res := make([]*task.TaskService, 0, len(config.Tasks))
 	for _, taskConfig := range config.Tasks {
