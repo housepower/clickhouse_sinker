@@ -131,7 +131,7 @@ func (c *ClickHouse) initConn() (err error) {
 			hosts = append(hosts, fmt.Sprintf("%s:%d", ip, c.Port))
 		}
 	} else {
-		hosts = append(hosts, c.Host)
+		hosts = append(hosts, fmt.Sprintf("%s:%d", c.Host, c.Port))
 	}
 
 	var dsn = fmt.Sprintf("tcp://%s?username=%s&password=%s", hosts[0], c.Username, c.Password)
