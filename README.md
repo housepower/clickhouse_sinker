@@ -14,8 +14,12 @@ clickhouse_sinker is a sinker program that consumes kafka message and import the
 
 * Install Golang
 
-* `go get -u github.com/housepower/clickhouse_sinker`
+* Go Get
 
+```
+go get -u github.com/housepower/clickhouse_sinker
+go get -u github.com/housepower/clickhouse_sinker/...
+```
 
 ## Run
 
