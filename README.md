@@ -25,6 +25,8 @@ go get -u github.com/housepower/clickhouse_sinker/...
 
 ```
 cd $GOPATH/src/github.com/housepower/clickhouse_sinker
+go install github.com/kardianos/govendor
+govendor sync
 go build -o sinker bin/main.go
 
 ## modify the config files, then run it
