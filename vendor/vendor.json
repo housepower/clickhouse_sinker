@@ -3,10 +3,34 @@
 	"ignore": "test",
 	"package": [
 		{
+			"checksumSHA1": "htwRqmZAo4/R9oNE1TGIECyTj4w=",
+			"path": "github.com/jmoiron/sqlx",
+			"revision": "cf35089a197953c69420c8d0cecda90809764b1d",
+			"revisionTime": "2018-02-28T18:46:24Z"
+		},
+		{
 			"checksumSHA1": "jdmR4gyo5/dXiQh9H8h/c7YAvik=",
 			"path": "github.com/k0kubun/pp",
 			"revision": "e057ee7a28277be4d2af303443b6da377768181f",
 			"revisionTime": "2017-09-26T22:57:54Z"
+		},
+		{
+			"checksumSHA1": "4fUYkndPlBkFgr3ogrW28kaiDz8=",
+			"path": "github.com/kshvakov/clickhouse",
+			"revision": "aeedb7b9d0584f393905447021238b5c6e9c5154",
+			"revisionTime": "2018-05-23T19:13:48Z"
+		},
+		{
+			"checksumSHA1": "SEnjvwVyfuU2xBaOfXfwPD5MZqk=",
+			"path": "github.com/mattn/go-colorable",
+			"revision": "efa589957cd060542a26d2dd7832fd6a6c6c3ade",
+			"revisionTime": "2018-03-10T13:32:14Z"
+		},
+		{
+			"checksumSHA1": "nj123dGxKPIF17B6y3VEK2pihRk=",
+			"path": "github.com/stretchr/testify",
+			"revision": "f35b8ab0b5a2cef36673838d662e249dd9c94686",
+			"revisionTime": "2018-05-06T18:05:49Z"
 		}
 	],
 	"rootPath": "github.com/housepower/clickhouse_sinker"
