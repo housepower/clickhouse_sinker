@@ -1,0 +1,13 @@
+{
+	"comment": "",
+	"ignore": "test",
+	"package": [
+		{
+			"checksumSHA1": "jdmR4gyo5/dXiQh9H8h/c7YAvik=",
+			"path": "github.com/k0kubun/pp",
+			"revision": "e057ee7a28277be4d2af303443b6da377768181f",
+			"revisionTime": "2017-09-26T22:57:54Z"
+		}
+	],
+	"rootPath": "github.com/housepower/clickhouse_sinker"
+}
