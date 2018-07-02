@@ -21,6 +21,8 @@ clickhouse_sinker is a sinker program that consumes kafka message and import the
 
 ```
 cd $GOPATH/src/github.com/housepower/clickhouse_sinker
+go install github.com/kardianos/govendor
+govendor sync
 go build -o sinker bin/main.go
 
 ## modify the config files, then run it
