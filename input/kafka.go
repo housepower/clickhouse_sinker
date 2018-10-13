@@ -78,8 +78,8 @@ func (k *Kafka) Start() error {
 
 func (k *Kafka) Stop() error {
 	k.consumer.Close()
-	close(k.msgs)
 	<-k.stopped
+	close(k.msgs)
 	return nil
 }
 
