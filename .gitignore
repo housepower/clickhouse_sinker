@@ -4,5 +4,4 @@ sh
 .DS_Store
 *.log
 .idea
-vendor/
 *.bin
