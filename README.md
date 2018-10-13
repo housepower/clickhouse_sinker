@@ -11,7 +11,13 @@ clickhouse_sinker is a sinker program that consumes kafka message and import the
 * Loop write (when some node crashes, it will retry write the data to the other healthy node)
 * Uses Native ClickHouse client-server TCP protocol, with higher performance than HTTP.
 
-## Install 
+## Install && Run
+
+### By binary files (suggested)
+
+Download the binary files from [release](https://github.com/housepower/clickhouse_sinker/releases), choose the executable binary file according to your env, modify the `conf` files, then run ` ./clickhouse_sinker -conf conf  `
+
+### By source 
 
 * Install Golang
 
@@ -27,13 +33,12 @@ go install github.com/kardianos/govendor
 govendor sync
 ```
 
-## Run
-
+* Build && Run
 ```
-go build -o sinker bin/main.go
+go build -o clickhouse_sinker bin/main.go
 
 ## modify the config files, then run it
-./sinker -conf conf
+./clickhouse_sinker -conf conf
 ```
 
 ## Support parsers

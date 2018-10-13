@@ -6,3 +6,4 @@ sh
 .idea
 *.bin
 .goreleaser.yml
+dist
