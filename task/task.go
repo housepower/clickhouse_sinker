@@ -49,7 +49,7 @@ func (service *TaskService) Run() {
 
 	log.Infof("TaskService %s TaskService has started", service.clickhouse.GetName())
 	tick := time.NewTicker(time.Duration(service.FlushInterval) * time.Second)
-	msgs := make([]model.LogKV, 0, 100000)
+	msgs := make([]model.Metric, 0, 100000)
 FOR:
 	for {
 		select {
@@ -61,7 +61,7 @@ FOR:
 			if len(msgs) >= service.BufferSize {
 				service.Lock()
 				service.flush(msgs)
-				msgs = make([]model.LogKV, 0, 100000)
+				msgs = make([]model.Metric, 0, 100000)
 				tick = time.NewTicker(time.Duration(service.FlushInterval) * time.Second)
 				service.Unlock()
 			}
@@ -72,7 +72,7 @@ FOR:
 			}
 			service.Lock()
 			service.flush(msgs)
-			msgs = make([]model.LogKV, 0, 100000)
+			msgs = make([]model.Metric, 0, 100000)
 			service.Unlock()
 		}
 	}
@@ -81,15 +81,12 @@ FOR:
 	return
 }
 
-func (service *TaskService) parse(data []byte) model.LogKV {
+func (service *TaskService) parse(data []byte) model.Metric {
 	return service.p.Parse(data)
 }
-func (service *TaskService) flush(metrics []model.LogKV) {
+func (service *TaskService) flush(metrics []model.Metric) {
 	log.Info("buf size:", len(metrics))
-	err := service.clickhouse.Write(metrics)
-	if err != nil {
-		log.Error("saving msg error", err.Error())
-	}
+	service.clickhouse.LoopWrite(metrics)
 }
 
 func (service *TaskService) Stop() {

@@ -3,6 +3,7 @@ package input
 import (
 	"strings"
 
+	"github.com/Shopify/sarama"
 	cluster "github.com/bsm/sarama-cluster"
 	"github.com/wswz/go_commons/log"
 )
@@ -28,7 +29,7 @@ func NewKafka() *Kafka {
 }
 
 func (k *Kafka) Init() error {
-	k.msgs = make(chan []byte, 10000)
+	k.msgs = make(chan []byte, 300000)
 	k.stopped = make(chan struct{})
 	return nil
 }
@@ -40,6 +41,7 @@ func (k *Kafka) Msgs() chan []byte {
 func (k *Kafka) Start() error {
 
 	config := cluster.NewConfig()
+	config.Version = sarama.V1_0_0_0
 	config.Consumer.Return.Errors = true
 	if k.Sasl.Username != "" {
 		config.Net.SASL.Enable = true

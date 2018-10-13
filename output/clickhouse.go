@@ -1,13 +1,13 @@
 package output
 
 import (
-	"database/sql"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/housepower/clickhouse_sinker/model"
 	"github.com/housepower/clickhouse_sinker/pool"
+	"github.com/housepower/clickhouse_sinker/util"
 
 	"github.com/wswz/go_commons/log"
 	"github.com/wswz/go_commons/utils"
@@ -15,8 +15,6 @@ import (
 
 // ClickHouse is an output service consumers from kafka messages
 type ClickHouse struct {
-	conn *sql.DB
-
 	Name      string
 	TableName string
 	Db        string
@@ -32,12 +30,12 @@ type ClickHouse struct {
 	DnsLoop     bool
 
 	// Table Configs
-	Dims    []*ColumnWithType
-	Metrics []*ColumnWithType
+	Dims    []*model.ColumnWithType
+	Metrics []*model.ColumnWithType
 
 	prepareSQL string
 
-	dmMap map[string]string
+	dmMap map[string]*model.ColumnWithType
 	dms   []string
 }
 
@@ -52,11 +50,12 @@ func (c *ClickHouse) Init() error {
 }
 
 // Write kvs to clickhouse
-func (c *ClickHouse) Write(kvs []model.LogKV) (err error) {
-	if len(kvs) == 0 {
+func (c *ClickHouse) Write(metrics []model.Metric) (err error) {
+	if len(metrics) == 0 {
 		return
 	}
-	tx, err := c.conn.Begin()
+	conn := pool.GetConn(c.Host)
+	tx, err := conn.Begin()
 	if err != nil {
 		return err
 	}
@@ -65,10 +64,10 @@ func (c *ClickHouse) Write(kvs []model.LogKV) (err error) {
 		return err
 	}
 	defer stmt.Close()
-	for _, kv := range kvs {
+	for _, metric := range metrics {
 		var args = make([]interface{}, len(c.dmMap))
 		for i, name := range c.dms {
-			args[i] = kv.GetValueByType(name, c.dmMap[name])
+			args[i] = util.GetValueByType(metric, c.dmMap[name])
 		}
 		if _, err := stmt.Exec(args...); err != nil {
 			return err
@@ -80,8 +79,16 @@ func (c *ClickHouse) Write(kvs []model.LogKV) (err error) {
 	return
 }
 
+// LoopWrite will dead loop to write the records
+func (c *ClickHouse) LoopWrite(metrics []model.Metric) {
+	for err := c.Write(metrics); err != nil; {
+		log.Error("saving msg error", err.Error(), "will loop to write the data")
+		time.Sleep(3 * time.Second)
+	}
+}
+
 func (c *ClickHouse) Close() error {
-	return c.conn.Close()
+	return nil
 }
 
 func (c *ClickHouse) GetName() string {
@@ -95,14 +102,14 @@ func (c *ClickHouse) Description() string {
 func (c *ClickHouse) initAll() error {
 	c.initConn()
 	//根据 dms 生成prepare的sql语句
-	c.dmMap = make(map[string]string)
+	c.dmMap = make(map[string]*model.ColumnWithType)
 	c.dms = make([]string, 0, len(c.Dims)+len(c.Metrics))
 	for i, d := range c.Dims {
-		c.dmMap[d.Name] = c.Dims[i].Type
+		c.dmMap[d.Name] = c.Dims[i]
 		c.dms = append(c.dms, d.Name)
 	}
 	for i, m := range c.Metrics {
-		c.dmMap[m.Name] = c.Metrics[i].Type
+		c.dmMap[m.Name] = c.Metrics[i]
 		c.dms = append(c.dms, m.Name)
 	}
 	var params = make([]string, len(c.dmMap))
@@ -116,13 +123,12 @@ func (c *ClickHouse) initAll() error {
 }
 
 func (c *ClickHouse) initConn() (err error) {
-	if conn, _ := pool.GetConn(c.Clickhouse); conn != nil {
-		c.conn = conn
-		return
-	}
-
 	var hosts []string
-	if c.DnsLoop {
+
+	// if contains ',', that means it's a ip list
+	if strings.Contains(c.Host, ",") {
+		hosts = strings.Split(strings.TrimSpace(c.Host), ",")
+	} else {
 		ips, err := utils.GetIp4Byname(c.Host)
 		if err != nil {
 			return err
@@ -130,34 +136,22 @@ func (c *ClickHouse) initConn() (err error) {
 		for _, ip := range ips {
 			hosts = append(hosts, fmt.Sprintf("%s:%d", ip, c.Port))
 		}
-	} else {
-		hosts = append(hosts, fmt.Sprintf("%s:%d", c.Host, c.Port))
 	}
 
 	var dsn = fmt.Sprintf("tcp://%s?username=%s&password=%s", hosts[0], c.Username, c.Password)
-
 	if len(hosts) > 1 {
 		otherHosts := hosts[1:]
 		dsn += "&alt_hosts="
 		dsn += strings.Join(otherHosts, ",")
+		dsn += "&connection_open_strategy=random"
 	}
 
 	if c.DsnParams != "" {
 		dsn += "&" + c.DsnParams
 	}
-	log.Info("clickhouse dsn", dsn)
-
-	c.conn, err = pool.SetAndGetConn(dsn, c.Clickhouse)
-	if err != nil {
-		return
-	}
-	if c.MaxLifeTime > 0 {
-		c.conn.SetConnMaxLifetime(time.Second * c.MaxLifeTime)
+	// dsn += "&debug=1"
+	for i := 0; i < len(hosts); i++ {
+		pool.SetDsn(c.Host, dsn)
 	}
 	return
-}
-
-type ColumnWithType struct {
-	Name string
-	Type string
 }

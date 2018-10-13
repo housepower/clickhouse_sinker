@@ -2,52 +2,66 @@ package pool
 
 import (
 	"database/sql"
-	"errors"
+	"math/rand"
 	"sync"
 
 	"github.com/wswz/go_commons/log"
 )
 
 var (
-	conns    = map[string]*sql.DB{}
-	connLock sync.Mutex
+	connNum = 1
+	lock    sync.Mutex
 )
 
-func SetAndGetConn(dsn string, name string) (conn *sql.DB, err error) {
-	connLock.Lock()
-	defer connLock.Unlock()
-
-	if p, ok := conns[name]; ok {
-		return p, nil
-	}
-
-	log.Info("init clickhouse dsn", dsn)
-	sqlDB, err := sql.Open("clickhouse", dsn)
-	if err != nil {
-		return
-	}
-	conns[name] = sqlDB
-	return sqlDB, nil
+type Connection struct {
+	*sql.DB
+	Dsn string
 }
 
-func GetConn(name string) (conn *sql.DB, err error) {
-	connLock.Lock()
-	defer connLock.Unlock()
-
-	if p, ok := conns[name]; ok {
-		return p, nil
+func (c *Connection) ReConnect() error {
+	sqlDB, err := sql.Open("clickhouse", c.Dsn)
+	if err != nil {
+		return err
 	}
-	return nil, ErrConnNotFound
+	c.DB = sqlDB
+	return nil
+}
+
+var poolMaps = map[string][]*Connection{}
+
+func SetDsn(name string, dsn string) {
+	lock.Lock()
+	defer lock.Unlock()
+
+	sqlDB, err := sql.Open("clickhouse", dsn)
+	if err != nil {
+		panic(err)
+	}
+
+	if ps, ok := poolMaps[name]; ok {
+		//达到最大限制了，不需要新建conn
+		if len(ps) >= connNum {
+			return
+		}
+		log.Info("clickhouse dsn", dsn)
+		ps = append(ps, &Connection{sqlDB, dsn})
+	} else {
+		poolMaps[name] = []*Connection{&Connection{sqlDB, dsn}}
+	}
+}
+
+func GetConn(name string) *Connection {
+	lock.Lock()
+	defer lock.Unlock()
+
+	ps := poolMaps[name]
+	return ps[rand.Intn(len(ps))]
 }
 
 func CloseAll() {
-	connLock.Lock()
-	for _, conn := range conns {
-		conn.Close()
+	for _, ps := range poolMaps {
+		for _, c := range ps {
+			c.Close()
+		}
 	}
-	connLock.Unlock()
 }
-
-var (
-	ErrConnNotFound = errors.New("connection not found")
-)

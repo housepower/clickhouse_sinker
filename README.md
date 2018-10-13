@@ -8,6 +8,7 @@ clickhouse_sinker is a sinker program that consumes kafka message and import the
 * Support multiple sinker tasks, each runs on parallel.
 * Support multiply kafka and ClickHouse clusters.
 * Bulk insert (by config `bufferSize` and `flushInterval`).
+* Loop write (when some node crashes, it will retry write the data to the other healthy node)
 * Uses Native ClickHouse client-server TCP protocol, with higher performance than HTTP.
 
 ## Install 
@@ -45,7 +46,7 @@ go build -o sinker bin/main.go
 * [x] Float32, Float64
 * [x] String
 * [x] FixedString
-* [ ] DateTime
+* [ ] DateTime (not support, cause we use timestamp UInt32, that's enough)
 
 
 ## Configuration
