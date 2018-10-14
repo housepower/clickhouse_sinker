@@ -5,6 +5,7 @@ clickhouse_sinker is a sinker program that consumes kafka message and import the
 ## Features
 
 * Easy to use and deploy, you don't need write any hard code, just care about the configuration file
+* Custom parser support.
 * Support multiple sinker tasks, each runs on parallel.
 * Support multiply kafka and ClickHouse clusters.
 * Bulk insert (by config `bufferSize` and `flushInterval`).
@@ -58,3 +59,13 @@ go build -o clickhouse_sinker bin/main.go
 
 See config [example](./conf/config.json)
 
+## Custom metric parser
+
+* You just need to implement the parser interface on your own
+
+```
+type Parser interface {
+	Parse(bs []byte) model.Metric
+}
+```
+See [json parser](./parser/json.go)
