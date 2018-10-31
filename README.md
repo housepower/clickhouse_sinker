@@ -28,7 +28,8 @@ Download the binary files from [release](https://github.com/housepower/clickhous
 go get -u github.com/housepower/clickhouse_sinker/...
 
 cd $GOPATH/src/github.com/housepower/clickhouse_sinker
-go install github.com/kardianos/govendor
+
+go get -u github.com/kardianos/govendor
 
 # may take a while
 govendor sync
