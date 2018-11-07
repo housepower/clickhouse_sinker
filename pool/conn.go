@@ -21,8 +21,10 @@ type Connection struct {
 func (c *Connection) ReConnect() error {
 	sqlDB, err := sql.Open("clickhouse", c.Dsn)
 	if err != nil {
+		log.Info("reconnect to ", c.Dsn, err.Error())
 		return err
 	}
+	log.Info("reconnect success to  ", c.Dsn)
 	c.DB = sqlDB
 	return nil
 }
@@ -45,6 +47,7 @@ func SetDsn(name string, dsn string) {
 		}
 		log.Info("clickhouse dsn", dsn)
 		ps = append(ps, &Connection{sqlDB, dsn})
+		poolMaps[name] = ps
 	} else {
 		poolMaps[name] = []*Connection{&Connection{sqlDB, dsn}}
 	}

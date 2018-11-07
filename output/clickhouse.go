@@ -57,10 +57,16 @@ func (c *ClickHouse) Write(metrics []model.Metric) (err error) {
 	conn := pool.GetConn(c.Host)
 	tx, err := conn.Begin()
 	if err != nil {
+		if shouldReconnect(err) {
+			conn.ReConnect()
+		}
 		return err
 	}
 	stmt, err := tx.Prepare(c.prepareSQL)
 	if err != nil {
+		if shouldReconnect(err) {
+			conn.ReConnect()
+		}
 		return err
 	}
 	defer stmt.Close()
@@ -74,16 +80,29 @@ func (c *ClickHouse) Write(metrics []model.Metric) (err error) {
 		}
 	}
 	if err = tx.Commit(); err != nil {
+		if shouldReconnect(err) {
+			conn.ReConnect()
+		}
 		return
 	}
 	return
 }
 
+func shouldReconnect(err error) bool {
+	if strings.Contains(err.Error(), "connection refused") || strings.Contains(err.Error(), "bad connection") {
+		return true
+	}
+	log.Info("not match reconnect rules", err.Error())
+	return false
+}
+
 // LoopWrite will dead loop to write the records
 func (c *ClickHouse) LoopWrite(metrics []model.Metric) {
-	for err := c.Write(metrics); err != nil; {
+	err := c.Write(metrics)
+	for err != nil {
 		log.Error("saving msg error", err.Error(), "will loop to write the data")
 		time.Sleep(3 * time.Second)
+		err = c.Write(metrics)
 	}
 }
 
