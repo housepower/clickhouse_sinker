@@ -4,16 +4,17 @@
 
 	"kafka": "kfk1",
 	"topic": "real_time",
+	"earliest" : true,
 	"consumerGroup" : "testgroup",
 
 	"parser" : "json",
 	"clickhouse" : "ch1",
 	"tableName" : "api_request",
-    
-    "@desc_of_autoSchema" : "auto schema will auto fetch the schema from clickhouse",
-    "autoSchema" : true,
-    "@desc_of_exclude_columns" : "this columns will be excluded by insert SQL ",
-    "excludeColumns" : ["date"],
+	
+	"@desc_of_autoSchema" : "auto schema will auto fetch the schema from clickhouse",
+	"autoSchema" : true,
+	"@desc_of_exclude_columns" : "this columns will be excluded by insert SQL ",
+	"excludeColumns" : ["date"],
 
 	"bufferSize" : 90000
 } 
