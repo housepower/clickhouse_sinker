@@ -62,6 +62,10 @@ func (array *Array) Value() (driver.Value, error) {
 	return buff.Bytes(), nil
 }
 
+func (array *Array) Values() interface{} {
+	return array.values
+}
+
 func (array *Array) WriteArray(encoder *binary.Encoder, column column.Column) (uint64, error) {
 	if array.err != nil {
 		return 0, array.err
@@ -91,7 +95,6 @@ var columnsMap = map[reflect.Type]column.Column{
 	reflect.TypeOf([]float64{}): &column.Float64{},
 	reflect.TypeOf([]string{}):  &column.String{},
 	reflect.TypeOf([]time.Time{}): &column.DateTime{
-		IsFull:   true,
 		Timezone: time.Local,
 	},
 }

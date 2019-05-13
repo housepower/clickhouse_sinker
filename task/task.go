@@ -45,7 +45,9 @@ func (service *TaskService) Init() error {
 }
 
 func (service *TaskService) Run() {
-	service.kafka.Start()
+	if err := service.kafka.Start(); err != nil {
+		panic(err)
+	}
 
 	log.Infof("TaskService %s TaskService has started", service.clickhouse.GetName())
 	tick := time.NewTicker(time.Duration(service.FlushInterval) * time.Second)
@@ -91,7 +93,9 @@ func (service *TaskService) flush(metrics []model.Metric) {
 
 func (service *TaskService) Stop() {
 	log.Info("close TaskService size:")
-	service.kafka.Stop()
+	if err := service.kafka.Stop(); err != nil {
+		panic(err)
+	}
 	<-service.stopped
 	service.clickhouse.Close()
 	log.Info("closed TaskService size:")

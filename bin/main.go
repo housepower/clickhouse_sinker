@@ -6,7 +6,7 @@ import (
 	"os"
 	"runtime/pprof"
 
-	conf "github.com/housepower/clickhouse_sinker/internal"
+	"github.com/housepower/clickhouse_sinker/creator"
 	"github.com/housepower/clickhouse_sinker/task"
 	_ "github.com/kshvakov/clickhouse"
 
@@ -26,7 +26,7 @@ func init() {
 
 func main() {
 
-	var cfg conf.Config
+	var cfg creator.Config
 	var runner *Sinker
 
 	if *cpuprofile != "" {
@@ -39,7 +39,7 @@ func main() {
 	}
 
 	app.Run("clickhouse_sinker", func() error {
-		cfg = *conf.InitConfig(config)
+		cfg = *creator.InitConfig(config)
 		runner = NewSinker(cfg)
 		return runner.Init()
 	}, func() error {
@@ -53,11 +53,11 @@ func main() {
 
 type Sinker struct {
 	tasks   []*task.TaskService
-	config  conf.Config
+	config  creator.Config
 	stopped chan struct{}
 }
 
-func NewSinker(config conf.Config) *Sinker {
+func NewSinker(config creator.Config) *Sinker {
 	s := &Sinker{config: config, stopped: make(chan struct{})}
 	return s
 }

@@ -2,6 +2,7 @@ package output
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -28,6 +29,9 @@ type ClickHouse struct {
 	DsnParams   string
 	MaxLifeTime time.Duration
 	DnsLoop     bool
+
+	AutoSchema     bool
+	ExcludeColumns []string
 
 	// Table Configs
 	Dims    []*model.ColumnWithType
@@ -119,7 +123,31 @@ func (c *ClickHouse) Description() string {
 }
 
 func (c *ClickHouse) initAll() error {
-	c.initConn()
+	if err := c.initConn(); err != nil {
+		return err
+	}
+	if err := c.initSchema(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c *ClickHouse) initSchema() (err error) {
+	if c.AutoSchema {
+		conn := pool.GetConn(c.Host)
+		rs, _ := conn.Query(fmt.Sprintf("select name, type from system.columns where database = '%s' and table = '%s'", c.Db, c.TableName))
+
+		c.Dims = make([]*model.ColumnWithType, 0, 10)
+		c.Metrics = make([]*model.ColumnWithType, 0, 10)
+		var name, typ string
+		for rs.Next() {
+			rs.Scan(&name, &typ)
+			typ = lowCardinalityRegexp.ReplaceAllString(typ, "$1")
+			if !util.StringContains(c.ExcludeColumns, name) {
+				c.Dims = append(c.Dims, &model.ColumnWithType{name, typ})
+			}
+		}
+	}
 	//根据 dms 生成prepare的sql语句
 	c.dmMap = make(map[string]*model.ColumnWithType)
 	c.dms = make([]string, 0, len(c.Dims)+len(c.Metrics))
@@ -174,3 +202,7 @@ func (c *ClickHouse) initConn() (err error) {
 	}
 	return
 }
+
+var (
+	lowCardinalityRegexp = regexp.MustCompile(`LowCardinality\((.+)\)`)
+)

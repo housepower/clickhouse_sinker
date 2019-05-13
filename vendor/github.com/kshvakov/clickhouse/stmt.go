@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql/driver"
+	"unicode"
 
 	"github.com/kshvakov/clickhouse/lib/data"
 )
@@ -51,7 +52,7 @@ func (stmt *stmt) execContext(ctx context.Context, args []driver.Value) (driver.
 			if err := stmt.ch.writeBlock(stmt.ch.block); err != nil {
 				return nil, err
 			}
-			if err := stmt.ch.buffer.Flush(); err != nil {
+			if err := stmt.ch.encoder.Flush(); err != nil {
 				return nil, err
 			}
 		}
@@ -106,6 +107,7 @@ func (stmt *stmt) bind(args []driver.NamedValue) string {
 		buf     bytes.Buffer
 		index   int
 		keyword bool
+		limit   = newMatcher("limit")
 	)
 	switch {
 	case stmt.NumInput() != 0:
@@ -137,10 +139,18 @@ func (stmt *stmt) bind(args []driver.NamedValue) string {
 						char == '(',
 						char == ',',
 						char == '%',
+						char == '+',
+						char == '-',
+						char == '*',
+						char == '/',
 						char == '[':
 						keyword = true
 					default:
-						keyword = keyword && (char == ' ' || char == '\t' || char == '\n')
+						if limit.matchRune(char) {
+							keyword = true
+						} else {
+							keyword = keyword && unicode.IsSpace(char)
+						}
 					}
 					buf.WriteRune(char)
 				}
