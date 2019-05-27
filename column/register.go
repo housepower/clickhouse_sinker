@@ -46,6 +46,14 @@ func init() {
 		return impls.NewIntColumn(64, false)
 	})
 
+	regist("Date", func() IColumn {
+		return impls.NewIntColumn(16, true)
+	})
+
+	regist("DateTime", func() IColumn {
+		return impls.NewIntColumn(32, true)
+	})
+
 	regist("Float32", func() IColumn {
 		return impls.NewFloatColumn(32)
 	})

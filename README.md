@@ -53,7 +53,7 @@ go build -o clickhouse_sinker bin/main.go
 * [x] Float32, Float64
 * [x] String
 * [x] FixedString
-* [ ] DateTime (not support, cause we use timestamp UInt32, that's enough)
+* [x] DateTime (UInt32), Date(UInt16)
 
 
 ## Configuration
