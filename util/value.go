@@ -22,7 +22,7 @@ func GetValueByType(metric model.Metric, cwt *model.ColumnWithType) interface{} 
 
 func switchType(typ string) string {
 	switch typ {
-	case "UInt8", "UInt16", "UInt32", "UInt64", "Int8", "Int16", "Int32", "Int64":
+	case "Date", "DateTime", "UInt8", "UInt16", "UInt32", "UInt64", "Int8", "Int16", "Int32", "Int64":
 		return "int"
 	case "String", "FixString":
 		return "string"
