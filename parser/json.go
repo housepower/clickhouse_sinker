@@ -12,10 +12,12 @@ type Parser interface {
 	Parse(bs []byte) model.Metric
 }
 
-func NewParser(typ string) Parser {
+func NewParser(typ string,title []string,delimiter string) Parser {
 	switch typ {
 	case "json", "gjson":
 		return &GjsonParser{}
+	case "csv":
+		return &CsvParser{title:title,delimiter:delimiter}
 	default:
 		return &GjsonParser{}
 	}
