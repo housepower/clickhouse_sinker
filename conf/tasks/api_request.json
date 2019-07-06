@@ -2,13 +2,13 @@
 
 	"name" : "api_request",
 
-	"kafka": "test2",
-	"topic": "test2",
+	"kafka": "test3",
+	"topic": "test3",
 	"earliest" : true,
 	"consumerGroup" : "testgroup",
 
 	"parser" : "csv",
-	"csvFormat": ["gid","time","imsi","imsiaddr","csq","imei"],
+	"csvFormat": ["timestamp","level","message"],
 	"delimiter": ",",
 	"clickhouse" : "kafkaqueue",
 	"tableName" : "kafkaqueue",

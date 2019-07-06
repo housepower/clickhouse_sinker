@@ -11,8 +11,8 @@
     }
   },
   "kafka": {
-    "test2": {
-      "brokers": "192.168.1.198:9092",
+    "test3": {
+      "brokers": "127.0.0.1:9092",
       "sasl": {
         "password": "",
         "username": ""
