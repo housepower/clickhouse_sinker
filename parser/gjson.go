@@ -25,19 +25,10 @@ func (c *GjsonMetric) GetString(key string) string {
 	return gjson.Get(c.raw, key).String()
 }
 
-func (c *GjsonMetric) GetStringArray(key string) []string {
-	strings := gjson.Get(c.raw, key).Array()
-	results := make([]string, 0, len(strings))
-	for i := range strings {
-		results = append(results, strings[i].String())
-	}
-	return results
-}
-
 func (c *GjsonMetric) GetArray(key string, t string) []interface{} {
 	slice := gjson.Get(c.raw, key).Array()
 	results := make([]interface{}, 0, len(slice))
-	switch slice[0].Type {
+	switch t {
 	default:
 		return []interface{}{}
 	case "float":
