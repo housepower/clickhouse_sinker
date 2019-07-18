@@ -2,24 +2,26 @@ package util
 
 import (
 	"github.com/housepower/clickhouse_sinker/model"
+	"strings"
 )
 
 //这里对metric的value类型，只有三种情况， （float64，string，map[string]interface{})
 func GetValueByType(metric model.Metric, cwt *model.ColumnWithType) interface{} {
 	swType := switchType(cwt.Type)
+	name := strings.Replace(cwt.Name, ".", "\\.", -1)
 	switch swType {
 	case "int":
-		return metric.GetInt(cwt.Name)
+		return metric.GetInt(name)
 	case "float":
-		return metric.GetFloat(cwt.Name)
+		return metric.GetFloat(name)
 	case "string":
-		return metric.GetString(cwt.Name)
+		return metric.GetString(name)
 	case "stringArray":
-		return metric.GetArray(cwt.Name, "string")
+		return metric.GetArray(name, "string")
 	case "intArray":
-		return metric.GetArray(cwt.Name, "int")
+		return metric.GetArray(name, "int")
 	case "floatArray":
-		return metric.GetArray(cwt.Name, "float")
+		return metric.GetArray(name, "float")
 	//never happen
 	default:
 		return ""

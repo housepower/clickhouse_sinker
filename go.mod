@@ -14,7 +14,7 @@ require (
 	github.com/json-iterator/go v0.0.0-20170822023901-cdbd2ed81059
 	github.com/k0kubun/colorstring v0.0.0-20150214042306-9440f1994b88 // indirect
 	github.com/k0kubun/pp v2.2.0+incompatible
-	github.com/kshvakov/clickhouse v0.0.0-20181208125010-1fd26158e61b
+	github.com/kshvakov/clickhouse v1.3.9
 	github.com/mattn/go-colorable v0.1.1 // indirect
 	github.com/mattn/go-isatty v0.0.7 // indirect
 	github.com/pierrec/lz4 v0.0.0-20190507090305-b8e3f78e075c // indirect
