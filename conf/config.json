@@ -1,6 +1,6 @@
 {
   "clickhouse": {
-    "kafkaqueue": {
+    "ch1": {
       "db": "default",
       "host": "127.0.0.1",
       "dnsLoop" : false,
@@ -11,7 +11,7 @@
     }
   },
   "kafka": {
-    "test3": {
+    "kfk1": {
       "brokers": "127.0.0.1:9092",
       "sasl": {
         "password": "",
