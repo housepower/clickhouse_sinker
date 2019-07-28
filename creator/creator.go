@@ -14,7 +14,7 @@ func (config *Config) GenTasks() []*task.TaskService {
 	for _, taskConfig := range config.Tasks {
 		kafka := config.GenInput(taskConfig)
 		ck := config.GenOutput(taskConfig)
-		p := parser.NewParser(taskConfig.Parser)
+		p := parser.NewParser(taskConfig.Parser,taskConfig.CsvFormat,taskConfig.Delimiter)
 
 		taskImpl := task.NewTaskService(kafka, ck, p)
 

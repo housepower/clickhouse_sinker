@@ -1,20 +1,22 @@
-{	
+{
 
 	"name" : "api_request",
 
-	"kafka": "kfk1",
-	"topic": "real_time",
+	"kafka": "test3",
+	"topic": "test3",
 	"earliest" : true,
 	"consumerGroup" : "testgroup",
 
-	"parser" : "json",
-	"clickhouse" : "ch1",
-	"tableName" : "api_request",
-	
+	"parser" : "csv",
+	"csvFormat": ["timestamp","level","message"],
+	"delimiter": ",",
+	"clickhouse" : "kafkaqueue",
+	"tableName" : "kafkaqueue",
+
 	"@desc_of_autoSchema" : "auto schema will auto fetch the schema from clickhouse",
 	"autoSchema" : true,
 	"@desc_of_exclude_columns" : "this columns will be excluded by insert SQL ",
 	"excludeColumns" : ["date"],
 
 	"bufferSize" : 90000
-} 
+}

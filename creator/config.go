@@ -120,7 +120,10 @@ type Task struct {
 	// Earliest set to true to consume the message from oldest position
 	Earliest bool
 	Parser   string
-
+	// the csv cloum title if Parser is csv
+  CsvFormat []string
+	Delimiter string
+	
 	Clickhouse string
 	TableName  string
 

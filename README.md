@@ -18,7 +18,7 @@ clickhouse_sinker is a sinker program that consumes kafka message and import the
 
 Download the binary files from [release](https://github.com/housepower/clickhouse_sinker/releases), choose the executable binary file according to your env, modify the `conf` files, then run ` ./clickhouse_sinker -conf conf  `
 
-### By source 
+### By source
 
 * Install Golang
 
@@ -46,6 +46,7 @@ go build -o clickhouse_sinker bin/main.go
 ## Support parsers
 
 * [x] Json
+* [x] Csv
 
 ## Supported data types
 
