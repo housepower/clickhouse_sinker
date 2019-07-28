@@ -57,6 +57,47 @@ func (c *JsonMetric) GetString(key string) string {
 	return ""
 }
 
+func (c *JsonMetric) GetArray(key string, t string) []interface{} {
+	//判断object
+	val, _ := c.mp[key]
+	switch t {
+	case "string":
+		return val.([]interface{})
+
+	case "float":
+		switch val.(type) {
+		case []float64:
+			return val.([]interface{})
+
+		case []string:
+			results := make([]interface{}, 0, len(val.([]string)))
+			for i := range val.([]string) {
+				result, _ := strconv.ParseFloat(val.([]string)[i], 64)
+				results = append(results, result)
+			}
+			return results
+		}
+	case "int":
+		switch val.(type) {
+		case []float64:
+			results := make([]interface{}, 0, len(val.([]float64)))
+			for i := range val.([]float64) {
+				results = append(results, int64(val.([]float64)[i]))
+			}
+			return results
+
+		case []string:
+			results := make([]interface{}, 0, len(val.([]string)))
+			for i := range val.([]string) {
+				result, _ := strconv.ParseInt(val.([]string)[i], 10, 64)
+				results = append(results, result)
+			}
+			return results
+		}
+	}
+	return []interface{}{}
+}
+
 func (c *JsonMetric) GetFloat(key string) float64 {
 	val, _ := c.mp[key]
 	if val == nil {

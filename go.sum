@@ -41,6 +41,8 @@ github.com/k0kubun/pp v2.2.0+incompatible h1:CJdCM8D10voAW/MDCZwD7b90vL3CUHjq0ko
 github.com/k0kubun/pp v2.2.0+incompatible/go.mod h1:GWse8YhT0p8pT4ir3ZgBbfZild3tgzSScAn6HmfYukg=
 github.com/kshvakov/clickhouse v0.0.0-20181208125010-1fd26158e61b h1:sVDQQDtD63gm8nPCFGpNVw/eMpJyCXXsBEaEBiTFQxQ=
 github.com/kshvakov/clickhouse v0.0.0-20181208125010-1fd26158e61b/go.mod h1:DMzX7FxRymoNkVgizH0DWAL8Cur7wHLgx3MUnGwJqpE=
+github.com/kshvakov/clickhouse v1.3.9 h1:fGK8joFwxh/9HHOe+EDa0/7WnNiKYTLrjE46IhERe1U=
+github.com/kshvakov/clickhouse v1.3.9/go.mod h1:DMzX7FxRymoNkVgizH0DWAL8Cur7wHLgx3MUnGwJqpE=
 github.com/mattn/go-colorable v0.1.1 h1:G1f5SKeVxmagw/IyvzvtZE4Gybcc4Tr1tf7I8z0XgOg=
 github.com/mattn/go-colorable v0.1.1/go.mod h1:FuOcm+DKB9mbwrcAfNl7/TZVBZ6rcnceauSikq3lYCQ=
 github.com/mattn/go-isatty v0.0.5/go.mod h1:Iq45c/XA43vh69/j3iqttzPXn0bhXyGjM0Hdxcsrc5s=
