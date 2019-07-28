@@ -54,9 +54,13 @@ go build -o clickhouse_sinker bin/main.go
 * [x] Float32, Float64
 * [x] String
 * [x] FixedString
-* [x] DateTime (UInt32), Date(UInt16)
+* [x] DateTime(UInt32), Date(UInt16)
+* [x] Array(UInt8, UInt16, UInt32, UInt64, Int8, Int16, Int32, Int64)
+* [x] Array(Float32, Float64)
+* [x] Array(String)
+* [x] Array(FixedString)
+* [x] Array(DateTime(UInt32), Date(UInt16))
 * [x] Nullable
-
 
 ## Configuration
 

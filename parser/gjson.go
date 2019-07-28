@@ -25,6 +25,30 @@ func (c *GjsonMetric) GetString(key string) string {
 	return gjson.Get(c.raw, key).String()
 }
 
+func (c *GjsonMetric) GetArray(key string, t string) []interface{} {
+	slice := gjson.Get(c.raw, key).Array()
+	results := make([]interface{}, 0, len(slice))
+	switch t {
+	default:
+		return []interface{}{}
+	case "float":
+		for i := range slice {
+			results = append(results, slice[i].Float())
+		}
+		return results
+	case "int":
+		for i := range slice {
+			results = append(results, slice[i].Int())
+		}
+		return results
+	case "string":
+		for i := range slice {
+			results = append(results, slice[i].String())
+		}
+		return results
+	}
+}
+
 func (c *GjsonMetric) GetFloat(key string) float64 {
 	return gjson.Get(c.raw, key).Float()
 }
