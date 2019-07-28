@@ -55,6 +55,7 @@ go build -o clickhouse_sinker bin/main.go
 * [x] String
 * [x] FixedString
 * [x] DateTime (UInt32), Date(UInt16)
+* [x] Nullable
 
 
 ## Configuration
