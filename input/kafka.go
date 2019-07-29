@@ -2,7 +2,9 @@ package input
 
 import (
 	"context"
+	"log"
 	"strings"
+	"sync"
 
 	"github.com/Shopify/sarama"
 )
@@ -25,6 +27,9 @@ type Kafka struct {
 	}
 
 	consumer *Consumer
+	context  context.Context
+	cancel   context.CancelFunc
+	wg       sync.WaitGroup
 }
 
 func NewKafka() *Kafka {
@@ -36,8 +41,9 @@ func (k *Kafka) Init() error {
 	k.stopped = make(chan struct{})
 	k.consumer = &Consumer{
 		msgs:  k.msgs,
-		ready: make(chan struct{}),
+		ready: make(chan bool),
 	}
+	k.context, k.cancel = context.WithCancel(context.Background())
 	return nil
 }
 
@@ -72,15 +78,30 @@ func (k *Kafka) Start() error {
 	}
 
 	k.client = client
-	ctx := context.Background()
+
 	go func() {
-		k.client.Consume(ctx, strings.Split(k.Topic, ","), k.consumer)
+		k.wg.Add(1)
+		defer k.wg.Done()
+		for {
+			if err := k.client.Consume(k.context, strings.Split(k.Topic, ","), k.consumer); err != nil {
+				log.Panicf("Error from consumer: %v", err)
+			}
+			// check if context was cancelled, signaling that the consumer should stop
+			if k.context.Err() != nil {
+				return
+			}
+			k.consumer.ready = make(chan bool, 0)
+		}
 	}()
+
 	<-k.consumer.ready
 	return nil
 }
 
 func (k *Kafka) Stop() error {
+	k.cancel()
+	k.wg.Wait()
+
 	k.client.Close()
 	close(k.msgs)
 	return nil
@@ -96,7 +117,7 @@ func (k *Kafka) GetName() string {
 
 // Consumer represents a Sarama consumer group consumer
 type Consumer struct {
-	ready chan struct{}
+	ready chan bool
 	msgs  chan []byte
 }
 

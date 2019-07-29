@@ -1,8 +1,9 @@
 package util
 
 import (
-	"github.com/housepower/clickhouse_sinker/model"
 	"strings"
+
+	"github.com/housepower/clickhouse_sinker/model"
 )
 
 //这里对metric的value类型，只有三种情况， （float64，string，map[string]interface{})
