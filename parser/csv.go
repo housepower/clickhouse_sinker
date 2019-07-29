@@ -19,7 +19,7 @@ func (c *CsvParser) Parse(bs []byte) model.Metric {
 	msLen := len(msgs)
 	for i, key := range c.title {
 		if i >= msLen {
-				continue
+			continue
 		}
 		v[key] = msgs[i]
 	}
@@ -37,11 +37,6 @@ func (c *CsvMetric) Get(key string) interface{} {
 func (c *CsvMetric) GetString(key string) string {
 	v, _ := c.mp[key]
 	return v
-}
-
-func (c *CsvMetric) GetArray(key string, t string) []interface{} {
-	panic("csv unsupport Array ")
-	return nil
 }
 
 func (c *CsvMetric) GetFloat(key string) float64 {
