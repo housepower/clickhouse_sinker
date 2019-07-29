@@ -16,7 +16,11 @@ func (c *CsvParser) Parse(bs []byte) model.Metric {
 	msgData := string(bs)
 	msgs := strings.Split(msgData, c.delimiter)
 	v := make(map[string]string)
+	msLen := len(msgs)
 	for i, key := range c.title {
+		if i >= msLen {
+				continue
+		}
 		v[key] = msgs[i]
 	}
 	return &CsvMetric{v}
@@ -33,6 +37,11 @@ func (c *CsvMetric) Get(key string) interface{} {
 func (c *CsvMetric) GetString(key string) string {
 	v, _ := c.mp[key]
 	return v
+}
+
+func (c *CsvMetric) GetArray(key string, t string) []interface{} {
+	panic("csv unsupport Array ")
+	return nil
 }
 
 func (c *CsvMetric) GetFloat(key string) float64 {

@@ -60,7 +60,7 @@ go build -o clickhouse_sinker bin/main.go
 * [x] Array(String)
 * [x] Array(FixedString)
 * [x] Array(DateTime(UInt32), Date(UInt16))
-
+* [x] Nullable
 
 ## Configuration
 
