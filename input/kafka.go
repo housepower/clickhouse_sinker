@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/Shopify/sarama"
+	"github.com/wswz/go_commons/log"
 )
 
 type Kafka struct {
@@ -54,15 +55,14 @@ func (k *Kafka) Msgs() chan []byte {
 func (k *Kafka) Start() error {
 	config := sarama.NewConfig()
 
-	if k.Version == "" {
-		k.Version = "2.0.0"
+	if k.Version != "" {
+		version, err := sarama.ParseKafkaVersion(k.Version)
+		if err != nil {
+			return err
+		}
+		config.Version = version
 	}
 	// sarama.Logger = log.New(os.Stdout, "[sarama] ", log.LstdFlags)
-	version, err := sarama.ParseKafkaVersion(k.Version)
-	if err != nil {
-		return err
-	}
-	config.Version = version
 	if k.Sasl.Username != "" {
 		config.Net.SASL.Enable = true
 		config.Net.SASL.User = k.Sasl.Username
@@ -72,6 +72,7 @@ func (k *Kafka) Start() error {
 		config.Consumer.Offsets.Initial = sarama.OffsetOldest
 	}
 
+	log.Info("start to dial kafka ", k.Brokers)
 	client, err := sarama.NewConsumerGroup(strings.Split(k.Brokers, ","), k.ConsumerGroup, config)
 	if err != nil {
 		return err
@@ -84,7 +85,7 @@ func (k *Kafka) Start() error {
 		defer k.wg.Done()
 		for {
 			if err := k.client.Consume(k.context, strings.Split(k.Topic, ","), k.consumer); err != nil {
-				log.Panicf("Error from consumer: %v", err)
+				log.Error("Error from consumer: %v", err)
 			}
 			// check if context was cancelled, signaling that the consumer should stop
 			if k.context.Err() != nil {
