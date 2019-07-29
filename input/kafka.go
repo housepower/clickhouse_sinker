@@ -2,7 +2,6 @@ package input
 
 import (
 	"context"
-	"log"
 	"strings"
 	"sync"
 
