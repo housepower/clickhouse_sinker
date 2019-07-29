@@ -39,7 +39,7 @@ govendor sync
 ```
 go build -o clickhouse_sinker bin/main.go
 
-## modify the config files, then run it
+## modify the config files, set the configuration directory, then run it
 ./clickhouse_sinker -conf conf
 ```
 
