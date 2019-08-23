@@ -64,7 +64,6 @@ FOR:
 				service.Lock()
 				service.flush(msgs)
 				msgs = make([]model.Metric, 0, 100000)
-				tick = time.NewTicker(time.Duration(service.FlushInterval) * time.Second)
 				service.Unlock()
 			}
 		case <-tick.C:
