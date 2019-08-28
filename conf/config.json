@@ -6,7 +6,7 @@
       "dnsLoop" : false,
       "maxLifeTime": 300,
       "password": "",
-      "port": 9000,
+      "port": 9900,
       "username": ""
     }
   },
