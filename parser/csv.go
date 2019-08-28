@@ -16,7 +16,11 @@ func (c *CsvParser) Parse(bs []byte) model.Metric {
 	msgData := string(bs)
 	msgs := strings.Split(msgData, c.delimiter)
 	v := make(map[string]string)
+	msLen := len(msgs)
 	for i, key := range c.title {
+		if i >= msLen {
+				continue
+		}
 		v[key] = msgs[i]
 	}
 	return &CsvMetric{v}
