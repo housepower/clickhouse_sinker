@@ -19,7 +19,7 @@ func (c *CsvParser) Parse(bs []byte) model.Metric {
 	msLen := len(msgs)
 	for i, key := range c.title {
 		if i >= msLen {
-				continue
+			continue
 		}
 		v[key] = msgs[i]
 	}
@@ -39,11 +39,6 @@ func (c *CsvMetric) GetString(key string) string {
 	return v
 }
 
-func (c *CsvMetric) GetArray(key string, t string) []interface{} {
-	panic("csv unsupport Array ")
-	return nil
-}
-
 func (c *CsvMetric) GetFloat(key string) float64 {
 	v, _ := c.mp[key]
 	n, _ := strconv.ParseFloat(v, 64)
@@ -54,4 +49,9 @@ func (c *CsvMetric) GetInt(key string) int64 {
 	v, _ := c.mp[key]
 	n, _ := strconv.ParseInt(v, 10, 64)
 	return n
+}
+
+// GetArray is Empty implemented for CsvMetric
+func (c *CsvMetric) GetArray(key string, t string) []interface{} {
+	return []interface{}{}
 }
