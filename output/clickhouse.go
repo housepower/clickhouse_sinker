@@ -135,7 +135,10 @@ func (c *ClickHouse) initAll() error {
 func (c *ClickHouse) initSchema() (err error) {
 	if c.AutoSchema {
 		conn := pool.GetConn(c.Host)
-		rs, _ := conn.Query(fmt.Sprintf("select name, type from system.columns where database = '%s' and table = '%s'", c.Db, c.TableName))
+		rs, err := conn.Query(fmt.Sprintf("select name, type from system.columns where database = '%s' and table = '%s'", c.Db, c.TableName))
+		if err != nil {
+			return err
+		}
 
 		c.Dims = make([]*model.ColumnWithType, 0, 10)
 		c.Metrics = make([]*model.ColumnWithType, 0, 10)
@@ -183,8 +186,9 @@ func (c *ClickHouse) initConn() (err error) {
 		for _, ip := range ips {
 			hosts = append(hosts, fmt.Sprintf("%s:%d", ip, c.Port))
 		}
-	
-	var dsn = fmt.Sprintf("tcp://%s?database=%s&username=%s&password=%s", hosts[0],c.Db,c.Username, c.Password)
+	}
+
+	var dsn = fmt.Sprintf("tcp://%s?database=%s&username=%s&password=%s", hosts[0], c.Db, c.Username, c.Password)
 	if len(hosts) > 1 {
 		otherHosts := hosts[1:]
 		dsn += "&alt_hosts="
