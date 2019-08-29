@@ -188,7 +188,7 @@ func (c *ClickHouse) initConn() (err error) {
 		}
 	}
 
-	var dsn = fmt.Sprintf("tcp://%s?username=%s&password=%s", hosts[0], c.Username, c.Password)
+	var dsn = fmt.Sprintf("tcp://%s?database=%s&username=%s&password=%s", hosts[0], c.Db, c.Username, c.Password)
 	if len(hosts) > 1 {
 		otherHosts := hosts[1:]
 		dsn += "&alt_hosts="
