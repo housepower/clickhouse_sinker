@@ -1,9 +1,9 @@
 package parser
 
 import (
-	"github.com/housepower/clickhouse_sinker/model"
-
 	"github.com/tidwall/gjson"
+
+	"github.com/housepower/clickhouse_sinker/model"
 )
 
 type GjsonParser struct {
