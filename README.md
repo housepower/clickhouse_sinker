@@ -43,6 +43,10 @@ go build -o clickhouse_sinker bin/main.go
 ./clickhouse_sinker -conf conf
 ```
 
+## Examples
+
+* there is a simple [tutorial in Chinese](https://note.youdao.com/ynoteshare1/index.html?id=c4b4a84a08e2312da6c6d733a5074c7a&type=note) which created by user @taiyang.
+
 ## Support parsers
 
 * [x] Json
