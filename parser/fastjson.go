@@ -7,11 +7,12 @@ import (
 )
 
 type FastjsonParser struct {
-	parser fastjson.Parser
 }
 
 func (c *FastjsonParser) Parse(bs []byte) model.Metric {
-	value, err := c.parser.Parse(string(bs))
+	// todo pool the parser
+	var parser fastjson.Parser
+	value, err := parser.Parse(string(bs))
 	if err == nil {
 		return &FastjsonMetric{value: value}
 	}

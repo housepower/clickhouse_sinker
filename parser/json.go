@@ -15,6 +15,8 @@ func NewParser(typ string, title []string, delimiter string) Parser {
 	switch typ {
 	case "json", "gjson":
 		return &GjsonParser{}
+	case "fastjson":
+		return &FastjsonParser{}
 	case "csv":
 		return &CsvParser{title: title, delimiter: delimiter}
 	default:
