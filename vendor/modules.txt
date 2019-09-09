@@ -20,24 +20,22 @@ github.com/eapache/queue
 github.com/golang/snappy
 # github.com/jmoiron/jsonq v0.0.0-20150511023944-e874b168d07e
 github.com/jmoiron/jsonq
-# github.com/json-iterator/go v0.0.0-20170822023901-cdbd2ed81059
-github.com/json-iterator/go
 # github.com/k0kubun/pp v2.2.0+incompatible
 github.com/k0kubun/pp
-# github.com/kshvakov/clickhouse v0.0.0-20181208125010-1fd26158e61b
+# github.com/kshvakov/clickhouse v1.3.9
 github.com/kshvakov/clickhouse
 github.com/kshvakov/clickhouse/lib/binary
+github.com/kshvakov/clickhouse/lib/cityhash102
 github.com/kshvakov/clickhouse/lib/column
 github.com/kshvakov/clickhouse/lib/data
 github.com/kshvakov/clickhouse/lib/leakypool
+github.com/kshvakov/clickhouse/lib/lz4
 github.com/kshvakov/clickhouse/lib/protocol
 github.com/kshvakov/clickhouse/lib/types
-github.com/kshvakov/clickhouse/lib/cityhash102
-github.com/kshvakov/clickhouse/lib/lz4
 github.com/kshvakov/clickhouse/lib/writebuffer
-# github.com/mattn/go-colorable v0.1.0
+# github.com/mattn/go-colorable v0.1.1
 github.com/mattn/go-colorable
-# github.com/mattn/go-isatty v0.0.4
+# github.com/mattn/go-isatty v0.0.7
 github.com/mattn/go-isatty
 # github.com/pierrec/lz4 v0.0.0-20190507090305-b8e3f78e075c
 github.com/pierrec/lz4
@@ -52,14 +50,17 @@ github.com/stretchr/testify/assert
 github.com/tidwall/gjson
 # github.com/tidwall/match v1.0.0
 github.com/tidwall/match
+# github.com/valyala/fastjson v1.4.1
+github.com/valyala/fastjson
+github.com/valyala/fastjson/fastfloat
 # github.com/wswz/go_commons v0.0.0-20180723103154-ef9bd45e685a
 github.com/wswz/go_commons/app
 github.com/wswz/go_commons/log
 github.com/wswz/go_commons/utils
 # golang.org/x/net v0.0.0-20190501004415-9ce7a6920f09
-golang.org/x/net/proxy
 golang.org/x/net/html
-golang.org/x/net/internal/socks
 golang.org/x/net/html/atom
+golang.org/x/net/internal/socks
+golang.org/x/net/proxy
 # golang.org/x/sys v0.0.0-20190429190828-d89cdac9e872
 golang.org/x/sys/unix

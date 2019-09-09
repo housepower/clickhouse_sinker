@@ -52,6 +52,6 @@ func (c *CsvMetric) GetInt(key string) int64 {
 }
 
 // GetArray is Empty implemented for CsvMetric
-func (c *CsvMetric) GetArray(key string, t string) []interface{} {
+func (c *CsvMetric) GetArray(key string, t string) interface{} {
 	return []interface{}{}
 }

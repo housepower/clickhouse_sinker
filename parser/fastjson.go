@@ -40,29 +40,31 @@ func (c *FastjsonMetric) GetInt(key string) int64 {
 	return int64(c.value.GetInt(key))
 }
 
-func (c *FastjsonMetric) GetArray(key string, t string) []interface{} {
+func (c *FastjsonMetric) GetArray(key string, t string) interface{} {
 	array, _ := c.value.Array()
-	results := make([]interface{}, 0, len(array))
-
 	switch t {
-	default:
-		return []interface{}{}
 	case "float":
+		results := make([]float64, 0, len(array))
 		for i := range array {
 			results = append(results, array[i].GetFloat64())
 		}
 		return results
 	case "int":
+		results := make([]int, 0, len(array))
 		for i := range array {
 			results = append(results, array[i].GetInt())
 		}
 		return results
 	case "string":
+		results := make([]string, 0, len(array))
 		for i := range array {
 			results = append(results, string(array[i].GetStringBytes()))
 		}
 		return results
+	default:
+		panic("not supported array type " + t)
 	}
+	return nil
 }
 
 func (c *FastjsonMetric) String() string {

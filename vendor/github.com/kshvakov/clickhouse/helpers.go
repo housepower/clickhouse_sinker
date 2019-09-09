@@ -8,8 +8,6 @@ import (
 	"regexp"
 	"strings"
 	"time"
-
-	"github.com/kshvakov/clickhouse/lib/types"
 )
 
 func numInput(query string) int {
@@ -19,7 +17,11 @@ func numInput(query string) int {
 		args           = make(map[string]struct{})
 		reader         = bytes.NewReader([]byte(query))
 		quote, keyword bool
+		inBetween      bool
+		like           = newMatcher("like")
 		limit          = newMatcher("limit")
+		between        = newMatcher("between")
+		and            = newMatcher("and")
 	)
 	for {
 		if char, _, err := reader.ReadRune(); err == nil {
@@ -46,12 +48,17 @@ func numInput(query string) int {
 				char == '>',
 				char == '(',
 				char == ',',
-				char == '%',
 				char == '[':
 				keyword = true
 			default:
-				if limit.matchRune(char) {
+				if limit.matchRune(char) || like.matchRune(char) {
 					keyword = true
+				} else if between.matchRune(char) {
+					keyword = true
+					inBetween = true
+				} else if inBetween && and.matchRune(char) {
+					keyword = true
+					inBetween = false
 				} else {
 					keyword = keyword && (char == ' ' || char == '\t' || char == '\n')
 				}
@@ -90,10 +97,6 @@ func isInsert(query string) bool {
 }
 
 func quote(v driver.Value) string {
-	switch value := v.(type) {
-	case *types.Array:
-		v = value.Values()
-	}
 	switch v := reflect.ValueOf(v); v.Kind() {
 	case reflect.Slice:
 		values := make([]string, 0, v.Len())

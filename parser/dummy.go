@@ -20,8 +20,8 @@ func (c *DummyMetric) GetInt(key string) int64 {
 }
 
 // GetArray is Empty implemented for DummyMetric
-func (c *DummyMetric) GetArray(key string, t string) []interface{} {
-	return []interface{}{}
+func (c *DummyMetric) GetArray(key string, t string) interface{} {
+	return []string{}
 }
 
 func (c *DummyMetric) String() string {

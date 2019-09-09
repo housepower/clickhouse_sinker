@@ -104,10 +104,14 @@ func (stmt *stmt) Close() error {
 
 func (stmt *stmt) bind(args []driver.NamedValue) string {
 	var (
-		buf     bytes.Buffer
-		index   int
-		keyword bool
-		limit   = newMatcher("limit")
+		buf       bytes.Buffer
+		index     int
+		keyword   bool
+		inBetween bool
+		like      = newMatcher("like")
+		limit     = newMatcher("limit")
+		between   = newMatcher("between")
+		and       = newMatcher("and")
 	)
 	switch {
 	case stmt.NumInput() != 0:
@@ -138,7 +142,6 @@ func (stmt *stmt) bind(args []driver.NamedValue) string {
 						char == '>',
 						char == '(',
 						char == ',',
-						char == '%',
 						char == '+',
 						char == '-',
 						char == '*',
@@ -146,8 +149,14 @@ func (stmt *stmt) bind(args []driver.NamedValue) string {
 						char == '[':
 						keyword = true
 					default:
-						if limit.matchRune(char) {
+						if limit.matchRune(char) || like.matchRune(char) {
 							keyword = true
+						} else if between.matchRune(char) {
+							keyword = true
+							inBetween = true
+						} else if inBetween && and.matchRune(char) {
+							keyword = true
+							inBetween = false
 						} else {
 							keyword = keyword && unicode.IsSpace(char)
 						}

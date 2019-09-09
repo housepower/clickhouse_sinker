@@ -121,9 +121,9 @@ type Task struct {
 	Earliest bool
 	Parser   string
 	// the csv cloum title if Parser is csv
-  CsvFormat []string
+	CsvFormat []string
 	Delimiter string
-	
+
 	Clickhouse string
 	TableName  string
 

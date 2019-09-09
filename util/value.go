@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/housepower/clickhouse_sinker/model"
+	"github.com/kshvakov/clickhouse"
 )
 
 //这里对metric的value类型，只有三种情况， （float64，string，map[string]interface{})
@@ -18,11 +19,11 @@ func GetValueByType(metric model.Metric, cwt *model.ColumnWithType) interface{} 
 	case "string":
 		return metric.GetString(name)
 	case "stringArray":
-		return metric.GetArray(name, "string")
+		return clickhouse.Array(metric.GetArray(name, "string"))
 	case "intArray":
-		return metric.GetArray(name, "int")
+		return clickhouse.Array(metric.GetArray(name, "int"))
 	case "floatArray":
-		return metric.GetArray(name, "float")
+		return clickhouse.Array(metric.GetArray(name, "float"))
 	//never happen
 	default:
 		return ""

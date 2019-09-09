@@ -2,7 +2,6 @@ package parser
 
 import (
 	"encoding/json"
-	"strconv"
 
 	"github.com/housepower/clickhouse_sinker/model"
 )
@@ -58,45 +57,43 @@ func (c *JsonMetric) GetString(key string) string {
 	return ""
 }
 
-func (c *JsonMetric) GetArray(key string, t string) []interface{} {
+func (c *JsonMetric) GetArray(key string, t string) interface{} {
 	//判断object
 	val, _ := c.mp[key]
 	switch t {
 	case "string":
-		return val.([]interface{})
+		switch val.(type) {
+		case []string:
+			return val.([]string)
+
+		default:
+			return []string{}
+		}
 
 	case "float":
 		switch val.(type) {
 		case []float64:
-			return val.([]interface{})
+			return val.([]float64)
 
-		case []string:
-			results := make([]interface{}, 0, len(val.([]string)))
-			for i := range val.([]string) {
-				result, _ := strconv.ParseFloat(val.([]string)[i], 64)
-				results = append(results, result)
-			}
-			return results
+		default:
+			return []float64{}
 		}
+
 	case "int":
 		switch val.(type) {
 		case []float64:
-			results := make([]interface{}, 0, len(val.([]float64)))
+			results := make([]int64, 0, len(val.([]float64)))
 			for i := range val.([]float64) {
 				results = append(results, int64(val.([]float64)[i]))
 			}
 			return results
-
-		case []string:
-			results := make([]interface{}, 0, len(val.([]string)))
-			for i := range val.([]string) {
-				result, _ := strconv.ParseInt(val.([]string)[i], 10, 64)
-				results = append(results, result)
-			}
-			return results
+		default:
+			return []int64{}
 		}
+	default:
+		panic("not supported array type " + t)
 	}
-	return []interface{}{}
+	return nil
 }
 
 func (c *JsonMetric) GetFloat(key string) float64 {
@@ -107,11 +104,6 @@ func (c *JsonMetric) GetFloat(key string) float64 {
 	switch val.(type) {
 	case float64:
 		return val.(float64)
-
-	case string:
-		//这里要转为int ， fuck
-		i, _ := strconv.ParseFloat(val.(string), 64)
-		return i
 	}
 	return 0
 }
@@ -124,11 +116,6 @@ func (c *JsonMetric) GetInt(key string) int64 {
 	switch val.(type) {
 	case float64:
 		return int64(val.(float64))
-
-	case string:
-		//这里要转为int ， fuck
-		i, _ := strconv.ParseInt(val.(string), 10, 64)
-		return i
 	}
 	return 0
 }

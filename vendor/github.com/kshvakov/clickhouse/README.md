@@ -27,7 +27,8 @@ Golang SQL database driver for [Yandex ClickHouse](https://clickhouse.yandex/)
 SSL/TLS parameters:
 
 * secure - establish secure connection (default is false)
-* skip_verify - skip certificate verification (default is true)
+* skip_verify - skip certificate verification (default is false)
+* tls_config - name of a TLS config with client certificates, registered using `clickhouse.RegisterTLSConfig()`; implies secure to be true, unless explicitly specified
 
 example:
 ```
@@ -42,6 +43,8 @@ tcp://host1:9000?username=user&password=qwerty&database=clicks&read_timeout=10&w
 * FixedString(N)
 * Date 
 * DateTime
+* IPv4
+* IPv6
 * Enum
 * UUID
 * Nullable(T)
