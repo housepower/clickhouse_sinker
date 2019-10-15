@@ -5,7 +5,6 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/housepower/clickhouse_sinker/input"
@@ -21,7 +20,6 @@ type TaskService struct {
 	kafka      *input.Kafka
 	clickhouse *output.ClickHouse
 	p          parser.Parser
-	sync.Mutex
 
 	FlushInterval int
 	BufferSize    int
@@ -61,21 +59,17 @@ FOR:
 			}
 			msgs = append(msgs, service.parse(msg))
 			if len(msgs) >= service.BufferSize {
-				service.Lock()
 				service.flush(msgs)
-				msgs = make([]model.Metric, 0, 100000)
+				msgs = msgs[:0]
 				tick = time.NewTicker(time.Duration(service.FlushInterval) * time.Second)
-				service.Unlock()
 			}
 		case <-tick.C:
 			log.Info(service.clickhouse.GetName() + " tick")
 			if len(msgs) == 0 {
 				continue
 			}
-			service.Lock()
 			service.flush(msgs)
-			msgs = make([]model.Metric, 0, 100000)
-			service.Unlock()
+			msgs = msgs[:0]
 		}
 	}
 	service.flush(msgs)
