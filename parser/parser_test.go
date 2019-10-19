@@ -9,7 +9,7 @@ import (
 	"github.com/valyala/fastjson"
 )
 
-var bs = []byte(`{"its":1536813227,"_ip":"112.96.65.228","cgi":"/commui/queryhttpdns","channel":"ws","platform":"adr","experiment":"default","ip":"36.248.20.69","version":"5.8.3","success":0}`)
+var bs = []byte(`{"its":1536813227,"_ip":"112.96.65.228","cgi":"/commui/queryhttpdns","channel":"ws","platform":"adr","experiment":"default","ip":"36.248.20.69","version":"5.8.3","success":0, "mp": {"a" : [1,2,3]} }`)
 
 func BenchmarkUnmarshalljson(b *testing.B) {
 	mp := map[string]interface{}{}
@@ -78,5 +78,24 @@ func BenchmarkUnmarshallGjson2(b *testing.B) {
 		_ = result["version"].String()
 		_ = result["success"].Int()
 		_ = result["trycount"].Int()
+	}
+}
+
+func TestGjsonExtend(t *testing.T) {
+	// mp := map[string]interface{}{}
+	// var p fastjson.Parser
+	parser := NewParser("gjson_extend", nil, "")
+	metric := parser.Parse(bs)
+
+	arr := metric.GetArray("mp_a", "int").([]int64)
+	expected := []int64{1, 2, 3}
+	for i := range arr {
+		assertEqual(t, arr[i], expected[i])
+	}
+}
+
+func assertEqual(t *testing.T, a, b interface{}) {
+	if a != b {
+		t.Errorf("Not Equal. %d %d", a, b)
 	}
 }
