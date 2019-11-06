@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"math/rand"
 	"sync"
+	"time"
 
 	"github.com/wswz/go_commons/log"
 )
@@ -31,13 +32,17 @@ func (c *Connection) ReConnect() error {
 
 var poolMaps = map[string][]*Connection{}
 
-func SetDsn(name string, dsn string) {
+func SetDsn(name string, dsn string, maxLifetTime time.Duration) {
 	lock.Lock()
 	defer lock.Unlock()
 
 	sqlDB, err := sql.Open("clickhouse", dsn)
 	if err != nil {
 		panic(err)
+	}
+
+	if maxLifetTime.Seconds() != 0 {
+		sqlDB.SetConnMaxLifetime(maxLifetTime)
 	}
 
 	if ps, ok := poolMaps[name]; ok {

@@ -201,7 +201,7 @@ func (c *ClickHouse) initConn() (err error) {
 	}
 	// dsn += "&debug=1"
 	for i := 0; i < len(hosts); i++ {
-		pool.SetDsn(c.Host, dsn)
+		pool.SetDsn(c.Host, dsn, c.MaxLifeTime)
 	}
 	return
 }
