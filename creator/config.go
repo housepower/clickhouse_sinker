@@ -107,7 +107,7 @@ type ClickHouseConfig struct {
 	Username    string
 	Password    string
 	MaxLifeTime int
-	DnsLoop     bool
+	RetryTimes  int
 }
 
 type Task struct {

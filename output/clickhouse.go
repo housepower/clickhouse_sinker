@@ -28,7 +28,7 @@ type ClickHouse struct {
 	Password    string
 	DsnParams   string
 	MaxLifeTime time.Duration
-	DnsLoop     bool
+	RetryTimes  int
 
 	AutoSchema     bool
 	ExcludeColumns []string
@@ -103,10 +103,12 @@ func shouldReconnect(err error) bool {
 // LoopWrite will dead loop to write the records
 func (c *ClickHouse) LoopWrite(metrics []model.Metric) {
 	err := c.Write(metrics)
-	for err != nil {
+	times := c.RetryTimes
+	for err != nil && times > 0 {
 		log.Error("saving msg error", err.Error(), "will loop to write the data")
-		time.Sleep(3 * time.Second)
+		time.Sleep(1 * time.Second)
 		err = c.Write(metrics)
+		times = times - 1
 	}
 }
 

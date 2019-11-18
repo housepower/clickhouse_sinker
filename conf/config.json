@@ -3,9 +3,9 @@
     "ch1": {
       "db": "default",
       "host": "127.0.0.1",
-      "dnsLoop" : false,
       "maxLifeTime": 300,
       "password": "",
+      "retryTimes" : 5,
       "port": 9900,
       "username": ""
     }
