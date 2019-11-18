@@ -1,2 +1,2 @@
 all:
-	go build -o sinker.bin bin/main.go
+	go build -o dist/clickhouse_sinker bin/main.go

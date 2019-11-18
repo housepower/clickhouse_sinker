@@ -23,6 +23,7 @@ type TaskService struct {
 
 	FlushInterval int
 	BufferSize    int
+	MinBufferSize int
 }
 
 func NewTaskService(kafka *input.Kafka, clickhouse *output.ClickHouse, p parser.Parser) *TaskService {
@@ -49,7 +50,7 @@ func (service *TaskService) Run() {
 
 	log.Infof("TaskService %s TaskService has started", service.clickhouse.GetName())
 	tick := time.NewTicker(time.Duration(service.FlushInterval) * time.Second)
-	msgs := make([]model.Metric, 0, 100000)
+	msgs := make([]model.Metric, 0, service.BufferSize)
 FOR:
 	for {
 		select {
@@ -65,7 +66,7 @@ FOR:
 			}
 		case <-tick.C:
 			log.Info(service.clickhouse.GetName() + " tick")
-			if len(msgs) == 0 {
+			if len(msgs) == 0 || len(msgs) < service.MinBufferSize {
 				continue
 			}
 			service.flush(msgs)

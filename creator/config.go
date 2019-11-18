@@ -20,6 +20,7 @@ type Config struct {
 	Common struct {
 		FlushInterval int
 		BufferSize    int
+		MinBufferSize int
 		LogLevel      string
 	}
 }
@@ -142,6 +143,7 @@ type Task struct {
 
 	FlushInterval int `json:"flushInterval,omitempty"`
 	BufferSize    int `json:"bufferSize,omitempty"`
+	MinBufferSize int `json:"minBufferSize,omitempty"`
 }
 
 var (

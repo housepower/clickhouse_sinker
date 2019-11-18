@@ -14,7 +14,7 @@ func (config *Config) GenTasks() []*task.TaskService {
 	for _, taskConfig := range config.Tasks {
 		kafka := config.GenInput(taskConfig)
 		ck := config.GenOutput(taskConfig)
-		p := parser.NewParser(taskConfig.Parser,taskConfig.CsvFormat,taskConfig.Delimiter)
+		p := parser.NewParser(taskConfig.Parser, taskConfig.CsvFormat, taskConfig.Delimiter)
 
 		taskImpl := task.NewTaskService(kafka, ck, p)
 
@@ -26,6 +26,10 @@ func (config *Config) GenTasks() []*task.TaskService {
 
 		if taskImpl.BufferSize == 0 {
 			taskImpl.BufferSize = config.Common.BufferSize
+		}
+
+		if taskImpl.MinBufferSize == 0 {
+			taskImpl.MinBufferSize = config.Common.MinBufferSize
 		}
 
 		res = append(res, taskImpl)
