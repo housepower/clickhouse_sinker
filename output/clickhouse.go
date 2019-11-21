@@ -183,7 +183,8 @@ func (c *ClickHouse) initConn() (err error) {
 	} else {
 		ips, err := utils.GetIp4Byname(c.Host)
 		if err != nil {
-			return err
+			// fallback to ip
+			ips = []string{c.Host}
 		}
 		for _, ip := range ips {
 			hosts = append(hosts, fmt.Sprintf("%s:%d", ip, c.Port))
