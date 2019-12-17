@@ -1,0 +1,23 @@
+{	
+
+	"name" : "logstash_sample",
+
+	"kafka": "kfk1",
+	"topic": "logstash",
+	"consumerGroup" : "logstash_sample_ck",
+
+	"parser" : "json",
+	"clickhouse" : "ch1",
+		
+	"tableName" : "logstash",
+	
+	"dims" : [
+		{"name" : "date" , "type" : "ElasticDate"},
+		{"name" : "level" , "type" : "String"},
+		{"name" : "message" , "type" : "String"}
+	],
+
+	"bufferSize" : 1,
+	"num" : 1
+} 
+

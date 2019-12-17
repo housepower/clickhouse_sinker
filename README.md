@@ -60,6 +60,7 @@ make build
 * [x] Array(FixedString)
 * [x] Array(DateTime(UInt32), Date(UInt16))
 * [x] Nullable
+* [x] [ElasticDate](https://www.elastic.co/guide/en/elasticsearch/reference/current/date.html) => Int64 (2019-12-16T12:10:30Z => 1576498230)
 
 ## Configuration
 
@@ -75,3 +76,16 @@ type Parser interface {
 }
 ```
 See [json parser](./parser/json.go)
+
+# Debuggging 
+
+```bash
+echo '{"date": "2019-07-11T12:10:30Z", "level": "info", "message": "msg4"}' | kafkacat -b 127.0.0.1:9093 -P -t logstash
+
+echo 'select * from default.logstash;' | clickhouse-client --port 9900
+2019-12-16	info	msg4
+2019-07-11	info	msg4
+2015-05-11	info	msg4
+2019-07-11	info	msg4
+
+```

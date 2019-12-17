@@ -1,41 +1,60 @@
 ---
 version: '3'
+
 services:
-    clickhouse:
-        image: yandex/clickhouse-server
-        container_name: clickhouse
-        ports:
-            - 127.0.0.1:8123:8123
-            - 127.0.0.1:9000:9000
-
-    kafka_zookeeper:
-        image: zookeeper:3.4.9
-        container_name: kafka_zookeeper
-        hostname: kafka_zookeeper
-        environment:
-            ZOO_MY_ID: 1
-            ZOO_PORT: 2181
-            ZOO_SERVERS: server.1=kafka_zookeeper:2888:3888
-        security_opt:
-            - label:disable
-    kafka:
-        image: confluentinc/cp-kafka:5.2.0
-        container_name: kafka
-        hostname: kafka1
-        ports:
-            - "9092:9092"
-        environment:
-            KAFKA_ADVERTISED_LISTENERS: INSIDE://localhost:9092,OUTSIDE://kafka1:19092
-            KAFKA_LISTENERS: INSIDE://:9092,OUTSIDE://:19092
-            KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INSIDE:PLAINTEXT,OUTSIDE:PLAINTEXT
-            KAFKA_INTER_BROKER_LISTENER_NAME: INSIDE
-            KAFKA_BROKER_ID: 1
-            KAFKA_ZOOKEEPER_CONNECT: "kafka_zookeeper:2181"
-            KAFKA_LOG4J_LOGGERS: "kafka.controller=INFO,kafka.producer.async.DefaultEventHandler=INFO,state.change.logger=INFO"
-            KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-        depends_on:
-            - kafka_zookeeper
-        security_opt:
-            - label:disable
-
-
+  zookeeper:
+    image: zookeeper:3.4.12
+    restart: always
+    hostname: zookeeper
+    ports:
+      - "2181:2181"
+    security_opt:
+      - label:disable
+  kafka:
+    image: confluentinc/cp-kafka:5.0.1-1
+    container_name: kafka
+    restart: always
+    hostname: kafka
+    ports:
+      - "9092:9092"
+      - "9093:9093"
+    environment:
+      KAFKA_ADVERTISED_LISTENERS: "LISTENER_DOCKER_INTERNAL://127.0.0.1:9092,LISTENER_DOCKER_EXTERNAL://127.0.0.1:9093"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: LISTENER_DOCKER_INTERNAL:PLAINTEXT,LISTENER_DOCKER_EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: LISTENER_DOCKER_INTERNAL
+      KAFKA_ZOOKEEPER_CONNECT: "zookeeper:2181"
+      KAFKA_BROKER_ID: 1
+      KAFKA_LOG4J_LOGGERS: "kafka.controller=INFO,kafka.producer.async.DefaultEventHandler=INFO,state.change.logger=INFO"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    depends_on:
+      - zookeeper
+    security_opt:
+      - label:disable
+  clickhouse:
+    image: yandex/clickhouse-server:19.16
+    restart: always
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    volumes:
+      - "./docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d"
+    security_opt:
+      - label:disable
+  tabix:
+    image: spoonest/clickhouse-tabix-web-client
+    restart: always
+    ports:
+      - "8080:80"
+    depends_on:
+      - clickhouse
+    environment:
+      CH_NAME: "dev"
+      CH_HOST: "http://127.0.0.1:8123"
+      CH_LOGIN: "default"
+      CH_PASSWORD: ""
+    security_opt:
+      - label:disable

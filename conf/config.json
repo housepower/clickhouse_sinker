@@ -5,7 +5,7 @@
       "host": "127.0.0.1",
       "maxLifeTime": 300,
       "password": "",
-      "retryTimes" : 5,
+      "retryTimes": 5,
       "port": 9000,
       "username": ""
     }
@@ -16,13 +16,14 @@
       "sasl": {
         "password": "",
         "username": ""
-      }
+      },
+      "Version": "0.10.2.1"
     }
   },
   "common": {
     "bufferSize": 90000,
     "minBufferSize": 2000,
     "flushInterval": 5,
-    "logLevel": "info"
+    "logLevel": "debug"
   }
 }

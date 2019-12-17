@@ -83,6 +83,8 @@ func (c *ClickHouse) Write(metrics []model.Metric) (err error) {
 	}
 	stmt, err := tx.Prepare(c.prepareSQL)
 	if err != nil {
+		log.Error("prepareSQL:", err.Error())
+
 		if shouldReconnect(err) {
 			conn.ReConnect()
 		}
@@ -95,6 +97,7 @@ func (c *ClickHouse) Write(metrics []model.Metric) (err error) {
 			args[i] = util.GetValueByType(metric, c.dmMap[name])
 		}
 		if _, err := stmt.Exec(args...); err != nil {
+			log.Error("execSQL:", err.Error())
 			return err
 		}
 	}

@@ -24,12 +24,27 @@ import (
 	"github.com/valyala/fastjson"
 )
 
-var bs = []byte(`{"its":1536813227,"_ip":"112.96.65.228","cgi":"/commui/queryhttpdns","channel":"ws","platform":"adr","experiment":"default","ip":"36.248.20.69","version":"5.8.3","success":0, "mp": {"a" : [1,2,3]} }`)
+var jsonSample = []byte(`{
+	"its":1536813227,
+	"_ip":"112.96.65.228",
+	"cgi":"/commui/queryhttpdns",
+	"channel":"ws",
+	"platform":"adr",
+	"experiment":"default",
+	"ip":"36.248.20.69",
+	"version":"5.8.3",
+	"success":0, 
+	"percent":0.11, 
+	"mp": {"a" : [1,2,3]},
+	"mpf": {"a" : [1.1,2.2,3.3]},
+	"mps": {"a" : ["aa","bb","cc"]},
+	"date": "2019-12-16T12:10:30Z"
+}`)
 
 func BenchmarkUnmarshalljson(b *testing.B) {
 	mp := map[string]interface{}{}
 	for i := 0; i < b.N; i++ {
-		json.Unmarshal(bs, &mp)
+		json.Unmarshal(jsonSample, &mp)
 	}
 
 }
@@ -37,7 +52,7 @@ func BenchmarkUnmarshalljson(b *testing.B) {
 func BenchmarkUnmarshallFastJson(b *testing.B) {
 	// mp := map[string]interface{}{}
 	// var p fastjson.Parser
-	str := string(bs)
+	str := string(jsonSample)
 	var p fastjson.Parser
 	for i := 0; i < b.N; i++ {
 		v, err := p.Parse(str)
@@ -62,7 +77,7 @@ func BenchmarkUnmarshallFastJson(b *testing.B) {
 func BenchmarkUnmarshallGjson(b *testing.B) {
 	// mp := map[string]interface{}{}
 	// var p fastjson.Parser
-	str := string(bs)
+	str := string(jsonSample)
 	for i := 0; i < b.N; i++ {
 		_ = gjson.Get(str, "its").Int()
 		_ = gjson.Get(str, "_ip").String()
@@ -80,7 +95,7 @@ func BenchmarkUnmarshallGjson(b *testing.B) {
 func BenchmarkUnmarshalGabon2(b *testing.B) {
 	// mp := map[string]interface{}{}
 	// var p fastjson.Parser
-	str := string(bs)
+	str := string(jsonSample)
 	for i := 0; i < b.N; i++ {
 		result := gjson.Parse(str).Map()
 		_ = result["its"].Int()
@@ -100,7 +115,7 @@ func TestGjsonExtend(t *testing.T) {
 	// mp := map[string]interface{}{}
 	// var p fastjson.Parser
 	parser := NewParser("gjson_extend", nil, ",")
-	metric := parser.Parse(bs)
+	metric := parser.Parse(jsonSample)
 
 	arr := metric.GetArray("mp_a", "int").([]int64)
 	expected := []int64{1, 2, 3}

@@ -9,6 +9,8 @@ env:
   - GO111MODULE=on
 services:
   - docker
+before_script:
+  - go install github.com/golangci/golangci-lint/cmd/golangci-lint
 before_install:
   - docker-compose --version
   - docker-compose up -d
