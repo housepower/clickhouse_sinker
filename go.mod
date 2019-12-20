@@ -16,11 +16,12 @@ require (
 	github.com/mattn/go-colorable v0.1.1 // indirect
 	github.com/mattn/go-isatty v0.0.7 // indirect
 	github.com/pierrec/lz4 v0.0.0-20190507090305-b8e3f78e075c // indirect
-	github.com/prometheus/client_golang v1.3.0
+	github.com/prometheus/client_golang v1.2.1
 	github.com/smartystreets/goconvey v0.0.0-20190330032615-68dc04aab96a // indirect
 	github.com/stretchr/testify v1.3.0
 	github.com/sundy-li/go_commons v0.0.0-20191120121859-84e4cb0afce4
 	github.com/tidwall/gjson v1.1.3
 	github.com/tidwall/match v1.0.0 // indirect
 	github.com/valyala/fastjson v1.4.1
+	github.com/wswz/go_commons v0.0.0-20180723103154-ef9bd45e685a
 )

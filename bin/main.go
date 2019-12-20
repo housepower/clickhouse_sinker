@@ -17,23 +17,34 @@ package main
 
 import (
 	"flag"
-
-	_ "github.com/kshvakov/clickhouse"
-	"github.com/sundy-li/go_commons/app"
-
 	"github.com/housepower/clickhouse_sinker/creator"
+	"github.com/housepower/clickhouse_sinker/prom"
 	"github.com/housepower/clickhouse_sinker/statistics"
 	"github.com/housepower/clickhouse_sinker/task"
+	_ "github.com/kshvakov/clickhouse"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"net/http"
+
+	"github.com/wswz/go_commons/app"
+	"github.com/wswz/go_commons/log"
 )
 
 var (
-	config string
+	config    = flag.String("conf", "", "config dir")
+	http_addr = flag.String("http-addr", "0.0.0.0:2112", "http interface")
 )
 
 func init() {
-	flag.StringVar(&config, "conf", "", "config dir")
-
 	flag.Parse()
+
+	prometheus.MustRegister(prometheus.NewBuildInfoCollector())
+	prometheus.MustRegister(prom.ClickhouseReconnectTotal)
+	prometheus.MustRegister(prom.ClickhouseEventsSuccess)
+	prometheus.MustRegister(prom.ClickhouseEventsErrors)
+	prometheus.MustRegister(prom.ClickhouseEventsTotal)
+	prometheus.MustRegister(prom.KafkaConsumerErrors)
+
 }
 
 func main() {
@@ -42,10 +53,16 @@ func main() {
 	var runner *Sinker
 
 	app.Run("clickhouse_sinker", func() error {
-		cfg = *creator.InitConfig(config)
+		cfg = *creator.InitConfig(*config)
 		runner = NewSinker(cfg)
 		return runner.Init()
 	}, func() error {
+		go func() {
+			log.Info("Run http server", *http_addr)
+			http.Handle("/metrics", promhttp.Handler())
+			log.Error(http.ListenAndServe(*http_addr, nil))
+		}()
+
 		runner.Run()
 		return nil
 	}, func() error {

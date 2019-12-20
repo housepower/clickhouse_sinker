@@ -20,6 +20,7 @@ package pool
 
 import (
 	"database/sql"
+	"github.com/housepower/clickhouse_sinker/prom"
 	"math/rand"
 	"sync"
 	"time"
@@ -40,6 +41,7 @@ type Connection struct {
 
 // ReConnect used for restablishing connection with server
 func (c *Connection) ReConnect() error {
+	prom.ClickhouseReconnectTotal.Inc()
 	sqlDB, err := sql.Open("clickhouse", c.Dsn)
 	if err != nil {
 		log.Info("reconnect to ", c.Dsn, err.Error())

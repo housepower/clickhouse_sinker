@@ -25,6 +25,7 @@ import (
 	"github.com/housepower/clickhouse_sinker/pool"
 	"github.com/housepower/clickhouse_sinker/util"
 
+	"github.com/housepower/clickhouse_sinker/prom"
 	"github.com/sundy-li/go_commons/log"
 	"github.com/sundy-li/go_commons/utils"
 )
@@ -73,37 +74,43 @@ func (c *ClickHouse) Write(metrics []model.Metric) (err error) {
 	if len(metrics) == 0 {
 		return
 	}
+
 	conn := pool.GetConn(c.Host)
 	tx, err := conn.Begin()
 	if err != nil {
 		if shouldReconnect(err) {
-			conn.ReConnect()
+			_ = conn.ReConnect()
 		}
 		return err
 	}
+
 	stmt, err := tx.Prepare(c.prepareSQL)
 	if err != nil {
 		log.Error("prepareSQL:", err.Error())
 
 		if shouldReconnect(err) {
-			conn.ReConnect()
+			_ = conn.ReConnect()
 		}
 		return err
 	}
+
 	defer stmt.Close()
 	for _, metric := range metrics {
+		prom.ClickhouseEventsTotal.WithLabelValues(c.Db, c.TableName).Inc()
 		var args = make([]interface{}, len(c.dmMap))
 		for i, name := range c.dms {
 			args[i] = util.GetValueByType(metric, c.dmMap[name])
 		}
 		if _, err := stmt.Exec(args...); err != nil {
+			prom.ClickhouseEventsErrors.WithLabelValues(c.Db, c.TableName).Inc()
 			log.Error("execSQL:", err.Error())
 			return err
 		}
+		prom.ClickhouseEventsSuccess.WithLabelValues(c.Db, c.TableName).Inc()
 	}
 	if err = tx.Commit(); err != nil {
 		if shouldReconnect(err) {
-			conn.ReConnect()
+			_ = conn.ReConnect()
 		}
 		return
 	}
