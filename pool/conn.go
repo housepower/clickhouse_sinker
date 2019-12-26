@@ -27,11 +27,13 @@ var (
 	lock    sync.Mutex
 )
 
+// Connection a datastructure for storing the clickhouse connection
 type Connection struct {
 	*sql.DB
 	Dsn string
 }
 
+// ReConnect used for restablishing connection with server
 func (c *Connection) ReConnect() error {
 	sqlDB, err := sql.Open("clickhouse", c.Dsn)
 	if err != nil {
@@ -45,6 +47,7 @@ func (c *Connection) ReConnect() error {
 
 var poolMaps = map[string][]*Connection{}
 
+// SetDsn set the dsn for the connection
 func SetDsn(name string, dsn string, maxLifetTime time.Duration) {
 	lock.Lock()
 	defer lock.Unlock()
@@ -71,6 +74,7 @@ func SetDsn(name string, dsn string, maxLifetTime time.Duration) {
 	}
 }
 
+// GetConn returns a connection for a clickhouse server from the pool
 func GetConn(name string) *Connection {
 	lock.Lock()
 	defer lock.Unlock()
@@ -79,6 +83,7 @@ func GetConn(name string) *Connection {
 	return ps[rand.Intn(len(ps))]
 }
 
+// CloseAll closed all connection and destorys the pool
 func CloseAll() {
 	for _, ps := range poolMaps {
 		for _, c := range ps {
