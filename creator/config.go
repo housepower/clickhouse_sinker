@@ -1,3 +1,18 @@
+/*Copyright [2019] housepower
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+   http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package creator
 
 import (
@@ -11,6 +26,7 @@ import (
 	"github.com/wswz/go_commons/utils"
 )
 
+// Config struct used for different configurations use
 type Config struct {
 	Kafka      map[string]*KafkaConfig
 	Clickhouse map[string]*ClickHouseConfig
@@ -63,6 +79,7 @@ func InitConfig(dir string) *Config {
 	return baseConfig
 }
 
+// LoadTasks read the task definition from json configuration and load
 func (cfg *Config) LoadTasks(dir string) error {
 	//检测配置是否正确
 	files, err := ioutil.ReadDir(dir)
@@ -87,10 +104,12 @@ func (cfg *Config) LoadTasks(dir string) error {
 	return nil
 }
 
+// Conf returns the instance of configuration
 func Conf() Config {
 	return *baseConfig
 }
 
+// KafkaConfig configuration parameters
 type KafkaConfig struct {
 	Brokers string
 	Sasl    struct {
@@ -100,6 +119,7 @@ type KafkaConfig struct {
 	Version string
 }
 
+// ClickHouseConfig configuration parameters
 type ClickHouseConfig struct {
 	Db   string
 	Host string
@@ -111,6 +131,7 @@ type ClickHouseConfig struct {
 	RetryTimes  int
 }
 
+// Task configuration parameters
 type Task struct {
 	Name string
 
