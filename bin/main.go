@@ -1,3 +1,18 @@
+/*Copyright [2019] housepower
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+   http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package main
 
 import (
@@ -51,17 +66,20 @@ func main() {
 	})
 }
 
+// Sinker object maintains number of task for each partition
 type Sinker struct {
 	tasks   []*task.TaskService
 	config  creator.Config
 	stopped chan struct{}
 }
 
+// NewSinker get an instance of skiner with the task list
 func NewSinker(config creator.Config) *Sinker {
 	s := &Sinker{config: config, stopped: make(chan struct{})}
 	return s
 }
 
+// Init initialized the task
 func (s *Sinker) Init() error {
 	s.tasks = s.config.GenTasks()
 	for _, t := range s.tasks {
@@ -72,6 +90,7 @@ func (s *Sinker) Init() error {
 	return nil
 }
 
+// Run rull all tasks in different go routines
 func (s *Sinker) Run() {
 	for i, _ := range s.tasks {
 		go s.tasks[i].Run()
@@ -79,6 +98,7 @@ func (s *Sinker) Run() {
 	<-s.stopped
 }
 
+// Close shoutdown tasks
 func (s *Sinker) Close() {
 	for i, _ := range s.tasks {
 		s.tasks[i].Stop()
