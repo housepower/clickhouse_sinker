@@ -15,6 +15,7 @@ limitations under the License.
 
 package model
 
+// Metric interface for metric collection
 type Metric interface {
 	Get(key string) interface{}
 	GetString(key string) string
@@ -23,11 +24,13 @@ type Metric interface {
 	GetInt(key string) int64
 }
 
+// DimMetrics
 type DimMetrics struct {
 	Dims   []*ColumnWithType
 	Fields []*ColumnWithType
 }
 
+// ColumnWithType
 type ColumnWithType struct {
 	Name string
 	Type string

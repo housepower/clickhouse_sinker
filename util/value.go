@@ -38,7 +38,7 @@ func GetValueByType(metric model.Metric, cwt *model.ColumnWithType) interface{} 
 		return clickhouse.Array(metric.GetArray(name, "int"))
 	case "floatArray":
 		return clickhouse.Array(metric.GetArray(name, "float"))
-	//never happen
+	//should never happen
 	default:
 		return ""
 	}

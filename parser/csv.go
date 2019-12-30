@@ -21,11 +21,13 @@ import (
 	"github.com/housepower/clickhouse_sinker/model"
 )
 
+// CsvParser implementation to parse input from a CSV format
 type CsvParser struct {
 	title     []string
 	delimiter string
 }
 
+// Parse extract comma separated values from the data
 func (c *CsvParser) Parse(bs []byte) model.Metric {
 	msgData := string(bs)
 	msgs := strings.Split(msgData, c.delimiter)
@@ -40,25 +42,31 @@ func (c *CsvParser) Parse(bs []byte) model.Metric {
 	return &CsvMetric{v}
 }
 
+// CsvMetic
 type CsvMetric struct {
 	mp map[string]string
 }
 
+// Get returns the value corresponding to a column expects called
+// interpret the type
 func (c *CsvMetric) Get(key string) interface{} {
 	return c.mp[key]
 }
 
+// GetString get the value as string
 func (c *CsvMetric) GetString(key string) string {
 	v, _ := c.mp[key]
 	return v
 }
 
+// GetGFloat returns the value as float
 func (c *CsvMetric) GetFloat(key string) float64 {
 	v, _ := c.mp[key]
 	n, _ := strconv.ParseFloat(v, 64)
 	return n
 }
 
+// GetInt returns int
 func (c *CsvMetric) GetInt(key string) int64 {
 	v, _ := c.mp[key]
 	n, _ := strconv.ParseInt(v, 10, 64)

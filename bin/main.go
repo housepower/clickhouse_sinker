@@ -73,13 +73,13 @@ type Sinker struct {
 	stopped chan struct{}
 }
 
-// NewSinker get an instance of skiner with the task list
+// NewSinker get an instance of sinker with the task list
 func NewSinker(config creator.Config) *Sinker {
 	s := &Sinker{config: config, stopped: make(chan struct{})}
 	return s
 }
 
-// Init initialized the task
+// Init initializes the list of tasks
 func (s *Sinker) Init() error {
 	s.tasks = s.config.GenTasks()
 	for _, t := range s.tasks {

@@ -53,6 +53,7 @@ func NewKafka() *Kafka {
 	return &Kafka{}
 }
 
+// Init Initialise the kafka instance with configuration
 func (k *Kafka) Init() error {
 	k.msgs = make(chan []byte, 300000)
 	k.stopped = make(chan struct{})
@@ -64,10 +65,12 @@ func (k *Kafka) Init() error {
 	return nil
 }
 
+// Msgs returns the message from kafka
 func (k *Kafka) Msgs() chan []byte {
 	return k.msgs
 }
 
+// Start start kafka consumer, uses saram library
 func (k *Kafka) Start() error {
 	config := sarama.NewConfig()
 
@@ -79,12 +82,13 @@ func (k *Kafka) Start() error {
 		config.Version = version
 	}
 	// sarama.Logger = log.New(os.Stdout, "[sarama] ", log.LstdFlags)
+	// check for authentication
 	if k.Sasl.Username != "" {
 		config.Net.SASL.Enable = true
 		config.Net.SASL.User = k.Sasl.Username
 		config.Net.SASL.Password = k.Sasl.Password
 	}
-	if k.Earliest {
+	if k.Earliest { // set to read the oldest message from last commit point
 		config.Consumer.Offsets.Initial = sarama.OffsetOldest
 	}
 
@@ -115,6 +119,7 @@ func (k *Kafka) Start() error {
 	return nil
 }
 
+// Stop kafka consumer and close all connections
 func (k *Kafka) Stop() error {
 	k.cancel()
 	k.wg.Wait()
@@ -124,10 +129,12 @@ func (k *Kafka) Stop() error {
 	return nil
 }
 
+// Description of this kafka consumre, which topic it reads from
 func (k *Kafka) Description() string {
 	return "kafka consumer:" + k.Topic
 }
 
+// GetName name of this kafka consumer instance
 func (k *Kafka) GetName() string {
 	return k.Name
 }

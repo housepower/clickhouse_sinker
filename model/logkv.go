@@ -19,9 +19,11 @@ import (
 	"github.com/housepower/clickhouse_sinker/column"
 )
 
-
+// LogKV
 type LogKV map[string]interface{}
 
+// GetValueByType returns the value of the field based on column type
+// uses the GetValue function defined in each column definitions
 func (logkv LogKV) GetValueByType(key string, typ string) interface{} {
 	val := logkv[key]
 	col := column.GetColumnByName(typ)

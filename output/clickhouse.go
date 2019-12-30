@@ -127,18 +127,22 @@ func (c *ClickHouse) LoopWrite(metrics []model.Metric) {
 	}
 }
 
+// Close does nothing, place holder for handling close
 func (c *ClickHouse) Close() error {
 	return nil
 }
 
+// GetName return the name of this instance of clickhouse client
 func (c *ClickHouse) GetName() string {
 	return c.Name
 }
 
+// Description describes this instance
 func (c *ClickHouse) Description() string {
 	return "clickhouse desc"
 }
 
+// initAll initialises schema and connections for clickhouse
 func (c *ClickHouse) initAll() error {
 	if err := c.initConn(); err != nil {
 		return err
