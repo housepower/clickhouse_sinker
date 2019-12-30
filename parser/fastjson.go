@@ -21,6 +21,8 @@ import (
 	"github.com/housepower/clickhouse_sinker/model"
 )
 
+// FastjsonParser, parser for get data in json format
+// uses
 type FastjsonParser struct {
 }
 

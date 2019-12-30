@@ -30,6 +30,7 @@ import (
 	"github.com/wswz/go_commons/log"
 )
 
+// TaskService holds the configuration for each task
 type TaskService struct {
 	stopped    chan struct{}
 	kafka      *input.Kafka
@@ -41,6 +42,7 @@ type TaskService struct {
 	MinBufferSize int
 }
 
+// NewTaskService creates an instance of new tasks with kafka, clickhouse and paser instances
 func NewTaskService(kafka *input.Kafka, clickhouse *output.ClickHouse, p parser.Parser) *TaskService {
 	return &TaskService{
 		stopped:    make(chan struct{}),
@@ -50,6 +52,7 @@ func NewTaskService(kafka *input.Kafka, clickhouse *output.ClickHouse, p parser.
 	}
 }
 
+// Init initalizes the kafak and clickhouse task associated with this service
 func (service *TaskService) Init() error {
 	err := service.kafka.Init()
 	if err != nil {
@@ -58,6 +61,7 @@ func (service *TaskService) Init() error {
 	return service.clickhouse.Init()
 }
 
+// Run starts the task
 func (service *TaskService) Run() {
 	if err := service.kafka.Start(); err != nil {
 		panic(err)
@@ -101,6 +105,7 @@ func (service *TaskService) flush(metrics []model.Metric) {
 	service.clickhouse.LoopWrite(metrics)
 }
 
+// Stop stop kafak and clickhouse client
 func (service *TaskService) Stop() {
 	log.Info("close TaskService size:")
 	if err := service.kafka.Stop(); err != nil {

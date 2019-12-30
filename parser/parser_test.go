@@ -76,7 +76,7 @@ func BenchmarkUnmarshallGjson(b *testing.B) {
 	}
 }
 
-func BenchmarkUnmarshallGjson2(b *testing.B) {
+func BenchmarkUnmarshalGabon2(b *testing.B) {
 	// mp := map[string]interface{}{}
 	// var p fastjson.Parser
 	str := string(bs)
