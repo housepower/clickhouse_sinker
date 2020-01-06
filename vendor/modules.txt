@@ -24,6 +24,8 @@ github.com/eapache/queue
 github.com/golang/protobuf/proto
 # github.com/golang/snappy v0.0.1
 github.com/golang/snappy
+# github.com/heptiolabs/healthcheck v0.0.0-20180807145615-6ff867650f40
+github.com/heptiolabs/healthcheck
 # github.com/jmoiron/jsonq v0.0.0-20150511023944-e874b168d07e
 github.com/jmoiron/jsonq
 # github.com/k0kubun/pp v2.2.0+incompatible

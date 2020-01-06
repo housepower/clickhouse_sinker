@@ -18,21 +18,25 @@ package main
 import (
 	"flag"
 	"github.com/housepower/clickhouse_sinker/creator"
+	"github.com/housepower/clickhouse_sinker/health"
 	"github.com/housepower/clickhouse_sinker/prom"
 	"github.com/housepower/clickhouse_sinker/statistics"
 	"github.com/housepower/clickhouse_sinker/task"
 	_ "github.com/kshvakov/clickhouse"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/wswz/go_commons/app"
 	"net/http"
 
-	"github.com/wswz/go_commons/app"
 	"github.com/wswz/go_commons/log"
 )
 
 var (
-	config    = flag.String("conf", "", "config dir")
-	http_addr = flag.String("http-addr", "0.0.0.0:2112", "http interface")
+	config     = flag.String("conf", "", "config dir")
+	cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
+	http_addr  = flag.String("http-addr", "0.0.0.0:2112", "http interface")
+
+	httpMetrcs = promhttp.Handler()
 )
 
 func init() {
@@ -58,9 +62,25 @@ func main() {
 		return runner.Init()
 	}, func() error {
 		go func() {
+			mux := http.NewServeMux()
+			mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+				w.Write([]byte(`<html><head><title>ClickHouse Sinker</title></head>
+				<body>
+					<h1>ClickHouse Sinker</h1>
+					<p><a href="/metrics">Metrics</a></p>
+					<p><a href="/ready">Ready</a></p>
+					<p><a href="/ready?full=1">Ready Full</a></p>
+					<p><a href="/live">Live</a></p>
+					<p><a href="/live?full=1">Live Full</a></p>
+				</body></html>`))
+			})
+
+			mux.Handle("/metrics", httpMetrcs)
+			mux.HandleFunc("/ready", health.Health.ReadyEndpoint) // GET /ready?full=1
+			mux.HandleFunc("/live", health.Health.LiveEndpoint)   // GET /live?full=1
+
 			log.Info("Run http server", *http_addr)
-			http.Handle("/metrics", promhttp.Handler())
-			log.Error(http.ListenAndServe(*http_addr, nil))
+			log.Error(http.ListenAndServe(*http_addr, mux))
 		}()
 
 		runner.Run()

@@ -20,6 +20,9 @@ package pool
 
 import (
 	"database/sql"
+	"fmt"
+	"github.com/heptiolabs/healthcheck"
+	"github.com/housepower/clickhouse_sinker/health"
 	"github.com/housepower/clickhouse_sinker/prom"
 	"math/rand"
 	"sync"
@@ -77,8 +80,16 @@ func SetDsn(name string, dsn string, maxLifetTime time.Duration) {
 		ps = append(ps, &Connection{sqlDB, dsn})
 		poolMaps[name] = ps
 	} else {
-		poolMaps[name] = []*Connection{&Connection{sqlDB, dsn}}
+		poolMaps[name] = []*Connection{{sqlDB, dsn}}
 	}
+
+	var ix int
+	var i *Connection
+	for ix, i = range poolMaps[name] {
+		var checkName = fmt.Sprintf("clickhouse(%s, %d)", name, ix)
+		health.Health.AddReadinessCheck(checkName, healthcheck.DatabasePingCheck(i.DB, 1*time.Second))
+	}
+
 }
 
 // GetConn returns a connection for a clickhouse server from the pool
@@ -94,7 +105,7 @@ func GetConn(name string) *Connection {
 func CloseAll() {
 	for _, ps := range poolMaps {
 		for _, c := range ps {
-			c.Close()
+			_ = c.Close()
 		}
 	}
 }
