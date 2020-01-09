@@ -1,5 +1,5 @@
 #!/bin/bash
-make build
+
 
 ## create table
 curl "localhost:8123" -d 'DROP TABLE IF EXISTS test1'
