@@ -48,7 +48,7 @@ type Kafka struct {
 	wg       sync.WaitGroup
 }
 
-// NewKafka get instance of kafka reader  
+// NewKafka get instance of kafka reader
 func NewKafka() *Kafka {
 	return &Kafka{}
 }

@@ -1,0 +1,18 @@
+sudo: required
+language: go
+go:
+  - 1.12.x
+  - 1.13.x
+  - master
+go_import_path: github.com/housepower/clickhouse_sinker
+services:
+  - docker
+before_install:
+  - docker-compose --version
+  - docker-compose up -d
+script:
+  - make build
+  - make unittest
+  - make systest
+after_success:
+  - bash <(curl -s https://codecov.io/bash)

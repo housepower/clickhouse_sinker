@@ -1,0 +1,26 @@
+{
+
+	"name" : "test1",
+
+	"kafka": "kfk1",
+	"topic": "topic1",
+	"consumerGroup" : "test_sinker",
+	"earliest" : true,
+	"parser" : "json",
+	"clickhouse" : "ch1",
+
+	"tableName" : "test1",
+
+	"dims" : [
+		{"name" : "timestamp" , "type" : "UInt64"},
+		{"name" : "name" , "type" : "String"}
+	],
+
+	"metrics" : [
+		{"name" : "value" , "type" : "Float32"}
+	],
+
+	"bufferSize" : 50000,
+	"num" : 1
+}
+
