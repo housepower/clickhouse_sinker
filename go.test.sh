@@ -22,9 +22,9 @@ for i in `seq 1 100000`;do
 done > a.json
 echo "cat /tmp/a.json | kafka-console-producer --topic topic1 --broker-list localhost:9092" > send.sh
 
-sudo docker cp a.json clickhouse_sinker_kafka_1:/tmp/
-sudo docker cp send.sh clickhouse_sinker_kafka_1:/tmp/
-sudo docker exec clickhouse_sinker_kafka_1   sh /tmp/send.sh
+sudo docker cp a.json kafka:/tmp/
+sudo docker cp send.sh kafka:/tmp/
+sudo docker exec kafka   sh /tmp/send.sh
 
 ## start to consume
 nohup ./dist/clickhouse_sinker -conf docker/conf &

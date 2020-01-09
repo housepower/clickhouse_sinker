@@ -3,12 +3,14 @@ version: '3'
 services:
     clickhouse:
         image: yandex/clickhouse-server
+        container_name: clickhouse
         ports:
             - 127.0.0.1:8123:8123
             - 127.0.0.1:9000:9000
 
     kafka_zookeeper:
         image: zookeeper:3.4.9
+        container_name: kafka_zookeeper
         hostname: kafka_zookeeper
         environment:
             ZOO_MY_ID: 1
@@ -18,6 +20,7 @@ services:
             - label:disable
     kafka:
         image: confluentinc/cp-kafka:5.2.0
+        container_name: kafka
         hostname: kafka1
         ports:
             - "9092:9092"
