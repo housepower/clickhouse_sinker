@@ -1,5 +1,5 @@
 build:
-	go build -gcflags "-N -l" -o dist/clickhouse_sinker bin/main.go
+	GO111MODULE=on go build -gcflags "-N -l" -o dist/clickhouse_sinker bin/main.go
 
 unittest:
 	go test ./...
