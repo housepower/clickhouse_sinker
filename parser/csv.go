@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"encoding/csv"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/housepower/clickhouse_sinker/model"
@@ -66,6 +67,8 @@ func (c *CsvMetric) Get(key string) interface{} {
 
 // GetString get the value as string
 func (c *CsvMetric) GetString(key string) string {
+	v := c.mp[key]
+	return v
 	for i, k := range c.titles {
 		if k == key && i < len(c.values) {
 			return c.values[i]

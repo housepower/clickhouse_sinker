@@ -125,8 +125,8 @@ func (k *Kafka) Start() error {
 
 	k.client = client
 
+	k.wg.Add(1)
 	go func() {
-		k.wg.Add(1)
 		defer k.wg.Done()
 
 		consumerName := fmt.Sprintf("kafka_consumer(%s, %s)", k.ConsumerGroup, k.Topic)
@@ -144,7 +144,7 @@ func (k *Kafka) Start() error {
 				kafkaConsumerErrors.Delete(consumerName)
 				return
 			}
-			k.consumer.ready = make(chan bool, 0)
+			k.consumer.ready = make(chan bool)
 		}
 	}()
 
@@ -193,7 +193,6 @@ func (consumer *Consumer) Cleanup(sarama.ConsumerGroupSession) error {
 
 // ConsumeClaim must start a consumer loop of ConsumerGroupClaim's Messages().
 func (consumer *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
-
 	// NOTE:
 	// Do not move the code below to a goroutine.
 	// The `ConsumeClaim` itself is called within a goroutine, see:

@@ -89,7 +89,6 @@ func SetDsn(name string, dsn string, maxLifetTime time.Duration) {
 		var checkName = fmt.Sprintf("clickhouse(%s, %d)", name, ix)
 		health.Health.AddReadinessCheck(checkName, healthcheck.DatabasePingCheck(i.DB, 1*time.Second))
 	}
-
 }
 
 // GetConn returns a connection for a clickhouse server from the pool

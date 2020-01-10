@@ -23,7 +23,6 @@ func TestGjsonExtendArrayInt(t *testing.T) {
 	for i := range arr {
 		assert.Equal(t, arr[i], expected[i])
 	}
-
 }
 
 func TestGjsonExtendStr(t *testing.T) {
@@ -44,7 +43,6 @@ func TestGjsonExtendArrayString(t *testing.T) {
 	for i := range arr {
 		assert.Equal(t, arr[i], expected[i])
 	}
-
 }
 
 func TestGjsonExtendFloat(t *testing.T) {
@@ -65,7 +63,6 @@ func TestGjsonExtendArrayFloat(t *testing.T) {
 	for i := range arr {
 		assert.Equal(t, arr[i], expected[i])
 	}
-
 }
 
 func TestGjsonExtendElasticDate(t *testing.T) {

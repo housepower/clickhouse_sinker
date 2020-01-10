@@ -81,18 +81,18 @@ func InitConfig(dir string) *Config {
 	}
 
 	log.SetLevelStr(baseConfig.Common.LogLevel)
-	pp.Println(baseConfig)
+	_, _ = pp.Println(baseConfig)
 	return baseConfig
 }
 
 // LoadTasks read the task definition from json configuration and load
-func (cfg *Config) LoadTasks(dir string) error {
+func (config *Config) LoadTasks(dir string) error {
 	// Check if the configuration is correct
 	files, err := ioutil.ReadDir(dir)
 	if err != nil {
 		return err
 	}
-	cfg.Tasks = make([]*Task, 0, len(files))
+	config.Tasks = make([]*Task, 0, len(files))
 	for _, f := range files {
 		if strings.HasSuffix(f.Name(), ".json") {
 			s, err := utils.ExtendFile(filepath.Join(dir, f.Name()))
@@ -104,7 +104,7 @@ func (cfg *Config) LoadTasks(dir string) error {
 			if err != nil {
 				return err
 			}
-			cfg.Tasks = append(cfg.Tasks, taskConfig)
+			config.Tasks = append(config.Tasks, taskConfig)
 		}
 	}
 	return nil

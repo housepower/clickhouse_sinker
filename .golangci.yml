@@ -1,0 +1,34 @@
+run:
+  concurrency: 4
+  timeout: 1m
+  issues-exit-code: 1
+  tests: true
+  skip-dirs-use-default: true
+
+output:
+  format: colored-line-number
+  print-issued-lines: true
+  print-linter-name: true
+
+linters-settings:
+  errcheck:
+    check-type-assertions: false
+    check-blank: false
+
+  funlen:
+    lines: 60
+    statements: 40
+
+linters:
+  enable-all: true
+  disable:
+   - dupl
+   - wsl
+   - goimports
+   - gochecknoglobals
+   - goconst
+   - maligned
+   - godox
+   - gochecknoinits
+   - gosec
+   - gomnd

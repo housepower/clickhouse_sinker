@@ -44,9 +44,8 @@ var jsonSample = []byte(`{
 func BenchmarkUnmarshalljson(b *testing.B) {
 	mp := map[string]interface{}{}
 	for i := 0; i < b.N; i++ {
-		json.Unmarshal(jsonSample, &mp)
+		_ = json.Unmarshal(jsonSample, &mp)
 	}
-
 }
 
 func BenchmarkUnmarshallFastJson(b *testing.B) {
@@ -69,7 +68,6 @@ func BenchmarkUnmarshallFastJson(b *testing.B) {
 		v.GetStringBytes("version")
 		v.GetInt("success")
 		v.GetInt("trycount")
-
 	}
 }
 

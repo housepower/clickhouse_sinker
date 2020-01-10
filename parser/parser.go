@@ -38,3 +38,8 @@ func NewParser(typ string, title []string, delimiter string) Parser {
 		return &GjsonParser{}
 	}
 }
+
+func GetJSONShortStr(v interface{}) string {
+	bs, _ := json.Marshal(v)
+	return string(bs)
+}

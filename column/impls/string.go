@@ -35,9 +35,10 @@ func NewStringColumn() *StringColumn {
 
 // only judge string column
 func (c *StringColumn) GetValue(val interface{}) interface{} {
-	switch val.(type) {
+	switch v := val.(type) {
 	case string:
-		return val.(string)
+		return v
+	default:
+		return ""
 	}
-	return ""
 }
