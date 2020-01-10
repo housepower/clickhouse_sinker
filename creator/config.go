@@ -22,8 +22,8 @@ import (
 	"strings"
 
 	"github.com/k0kubun/pp"
-	"github.com/wswz/go_commons/log"
-	"github.com/wswz/go_commons/utils"
+	"github.com/sundy-li/go_commons/log"
+	"github.com/sundy-li/go_commons/utils"
 )
 
 // Config struct used for different configurations use
@@ -32,6 +32,12 @@ type Config struct {
 	Clickhouse map[string]*ClickHouseConfig
 
 	Tasks []*Task
+
+	Statistics struct {
+		Enable bool
+		PushGateWayAddrs []string
+		PushInterval     int
+	}
 
 	Common struct {
 		FlushInterval int

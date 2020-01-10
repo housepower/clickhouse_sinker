@@ -21,7 +21,7 @@ import (
 	"sync"
 
 	"github.com/Shopify/sarama"
-	"github.com/wswz/go_commons/log"
+	"github.com/sundy-li/go_commons/log"
 )
 
 // Kafka reader configuration
@@ -58,6 +58,7 @@ func (k *Kafka) Init() error {
 	k.msgs = make(chan []byte, 300000)
 	k.stopped = make(chan struct{})
 	k.consumer = &Consumer{
+		Name:  k.Name,
 		msgs:  k.msgs,
 		ready: make(chan bool),
 	}
@@ -141,6 +142,7 @@ func (k *Kafka) GetName() string {
 
 // Consumer represents a Sarama consumer group consumer
 type Consumer struct {
+	Name  string
 	ready chan bool
 	msgs  chan []byte
 }

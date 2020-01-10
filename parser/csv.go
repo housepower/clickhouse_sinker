@@ -20,7 +20,7 @@ import (
 	"strconv"
 
 	"github.com/housepower/clickhouse_sinker/model"
-	"github.com/wswz/go_commons/log"
+	"github.com/sundy-li/go_commons/log"
 )
 
 // CsvParser implementation to parse input from a CSV format

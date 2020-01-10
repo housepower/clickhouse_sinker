@@ -17,20 +17,17 @@ package main
 
 import (
 	"flag"
-	"log"
-	"os"
-	"runtime/pprof"
+
+	_ "github.com/kshvakov/clickhouse"
+	"github.com/sundy-li/go_commons/app"
 
 	"github.com/housepower/clickhouse_sinker/creator"
+	"github.com/housepower/clickhouse_sinker/statistics"
 	"github.com/housepower/clickhouse_sinker/task"
-	_ "github.com/kshvakov/clickhouse"
-
-	"github.com/wswz/go_commons/app"
 )
 
 var (
-	config     string
-	cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
+	config string
 )
 
 func init() {
@@ -43,15 +40,6 @@ func main() {
 
 	var cfg creator.Config
 	var runner *Sinker
-
-	if *cpuprofile != "" {
-		f, err := os.Create(*cpuprofile)
-		if err != nil {
-			log.Fatal(err)
-		}
-		pprof.StartCPUProfile(f)
-		defer pprof.StopCPUProfile()
-	}
 
 	app.Run("clickhouse_sinker", func() error {
 		cfg = *creator.InitConfig(config)
@@ -69,6 +57,7 @@ func main() {
 // Sinker object maintains number of task for each partition
 type Sinker struct {
 	tasks   []*task.TaskService
+	pusher  *statistics.Pusher
 	config  creator.Config
 	stopped chan struct{}
 }
@@ -81,6 +70,14 @@ func NewSinker(config creator.Config) *Sinker {
 
 // Init initializes the list of tasks
 func (s *Sinker) Init() error {
+	if s.config.Statistics.Enable {
+		s.pusher = statistics.NewPusher(s.config.Statistics.PushGateWayAddrs,
+			s.config.Statistics.PushInterval)
+		err := s.pusher.Init()
+		if err != nil {
+			return err
+		}
+	}
 	s.tasks = s.config.GenTasks()
 	for _, t := range s.tasks {
 		if err := t.Init(); err != nil {
@@ -92,7 +89,10 @@ func (s *Sinker) Init() error {
 
 // Run rull all tasks in different go routines
 func (s *Sinker) Run() {
-	for i, _ := range s.tasks {
+	if s.pusher != nil {
+		s.pusher.Run()
+	}
+	for i := range s.tasks {
 		go s.tasks[i].Run()
 	}
 	<-s.stopped
@@ -100,8 +100,12 @@ func (s *Sinker) Run() {
 
 // Close shoutdown tasks
 func (s *Sinker) Close() {
-	for i, _ := range s.tasks {
+	for i := range s.tasks {
 		s.tasks[i].Stop()
+	}
+
+	if s.pusher != nil {
+		s.pusher.Stop()
 	}
 	close(s.stopped)
 }

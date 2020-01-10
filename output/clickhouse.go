@@ -25,8 +25,8 @@ import (
 	"github.com/housepower/clickhouse_sinker/pool"
 	"github.com/housepower/clickhouse_sinker/util"
 
-	"github.com/wswz/go_commons/log"
-	"github.com/wswz/go_commons/utils"
+	"github.com/sundy-li/go_commons/log"
+	"github.com/sundy-li/go_commons/utils"
 )
 
 // ClickHouse is an output service consumers from kafka messages
