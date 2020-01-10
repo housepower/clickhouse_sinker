@@ -38,7 +38,7 @@ make build
 
 ## Examples
 
-* look at the [integration test config](https://github.com/housepower/clickhouse_sinker/tree/master/docker/conf).
+* look at the [integration test](https://github.com/housepower/clickhouse_sinker/blob/master/go.test.sh).
 * there is a simple [tutorial in Chinese](https://note.youdao.com/ynoteshare1/index.html?id=c4b4a84a08e2312da6c6d733a5074c7a&type=note) which created by user @taiyang.
 
 ## Support parsers

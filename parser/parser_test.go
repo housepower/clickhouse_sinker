@@ -19,6 +19,7 @@ import (
 	"log"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/tidwall/gjson"
 	"github.com/valyala/fastjson"
 )
@@ -98,18 +99,12 @@ func BenchmarkUnmarshalGabon2(b *testing.B) {
 func TestGjsonExtend(t *testing.T) {
 	// mp := map[string]interface{}{}
 	// var p fastjson.Parser
-	parser := NewParser("gjson_extend", nil, "")
+	parser := NewParser("gjson_extend", nil, ",")
 	metric := parser.Parse(bs)
 
 	arr := metric.GetArray("mp_a", "int").([]int64)
 	expected := []int64{1, 2, 3}
 	for i := range arr {
-		assertEqual(t, arr[i], expected[i])
-	}
-}
-
-func assertEqual(t *testing.T, a, b interface{}) {
-	if a != b {
-		t.Errorf("Not Equal. %d %d", a, b)
+		assert.Equal(t, arr[i], expected[i])
 	}
 }

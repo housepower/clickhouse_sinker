@@ -15,10 +15,12 @@ limitations under the License.
 package parser
 
 import (
+	"bytes"
+	"encoding/csv"
 	"strconv"
-	"strings"
 
 	"github.com/housepower/clickhouse_sinker/model"
+	"github.com/wswz/go_commons/log"
 )
 
 // CsvParser implementation to parse input from a CSV format
@@ -29,48 +31,68 @@ type CsvParser struct {
 
 // Parse extract comma separated values from the data
 func (c *CsvParser) Parse(bs []byte) model.Metric {
-	msgData := string(bs)
-	msgs := strings.Split(msgData, c.delimiter)
-	v := make(map[string]string)
-	msLen := len(msgs)
-	for i, key := range c.title {
-		if i >= msLen {
-			continue
-		}
-		v[key] = msgs[i]
+	values := make([]string, len(c.title))
+	r := csv.NewReader(bytes.NewReader(bs))
+
+	r.Comma = ','
+	if len(c.delimiter) > 0 {
+		r.Comma = rune(c.delimiter[0])
 	}
-	return &CsvMetric{v}
+	values, err := r.Read()
+	if err != nil {
+		log.Error("Parse csv error:" + err.Error())
+		return &DummyMetric{}
+	}
+	return &CsvMetric{c.title, values}
 }
 
 // CsvMetic
 type CsvMetric struct {
-	mp map[string]string
+	titles []string
+	values []string
 }
 
 // Get returns the value corresponding to a column expects called
 // interpret the type
 func (c *CsvMetric) Get(key string) interface{} {
-	return c.mp[key]
+	for i, k := range c.titles {
+		if k == key && i < len(c.values) {
+			return c.values[i]
+		}
+	}
+	return nil
 }
 
 // GetString get the value as string
 func (c *CsvMetric) GetString(key string) string {
-	v, _ := c.mp[key]
-	return v
+	for i, k := range c.titles {
+		if k == key && i < len(c.values) {
+			return c.values[i]
+		}
+	}
+	return ""
 }
 
-// GetGFloat returns the value as float
+// GetFloat returns the value as float
 func (c *CsvMetric) GetFloat(key string) float64 {
-	v, _ := c.mp[key]
-	n, _ := strconv.ParseFloat(v, 64)
-	return n
+	for i, k := range c.titles {
+		if k == key && i < len(c.values) {
+			n, _ := strconv.ParseFloat(c.values[i], 64)
+			return n
+		}
+	}
+	return 0
 }
 
 // GetInt returns int
 func (c *CsvMetric) GetInt(key string) int64 {
-	v, _ := c.mp[key]
-	n, _ := strconv.ParseInt(v, 10, 64)
-	return n
+	for i, k := range c.titles {
+		if k == key && i < len(c.values) {
+			n, _ := strconv.ParseInt(c.values[i], 10, 64)
+			return n
+		}
+	}
+	return 0
 }
 
 // GetArray is Empty implemented for CsvMetric
