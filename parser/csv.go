@@ -32,7 +32,6 @@ type CsvParser struct {
 
 // Parse extract comma separated values from the data
 func (c *CsvParser) Parse(bs []byte) model.Metric {
-	values := make([]string, len(c.title))
 	r := csv.NewReader(bytes.NewReader(bs))
 
 	r.Comma = ','

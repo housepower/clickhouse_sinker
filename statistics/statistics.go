@@ -105,7 +105,7 @@ var (
 	offsets = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: prefix + "offsets",
-			Help: "last commited offset for each topic partition pair",
+			Help: "last committed offset for each topic partition pair",
 		},
 		[]string{"task", "topic", "partition"},
 	)
@@ -158,7 +158,7 @@ func UpdateParseOutMsgsTotal(task string, delta int) {
 }
 
 func UpdateParseTimespan(task string, start time.Time) {
-	parseTimespan.WithLabelValues(task).Observe(time.Now().Sub(start).Seconds())
+	parseTimespan.WithLabelValues(task).Observe(time.Since(start).Seconds())
 }
 
 func UpdateFlushMsgsTotal(task string, delta int) {
@@ -170,7 +170,7 @@ func UpdateFlushErrorsTotal(task string, delta int) {
 }
 
 func UpdateFlushTimespan(task string, start time.Time) {
-	flushTimespan.WithLabelValues(task).Observe(time.Now().Sub(start).Seconds())
+	flushTimespan.WithLabelValues(task).Observe(time.Since(start).Seconds())
 }
 
 func UpdateOffsets(task, topic string, partition int32, offset int64) {
@@ -276,7 +276,7 @@ func (p *Pusher) IsExternalIP(ip net.IP) bool {
 	}
 
 	if ip4 := ip.To4(); ip4 != nil {
-		switch true {
+		switch {
 		case ip4[0] == 10:
 			return false
 		case ip4[0] == 172 && ip4[1] >= 16 && ip4[1] <= 31:

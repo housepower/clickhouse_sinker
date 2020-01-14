@@ -16,7 +16,6 @@ limitations under the License.
 package parser
 
 import (
-	"encoding/json"
 	"github.com/tidwall/gjson"
 	"time"
 
@@ -85,9 +84,4 @@ func (c *GjsonMetric) GetElasticDate(key string) int64 {
 	t, _ := time.Parse(time.RFC3339, val)
 
 	return t.Unix()
-}
-
-func GetJsonShortStr(v interface{}) string {
-	bs, _ := json.Marshal(v)
-	return string(bs)
 }

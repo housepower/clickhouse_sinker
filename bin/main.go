@@ -31,9 +31,8 @@ import (
 )
 
 var (
-	config     = flag.String("conf", "", "config dir")
-	cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
-	httpAddr   = flag.String("http-addr", "0.0.0.0:2112", "http interface")
+	config   = flag.String("conf", "", "config dir")
+	httpAddr = flag.String("http-addr", "0.0.0.0:2112", "http interface")
 
 	httpMetrcs = promhttp.Handler()
 )

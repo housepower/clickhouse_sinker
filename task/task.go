@@ -29,6 +29,7 @@ import (
 
 	"github.com/sundy-li/go_commons/log"
 )
+
 // TaskService holds the configuration for each task
 type Service struct {
 	stopped    chan struct{}
@@ -50,7 +51,8 @@ func NewTaskService(kafka *input.Kafka, clickhouse *output.ClickHouse, p parser.
 		p:          p,
 	}
 }
-// Init initalizes the kafak and clickhouse task associated with this service
+
+// Init initializes the kafak and clickhouse task associated with this service
 
 func (service *Service) Init() error {
 	err := service.kafka.Init()

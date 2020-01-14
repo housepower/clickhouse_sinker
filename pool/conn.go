@@ -100,7 +100,7 @@ func GetConn(name string) *Connection {
 	return ps[rand.Intn(len(ps))]
 }
 
-// CloseAll closed all connection and destorys the pool
+// CloseAll closed all connection and destroys the pool
 func CloseAll() {
 	for _, ps := range poolMaps {
 		for _, c := range ps {

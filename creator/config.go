@@ -34,7 +34,7 @@ type Config struct {
 	Tasks []*Task
 
 	Statistics struct {
-		Enable bool
+		Enable           bool
 		PushGateWayAddrs []string
 		PushInterval     int
 	}
