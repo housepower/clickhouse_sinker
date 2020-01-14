@@ -15,8 +15,10 @@ before_install:
   - docker-compose --version
   - docker-compose up -d
 script:
-  - make build
+  - make lint
   - make unittest
+  - make benchtest
+  - make build
   - make systest
 after_success:
   - bash < (curl -s https://codecov.io/bash)

@@ -1,6 +1,3 @@
-[![Build Status](https://travis-ci.com/ArtemChekunov/clickhouse_sinker.svg?branch=master)](https://travis-ci.com/ArtemChekunov/clickhouse_sinker)
-[![Download](https://img.shields.io/badge/download-latest-brightgreen.svg)](https://hub.docker.com/repository/docker/artemchekunov/clickhouse_sinker)
-
 # clickhouse_sinker
 [![Build Status](https://travis-ci.com/housepower/clickhouse_sinker.svg?branch=master)](https://travis-ci.com/housepower/clickhouse_sinker)
 [![Go Report Card](https://goreportcard.com/badge/github.com/housepower/clickhouse_sinker)](https://goreportcard.com/report/github.com/housepower/clickhouse_sinker)
