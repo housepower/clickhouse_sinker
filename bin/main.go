@@ -17,14 +17,6 @@ package main
 
 import (
 	"flag"
-	"github.com/housepower/clickhouse_sinker/health"
-	"github.com/housepower/clickhouse_sinker/prom"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"net/http"
-	"os"
-	"runtime/pprof"
-
 	"github.com/housepower/clickhouse_sinker/creator"
 	"github.com/housepower/clickhouse_sinker/health"
 	"github.com/housepower/clickhouse_sinker/prom"
@@ -34,9 +26,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/wswz/go_commons/app"
-	"net/http"
-
 	"github.com/wswz/go_commons/log"
+	"net/http"
 )
 
 var (

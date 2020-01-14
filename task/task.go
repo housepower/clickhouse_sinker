@@ -42,7 +42,7 @@ type Service struct {
 }
 
 // NewTaskService creates an instance of new tasks with kafka, clickhouse and paser instances
-func NewTaskService(kafka *input.Kafka, clickhouse *output.ClickHouse, p parser.Parser) *TaskService {
+func NewTaskService(kafka *input.Kafka, clickhouse *output.ClickHouse, p parser.Parser) *Service {
 	return &Service{
 		stopped:    make(chan struct{}),
 		kafka:      kafka,
