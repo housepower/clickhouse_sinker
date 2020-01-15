@@ -66,13 +66,13 @@ func TestGjsonExtendArrayFloat(t *testing.T) {
 	}
 }
 
-func TestGjsonExtendElasticDate(t *testing.T) {
+func TestGjsonExtendElasticDateTime(t *testing.T) {
 	parser := NewParser("gjson_extend", nil, "")
 	metric := parser.Parse(jsonSample)
 
 	// {"date": "2019-12-16T12:10:30Z"}
 	// TZ=UTC date -d @1576498230 => Mon 16 Dec 2019 12:10:30 PM UTC
 	var expected int64 = 1576498230
-	result := metric.GetElasticDate("date")
+	result := metric.GetElasticDateTime("date")
 	assert.Equal(t, result, expected)
 }

@@ -38,8 +38,8 @@ func GetValueByType(metric model.Metric, cwt *model.ColumnWithType) interface{} 
 		return clickhouse.Array(metric.GetArray(name, "int"))
 	case "floatArray":
 		return clickhouse.Array(metric.GetArray(name, "float"))
-	case "ElasticDate":
-		return metric.GetElasticDate(name)
+	case "ElasticDateTime":
+		return metric.GetElasticDateTime(name)
 
 	//never happen
 	default:
@@ -65,8 +65,8 @@ func switchType(typ string) string {
 		return "float"
 	case "Array(Float32)", "Array(Float64)":
 		return "floatArray"
-	case "ElasticDate":
-		return "ElasticDate"
+	case "ElasticDateTime":
+		return "ElasticDateTime"
 	default:
 		panic("unsupport type " + typ)
 	}

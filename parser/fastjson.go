@@ -89,7 +89,7 @@ func (c *FastjsonMetric) String() string {
 	return c.value.String()
 }
 
-func (c *FastjsonMetric) GetElasticDate(key string) int64 {
+func (c *FastjsonMetric) GetElasticDateTime(key string) int64 {
 	val := c.GetString(key)
 	t, _ := time.Parse(time.RFC3339, val)
 

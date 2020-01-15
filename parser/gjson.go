@@ -80,7 +80,7 @@ func (c *GjsonMetric) GetInt(key string) int64 {
 	return gjson.Get(c.raw, key).Int()
 }
 
-func (c *GjsonMetric) GetElasticDate(key string) int64 {
+func (c *GjsonMetric) GetElasticDateTime(key string) int64 {
 	val := c.GetString(key)
 	t, _ := time.Parse(time.RFC3339, val)
 

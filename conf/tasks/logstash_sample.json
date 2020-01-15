@@ -12,7 +12,7 @@
 	"tableName" : "logstash",
 	
 	"dims" : [
-		{"name" : "date" , "type" : "ElasticDate"},
+		{"name" : "date" , "type" : "ElasticDateTime"},
 		{"name" : "level" , "type" : "String"},
 		{"name" : "message" , "type" : "String"}
 	],

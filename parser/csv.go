@@ -100,7 +100,7 @@ func (c *CsvMetric) GetArray(key string, t string) interface{} {
 	return []interface{}{}
 }
 
-func (c *CsvMetric) GetElasticDate(key string) int64 {
+func (c *CsvMetric) GetElasticDateTime(key string) int64 {
 	val := c.GetString(key)
 	t, _ := time.Parse(time.RFC3339, val)
 
