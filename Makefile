@@ -1,5 +1,5 @@
 pre:
-	go mod vendor
+	go mod tidy
 build: pre
 	go build -gcflags "-N -l" -o dist/clickhouse_sinker bin/main.go
 unittest: pre
