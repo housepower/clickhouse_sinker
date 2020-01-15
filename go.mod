@@ -24,6 +24,5 @@ require (
 	github.com/tidwall/gjson v1.1.3
 	github.com/tidwall/match v1.0.0 // indirect
 	github.com/valyala/fastjson v1.4.1
-	github.com/wswz/go_commons v0.0.0-20180723103154-ef9bd45e685a
 	gopkg.in/DATA-DOG/go-sqlmock.v1 v1.3.0 // indirect
 )

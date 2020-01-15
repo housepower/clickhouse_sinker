@@ -27,8 +27,8 @@ import (
 	_ "github.com/kshvakov/clickhouse"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/wswz/go_commons/app"
-	"github.com/wswz/go_commons/log"
+	"github.com/sundy-li/go_commons/app"
+	"github.com/sundy-li/go_commons/log"
 )
 
 var (
