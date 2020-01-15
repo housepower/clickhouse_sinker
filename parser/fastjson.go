@@ -16,8 +16,9 @@ limitations under the License.
 package parser
 
 import (
-	"github.com/valyala/fastjson"
 	"time"
+
+	"github.com/valyala/fastjson"
 
 	"github.com/housepower/clickhouse_sinker/model"
 )

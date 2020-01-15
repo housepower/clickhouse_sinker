@@ -16,8 +16,9 @@ limitations under the License.
 package parser
 
 import (
-	"github.com/tidwall/gjson"
 	"time"
+
+	"github.com/tidwall/gjson"
 
 	"github.com/housepower/clickhouse_sinker/model"
 )

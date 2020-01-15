@@ -21,12 +21,13 @@ package pool
 import (
 	"database/sql"
 	"fmt"
-	"github.com/heptiolabs/healthcheck"
-	"github.com/housepower/clickhouse_sinker/health"
-	"github.com/housepower/clickhouse_sinker/prom"
 	"math/rand"
 	"sync"
 	"time"
+
+	"github.com/heptiolabs/healthcheck"
+	"github.com/housepower/clickhouse_sinker/health"
+	"github.com/housepower/clickhouse_sinker/prom"
 
 	"github.com/sundy-li/go_commons/log"
 )

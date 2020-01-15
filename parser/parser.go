@@ -16,6 +16,7 @@ package parser
 
 import (
 	"encoding/json"
+
 	"github.com/housepower/clickhouse_sinker/model"
 )
 

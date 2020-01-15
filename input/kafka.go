@@ -18,13 +18,14 @@ package input
 import (
 	"context"
 	"fmt"
+	"strings"
+	"sync"
+	"time"
+
 	"github.com/Shopify/sarama"
 	"github.com/heptiolabs/healthcheck"
 	"github.com/housepower/clickhouse_sinker/health"
 	"github.com/housepower/clickhouse_sinker/prom"
-	"strings"
-	"sync"
-	"time"
 
 	"github.com/sundy-li/go_commons/log"
 )

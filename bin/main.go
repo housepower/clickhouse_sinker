@@ -17,6 +17,8 @@ package main
 
 import (
 	"flag"
+	"net/http"
+
 	"github.com/housepower/clickhouse_sinker/creator"
 	"github.com/housepower/clickhouse_sinker/health"
 	"github.com/housepower/clickhouse_sinker/prom"
@@ -27,7 +29,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/wswz/go_commons/app"
 	"github.com/wswz/go_commons/log"
-	"net/http"
 )
 
 var (
