@@ -77,7 +77,7 @@ type Parser interface {
 ```
 See [json parser](./parser/json.go)
 
-# Debuggging 
+# Debugging
 
 ```bash
 echo '{"date": "2019-07-11T12:10:30Z", "level": "info", "message": "msg4"}' | kafkacat -b 127.0.0.1:9093 -P -t logstash
