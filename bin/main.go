@@ -75,7 +75,7 @@ func main() {
 			mux.HandleFunc("/ready", health.Health.ReadyEndpoint) // GET /ready?full=1
 			mux.HandleFunc("/live", health.Health.LiveEndpoint)   // GET /live?full=1
 
-			log.Info("Run http server", *httpAddr)
+			log.Infof("Run http server http://%s", *httpAddr)
 			log.Error(http.ListenAndServe(*httpAddr, mux))
 		}()
 
