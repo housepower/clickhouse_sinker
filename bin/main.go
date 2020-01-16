@@ -17,35 +17,68 @@ package main
 
 import (
 	"flag"
-
-	_ "github.com/kshvakov/clickhouse"
-	"github.com/sundy-li/go_commons/app"
+	"net/http"
 
 	"github.com/housepower/clickhouse_sinker/creator"
+	"github.com/housepower/clickhouse_sinker/health"
+	"github.com/housepower/clickhouse_sinker/prom"
 	"github.com/housepower/clickhouse_sinker/statistics"
 	"github.com/housepower/clickhouse_sinker/task"
+	_ "github.com/kshvakov/clickhouse"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/sundy-li/go_commons/app"
+	"github.com/sundy-li/go_commons/log"
 )
 
 var (
-	config string
+	config   = flag.String("conf", "", "config dir")
+	httpAddr = flag.String("http-addr", "0.0.0.0:2112", "http interface")
+
+	httpMetrcs = promhttp.Handler()
 )
 
-func init() {
-	flag.StringVar(&config, "conf", "", "config dir")
-
-	flag.Parse()
-}
-
 func main() {
+	flag.Parse()
+
+	prometheus.MustRegister(prometheus.NewBuildInfoCollector())
+	prometheus.MustRegister(prom.ClickhouseReconnectTotal)
+	prometheus.MustRegister(prom.ClickhouseEventsSuccess)
+	prometheus.MustRegister(prom.ClickhouseEventsErrors)
+	prometheus.MustRegister(prom.ClickhouseEventsTotal)
+	prometheus.MustRegister(prom.KafkaConsumerErrors)
 
 	var cfg creator.Config
 	var runner *Sinker
 
 	app.Run("clickhouse_sinker", func() error {
-		cfg = *creator.InitConfig(config)
+		cfg = *creator.InitConfig(*config)
 		runner = NewSinker(cfg)
 		return runner.Init()
 	}, func() error {
+		go func() {
+			mux := http.NewServeMux()
+			mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write([]byte(`
+				<html><head><title>ClickHouse Sinker</title></head>
+				<body>
+					<h1>ClickHouse Sinker</h1>
+					<p><a href="/metrics">Metrics</a></p>
+					<p><a href="/ready">Ready</a></p>
+					<p><a href="/ready?full=1">Ready Full</a></p>
+					<p><a href="/live">Live</a></p>
+					<p><a href="/live?full=1">Live Full</a></p>
+				</body></html>`))
+			})
+
+			mux.Handle("/metrics", httpMetrcs)
+			mux.HandleFunc("/ready", health.Health.ReadyEndpoint) // GET /ready?full=1
+			mux.HandleFunc("/live", health.Health.LiveEndpoint)   // GET /live?full=1
+
+			log.Info("Run http server", *httpAddr)
+			log.Error(http.ListenAndServe(*httpAddr, mux))
+		}()
+
 		runner.Run()
 		return nil
 	}, func() error {
@@ -56,8 +89,8 @@ func main() {
 
 // Sinker object maintains number of task for each partition
 type Sinker struct {
-	tasks   []*task.TaskService
 	pusher  *statistics.Pusher
+	tasks   []*task.Service
 	config  creator.Config
 	stopped chan struct{}
 }

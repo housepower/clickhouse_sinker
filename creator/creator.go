@@ -24,8 +24,8 @@ import (
 )
 
 // GenTasks generate the tasks via config
-func (config *Config) GenTasks() []*task.TaskService {
-	res := make([]*task.TaskService, 0, len(config.Tasks))
+func (config *Config) GenTasks() []*task.Service {
+	res := make([]*task.Service, 0, len(config.Tasks))
 	for _, taskConfig := range config.Tasks {
 		kafka := config.GenInput(taskConfig)
 		ck := config.GenOutput(taskConfig)

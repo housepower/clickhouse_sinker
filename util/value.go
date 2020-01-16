@@ -21,7 +21,7 @@ import (
 	"github.com/kshvakov/clickhouse"
 )
 
-// GetValueByType 这里对metric的value类型，只有三种情况， （float64，string，map[string]interface{})
+// There are only three cases for the value type of metric, (float64, string, map [string] interface {})
 func GetValueByType(metric model.Metric, cwt *model.ColumnWithType) interface{} {
 	swType := switchType(cwt.Type)
 	name := strings.Replace(cwt.Name, ".", "\\.", -1)
@@ -38,7 +38,10 @@ func GetValueByType(metric model.Metric, cwt *model.ColumnWithType) interface{} 
 		return clickhouse.Array(metric.GetArray(name, "int"))
 	case "floatArray":
 		return clickhouse.Array(metric.GetArray(name, "float"))
-	//should never happen
+	case "ElasticDateTime":
+		return metric.GetElasticDateTime(name)
+
+	//never happen
 	default:
 		return ""
 	}
@@ -51,7 +54,8 @@ func switchType(typ string) string {
 		"Nullable(UInt8)", "Nullable(UInt16)", "Nullable(UInt32)", "Nullable(UInt64)",
 		"Nullable(Int8)", "Nullable(Int16)", "Nullable(Int32)", "Nullable(Int64)":
 		return "int"
-	case "Array(Date)", "Array(DateTime)", "Array(UInt8)", "Array(UInt16)", "Array(UInt32)", "Array(UInt64)", "Array(Int8)", "Array(Int16)", "Array(Int32)", "Array(Int64)":
+	case "Array(Date)", "Array(DateTime)", "Array(UInt8)", "Array(UInt16)", "Array(UInt32)",
+		"Array(UInt64)", "Array(Int8)", "Array(Int16)", "Array(Int32)", "Array(Int64)":
 		return "intArray"
 	case "String", "FixString", "Nullable(String)":
 		return "string"
@@ -61,6 +65,8 @@ func switchType(typ string) string {
 		return "float"
 	case "Array(Float32)", "Array(Float64)":
 		return "floatArray"
+	case "ElasticDateTime":
+		return "ElasticDateTime"
 	default:
 		panic("unsupport type " + typ)
 	}

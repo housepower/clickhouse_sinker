@@ -20,9 +20,14 @@ package pool
 
 import (
 	"database/sql"
+	"fmt"
 	"math/rand"
 	"sync"
 	"time"
+
+	"github.com/heptiolabs/healthcheck"
+	"github.com/housepower/clickhouse_sinker/health"
+	"github.com/housepower/clickhouse_sinker/prom"
 
 	"github.com/sundy-li/go_commons/log"
 )
@@ -40,6 +45,7 @@ type Connection struct {
 
 // ReConnect used for restablishing connection with server
 func (c *Connection) ReConnect() error {
+	prom.ClickhouseReconnectTotal.Inc()
 	sqlDB, err := sql.Open("clickhouse", c.Dsn)
 	if err != nil {
 		log.Info("reconnect to ", c.Dsn, err.Error())
@@ -75,7 +81,14 @@ func SetDsn(name string, dsn string, maxLifetTime time.Duration) {
 		ps = append(ps, &Connection{sqlDB, dsn})
 		poolMaps[name] = ps
 	} else {
-		poolMaps[name] = []*Connection{&Connection{sqlDB, dsn}}
+		poolMaps[name] = []*Connection{{sqlDB, dsn}}
+	}
+
+	var ix int
+	var i *Connection
+	for ix, i = range poolMaps[name] {
+		var checkName = fmt.Sprintf("clickhouse(%s, %d)", name, ix)
+		health.Health.AddReadinessCheck(checkName, healthcheck.DatabasePingCheck(i.DB, 1*time.Second))
 	}
 }
 
@@ -88,11 +101,11 @@ func GetConn(name string) *Connection {
 	return ps[rand.Intn(len(ps))]
 }
 
-// CloseAll closed all connection and destorys the pool
+// CloseAll closed all connection and destroys the pool
 func CloseAll() {
 	for _, ps := range poolMaps {
 		for _, c := range ps {
-			c.Close()
+			_ = c.Close()
 		}
 	}
 }

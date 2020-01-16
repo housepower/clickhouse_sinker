@@ -15,6 +15,8 @@ limitations under the License.
 package parser
 
 import (
+	"encoding/json"
+
 	"github.com/housepower/clickhouse_sinker/model"
 )
 
@@ -37,4 +39,9 @@ func NewParser(typ string, title []string, delimiter string) Parser {
 	default:
 		return &GjsonParser{}
 	}
+}
+
+func GetJSONShortStr(v interface{}) string {
+	bs, _ := json.Marshal(v)
+	return string(bs)
 }

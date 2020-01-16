@@ -25,6 +25,7 @@ import (
 	"github.com/housepower/clickhouse_sinker/pool"
 	"github.com/housepower/clickhouse_sinker/util"
 
+	"github.com/housepower/clickhouse_sinker/prom"
 	"github.com/sundy-li/go_commons/log"
 	"github.com/sundy-li/go_commons/utils"
 )
@@ -73,38 +74,47 @@ func (c *ClickHouse) Write(metrics []model.Metric) (err error) {
 	if len(metrics) == 0 {
 		return
 	}
+
 	conn := pool.GetConn(c.Host)
 	tx, err := conn.Begin()
 	if err != nil {
 		if shouldReconnect(err) {
-			conn.ReConnect()
+			_ = conn.ReConnect()
 		}
 		return err
 	}
+
 	stmt, err := tx.Prepare(c.prepareSQL)
 	if err != nil {
+		log.Error("prepareSQL:", err.Error())
+
 		if shouldReconnect(err) {
-			conn.ReConnect()
+			_ = conn.ReConnect()
 		}
 		return err
 	}
+
 	defer stmt.Close()
 	for _, metric := range metrics {
+		prom.ClickhouseEventsTotal.WithLabelValues(c.Db, c.TableName).Inc()
 		var args = make([]interface{}, len(c.dmMap))
 		for i, name := range c.dms {
 			args[i] = util.GetValueByType(metric, c.dmMap[name])
 		}
 		if _, err := stmt.Exec(args...); err != nil {
+			prom.ClickhouseEventsErrors.WithLabelValues(c.Db, c.TableName).Inc()
+			log.Error("execSQL:", err.Error())
 			return err
 		}
+		prom.ClickhouseEventsSuccess.WithLabelValues(c.Db, c.TableName).Inc()
 	}
 	if err = tx.Commit(); err != nil {
 		if shouldReconnect(err) {
-			conn.ReConnect()
+			_ = conn.ReConnect()
 		}
-		return
+		return nil
 	}
-	return
+	return nil
 }
 
 func shouldReconnect(err error) bool {
@@ -123,7 +133,7 @@ func (c *ClickHouse) LoopWrite(metrics []model.Metric) {
 		log.Error("saving msg error", err.Error(), "will loop to write the data")
 		time.Sleep(1 * time.Second)
 		err = c.Write(metrics)
-		times = times - 1
+		times--
 	}
 }
 
@@ -156,7 +166,8 @@ func (c *ClickHouse) initAll() error {
 func (c *ClickHouse) initSchema() (err error) {
 	if c.AutoSchema {
 		conn := pool.GetConn(c.Host)
-		rs, err := conn.Query(fmt.Sprintf("select name, type from system.columns where database = '%s' and table = '%s'", c.Db, c.TableName))
+		rs, err := conn.Query(fmt.Sprintf(
+			"select name, type from system.columns where database = '%s' and table = '%s'", c.Db, c.TableName))
 		if err != nil {
 			return err
 		}
@@ -165,10 +176,10 @@ func (c *ClickHouse) initSchema() (err error) {
 		c.Metrics = make([]*model.ColumnWithType, 0, 10)
 		var name, typ string
 		for rs.Next() {
-			rs.Scan(&name, &typ)
+			_ = rs.Scan(&name, &typ)
 			typ = lowCardinalityRegexp.ReplaceAllString(typ, "$1")
 			if !util.StringContains(c.ExcludeColumns, name) {
-				c.Dims = append(c.Dims, &model.ColumnWithType{name, typ})
+				c.Dims = append(c.Dims, &model.ColumnWithType{Name: name, Type: typ})
 			}
 		}
 	}
@@ -187,7 +198,8 @@ func (c *ClickHouse) initSchema() (err error) {
 	for i := range params {
 		params[i] = "?"
 	}
-	c.prepareSQL = "INSERT INTO " + c.Db + "." + c.TableName + " (" + strings.Join(c.dms, ",") + ") VALUES (" + strings.Join(params, ",") + ")"
+	c.prepareSQL = "INSERT INTO " + c.Db + "." + c.TableName + " (" + strings.Join(c.dms, ",") + ") " +
+		"VALUES (" + strings.Join(params, ",") + ")"
 
 	log.Info("Prepare sql=>", c.prepareSQL)
 	return nil
@@ -225,7 +237,7 @@ func (c *ClickHouse) initConn() (err error) {
 	for i := 0; i < len(hosts); i++ {
 		pool.SetDsn(c.Host, dsn, c.MaxLifeTime)
 	}
-	return
+	return nil
 }
 
 var (

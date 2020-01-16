@@ -17,18 +17,31 @@ package input
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/Shopify/sarama"
+	"github.com/heptiolabs/healthcheck"
+	"github.com/housepower/clickhouse_sinker/health"
+	"github.com/housepower/clickhouse_sinker/prom"
+
 	"github.com/sundy-li/go_commons/log"
 )
+
+type ConsumerError struct {
+	UnixTime int64
+	Error    error
+}
+
+var kafkaConsumerErrors sync.Map
 
 // Kafka reader configuration
 type Kafka struct {
 	client  sarama.ConsumerGroup
 	stopped chan struct{}
-	msgs    chan ([]byte)
+	msgs    chan []byte
 
 	Name          string
 	Version       string
@@ -71,6 +84,18 @@ func (k *Kafka) Msgs() chan []byte {
 	return k.msgs
 }
 
+func ConsumerHealthCheck(consumerName string) healthcheck.Check {
+	return func() error {
+		result, _ := kafkaConsumerErrors.Load(consumerName)
+		v := result.(ConsumerError)
+		thresholdTime := v.UnixTime + 5 // sec
+		if v.Error != nil && thresholdTime > time.Now().Unix() {
+			return v.Error
+		}
+		return nil
+	}
+}
+
 // Start start kafka consumer, uses saram library
 func (k *Kafka) Start() error {
 	config := sarama.NewConfig()
@@ -101,18 +126,26 @@ func (k *Kafka) Start() error {
 
 	k.client = client
 
+	k.wg.Add(1)
 	go func() {
-		k.wg.Add(1)
 		defer k.wg.Done()
+
+		consumerName := fmt.Sprintf("kafka_consumer(%s, %s)", k.ConsumerGroup, k.Topic)
+		kafkaConsumerErrors.Store(consumerName, ConsumerError{UnixTime: 0, Error: nil})
+		health.Health.AddReadinessCheck(consumerName, ConsumerHealthCheck(consumerName))
+
 		for {
 			if err := k.client.Consume(k.context, strings.Split(k.Topic, ","), k.consumer); err != nil {
+				kafkaConsumerErrors.Store(consumerName, ConsumerError{UnixTime: time.Now().Unix(), Error: err})
+				prom.KafkaConsumerErrors.WithLabelValues(k.Topic, k.ConsumerGroup).Inc()
 				log.Error("Error from consumer: %v", err)
 			}
 			// check if context was cancelled, signaling that the consumer should stop
 			if k.context.Err() != nil {
+				kafkaConsumerErrors.Delete(consumerName)
 				return
 			}
-			k.consumer.ready = make(chan bool, 0)
+			k.consumer.ready = make(chan bool)
 		}
 	}()
 
@@ -125,7 +158,7 @@ func (k *Kafka) Stop() error {
 	k.cancel()
 	k.wg.Wait()
 
-	k.client.Close()
+	_ = k.client.Close()
 	close(k.msgs)
 	return nil
 }
@@ -161,7 +194,6 @@ func (consumer *Consumer) Cleanup(sarama.ConsumerGroupSession) error {
 
 // ConsumeClaim must start a consumer loop of ConsumerGroupClaim's Messages().
 func (consumer *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
-
 	// NOTE:
 	// Do not move the code below to a goroutine.
 	// The `ConsumeClaim` itself is called within a goroutine, see:

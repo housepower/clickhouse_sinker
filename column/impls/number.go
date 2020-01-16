@@ -44,13 +44,14 @@ func (c *IntColumn) DefaultValue() interface{} {
 
 // only judge int and float64
 func (c *IntColumn) GetValue(val interface{}) interface{} {
-	switch val.(type) {
+	switch v := val.(type) {
 	case int:
-		return int64(val.(int))
+		return int64(v)
 	case float64:
-		return int64(val.(float64))
+		return int64(v)
+	default:
+		return int64(0)
 	}
-	return int64(0)
 }
 
 // FloatColumn
@@ -80,18 +81,17 @@ func (c *FloatColumn) DefaultValue() interface{} {
 
 // only judge int and float64
 func (c *FloatColumn) GetValue(val interface{}) interface{} {
-	switch val.(type) {
+	switch v := val.(type) {
 	case int:
 		if c.bits == 32 {
-			return float32(val.(int))
+			return float32(v)
 		}
-		return float64(val.(int))
+		return float64(v)
 	case float64:
 		if c.bits == 32 {
-			return float32(val.(float64))
+			return float32(v)
 		}
-		return val.(float64)
-
+		return v
 	}
 	if c.bits == 32 {
 		return float32(0)

@@ -1,5 +1,4 @@
-#!/bin/bash
-
+#!/usr/bin/env bash
 
 ## create table
 curl "localhost:8123" -d 'DROP TABLE IF EXISTS test1'
@@ -27,10 +26,7 @@ sudo docker cp send.sh kafka:/tmp/
 sudo docker exec kafka   sh /tmp/send.sh
 
 ## start to consume
-nohup ./dist/clickhouse_sinker -conf docker/conf &
+timeout 30 ./dist/clickhouse_sinker -conf docker/conf
 
-##wait for 30seconds, it should be enough
-sleep 30
-sudo kill -9 `pidof clickhouse_sinker`
 count=`curl "localhost:8123" -d 'select count() from test1'`
 [ $count -eq 100000 ] || exit 1

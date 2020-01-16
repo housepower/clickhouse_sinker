@@ -16,6 +16,8 @@ limitations under the License.
 package parser
 
 import (
+	"time"
+
 	"github.com/valyala/fastjson"
 
 	"github.com/housepower/clickhouse_sinker/model"
@@ -81,9 +83,15 @@ func (c *FastjsonMetric) GetArray(key string, t string) interface{} {
 	default:
 		panic("not supported array type " + t)
 	}
-	return nil
 }
 
 func (c *FastjsonMetric) String() string {
 	return c.value.String()
+}
+
+func (c *FastjsonMetric) GetElasticDateTime(key string) int64 {
+	val := c.GetString(key)
+	t, _ := time.Parse(time.RFC3339, val)
+
+	return t.Unix()
 }

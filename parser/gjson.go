@@ -16,6 +16,8 @@ limitations under the License.
 package parser
 
 import (
+	"time"
+
 	"github.com/tidwall/gjson"
 
 	"github.com/housepower/clickhouse_sinker/model"
@@ -68,7 +70,6 @@ func (c *GjsonMetric) GetArray(key string, t string) interface{} {
 	default:
 		panic("not supported array type " + t)
 	}
-	return nil
 }
 
 func (c *GjsonMetric) GetFloat(key string) float64 {
@@ -77,4 +78,11 @@ func (c *GjsonMetric) GetFloat(key string) float64 {
 
 func (c *GjsonMetric) GetInt(key string) int64 {
 	return gjson.Get(c.raw, key).Int()
+}
+
+func (c *GjsonMetric) GetElasticDateTime(key string) int64 {
+	val := c.GetString(key)
+	t, _ := time.Parse(time.RFC3339, val)
+
+	return t.Unix()
 }
