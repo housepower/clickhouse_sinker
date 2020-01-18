@@ -26,6 +26,7 @@ import (
 	"github.com/housepower/clickhouse_sinker/model"
 	"github.com/housepower/clickhouse_sinker/output"
 	"github.com/housepower/clickhouse_sinker/parser"
+	"github.com/housepower/clickhouse_sinker/statistics"
 
 	"github.com/sundy-li/go_commons/log"
 )
@@ -37,6 +38,7 @@ type Service struct {
 	clickhouse *output.ClickHouse
 	p          parser.Parser
 
+	Name          string
 	FlushInterval int
 	BufferSize    int
 	MinBufferSize int
@@ -49,6 +51,7 @@ func NewTaskService(kafka *input.Kafka, clickhouse *output.ClickHouse, p parser.
 		kafka:      kafka,
 		clickhouse: clickhouse,
 		p:          p,
+		Name:       kafka.Name,
 	}
 }
 
@@ -71,6 +74,7 @@ func (service *Service) Run() {
 	log.Infof("TaskService %s TaskService has started", service.clickhouse.GetName())
 	tick := time.NewTicker(time.Duration(service.FlushInterval) * time.Second)
 	msgs := make([]model.Metric, 0, service.BufferSize)
+	statistics.UpdateTasks(service.Name)
 FOR:
 	for {
 		select {
@@ -98,11 +102,20 @@ FOR:
 }
 
 func (service *Service) parse(data []byte) model.Metric {
-	return service.p.Parse(data)
+	start := time.Now()
+	res := service.p.Parse(data)
+	statistics.UpdateParseTimespan(service.Name, start)
+	statistics.UpdateParseInMsgsTotal(service.Name, 1)
+	statistics.UpdateParseOutMsgsTotal(service.Name, 1)
+	return res
 }
+
 func (service *Service) flush(metrics []model.Metric) {
 	log.Info("buf size:", len(metrics))
+	start := time.Now()
 	service.clickhouse.LoopWrite(metrics)
+	statistics.UpdateFlushMsgsTotal(service.Name, len(metrics))
+	statistics.UpdateFlushTimespan(service.Name, start)
 }
 
 // Stop stop kafak and clickhouse client
