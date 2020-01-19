@@ -23,6 +23,7 @@ import (
 
 	"github.com/housepower/clickhouse_sinker/model"
 	"github.com/housepower/clickhouse_sinker/pool"
+	"github.com/housepower/clickhouse_sinker/statistics"
 	"github.com/housepower/clickhouse_sinker/util"
 
 	"github.com/housepower/clickhouse_sinker/prom"
@@ -131,6 +132,7 @@ func (c *ClickHouse) LoopWrite(metrics []model.Metric) {
 	times := c.RetryTimes
 	for err != nil && times > 0 {
 		log.Error("saving msg error", err.Error(), "will loop to write the data")
+		statistics.UpdateFlushErrorsTotal(c.Name, 1)
 		time.Sleep(1 * time.Second)
 		err = c.Write(metrics)
 		times--
