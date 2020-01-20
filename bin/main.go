@@ -17,8 +17,13 @@ package main
 
 import (
 	"flag"
+	"fmt"
+	"net"
 	"net/http"
+	"strconv"
 
+	"github.com/google/uuid"
+	"github.com/hashicorp/consul/api"
 	"github.com/housepower/clickhouse_sinker/creator"
 	"github.com/housepower/clickhouse_sinker/health"
 	"github.com/housepower/clickhouse_sinker/prom"
@@ -32,14 +37,62 @@ import (
 )
 
 var (
-	config   = flag.String("conf", "", "config dir")
-	httpAddr = flag.String("http-addr", "0.0.0.0:2112", "http interface")
+	config     = flag.String("conf", "", "config dir")
+	httpAddr   = flag.String("http-addr", "0.0.0.0:2112", "http interface")
+	consulAddr = flag.String("consul-addr", "http://127.0.0.1:8500", "consul api interface address")
 
 	httpMetrcs = promhttp.Handler()
+	cfg        creator.Config
+	runner     *Sinker
+	ip, port   = parseAddr(*httpAddr)
+	appID, _   = uuid.NewUUID()
+	appIDStr   = fmt.Sprintf("clickhouse_sinker-%s", appID.String())
 )
+
+func parseAddr(addr string) (string, int) {
+	ip, portStr, err := net.SplitHostPort(addr)
+	if err != nil {
+		panic(err)
+	}
+
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		panic(err)
+	}
+
+	if ip == "0.0.0.0" {
+		ip = ""
+	}
+
+	return ip, port
+}
+
+func serviceRegister(agent *api.Agent) {
+	log.Debug("Consul: register service")
+	err := agent.ServiceRegister(&api.AgentServiceRegistration{
+		Name:    "clickhouse_sinker",
+		ID:      appIDStr,
+		Port:    port,
+		Address: ip,
+		Check: &api.AgentServiceCheck{
+			CheckID:  appIDStr + "-http-heath",
+			Name:     "/ready",
+			Interval: "15s",
+			Timeout:  "15s",
+			HTTP:     fmt.Sprintf("http://%s/ready?full=1", *httpAddr),
+		},
+	})
+	if err != nil {
+		log.Warnf("Consul: %s", err)
+	}
+}
 
 func main() {
 	flag.Parse()
+	consulConfig := api.DefaultConfig()
+	consulConfig.Address = *consulAddr
+	consulClient, _ := api.NewClient(consulConfig)
+	consulAgent := consulClient.Agent()
 
 	prometheus.MustRegister(prometheus.NewBuildInfoCollector())
 	prometheus.MustRegister(prom.ClickhouseReconnectTotal)
@@ -48,8 +101,14 @@ func main() {
 	prometheus.MustRegister(prom.ClickhouseEventsTotal)
 	prometheus.MustRegister(prom.KafkaConsumerErrors)
 
-	var cfg creator.Config
-	var runner *Sinker
+	serviceRegister(consulAgent)
+	defer func() {
+		log.Debug("Consul: de-register service")
+		err := consulAgent.ServiceDeregister(appIDStr)
+		if err != nil {
+			log.Warnf("Consul: %s", err)
+		}
+	}()
 
 	app.Run("clickhouse_sinker", func() error {
 		cfg = *creator.InitConfig(*config)
