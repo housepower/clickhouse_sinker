@@ -14,8 +14,8 @@ CONSUL_ADDR=${CONSUL_ADDR:-"http://127.0.0.1:8500"}
 CONFIG=${CONFIG}
 TASK=${TASK}
 
-install -d ${CONFIG_DIR}
-install -d ${TASK_DIR}
+install -d "${CONFIG_DIR}"
+install -d "${TASK_DIR}"
 
 dict_to_json() {
   cat - | tr "'" '"' | sed 's/True/true/g' | sed 's/False/false/g'
@@ -29,7 +29,7 @@ cat <<EOF | dict_to_json >"${TASK_DIR}/task.json"
 ${TASK}
 EOF
 
-/usr/local/bin/clickhouse_sinker \
+exec /usr/local/bin/clickhouse_sinker \
   -conf "${CONFIG_DIR}" \
   -cpunum "${CPUNUM}" \
   -http-addr "${HTTP_ADDR}" \
