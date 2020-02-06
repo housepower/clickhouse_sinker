@@ -113,7 +113,7 @@ func (c *ClickHouse) Write(metrics []model.Metric) (err error) {
 		if shouldReconnect(err) {
 			_ = conn.ReConnect()
 		}
-		return nil
+		return err
 	}
 	return nil
 }
