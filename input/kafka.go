@@ -24,10 +24,11 @@ import (
 
 	"github.com/Shopify/sarama"
 	"github.com/heptiolabs/healthcheck"
+	"github.com/sundy-li/go_commons/log"
+
 	"github.com/housepower/clickhouse_sinker/health"
 	"github.com/housepower/clickhouse_sinker/prom"
-
-	"github.com/sundy-li/go_commons/log"
+	"github.com/housepower/clickhouse_sinker/statistics"
 )
 
 type ConsumerError struct {
@@ -181,14 +182,25 @@ type Consumer struct {
 }
 
 // Setup is run at the beginning of a new session, before ConsumeClaim
-func (consumer *Consumer) Setup(sarama.ConsumerGroupSession) error {
+func (consumer *Consumer) Setup(session sarama.ConsumerGroupSession) error {
+	statistics.UpdateRebalanceTotal(consumer.Name, 1)
+	for topic, partitions := range session.Claims() {
+		for _, partition := range partitions {
+			statistics.UpdateToppars(consumer.Name, topic, partition, 1)
+		}
+	}
 	// Mark the consumer as ready
 	close(consumer.ready)
 	return nil
 }
 
 // Cleanup is run at the end of a session, once all ConsumeClaim goroutines have exited
-func (consumer *Consumer) Cleanup(sarama.ConsumerGroupSession) error {
+func (consumer *Consumer) Cleanup(session sarama.ConsumerGroupSession) error {
+	for topic, partitions := range session.Claims() {
+		for _, partition := range partitions {
+			statistics.UpdateToppars(consumer.Name, topic, partition, 0)
+		}
+	}
 	return nil
 }
 
@@ -201,6 +213,9 @@ func (consumer *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, clai
 	for message := range claim.Messages() {
 		consumer.msgs <- message.Value
 		session.MarkMessage(message, "")
+		statistics.UpdateConsumeMsgsTotal(consumer.Name, message.Topic, message.Partition, 1)
+		statistics.UpdateOffsets(consumer.Name, message.Topic,
+			message.Partition, message.Offset)
 	}
 
 	return nil

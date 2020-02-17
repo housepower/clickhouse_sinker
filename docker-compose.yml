@@ -58,3 +58,8 @@ services:
       CH_PASSWORD: ""
     security_opt:
       - label:disable
+  consul:
+    image: consul:latest
+    restart: always
+    network_mode: host
+    command: "agent -dev -ui -client 0.0.0.0"

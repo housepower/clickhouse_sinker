@@ -12,3 +12,6 @@ lint:
 	golangci-lint run
 run: pre
 	go run bin/main.go -conf conf/
+
+docker-run:
+	docker run --net=host -e "CONFIG=`cat conf/config.json`" -e "TASK=`cat conf/tasks/logstash_sample.json`" --rm -it `docker build -q .`
