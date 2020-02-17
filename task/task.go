@@ -85,7 +85,7 @@ FOR:
 				tick = time.NewTicker(time.Duration(service.FlushInterval) * time.Second)
 			}
 		case <-tick.C:
-			log.Info(service.clickhouse.GetName() + " tick")
+			log.Infof("%s: tick", service.clickhouse.GetName())
 			if len(msgs) == 0 || len(msgs) < service.MinBufferSize {
 				continue
 			}
@@ -101,19 +101,19 @@ func (service *Service) parse(data []byte) model.Metric {
 	return service.p.Parse(data)
 }
 func (service *Service) flush(metrics []model.Metric) {
-	log.Info("buf size:", len(metrics))
+	log.Infof("%s: buf size:%d", service.clickhouse.GetName(), len(metrics))
 	service.clickhouse.LoopWrite(metrics)
 }
 
 // Stop stop kafak and clickhouse client
 func (service *Service) Stop() {
-	log.Info("close TaskService size:")
+	log.Infof("%s: close TaskService", service.clickhouse.GetName())
 	if err := service.kafka.Stop(); err != nil {
 		panic(err)
 	}
 	<-service.stopped
 	_ = service.clickhouse.Close()
-	log.Info("closed TaskService size:")
+	log.Infof("%s: closed TaskService", service.clickhouse.GetName())
 }
 
 // GoID returns go routine id 获取goroutine的id
