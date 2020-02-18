@@ -69,7 +69,8 @@ func NewKafka() *Kafka {
 
 // Init Initialise the kafka instance with configuration
 func (k *Kafka) Init() error {
-	k.msgs = make(chan []byte, 300000)
+	// DO NOT increase channel size, otherwise it will cause OOM
+	k.msgs = make(chan []byte, 1024)
 	k.stopped = make(chan struct{})
 	k.consumer = &Consumer{
 		Name:  k.Name,
