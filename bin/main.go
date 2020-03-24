@@ -182,7 +182,7 @@ func (s *Sinker) Init() error {
 // Run rull all tasks in different go routines
 func (s *Sinker) Run() {
 	if s.pusher != nil {
-		s.pusher.Run()
+		go s.pusher.Run()
 	}
 	for i := range s.tasks {
 		go s.tasks[i].Run()
