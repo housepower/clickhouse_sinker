@@ -127,7 +127,7 @@ type KafkaConfig struct {
 
 // ClickHouseConfig configuration parameters
 type ClickHouseConfig struct {
-	Db   string
+	DB   string
 	Host string
 	Port int
 
