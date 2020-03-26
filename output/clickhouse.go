@@ -35,7 +35,7 @@ import (
 type ClickHouse struct {
 	Name      string
 	TableName string
-	Db        string
+	DB        string
 	Host      string
 	Port      int
 
@@ -97,17 +97,17 @@ func (c *ClickHouse) Write(metrics []model.Metric) (err error) {
 
 	defer stmt.Close()
 	for _, metric := range metrics {
-		prom.ClickhouseEventsTotal.WithLabelValues(c.Db, c.TableName).Inc()
+		prom.ClickhouseEventsTotal.WithLabelValues(c.DB, c.TableName).Inc()
 		var args = make([]interface{}, len(c.dmMap))
 		for i, name := range c.dms {
 			args[i] = util.GetValueByType(metric, c.dmMap[name])
 		}
 		if _, err := stmt.Exec(args...); err != nil {
-			prom.ClickhouseEventsErrors.WithLabelValues(c.Db, c.TableName).Inc()
+			prom.ClickhouseEventsErrors.WithLabelValues(c.DB, c.TableName).Inc()
 			log.Error("execSQL:", err.Error())
 			return err
 		}
-		prom.ClickhouseEventsSuccess.WithLabelValues(c.Db, c.TableName).Inc()
+		prom.ClickhouseEventsSuccess.WithLabelValues(c.DB, c.TableName).Inc()
 	}
 	if err = tx.Commit(); err != nil {
 		if shouldReconnect(err) {
@@ -169,7 +169,7 @@ func (c *ClickHouse) initSchema() (err error) {
 	if c.AutoSchema {
 		conn := pool.GetConn(c.Host)
 		rs, err := conn.Query(fmt.Sprintf(
-			"select name, type from system.columns where database = '%s' and table = '%s'", c.Db, c.TableName))
+			"select name, type from system.columns where database = '%s' and table = '%s'", c.DB, c.TableName))
 		if err != nil {
 			return err
 		}
@@ -200,7 +200,7 @@ func (c *ClickHouse) initSchema() (err error) {
 	for i := range params {
 		params[i] = "?"
 	}
-	c.prepareSQL = "INSERT INTO " + c.Db + "." + c.TableName + " (" + strings.Join(c.dms, ",") + ") " +
+	c.prepareSQL = "INSERT INTO " + c.DB + "." + c.TableName + " (" + strings.Join(c.dms, ",") + ") " +
 		"VALUES (" + strings.Join(params, ",") + ")"
 
 	log.Info("Prepare sql=>", c.prepareSQL)
@@ -224,7 +224,7 @@ func (c *ClickHouse) initConn() (err error) {
 		}
 	}
 
-	var dsn = fmt.Sprintf("tcp://%s?database=%s&username=%s&password=%s", hosts[0], c.Db, c.Username, c.Password)
+	var dsn = fmt.Sprintf("tcp://%s?database=%s&username=%s&password=%s", hosts[0], c.DB, c.Username, c.Password)
 	if len(hosts) > 1 {
 		otherHosts := hosts[1:]
 		dsn += "&alt_hosts="
