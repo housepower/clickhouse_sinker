@@ -180,7 +180,7 @@ func (c *ClickHouse) initSchema() (err error) {
 		for rs.Next() {
 			_ = rs.Scan(&name, &typ, &defaultKind)
 			typ = lowCardinalityRegexp.ReplaceAllString(typ, "$1")
-			if !util.StringContains(c.ExcludeColumns, name) && defaultKind != "MATERIALIZED"  {
+			if !util.StringContains(c.ExcludeColumns, name) && defaultKind != "MATERIALIZED" {
 				c.Dims = append(c.Dims, &model.ColumnWithType{Name: name, Type: typ})
 			}
 		}
