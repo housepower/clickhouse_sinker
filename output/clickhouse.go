@@ -169,18 +169,18 @@ func (c *ClickHouse) initSchema() (err error) {
 	if c.AutoSchema {
 		conn := pool.GetConn(c.Host)
 		rs, err := conn.Query(fmt.Sprintf(
-			"select name, type from system.columns where database = '%s' and table = '%s'", c.DB, c.TableName))
+			"select name, type, default_kind from system.columns where database = '%s' and table = '%s'", c.DB, c.TableName))
 		if err != nil {
 			return err
 		}
 
 		c.Dims = make([]*model.ColumnWithType, 0, 10)
 		c.Metrics = make([]*model.ColumnWithType, 0, 10)
-		var name, typ string
+		var name, typ, defaultKind string
 		for rs.Next() {
-			_ = rs.Scan(&name, &typ)
+			_ = rs.Scan(&name, &typ, &defaultKind)
 			typ = lowCardinalityRegexp.ReplaceAllString(typ, "$1")
-			if !util.StringContains(c.ExcludeColumns, name) {
+			if !util.StringContains(c.ExcludeColumns, name) && defaultKind != "MATERIALIZED" {
 				c.Dims = append(c.Dims, &model.ColumnWithType{Name: name, Type: typ})
 			}
 		}
