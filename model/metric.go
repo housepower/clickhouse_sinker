@@ -33,6 +33,7 @@ type DimMetrics struct {
 
 // ColumnWithType
 type ColumnWithType struct {
-	Name string
-	Type string
+	Name       string
+	Type       string
+	KafkaField string
 }
