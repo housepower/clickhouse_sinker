@@ -25,7 +25,7 @@ import (
 func GetValueByType(metric model.Metric, cwt *model.ColumnWithType) interface{} {
 	swType := switchType(cwt.Type)
 	var name string
-	if name = strings.Replace(cwt.KafkaField, ".", "\\.", -1); name == "" {
+	if name = cwt.KafkaField; name == "" {
 		name = strings.Replace(cwt.Name, ".", "\\.", -1)
 	}
 	switch swType {
