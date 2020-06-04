@@ -24,7 +24,10 @@ import (
 // There are only three cases for the value type of metric, (float64, string, map [string] interface {})
 func GetValueByType(metric model.Metric, cwt *model.ColumnWithType) interface{} {
 	swType := switchType(cwt.Type)
-	name := strings.Replace(cwt.Name, ".", "\\.", -1)
+	var name string
+	if name = cwt.KafkaField; name == "" {
+		name = strings.Replace(cwt.Name, ".", "\\.", -1)
+	}
 	switch swType {
 	case "int":
 		return metric.GetInt(name)

@@ -1,0 +1,30 @@
+{
+  "name": "daily_request",
+  "kafka": "kfk",
+  "topic": "topic",
+  "earliest": true,
+  "consumerGroup": "group",
+  "parser": "gjson_extend",
+  "clickhouse": "ch",
+  "tableName": "daily",
+  "dims": [
+    {
+      "name": "day",
+      "type": "Date",
+      "kafkaField": "day"
+    },
+    {
+      "name": "level",
+      "type": "String",
+      "kafkaField": "data_level"
+    },
+    {
+      "name": "total",
+      "type": "UInt64",
+      "kafkaField": "data_total"
+    }
+  ],
+  "@desc_of_exclude_columns": "this columns will be excluded by insert SQL ",
+  "excludeColumns": [],
+  "bufferSize": 2
+}

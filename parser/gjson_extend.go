@@ -70,9 +70,9 @@ func injectObject(prefix string, result map[string]interface{}, t gjson.Result) 
 	t.ForEach(func(key gjson.Result, value gjson.Result) bool {
 		switch value.Type {
 		case gjson.JSON:
-			injectObject(prefix+"_"+key.String(), result, value)
+			injectObject(prefix+"."+key.String(), result, value)
 		default:
-			result[prefix+"_"+key.String()] = value.Value()
+			result[prefix+"."+key.String()] = value.Value()
 		}
 		return true
 	})
