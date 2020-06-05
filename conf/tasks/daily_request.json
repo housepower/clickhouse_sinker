@@ -11,17 +11,17 @@
     {
       "name": "day",
       "type": "Date",
-      "kafkaField": "day"
+      "sourceName": "day"
     },
     {
       "name": "level",
       "type": "String",
-      "kafkaField": "data_level"
+      "sourceName": "data_level"
     },
     {
       "name": "total",
       "type": "UInt64",
-      "kafkaField": "data_total"
+      "sourceName": "data_total"
     }
   ],
   "@desc_of_exclude_columns": "this columns will be excluded by insert SQL ",

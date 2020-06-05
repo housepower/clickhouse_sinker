@@ -35,5 +35,5 @@ type DimMetrics struct {
 type ColumnWithType struct {
 	Name       string
 	Type       string
-	KafkaField string
+	SourceName string
 }

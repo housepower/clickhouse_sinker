@@ -162,12 +162,12 @@ type Task struct {
 	Dims []struct {
 		Name       string
 		Type       string
-		KafkaField string
+		SourceName string
 	} `json:"dims"`
 	Metrics []struct {
 		Name       string
 		Type       string
-		KafkaField string
+		SourceName string
 	} `json:"metrics"`
 
 	FlushInterval int `json:"flushInterval,omitempty"`
