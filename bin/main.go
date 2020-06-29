@@ -44,7 +44,8 @@ var (
 	httpMetrcs = promhttp.Handler()
 	cfg        creator.Config
 	runner     *Sinker
-	ip, port   = parseAddr(*httpAddr)
+	ip         string
+	port       int
 	appID, _   = uuid.NewUUID()
 	appIDStr   = fmt.Sprintf("clickhouse_sinker-%s", appID.String())
 )
@@ -86,9 +87,12 @@ func serviceRegister(agent *api.Agent) {
 		log.Warnf("Consul: %s", err)
 	}
 }
+func init() {
+	flag.Parse()
+	ip, port = parseAddr(*httpAddr)
+}
 
 func main() {
-	flag.Parse()
 	consulConfig := api.DefaultConfig()
 	consulConfig.Address = *consulAddr
 	consulClient, _ := api.NewClient(consulConfig)
@@ -190,7 +194,7 @@ func (s *Sinker) Run() {
 	<-s.stopped
 }
 
-// Close shoutdown tasks
+// Close shutdown tasks
 func (s *Sinker) Close() {
 	for i := range s.tasks {
 		s.tasks[i].Stop()
