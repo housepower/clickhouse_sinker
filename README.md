@@ -27,7 +27,7 @@ Download the binary files from [release](https://github.com/housepower/clickhous
 * Go Get
 
 ```
-go get -u github.com/housepower/clickhouse_sinker
+go get -u github.com/housepower/clickhouse_sinker/...
 ```
 
 * Build && Run
