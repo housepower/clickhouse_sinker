@@ -60,9 +60,9 @@ func switchType(typ string) string {
 	case "Array(Date)", "Array(DateTime)", "Array(UInt8)", "Array(UInt16)", "Array(UInt32)",
 		"Array(UInt64)", "Array(Int8)", "Array(Int16)", "Array(Int32)", "Array(Int64)":
 		return "intArray"
-	case "String", "FixString", "Nullable(String)":
+	case "String", "FixedString", "Nullable(String)":
 		return "string"
-	case "Array(String)", "Array(FixString)":
+	case "Array(String)", "Array(FixedString)":
 		return "stringArray"
 	case "Float32", "Float64", "Nullable(Float32)", "Nullable(Float64)":
 		return "float"
