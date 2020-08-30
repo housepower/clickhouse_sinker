@@ -115,7 +115,7 @@ func TestGjsonExtend(t *testing.T) {
 	parser := NewParser("gjson_extend", nil, ",")
 	metric := parser.Parse(jsonSample)
 
-	arr := metric.GetArray("mp_a", "int").([]int64)
+	arr := metric.GetArray("mp.a", "int").([]int64)
 	expected := []int64{1, 2, 3}
 	for i := range arr {
 		assert.Equal(t, arr[i], expected[i])

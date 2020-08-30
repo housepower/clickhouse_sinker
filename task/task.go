@@ -33,6 +33,7 @@ import (
 
 // TaskService holds the configuration for each task
 type Service struct {
+	started    bool
 	stopped    chan struct{}
 	kafka      *input.Kafka
 	clickhouse *output.ClickHouse
@@ -52,6 +53,7 @@ func NewTaskService(kafka *input.Kafka, clickhouse *output.ClickHouse, p parser.
 		clickhouse: clickhouse,
 		p:          p,
 		Name:       kafka.Name,
+		started:    false,
 	}
 }
 
@@ -70,6 +72,7 @@ func (service *Service) Run() {
 	if err := service.kafka.Start(); err != nil {
 		panic(err)
 	}
+	service.started = true
 
 	log.Infof("TaskService %s TaskService has started", service.clickhouse.GetName())
 	tick := time.NewTicker(time.Duration(service.FlushInterval) * time.Second)
@@ -118,13 +121,17 @@ func (service *Service) flush(metrics []model.Metric) {
 	statistics.UpdateFlushTimespan(service.Name, start)
 }
 
-// Stop stop kafak and clickhouse client
+// Stop stop kafka and clickhouse client
 func (service *Service) Stop() {
 	log.Infof("%s: close TaskService", service.clickhouse.GetName())
 	if err := service.kafka.Stop(); err != nil {
 		panic(err)
 	}
-	<-service.stopped
+
+	if service.started {
+		<-service.stopped
+	}
+
 	_ = service.clickhouse.Close()
 	log.Infof("%s: closed TaskService", service.clickhouse.GetName())
 }

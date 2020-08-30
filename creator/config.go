@@ -160,12 +160,14 @@ type Task struct {
 	ExcludeColumns []string
 
 	Dims []struct {
-		Name string
-		Type string
+		Name       string
+		Type       string
+		SourceName string
 	} `json:"dims"`
 	Metrics []struct {
-		Name string
-		Type string
+		Name       string
+		Type       string
+		SourceName string
 	} `json:"metrics"`
 
 	FlushInterval int `json:"flushInterval,omitempty"`
