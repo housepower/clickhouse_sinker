@@ -16,11 +16,9 @@ limitations under the License.
 package parser
 
 import (
-	"time"
-
-	"github.com/tidwall/gjson"
-
 	"github.com/housepower/clickhouse_sinker/model"
+	"github.com/tidwall/gjson"
+	"time"
 )
 
 type GjsonParser struct {
@@ -29,11 +27,12 @@ type GjsonParser struct {
 func (c *GjsonParser) Parse(bs []byte) model.Metric {
 	jsonMetric := &GjsonMetric{string(bs), nil}
 	jsonMetric.init()
+
 	return jsonMetric
 }
 
 type GjsonMetric struct {
-	raw string
+	raw    string
 	mapObj map[string]gjson.Result
 }
 
@@ -53,6 +52,7 @@ func (c *GjsonMetric) GetArray(key string, t string) interface{} {
 		for _, s := range slice {
 			results = append(results, s.String())
 		}
+
 		return results
 
 	case "float":
@@ -61,6 +61,7 @@ func (c *GjsonMetric) GetArray(key string, t string) interface{} {
 		for _, s := range slice {
 			results = append(results, s.Float())
 		}
+
 		return results
 
 	case "int":
@@ -68,6 +69,7 @@ func (c *GjsonMetric) GetArray(key string, t string) interface{} {
 		for _, s := range slice {
 			results = append(results, s.Int())
 		}
+
 		return results
 
 	default:
@@ -93,9 +95,9 @@ func (c *GjsonMetric) GetElasticDateTime(key string) int64 {
 func (c *GjsonMetric) getObj(key string) gjson.Result {
 	if val, ok := c.mapObj[key]; ok {
 		return val
-	}else{
-		return gjson.Result{}
 	}
+
+	return gjson.Result{}
 }
 
 func (c *GjsonMetric) init() {

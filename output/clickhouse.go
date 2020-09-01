@@ -83,6 +83,7 @@ func (c *ClickHouse) Write(metrics []model.Metric) (err error) {
 		if shouldReconnect(err) {
 			_ = conn.ReConnect()
 		}
+
 		return err
 	}
 
@@ -93,6 +94,7 @@ func (c *ClickHouse) Write(metrics []model.Metric) (err error) {
 		if shouldReconnect(err) {
 			_ = conn.ReConnect()
 		}
+
 		return err
 	}
 
@@ -103,12 +105,12 @@ func (c *ClickHouse) Write(metrics []model.Metric) (err error) {
 	wg := sync.WaitGroup{}
 	for _, metric := range metrics {
 		wg.Add(1)
-		go func(metric *model.Metric) {
+		go func(metricp *model.Metric) {
 			defer wg.Done()
 			prom.ClickhouseEventsTotal.WithLabelValues(c.DB, c.TableName).Inc()
 			var args = make([]interface{}, len(c.dmMap))
 			for i, name := range c.dms {
-				args[i] = util.GetValueByType(*metric, c.dmMap[name])
+				args[i] = util.GetValueByType(*metricp, c.dmMap[name])
 			}
 			if _, err := stmt.Exec(args...); err != nil {
 				prom.ClickhouseEventsErrors.WithLabelValues(c.DB, c.TableName).Inc()
@@ -120,16 +122,13 @@ func (c *ClickHouse) Write(metrics []model.Metric) (err error) {
 		}(&metric)
 	}
 
-	go func() {
-		wg.Wait()
-		wgChan <- 1
-	}()
+	go func() { wg.Wait(); wgChan <- 1 }()
 
 	select {
-		case  err := <- errorChan:
-			return err
-		case <- wgChan:
-			close(errorChan)
+	case err := <-errorChan:
+		return err
+	case <-wgChan:
+		close(errorChan)
 	}
 
 	if err = tx.Commit(); err != nil {
