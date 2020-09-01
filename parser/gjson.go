@@ -27,23 +27,26 @@ type GjsonParser struct {
 }
 
 func (c *GjsonParser) Parse(bs []byte) model.Metric {
-	return &GjsonMetric{string(bs)}
+	jsonMetric := &GjsonMetric{string(bs), nil}
+	jsonMetric.init()
+	return jsonMetric
 }
 
 type GjsonMetric struct {
 	raw string
+	mapObj map[string]gjson.Result
 }
 
 func (c *GjsonMetric) Get(key string) interface{} {
-	return gjson.Get(c.raw, key).Value()
+	return c.getObj(key).Value()
 }
 
 func (c *GjsonMetric) GetString(key string) string {
-	return gjson.Get(c.raw, key).String()
+	return c.getObj(key).String()
 }
 
 func (c *GjsonMetric) GetArray(key string, t string) interface{} {
-	slice := gjson.Get(c.raw, key).Array()
+	slice := c.getObj(key).Array()
 	switch t {
 	case "string":
 		results := make([]string, 0, len(slice))
@@ -73,11 +76,11 @@ func (c *GjsonMetric) GetArray(key string, t string) interface{} {
 }
 
 func (c *GjsonMetric) GetFloat(key string) float64 {
-	return gjson.Get(c.raw, key).Float()
+	return c.getObj(key).Float()
 }
 
 func (c *GjsonMetric) GetInt(key string) int64 {
-	return gjson.Get(c.raw, key).Int()
+	return c.getObj(key).Int()
 }
 
 func (c *GjsonMetric) GetElasticDateTime(key string) int64 {
@@ -85,4 +88,17 @@ func (c *GjsonMetric) GetElasticDateTime(key string) int64 {
 	t, _ := time.Parse(time.RFC3339, val)
 
 	return t.Unix()
+}
+
+func (c *GjsonMetric) getObj(key string) gjson.Result {
+	if val, ok := c.mapObj[key]; ok {
+		return val
+	}else{
+		return gjson.Result{}
+	}
+}
+
+func (c *GjsonMetric) init() {
+	mapObj := gjson.Parse(c.raw).Map()
+	c.mapObj = mapObj
 }

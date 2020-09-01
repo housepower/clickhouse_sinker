@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/housepower/clickhouse_sinker/model"
@@ -96,19 +97,41 @@ func (c *ClickHouse) Write(metrics []model.Metric) (err error) {
 	}
 
 	defer stmt.Close()
+	errorChan := make(chan error)
+	wgChan := make(chan int)
+
+	wg := sync.WaitGroup{}
 	for _, metric := range metrics {
-		prom.ClickhouseEventsTotal.WithLabelValues(c.DB, c.TableName).Inc()
-		var args = make([]interface{}, len(c.dmMap))
-		for i, name := range c.dms {
-			args[i] = util.GetValueByType(metric, c.dmMap[name])
-		}
-		if _, err := stmt.Exec(args...); err != nil {
-			prom.ClickhouseEventsErrors.WithLabelValues(c.DB, c.TableName).Inc()
-			log.Error("execSQL:", err.Error())
-			return err
-		}
-		prom.ClickhouseEventsSuccess.WithLabelValues(c.DB, c.TableName).Inc()
+		wg.Add(1)
+		go func(metric *model.Metric) {
+			defer wg.Done()
+			prom.ClickhouseEventsTotal.WithLabelValues(c.DB, c.TableName).Inc()
+			var args = make([]interface{}, len(c.dmMap))
+			for i, name := range c.dms {
+				args[i] = util.GetValueByType(*metric, c.dmMap[name])
+			}
+			if _, err := stmt.Exec(args...); err != nil {
+				prom.ClickhouseEventsErrors.WithLabelValues(c.DB, c.TableName).Inc()
+				log.Error("execSQL:", err.Error())
+				errorChan <- err
+				return
+			}
+			prom.ClickhouseEventsSuccess.WithLabelValues(c.DB, c.TableName).Inc()
+		}(&metric)
 	}
+
+	go func() {
+		wg.Wait()
+		wgChan <- 1
+	}()
+
+	select {
+		case  err := <- errorChan:
+			return err
+		case <- wgChan:
+			close(errorChan)
+	}
+
 	if err = tx.Commit(); err != nil {
 		if shouldReconnect(err) {
 			_ = conn.ReConnect()
