@@ -198,10 +198,12 @@ func (c *ClickHouse) initAll() error {
 func (c *ClickHouse) initSchema() (err error) {
 	if c.AutoSchema {
 		conn := pool.GetConn(c.Host)
-		rs, err := conn.Query(fmt.Sprintf(
+		rs, _ := conn.Query(fmt.Sprintf(
 			"select name, type, default_kind from system.columns where database = '%s' and table = '%s'", c.DB, c.TableName))
-		if err != nil {
-			return err
+
+		defer rs.Close()
+		if err := rs.Err(); err != nil {
+			panic(err)
 		}
 
 		c.Dims = make([]*model.ColumnWithType, 0, 10)
@@ -215,7 +217,7 @@ func (c *ClickHouse) initSchema() (err error) {
 			}
 		}
 	}
-	//根据 dms 生成prepare的sql语句
+	// Generate prepare sql statement according to dms
 	c.dmMap = make(map[string]*model.ColumnWithType)
 	c.dms = make([]string, 0, len(c.Dims)+len(c.Metrics))
 	for i, d := range c.Dims {
