@@ -16,6 +16,7 @@ limitations under the License.
 package output
 
 import (
+	"database/sql"
 	"fmt"
 	"regexp"
 	"strings"
@@ -97,7 +98,6 @@ func (c *ClickHouse) Write(metrics []model.Metric) (err error) {
 
 		return err
 	}
-
 	defer stmt.Close()
 	errorChan := make(chan error)
 	wgChan := make(chan int)
@@ -105,21 +105,12 @@ func (c *ClickHouse) Write(metrics []model.Metric) (err error) {
 	wg := sync.WaitGroup{}
 	for _, metric := range metrics {
 		wg.Add(1)
-		go func(metricp *model.Metric) {
+		go func(metric model.Metric) {
 			defer wg.Done()
-			prom.ClickhouseEventsTotal.WithLabelValues(c.DB, c.TableName).Inc()
-			var args = make([]interface{}, len(c.dmMap))
-			for i, name := range c.dms {
-				args[i] = util.GetValueByType(*metricp, c.dmMap[name])
-			}
-			if _, err := stmt.Exec(args...); err != nil {
-				prom.ClickhouseEventsErrors.WithLabelValues(c.DB, c.TableName).Inc()
-				log.Error("execSQL:", err.Error())
+			if err := c.addExecData(metric, stmt); err != nil {
 				errorChan <- err
-				return
 			}
-			prom.ClickhouseEventsSuccess.WithLabelValues(c.DB, c.TableName).Inc()
-		}(&metric)
+		}(metric)
 	}
 
 	go func() { wg.Wait(); wgChan <- 1 }()
@@ -137,6 +128,23 @@ func (c *ClickHouse) Write(metrics []model.Metric) (err error) {
 		}
 		return err
 	}
+	return nil
+}
+
+func (c *ClickHouse) addExecData(metric model.Metric, stmt *sql.Stmt) error {
+	prom.ClickhouseEventsTotal.WithLabelValues(c.DB, c.TableName).Inc()
+	var args = make([]interface{}, len(c.dmMap))
+	for i, name := range c.dms {
+		args[i] = util.GetValueByType(metric, c.dmMap[name])
+	}
+	if _, err := stmt.Exec(args...); err != nil {
+		prom.ClickhouseEventsErrors.WithLabelValues(c.DB, c.TableName).Inc()
+		log.Error("execSQL:", err.Error())
+
+		return err
+	}
+	prom.ClickhouseEventsSuccess.WithLabelValues(c.DB, c.TableName).Inc()
+
 	return nil
 }
 
