@@ -1,6 +1,6 @@
 {
   "name": "daily_request",
-  "kafka": "kfk",
+  "kafka": "kfk1",
   "topic": "topic",
   "earliest": true,
   "consumerGroup": "group",
