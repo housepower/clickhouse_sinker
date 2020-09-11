@@ -18,6 +18,7 @@ package parser
 import (
 	"github.com/housepower/clickhouse_sinker/model"
 	"github.com/tidwall/gjson"
+	"sync"
 	"time"
 )
 
@@ -25,15 +26,15 @@ type GjsonParser struct {
 }
 
 func (c *GjsonParser) Parse(bs []byte) model.Metric {
-	jsonMetric := &GjsonMetric{string(bs), nil}
-	jsonMetric.init()
+	jsonMetric := &GjsonMetric{}
+	jsonMetric.init(string(bs))
 
 	return jsonMetric
 }
 
 type GjsonMetric struct {
 	raw    string
-	mapObj map[string]gjson.Result
+	objPool    sync.Pool
 }
 
 func (c *GjsonMetric) Get(key string) interface{} {
@@ -88,19 +89,25 @@ func (c *GjsonMetric) GetInt(key string) int64 {
 func (c *GjsonMetric) GetElasticDateTime(key string) int64 {
 	val := c.GetString(key)
 	t, _ := time.Parse(time.RFC3339, val)
-
 	return t.Unix()
 }
 
 func (c *GjsonMetric) getObj(key string) gjson.Result {
-	if val, ok := c.mapObj[key]; ok {
+	mapObj := c.objPool.Get().(map[string]gjson.Result)
+	c.objPool.Put(mapObj)
+	if val, ok := mapObj[key]; ok {
 		return val
 	}
-
 	return gjson.Result{}
 }
 
-func (c *GjsonMetric) init() {
-	mapObj := gjson.Parse(c.raw).Map()
-	c.mapObj = mapObj
+func (c *GjsonMetric) init(raw string) {
+	c.raw = raw
+	c.objPool = sync.Pool{
+		New: func() interface {} {
+			mapObj := gjson.Parse(c.raw).Map()
+			//println(MD5(c.raw), "  :  ", time.Now().UnixNano())
+			return mapObj
+		},
+	}
 }

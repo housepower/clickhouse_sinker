@@ -17,6 +17,7 @@ package output
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -77,14 +78,12 @@ func (c *ClickHouse) Write(metrics []model.Metric) (err error) {
 	if len(metrics) == 0 {
 		return
 	}
-
 	conn := pool.GetConn(c.Host)
 	tx, err := conn.Begin()
 	if err != nil {
 		if shouldReconnect(err) {
 			_ = conn.ReConnect()
 		}
-
 		return err
 	}
 
@@ -95,33 +94,27 @@ func (c *ClickHouse) Write(metrics []model.Metric) (err error) {
 		if shouldReconnect(err) {
 			_ = conn.ReConnect()
 		}
-
 		return err
 	}
 	defer stmt.Close()
-	errorChan := make(chan error)
-	wgChan := make(chan int)
-
 	wg := sync.WaitGroup{}
-	for _, metric := range metrics {
+	var syncmap sync.Map
+	for index, metric := range metrics {
 		wg.Add(1)
-		go func(metric model.Metric) {
+		go func(metric model.Metric, metricMap *sync.Map, index int) {
 			defer wg.Done()
-			if err := c.addExecData(metric, stmt); err != nil {
-				errorChan <- err
+			var args = make([]interface{}, len(c.dmMap))
+			for i, name := range c.dms {
+				args[i] = util.GetValueByType(metric, c.dmMap[name])
 			}
-		}(metric)
+			metricMap.Store(string(index), args)
+		}(metric, &syncmap, index)
 	}
 
-	go func() { wg.Wait(); wgChan <- 1 }()
-
-	select {
-	case err := <-errorChan:
+	wg.Wait()
+	if err := c.addExecData(&syncmap, stmt, len(metrics)); err != nil {
 		return err
-	case <-wgChan:
-		close(errorChan)
 	}
-
 	if err = tx.Commit(); err != nil {
 		if shouldReconnect(err) {
 			_ = conn.ReConnect()
@@ -131,19 +124,25 @@ func (c *ClickHouse) Write(metrics []model.Metric) (err error) {
 	return nil
 }
 
-func (c *ClickHouse) addExecData(metric model.Metric, stmt *sql.Stmt) error {
-	prom.ClickhouseEventsTotal.WithLabelValues(c.DB, c.TableName).Inc()
-	var args = make([]interface{}, len(c.dmMap))
-	for i, name := range c.dms {
-		args[i] = util.GetValueByType(metric, c.dmMap[name])
-	}
-	if _, err := stmt.Exec(args...); err != nil {
-		prom.ClickhouseEventsErrors.WithLabelValues(c.DB, c.TableName).Inc()
-		log.Error("execSQL:", err.Error())
+func (c *ClickHouse) addExecData(metrics *sync.Map, stmt *sql.Stmt, size int) error {
 
-		return err
+	for i := 0; i < size; i++ {
+		if args, ok := metrics.Load(string(i)); ok {
+			prom.ClickhouseEventsTotal.WithLabelValues(c.DB, c.TableName).Inc()
+			if _, err := stmt.Exec(args.([]interface{})...); err != nil {
+				prom.ClickhouseEventsErrors.WithLabelValues(c.DB, c.TableName).Inc()
+				log.Error("execSQL:", err.Error())
+				return err
+			}
+			prom.ClickhouseEventsSuccess.WithLabelValues(c.DB, c.TableName).Inc()
+		} else {
+			err := errors.New("Data insertion order error")
+			log.Error("Parsing:", err.Error())
+			return err
+		}
+
 	}
-	prom.ClickhouseEventsSuccess.WithLabelValues(c.DB, c.TableName).Inc()
+
 
 	return nil
 }
@@ -198,12 +197,10 @@ func (c *ClickHouse) initAll() error {
 func (c *ClickHouse) initSchema() (err error) {
 	if c.AutoSchema {
 		conn := pool.GetConn(c.Host)
-		rs, _ := conn.Query(fmt.Sprintf(
+		rs, err := conn.Query(fmt.Sprintf(
 			"select name, type, default_kind from system.columns where database = '%s' and table = '%s'", c.DB, c.TableName))
-
-		defer rs.Close()
-		if err := rs.Err(); err != nil {
-			panic(err)
+		if err != nil {
+			return err
 		}
 
 		c.Dims = make([]*model.ColumnWithType, 0, 10)
