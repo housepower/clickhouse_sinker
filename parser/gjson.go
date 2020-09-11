@@ -33,8 +33,8 @@ func (c *GjsonParser) Parse(bs []byte) model.Metric {
 }
 
 type GjsonMetric struct {
-	raw    string
-	objPool    sync.Pool
+	raw     string
+	objPool sync.Pool
 }
 
 func (c *GjsonMetric) Get(key string) interface{} {
@@ -104,7 +104,7 @@ func (c *GjsonMetric) getObj(key string) gjson.Result {
 func (c *GjsonMetric) init(raw string) {
 	c.raw = raw
 	c.objPool = sync.Pool{
-		New: func() interface {} {
+		New: func() interface{} {
 			mapObj := gjson.Parse(c.raw).Map()
 			//println(MD5(c.raw), "  :  ", time.Now().UnixNano())
 			return mapObj

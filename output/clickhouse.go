@@ -17,7 +17,6 @@ package output
 
 import (
 	"database/sql"
-	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -33,6 +32,11 @@ import (
 	"github.com/sundy-li/go_commons/log"
 	"github.com/sundy-li/go_commons/utils"
 )
+
+type cleanError struct {}
+func (m *cleanError) Error() string {
+	return "Data insertion order error"
+}
 
 // ClickHouse is an output service consumers from kafka messages
 type ClickHouse struct {
@@ -79,6 +83,7 @@ func (c *ClickHouse) Write(metrics []model.Metric) (err error) {
 		return
 	}
 	conn := pool.GetConn(c.Host)
+	defer conn.Close()
 	tx, err := conn.Begin()
 	if err != nil {
 		if shouldReconnect(err) {
@@ -136,13 +141,11 @@ func (c *ClickHouse) addExecData(metrics *sync.Map, stmt *sql.Stmt, size int) er
 			}
 			prom.ClickhouseEventsSuccess.WithLabelValues(c.DB, c.TableName).Inc()
 		} else {
-			err := errors.New("Data insertion order error")
+			err :=  &cleanError{}
 			log.Error("Parsing:", err.Error())
 			return err
 		}
-
 	}
-
 
 	return nil
 }
@@ -197,9 +200,14 @@ func (c *ClickHouse) initAll() error {
 func (c *ClickHouse) initSchema() (err error) {
 	if c.AutoSchema {
 		conn := pool.GetConn(c.Host)
-		rs, err := conn.Query(fmt.Sprintf(
-			"select name, type, default_kind from system.columns where database = '%s' and table = '%s'", c.DB, c.TableName))
+		defer conn.Close()
+		getSchemaSql := fmt.Sprintf(
+			"select name, type, default_kind from system.columns where database = '%s' and table = '%s'", c.DB, c.TableName)
+		rs, err := conn.Query(getSchemaSql)
 		if err != nil {
+			return err
+		}
+		if err:= rs.Err(); err != nil {
 			return err
 		}
 
