@@ -201,9 +201,8 @@ func (c *ClickHouse) initSchema() (err error) {
 	if c.AutoSchema {
 		conn := pool.GetConn(c.Host)
 		defer conn.Close()
-		getSchemaSql := fmt.Sprintf(
-			"select name, type, default_kind from system.columns where database = '%s' and table = '%s'", c.DB, c.TableName)
-		rs, err := conn.Query(getSchemaSql)
+		rs, err := conn.Query(fmt.Sprintf(
+			"select name, type, default_kind from system.columns where database = '%s' and table = '%s'", c.DB, c.TableName))
 		if err != nil {
 			return err
 		}
