@@ -16,10 +16,11 @@ limitations under the License.
 package parser
 
 import (
-	"github.com/housepower/clickhouse_sinker/model"
-	"github.com/tidwall/gjson"
 	"sync"
 	"time"
+
+	"github.com/housepower/clickhouse_sinker/model"
+	"github.com/tidwall/gjson"
 )
 
 type GjsonParser struct {
