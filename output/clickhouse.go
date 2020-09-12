@@ -33,7 +33,8 @@ import (
 	"github.com/sundy-li/go_commons/utils"
 )
 
-type cleanError struct {}
+type cleanError struct{}
+
 func (m *cleanError) Error() string {
 	return "Data insertion order error"
 }
@@ -83,7 +84,6 @@ func (c *ClickHouse) Write(metrics []model.Metric) (err error) {
 		return
 	}
 	conn := pool.GetConn(c.Host)
-	defer conn.Close()
 	tx, err := conn.Begin()
 	if err != nil {
 		if shouldReconnect(err) {
@@ -130,7 +130,6 @@ func (c *ClickHouse) Write(metrics []model.Metric) (err error) {
 }
 
 func (c *ClickHouse) addExecData(metrics *sync.Map, stmt *sql.Stmt, size int) error {
-
 	for i := 0; i < size; i++ {
 		if args, ok := metrics.Load(string(i)); ok {
 			prom.ClickhouseEventsTotal.WithLabelValues(c.DB, c.TableName).Inc()
@@ -141,7 +140,7 @@ func (c *ClickHouse) addExecData(metrics *sync.Map, stmt *sql.Stmt, size int) er
 			}
 			prom.ClickhouseEventsSuccess.WithLabelValues(c.DB, c.TableName).Inc()
 		} else {
-			err :=  &cleanError{}
+			err := &cleanError{}
 			log.Error("Parsing:", err.Error())
 			return err
 		}
@@ -200,13 +199,12 @@ func (c *ClickHouse) initAll() error {
 func (c *ClickHouse) initSchema() (err error) {
 	if c.AutoSchema {
 		conn := pool.GetConn(c.Host)
-		defer conn.Close()
 		rs, err := conn.Query(fmt.Sprintf(
 			"select name, type, default_kind from system.columns where database = '%s' and table = '%s'", c.DB, c.TableName))
 		if err != nil {
 			return err
 		}
-		if err:= rs.Err(); err != nil {
+		if err := rs.Err(); err != nil {
 			return err
 		}
 
