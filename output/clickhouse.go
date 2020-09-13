@@ -112,7 +112,7 @@ func (c *ClickHouse) Write(metrics []model.Metric) (err error) {
 			for i, name := range c.dms {
 				args[i] = util.GetValueByType(metric, c.dmMap[name])
 			}
-			metricMap.Store(string(index), args)
+			metricMap.Store(index, args)
 		}(metric, &syncmap, index)
 	}
 
@@ -131,7 +131,7 @@ func (c *ClickHouse) Write(metrics []model.Metric) (err error) {
 
 func (c *ClickHouse) addExecData(metrics *sync.Map, stmt *sql.Stmt, size int) error {
 	for i := 0; i < size; i++ {
-		if args, ok := metrics.Load(string(i)); ok {
+		if args, ok := metrics.Load(i); ok {
 			prom.ClickhouseEventsTotal.WithLabelValues(c.DB, c.TableName).Inc()
 			if _, err := stmt.Exec(args.([]interface{})...); err != nil {
 				prom.ClickhouseEventsErrors.WithLabelValues(c.DB, c.TableName).Inc()
