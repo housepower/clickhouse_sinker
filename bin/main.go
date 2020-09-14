@@ -195,7 +195,6 @@ func (s *Sinker) Run() {
 	if s.pusher != nil {
 		go s.pusher.Run()
 	}
-	
 	for i := range s.tasks {
 		go s.tasks[i].Run()
 	}
