@@ -16,7 +16,7 @@ linters-settings:
     check-blank: false
 
   funlen:
-    lines: 60
+    lines: 512
     statements: 40
 
 linters:
