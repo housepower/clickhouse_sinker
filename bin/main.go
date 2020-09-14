@@ -20,8 +20,8 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"strconv"
 	"net/http/pprof"
+	"strconv"
 
 	"github.com/google/uuid"
 	"github.com/hashicorp/consul/api"
