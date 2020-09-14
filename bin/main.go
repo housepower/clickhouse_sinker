@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/pprof"
 	"strconv"
 
 	"github.com/google/uuid"
@@ -138,6 +139,12 @@ func main() {
 			mux.HandleFunc("/ready", health.Health.ReadyEndpoint) // GET /ready?full=1
 			mux.HandleFunc("/live", health.Health.LiveEndpoint)   // GET /live?full=1
 
+			mux.HandleFunc("/debug/pprof/", pprof.Index)
+			mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+			mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+			mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+			mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+
 			log.Infof("Run http server http://%s", *httpAddr)
 			log.Error(http.ListenAndServe(*httpAddr, mux))
 		}()
@@ -188,6 +195,7 @@ func (s *Sinker) Run() {
 	if s.pusher != nil {
 		go s.pusher.Run()
 	}
+	
 	for i := range s.tasks {
 		go s.tasks[i].Run()
 	}
