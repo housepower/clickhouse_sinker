@@ -41,6 +41,8 @@ var jsonSample = []byte(`{
 	"date": "2019-12-16T12:10:30Z"
 }`)
 
+var jsonSample2 = []byte(`{"time":"2020-08-17 00:00:00","timestamp":1597593600000,"item_guid":"bus070_ins062","metric_name":"CPU繁忙率","alg_name":"Ripple","value":60,"upper":100,"lower":60,"yhat_upper":100,"yhat_lower":60,"yhat_flag":23655,"total_anomaly":61357,"anomaly":0.3,"abnormal_type":22,"abnormality":913,"container_id":39929,"hard_upper":100,"hard_lower":60,"hard_anomaly":39371,"shift_tag":38292,"season_tag":56340,"spike_tag":13231,"is_missing":0}`)
+
 func BenchmarkUnmarshalljson(b *testing.B) {
 	mp := map[string]interface{}{}
 	for i := 0; i < b.N; i++ {
@@ -112,12 +114,21 @@ func BenchmarkUnmarshalGabon2(b *testing.B) {
 func TestGjsonExtend(t *testing.T) {
 	// mp := map[string]interface{}{}
 	// var p fastjson.Parser
-	parser := NewParser("gjson_extend", nil, ",")
-	metric := parser.Parse(jsonSample)
+	parser := NewParser("gjson_extend", nil, ",", nil)
+	metric, _ := parser.Parse(jsonSample)
 
 	arr := metric.GetArray("mp.a", "int").([]int64)
 	expected := []int64{1, 2, 3}
 	for i := range arr {
 		assert.Equal(t, arr[i], expected[i])
 	}
+}
+
+func TestFastJson(t *testing.T) {
+	parser := NewParser("fastjson", nil, ",", nil)
+	metric, _ := parser.Parse(jsonSample2)
+
+	arr := metric.GetInt("timestamp")
+	expected := int64(1597593600000)
+	assert.Equal(t, arr, expected)
 }

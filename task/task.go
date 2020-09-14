@@ -16,16 +16,15 @@ limitations under the License.
 package task
 
 import (
+	"context"
 	"fmt"
 	"runtime"
 	"strconv"
 	"strings"
-	"time"
 
+	"github.com/housepower/clickhouse_sinker/config"
 	"github.com/housepower/clickhouse_sinker/input"
-	"github.com/housepower/clickhouse_sinker/model"
 	"github.com/housepower/clickhouse_sinker/output"
-	"github.com/housepower/clickhouse_sinker/parser"
 	"github.com/housepower/clickhouse_sinker/statistics"
 
 	"github.com/sundy-li/go_commons/log"
@@ -37,103 +36,69 @@ type Service struct {
 	stopped    chan struct{}
 	kafka      *input.Kafka
 	clickhouse *output.ClickHouse
-	p          parser.Parser
-
-	Name          string
-	FlushInterval int
-	BufferSize    int
-	MinBufferSize int
+	taskCfg    *config.TaskConfig
 }
 
 // NewTaskService creates an instance of new tasks with kafka, clickhouse and paser instances
-func NewTaskService(kafka *input.Kafka, clickhouse *output.ClickHouse, p parser.Parser) *Service {
+func NewTaskService(kafka *input.Kafka, clickhouse *output.ClickHouse, taskCfg *config.TaskConfig) *Service {
 	return &Service{
 		stopped:    make(chan struct{}),
 		kafka:      kafka,
 		clickhouse: clickhouse,
-		p:          p,
-		Name:       kafka.Name,
 		started:    false,
+		taskCfg:    taskCfg,
 	}
 }
 
 // Init initializes the kafak and clickhouse task associated with this service
 
-func (service *Service) Init() error {
-	err := service.kafka.Init()
-	if err != nil {
-		return err
+func (service *Service) Init() (err error) {
+	if err = service.clickhouse.Init(); err != nil {
+		return
 	}
-	return service.clickhouse.Init()
+	err = service.kafka.Init(service.clickhouse.Dims)
+	return
 }
 
 // Run starts the task
-func (service *Service) Run() {
-	if err := service.kafka.Start(); err != nil {
-		panic(err)
-	}
+func (service *Service) Run(ctx context.Context) {
 	service.started = true
-
-	log.Infof("TaskService %s TaskService has started", service.clickhouse.GetName())
-	tick := time.NewTicker(time.Duration(service.FlushInterval) * time.Second)
-	msgs := make([]model.Metric, 0, service.BufferSize)
-	statistics.UpdateTasks(service.Name)
-FOR:
+	log.Infof("task %s has started", service.taskCfg.Name)
+	statistics.UpdateTasks(service.taskCfg.Name)
+	go service.kafka.Run(ctx)
+FOO:
 	for {
 		select {
-		case msg, more := <-service.kafka.Msgs():
-			if !more {
-				break FOR
-			}
-			msgs = append(msgs, service.parse(msg))
-			if len(msgs) >= service.BufferSize {
-				service.flush(msgs)
-				msgs = msgs[:0]
-				tick = time.NewTicker(time.Duration(service.FlushInterval) * time.Second)
-			}
-		case <-tick.C:
-			log.Infof("%s: tick", service.clickhouse.GetName())
-			if len(msgs) == 0 || len(msgs) < service.MinBufferSize {
-				continue
-			}
-			service.flush(msgs)
-			msgs = msgs[:0]
+		case <-ctx.Done():
+			break FOO
+		case batch := <-service.kafka.BatchCh():
+			service.flush(batch)
 		}
 	}
-	service.flush(msgs)
 	service.stopped <- struct{}{}
 }
 
-func (service *Service) parse(data []byte) model.Metric {
-	start := time.Now()
-	res := service.p.Parse(data)
-	statistics.UpdateParseTimespan(service.Name, start)
-	statistics.UpdateParseInMsgsTotal(service.Name, 1)
-	statistics.UpdateParseOutMsgsTotal(service.Name, 1)
-	return res
-}
-
-func (service *Service) flush(metrics []model.Metric) {
-	start := time.Now()
-	log.Infof("%s: buf size:%d", service.clickhouse.GetName(), len(metrics))
-	service.clickhouse.LoopWrite(metrics)
-	statistics.UpdateFlushMsgsTotal(service.Name, len(metrics))
-	statistics.UpdateFlushTimespan(service.Name, start)
+func (service *Service) flush(batch input.Batch) {
+	log.Infof("%s: buf size:%d", service.taskCfg.Name, len(batch.MsgRows))
+	service.clickhouse.Send(batch)
+	statistics.UpdateFlushMsgsTotal(service.taskCfg.Name, len(batch.MsgRows))
 }
 
 // Stop stop kafka and clickhouse client
 func (service *Service) Stop() {
-	log.Infof("%s: close TaskService", service.clickhouse.GetName())
+	log.Infof("%s: stopping task...", service.taskCfg.Name)
 	if err := service.kafka.Stop(); err != nil {
 		panic(err)
 	}
+	log.Infof("%s: stopped kafka", service.taskCfg.Name)
+
+	_ = service.clickhouse.Close()
+	log.Infof("%s: closed clickhouse", service.taskCfg.Name)
 
 	if service.started {
 		<-service.stopped
 	}
-
-	_ = service.clickhouse.Close()
-	log.Infof("%s: closed TaskService", service.clickhouse.GetName())
+	log.Infof("%s: got notify from service.stopped", service.taskCfg.Name)
 }
 
 // GoID returns go routine id 获取goroutine的id

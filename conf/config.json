@@ -23,7 +23,9 @@
   "common": {
     "bufferSize": 90000,
     "minBufferSize": 2000,
+    "msgSizeHint": 1000,
     "flushInterval": 5,
+    "concurrentParsers": 6,
     "logLevel": "debug"
   }
 }

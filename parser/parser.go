@@ -22,18 +22,18 @@ import (
 
 // Parse is the Parser interface
 type Parser interface {
-	Parse(bs []byte) model.Metric
+	Parse(bs []byte) (metric model.Metric, err error)
 }
 
 // NewParser is a factory method to generate new parse
-func NewParser(typ string, title []string, delimiter string) Parser {
-	switch typ {
+func NewParser(name string, csvFormat []string, delimiter string) Parser {
+	switch name {
 	case "json", "gjson":
 		return &GjsonParser{}
 	case "fastjson":
 		return &FastjsonParser{}
 	case "csv":
-		return &CsvParser{title: title, delimiter: delimiter}
+		return &CsvParser{title: csvFormat, delimiter: delimiter}
 	case "gjson_extend": //extend gjson that could extract the map
 		return &GjsonExtendParser{}
 	default:

@@ -17,207 +17,249 @@ package input
 
 import (
 	"context"
-	"fmt"
+	"io"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
-	"github.com/Shopify/sarama"
-	"github.com/heptiolabs/healthcheck"
+	"github.com/fagongzi/goetty"
+	"github.com/gammazero/workerpool"
+	"github.com/pkg/errors"
+	"github.com/segmentio/kafka-go"
 	"github.com/sundy-li/go_commons/log"
+	"golang.org/x/time/rate"
 
-	"github.com/housepower/clickhouse_sinker/health"
-	"github.com/housepower/clickhouse_sinker/prom"
-	"github.com/housepower/clickhouse_sinker/statistics"
+	"github.com/housepower/clickhouse_sinker/config"
+	"github.com/housepower/clickhouse_sinker/model"
+	"github.com/housepower/clickhouse_sinker/parser"
 )
-
-type ConsumerError struct {
-	UnixTime int64
-	Error    error
-}
-
-var kafkaConsumerErrors sync.Map
 
 // Kafka reader configuration
 type Kafka struct {
-	client  sarama.ConsumerGroup
-	stopped chan struct{}
-	msgs    chan []byte
+	taskCfg     *config.TaskConfig
+	parser      parser.Parser
+	dims        []*model.ColumnWithType
+	r           *kafka.Reader
+	mux         sync.Mutex
+	rings       []*Ring
+	batchCh     chan Batch
+	tw          *goetty.TimeoutWheel
+	stopped     chan struct{}
+	ctx         context.Context
+	limiter     *rate.Limiter
+	cntParseErr int64
+}
 
-	Name          string
-	Version       string
-	Earliest      bool
-	Brokers       string
-	ConsumerGroup string
-	Topic         string
+type Ring struct {
+	mux              sync.Mutex //protect ring*
+	ringBuf          []MsgRow
+	ringCap          int64 //message is allowed to insert into the ring if its offset in inside [ringGroundOff, ringGroundOff+ringCap)
+	ringGroundOff    int64 //min message offset inside the ring
+	ringCeilingOff   int64 //1 + max message offset inside the ring
+	ringFilledOffset int64 //every message which's offset inside range [ringGroundOff, ringFilledOffset) is in the ring
+	tid              goetty.Timeout
+	kafka            *Kafka //point back to who hold this ring
+}
 
-	Sasl struct {
-		Username string
-		Password string
+type MsgRow struct {
+	Msg *kafka.Message
+	Row []interface{}
+}
+
+type Batch struct {
+	MsgRows []MsgRow
+	kafka   *Kafka //point back to who hold this ring
+}
+
+func NewBatch(batchSize int, k *Kafka) (batch Batch) {
+	return Batch{
+		MsgRows: make([]MsgRow, batchSize),
+		kafka:   k,
 	}
+}
 
-	consumer *Consumer
-	context  context.Context
-	cancel   context.CancelFunc
-	wg       sync.WaitGroup
+func (batch Batch) Free() (err error) {
+	msgs := make([]kafka.Message, len(batch.MsgRows))
+	for i, msgRow := range batch.MsgRows {
+		msgs[i] = *msgRow.Msg
+	}
+	if err = batch.kafka.r.CommitMessages(batch.kafka.ctx, msgs...); err != nil {
+		err = errors.Wrap(err, "")
+	}
+	return
 }
 
 // NewKafka get instance of kafka reader
-func NewKafka() *Kafka {
-	return &Kafka{}
+func NewKafka(taskCfg *config.TaskConfig, parser parser.Parser) *Kafka {
+	return &Kafka{taskCfg: taskCfg, parser: parser}
 }
 
 // Init Initialise the kafka instance with configuration
-func (k *Kafka) Init() error {
-	// DO NOT increase channel size, otherwise it will cause OOM
-	k.msgs = make(chan []byte, 1024)
+func (k *Kafka) Init(dims []*model.ColumnWithType) error {
+	cfg := config.GetConfig()
+	kfkCfg := cfg.Kafka[k.taskCfg.Kafka]
 	k.stopped = make(chan struct{})
-	k.consumer = &Consumer{
-		Name:  k.Name,
-		msgs:  k.msgs,
-		ready: make(chan bool),
-	}
-	k.context, k.cancel = context.WithCancel(context.Background())
+	k.dims = dims
+	k.r = kafka.NewReader(kafka.ReaderConfig{
+		Brokers:  strings.Split(kfkCfg.Brokers, ","),
+		GroupID:  k.taskCfg.ConsumerGroup,
+		Topic:    k.taskCfg.Topic,
+		MinBytes: k.taskCfg.MinBufferSize * k.taskCfg.MsgSizeHint,
+		MaxBytes: k.taskCfg.BufferSize * k.taskCfg.MsgSizeHint,
+		MaxWait:  time.Duration(k.taskCfg.FlushInterval) * time.Second,
+	})
+	k.rings = make([]*Ring, 0)
+	k.batchCh = make(chan Batch, 32)
+	k.tw = goetty.NewTimeoutWheel(goetty.WithTickInterval(100 * time.Millisecond))
+	k.limiter = rate.NewLimiter(rate.Every(30*time.Second), 1)
 	return nil
 }
 
-// Msgs returns the message from kafka
-func (k *Kafka) Msgs() chan []byte {
-	return k.msgs
+func (k *Kafka) BatchCh() chan Batch {
+	return k.batchCh
 }
 
-func ConsumerHealthCheck(consumerName string) healthcheck.Check {
-	return func() error {
-		result, _ := kafkaConsumerErrors.Load(consumerName)
-		v := result.(ConsumerError)
-		thresholdTime := v.UnixTime + 5 // sec
-		if v.Error != nil && thresholdTime > time.Now().Unix() {
-			return v.Error
-		}
-		return nil
-	}
-}
-
-// Start start kafka consumer, uses saram library
-func (k *Kafka) Start() error {
-	config := sarama.NewConfig()
-
-	if k.Version != "" {
-		version, err := sarama.ParseKafkaVersion(k.Version)
-		if err != nil {
-			return err
-		}
-		config.Version = version
-	}
-	// sarama.Logger = log.New(os.Stdout, "[sarama] ", log.LstdFlags)
-	// check for authentication
-	if k.Sasl.Username != "" {
-		config.Net.SASL.Enable = true
-		config.Net.SASL.User = k.Sasl.Username
-		config.Net.SASL.Password = k.Sasl.Password
-	}
-	if k.Earliest { // set to read the oldest message from last commit point
-		config.Consumer.Offsets.Initial = sarama.OffsetOldest
-	}
-
-	log.Info("start to dial kafka ", k.Brokers)
-	client, err := sarama.NewConsumerGroup(strings.Split(k.Brokers, ","), k.ConsumerGroup, config)
-	if err != nil {
-		return err
-	}
-
-	k.client = client
-
-	k.wg.Add(1)
-	go func() {
-		defer k.wg.Done()
-
-		consumerName := fmt.Sprintf("kafka_consumer(%s, %s)", k.ConsumerGroup, k.Topic)
-		kafkaConsumerErrors.Store(consumerName, ConsumerError{UnixTime: 0, Error: nil})
-		health.Health.AddReadinessCheck(consumerName, ConsumerHealthCheck(consumerName))
-
-		for {
-			if err := k.client.Consume(k.context, strings.Split(k.Topic, ","), k.consumer); err != nil {
-				kafkaConsumerErrors.Store(consumerName, ConsumerError{UnixTime: time.Now().Unix(), Error: err})
-				prom.KafkaConsumerErrors.WithLabelValues(k.Topic, k.ConsumerGroup).Inc()
-				log.Error("Error from consumer: %v", err)
+// kafka main loop
+func (k *Kafka) Run(ctx context.Context) {
+	k.ctx = ctx
+	wp := workerpool.New(k.taskCfg.ConcurrentParsers)
+FOO:
+	for {
+		var err error
+		var msg kafka.Message
+		if msg, err = k.r.FetchMessage(ctx); err != nil {
+			if errors.Cause(err) == context.Canceled {
+				log.Infof("%s Kafka.Run quit due to context has been canceled", k.taskCfg.Name)
+				break FOO
+			} else if errors.Cause(err) == io.EOF {
+				log.Infof("%s Kafka.Run quit due to reader has been closed", k.taskCfg.Name)
+				break FOO
+			} else {
+				err = errors.Wrap(err, "")
+				log.Errorf("%s Kafka.Run got error %+v", k.taskCfg.Name, err)
+				continue
 			}
-			// check if context was cancelled, signaling that the consumer should stop
-			if k.context.Err() != nil {
-				kafkaConsumerErrors.Delete(consumerName)
-				return
-			}
-			k.consumer.ready = make(chan bool)
 		}
-	}()
-
-	<-k.consumer.ready
-	return nil
+		wp.Submit(func() {
+			metric, err := k.parser.Parse(msg.Value)
+			if err != nil {
+				cnt := atomic.AddInt64(&k.cntParseErr, int64(1))
+				if k.limiter.Allow() {
+					log.Errorf("failed to parse %+v, string(value) <<<%+v>>>, got error %+v. Parser errors counter %+v", msg, string(msg.Value), err, cnt)
+				}
+			}
+			row := model.MetricToRow(metric, k.dims)
+			var ring *Ring
+			k.mux.Lock()
+			numRings := len(k.rings)
+			if msg.Partition >= numRings {
+				cap := 2 ^ 10
+				for ; cap < 2*k.taskCfg.BufferSize; cap *= 2 {
+				}
+				ring = &Ring{
+					ringBuf:          make([]MsgRow, cap),
+					ringCap:          int64(cap),
+					ringGroundOff:    msg.Offset,
+					ringCeilingOff:   msg.Offset,
+					ringFilledOffset: msg.Offset,
+					kafka:            k,
+				}
+				if ring.tid, err = ring.kafka.tw.Schedule(time.Duration(k.taskCfg.FlushInterval)*time.Second, ring.ForceBatch, nil); err != nil {
+					err = errors.Wrap(err, "")
+					log.Criticalf("got error %+v", err)
+				}
+				k.rings = append(k.rings, ring)
+			} else {
+				ring = k.rings[msg.Partition]
+			}
+			k.mux.Unlock()
+			ring.PutElem(MsgRow{Msg: &msg, Row: row})
+		})
+	}
+	wp.StopWait()
+	k.tw.Stop()
+	return
 }
 
 // Stop kafka consumer and close all connections
 func (k *Kafka) Stop() error {
-	k.cancel()
-	k.wg.Wait()
-
-	_ = k.client.Close()
-	close(k.msgs)
+	_ = k.r.Close()
 	return nil
 }
 
 // Description of this kafka consumre, which topic it reads from
 func (k *Kafka) Description() string {
-	return "kafka consumer:" + k.Topic
+	return "kafka consumer of topic " + k.taskCfg.Topic
 }
 
 // GetName name of this kafka consumer instance
 func (k *Kafka) GetName() string {
-	return k.Name
+	return k.taskCfg.Name
 }
 
-// Consumer represents a Sarama consumer group consumer
-type Consumer struct {
-	Name  string
-	ready chan bool
-	msgs  chan []byte
-}
-
-// Setup is run at the beginning of a new session, before ConsumeClaim
-func (consumer *Consumer) Setup(session sarama.ConsumerGroupSession) error {
-	statistics.UpdateRebalanceTotal(consumer.Name, 1)
-	for topic, partitions := range session.Claims() {
-		for _, partition := range partitions {
-			statistics.UpdateToppars(consumer.Name, topic, partition, 1)
+func (ring *Ring) PutElem(msgRow MsgRow) (err error) {
+	msgOffset := msgRow.Msg.Offset
+	for {
+		ring.mux.Lock()
+		if msgOffset < ring.ringGroundOff+ring.ringCap {
+			break
+		}
+		ring.mux.Unlock()
+		select {
+		case <-ring.kafka.ctx.Done():
+			return context.Canceled
+		default:
+		}
+		time.Sleep(1 * time.Second)
+	}
+	defer ring.mux.Unlock()
+	ring.ringBuf[msgOffset%ring.ringCap] = msgRow
+	if msgOffset >= ring.ringCeilingOff {
+		ring.ringCeilingOff = msgOffset + 1
+	}
+	for ; ring.ringFilledOffset < ring.ringCeilingOff && ring.ringBuf[ring.ringFilledOffset%ring.ringCap].Msg != nil; ring.ringFilledOffset++ {
+	}
+	if ring.ringFilledOffset-ring.ringGroundOff >= int64(ring.kafka.taskCfg.BufferSize) {
+		batchSize := ring.kafka.taskCfg.BufferSize
+		batch := NewBatch(batchSize, ring.kafka)
+		for i := 0; i < batchSize; i++ {
+			off := (ring.ringGroundOff + int64(i)) % ring.ringCap
+			batch.MsgRows[i] = ring.ringBuf[off]
+			ring.ringBuf[off] = MsgRow{Msg: nil, Row: nil}
+		}
+		ring.ringGroundOff += int64(batchSize)
+		ring.kafka.batchCh <- batch
+		ring.tid.Stop()
+		if ring.tid, err = ring.kafka.tw.Schedule(time.Duration(ring.kafka.taskCfg.FlushInterval)*time.Second, ring.ForceBatch, nil); err != nil {
+			err = errors.Wrap(err, "")
+			return
 		}
 	}
-	// Mark the consumer as ready
-	close(consumer.ready)
-	return nil
+	return
 }
 
-// Cleanup is run at the end of a session, once all ConsumeClaim goroutines have exited
-func (consumer *Consumer) Cleanup(session sarama.ConsumerGroupSession) error {
-	for topic, partitions := range session.Claims() {
-		for _, partition := range partitions {
-			statistics.UpdateToppars(consumer.Name, topic, partition, 0)
-		}
+func (ring *Ring) ForceBatch(interface{}) {
+	var err error
+	ring.mux.Lock()
+	defer ring.mux.Unlock()
+	batchSize := int(ring.ringFilledOffset - ring.ringGroundOff)
+	if batchSize == 0 {
+		return
 	}
-	return nil
-}
-
-// ConsumeClaim must start a consumer loop of ConsumerGroupClaim's Messages().
-func (consumer *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
-	// NOTE:
-	// Do not move the code below to a goroutine.
-	// The `ConsumeClaim` itself is called within a goroutine, see:
-	// https://github.com/Shopify/sarama/blob/master/consumer_group.go#L27-L29
-	for message := range claim.Messages() {
-		consumer.msgs <- message.Value
-		session.MarkMessage(message, "")
-		statistics.UpdateConsumeMsgsTotal(consumer.Name, message.Topic, message.Partition, 1)
-		statistics.UpdateOffsets(consumer.Name, message.Topic,
-			message.Partition, message.Offset)
+	if batchSize > ring.kafka.taskCfg.BufferSize {
+		batchSize = ring.kafka.taskCfg.BufferSize
 	}
-
-	return nil
+	batch := NewBatch(batchSize, ring.kafka)
+	for i := 0; i < batchSize; i++ {
+		off := (ring.ringGroundOff + int64(i)) % ring.ringCap
+		batch.MsgRows[i] = ring.ringBuf[off]
+		ring.ringBuf[off] = MsgRow{Msg: nil, Row: nil}
+	}
+	ring.ringGroundOff += int64(batchSize)
+	ring.kafka.batchCh <- batch
+	if ring.tid, err = ring.kafka.tw.Schedule(time.Duration(ring.kafka.taskCfg.FlushInterval)*time.Second, ring.ForceBatch, nil); err != nil {
+		err = errors.Wrap(err, "")
+		log.Criticalf("got error %+v", err)
+	}
 }

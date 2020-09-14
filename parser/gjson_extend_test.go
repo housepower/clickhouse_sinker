@@ -7,8 +7,8 @@ import (
 )
 
 func TestGjsonExtendInt(t *testing.T) {
-	parser := NewParser("gjson_extend", nil, "")
-	metric := parser.Parse(jsonSample)
+	parser := NewParser("gjson_extend", nil, "", nil)
+	metric, _ := parser.Parse(jsonSample)
 
 	var expected int64 = 1536813227
 	result := metric.GetInt("its")
@@ -16,8 +16,8 @@ func TestGjsonExtendInt(t *testing.T) {
 }
 
 func TestGjsonExtendArrayInt(t *testing.T) {
-	parser := NewParser("gjson_extend", nil, "")
-	metric := parser.Parse(jsonSample)
+	parser := NewParser("gjson_extend", nil, "", nil)
+	metric, _ := parser.Parse(jsonSample)
 
 	arr := metric.GetArray("mp_a", "int").([]int64)
 	expected := []int64{1, 2, 3}
@@ -27,8 +27,8 @@ func TestGjsonExtendArrayInt(t *testing.T) {
 }
 
 func TestGjsonExtendStr(t *testing.T) {
-	parser := NewParser("gjson_extend", nil, "")
-	metric := parser.Parse(jsonSample)
+	parser := NewParser("gjson_extend", nil, "", nil)
+	metric, _ := parser.Parse(jsonSample)
 
 	var expected string = "ws"
 	result := metric.GetString("channel")
@@ -36,8 +36,8 @@ func TestGjsonExtendStr(t *testing.T) {
 }
 
 func TestGjsonExtendArrayString(t *testing.T) {
-	parser := NewParser("gjson_extend", nil, "")
-	metric := parser.Parse(jsonSample)
+	parser := NewParser("gjson_extend", nil, "", nil)
+	metric, _ := parser.Parse(jsonSample)
 
 	arr := metric.GetArray("mps_a", "string").([]string)
 	expected := []string{"aa", "bb", "cc"}
@@ -47,8 +47,8 @@ func TestGjsonExtendArrayString(t *testing.T) {
 }
 
 func TestGjsonExtendFloat(t *testing.T) {
-	parser := NewParser("gjson_extend", nil, "")
-	metric := parser.Parse(jsonSample)
+	parser := NewParser("gjson_extend", nil, "", nil)
+	metric, _ := parser.Parse(jsonSample)
 
 	var expected float64 = 0.11
 	result := metric.GetFloat("percent")
@@ -56,8 +56,8 @@ func TestGjsonExtendFloat(t *testing.T) {
 }
 
 func TestGjsonExtendArrayFloat(t *testing.T) {
-	parser := NewParser("gjson_extend", nil, "")
-	metric := parser.Parse(jsonSample)
+	parser := NewParser("gjson_extend", nil, "", nil)
+	metric, _ := parser.Parse(jsonSample)
 
 	arr := metric.GetArray("mp_f", "float").([]float64)
 	expected := []float64{1.11, 2.22, 3.33}
@@ -67,8 +67,8 @@ func TestGjsonExtendArrayFloat(t *testing.T) {
 }
 
 func TestGjsonExtendElasticDateTime(t *testing.T) {
-	parser := NewParser("gjson_extend", nil, "")
-	metric := parser.Parse(jsonSample)
+	parser := NewParser("gjson_extend", nil, "", nil)
+	metric, _ := parser.Parse(jsonSample)
 
 	// {"date": "2019-12-16T12:10:30Z"}
 	// TZ=UTC date -d @1576498230 => Mon 16 Dec 2019 12:10:30 PM UTC
