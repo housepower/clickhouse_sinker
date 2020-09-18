@@ -31,7 +31,6 @@ import (
 	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/pkg/errors"
 
-	"github.com/housepower/clickhouse_sinker/prom"
 	"github.com/sundy-li/go_commons/log"
 	"github.com/sundy-li/go_commons/utils"
 )
@@ -61,6 +60,7 @@ func (c *ClickHouse) Init() error {
 
 // Send a batch to clickhouse
 func (c *ClickHouse) Send(batch input.Batch) {
+	statistics.FlushBatchBacklog.WithLabelValues(c.taskCfg.Name).Inc()
 	c.wp.Submit(func() {
 		c.loopWrite(batch)
 	})
@@ -77,6 +77,7 @@ func (c *ClickHouse) write(batch input.Batch) (err error) {
 	if err != nil {
 		if shouldReconnect(err) {
 			_ = conn.ReConnect()
+			statistics.ClickhouseReconnectTotal.WithLabelValues(c.taskCfg.Name).Inc()
 		}
 		return err
 	}
@@ -87,36 +88,35 @@ func (c *ClickHouse) write(batch input.Batch) (err error) {
 
 		if shouldReconnect(err) {
 			_ = conn.ReConnect()
+			statistics.ClickhouseReconnectTotal.WithLabelValues(c.taskCfg.Name).Inc()
 		}
 		return err
 	}
 
 	defer stmt.Close()
-	var numErr, numSuc int
+	var numErr int
 	for _, msgRow := range batch.MsgRows {
-		if msgRow.Row == nil {
-			numErr++
-		} else if _, err = stmt.Exec(msgRow.Row...); err != nil {
-			err = errors.Wrap(err, "")
-			numErr++
-		} else {
-			numSuc++
+		if msgRow.Row != nil {
+			if _, err = stmt.Exec(msgRow.Row...); err != nil {
+				err = errors.Wrap(err, "")
+				numErr++
+			}
 		}
 	}
-	prom.ClickhouseEventsTotal.WithLabelValues(c.chCfg.DB, c.taskCfg.TableName).Add(float64(numErr + numSuc))
-	prom.ClickhouseEventsErrors.WithLabelValues(c.chCfg.DB, c.taskCfg.TableName).Add(float64(numErr))
-	prom.ClickhouseEventsSuccess.WithLabelValues(c.chCfg.DB, c.taskCfg.TableName).Add(float64(numSuc))
 	if err != nil {
-		log.Errorf("stmt.Exec: %+v", err)
+		log.Errorf("stmt.Exec failed %d times with following errors: %+v", numErr, err)
 		return
 	}
+
 	if err = tx.Commit(); err != nil {
 		err = errors.Wrap(err, "")
 		if shouldReconnect(err) {
 			_ = conn.ReConnect()
+			statistics.ClickhouseReconnectTotal.WithLabelValues(c.taskCfg.Name).Inc()
 		}
 		return err
 	}
+	statistics.FlushMsgsTotal.WithLabelValues(c.taskCfg.Name).Add(float64(batch.RealSize))
 	err = batch.Free()
 	return
 }
@@ -131,18 +131,27 @@ func shouldReconnect(err error) bool {
 
 // LoopWrite will dead loop to write the records
 func (c *ClickHouse) loopWrite(batch input.Batch) {
-	err := c.write(batch)
+	var err error
 	times := c.chCfg.RetryTimes
-	if errors.Cause(err) == context.Canceled {
-		log.Infof("ClickHouse.loopWrite quit due to the context has been cancelled")
-		return
-	}
-	for err != nil && times > 0 {
-		log.Error("saving msg error", err.Error(), "will loop to write the data")
-		statistics.UpdateFlushErrorsTotal(c.taskCfg.Name, 1)
-		time.Sleep(1 * time.Second)
-		err = c.write(batch)
-		times--
+	defer statistics.FlushBatchBacklog.WithLabelValues(c.taskCfg.Name).Dec()
+	for {
+		if err = c.write(batch); err != nil {
+			if errors.Cause(err) == context.Canceled {
+				log.Infof("ClickHouse.loopWrite quit due to the context has been cancelled")
+				return
+			}
+			times--
+			log.Errorf("flush batch(try #%d) failed with error %+v", c.chCfg.RetryTimes-times, err)
+			if times > 0 {
+				time.Sleep(10 * time.Second)
+				continue
+			}
+			statistics.FlushMsgsErrorTotal.WithLabelValues(c.taskCfg.Name).Add(float64(batch.RealSize))
+			return
+		} else {
+			statistics.FlushMsgsTotal.WithLabelValues(c.taskCfg.Name).Add(float64(batch.RealSize))
+			return
+		}
 	}
 }
 

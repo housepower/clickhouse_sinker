@@ -25,7 +25,6 @@ import (
 	"github.com/housepower/clickhouse_sinker/config"
 	"github.com/housepower/clickhouse_sinker/input"
 	"github.com/housepower/clickhouse_sinker/output"
-	"github.com/housepower/clickhouse_sinker/statistics"
 
 	"github.com/sundy-li/go_commons/log"
 )
@@ -64,13 +63,12 @@ func (service *Service) Init() (err error) {
 func (service *Service) Run(ctx context.Context) {
 	service.started = true
 	log.Infof("task %s has started", service.taskCfg.Name)
-	statistics.UpdateTasks(service.taskCfg.Name)
 	go service.kafka.Run(ctx)
-FOO:
+LOOP:
 	for {
 		select {
 		case <-ctx.Done():
-			break FOO
+			break LOOP
 		case batch := <-service.kafka.BatchCh():
 			service.flush(batch)
 		}
@@ -81,7 +79,6 @@ FOO:
 func (service *Service) flush(batch input.Batch) {
 	log.Infof("%s: buf size:%d", service.taskCfg.Name, len(batch.MsgRows))
 	service.clickhouse.Send(batch)
-	statistics.UpdateFlushMsgsTotal(service.taskCfg.Name, len(batch.MsgRows))
 }
 
 // Stop stop kafka and clickhouse client

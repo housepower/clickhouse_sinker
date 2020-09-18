@@ -18,7 +18,6 @@ import (
 	"errors"
 	"math/rand"
 	"net"
-	"strconv"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -28,157 +27,83 @@ import (
 var (
 	prefix = "clickhouse_sinker_"
 
-	tasks = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: prefix + "tasks",
-			Help: "number of tasks by name",
-		},
-		[]string{"name"},
-	)
-	rebalanceTotal = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: prefix + "rebalance_total",
-			Help: "rebalance total times in each task",
-		},
-		[]string{"task"},
-	)
-	toppars = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: prefix + "toppars",
-			Help: "topic and partition pairs processed",
-		},
-		[]string{"task", "topic", "partition"},
-	)
-	consumeMsgsTotal = prometheus.NewCounterVec(
+	// ConsumeMsgsTotal = ParseMsgsErrorTotal + FlushMsgsTotal + FlushMsgsErrorTotal
+	ConsumeMsgsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: prefix + "consume_msgs_total",
-			Help: "total num of consume msgs",
+			Help: "total num of consumed msgs",
 		},
-		[]string{"task", "topic", "partition"},
+		[]string{"task"},
 	)
-	parseInMsgsTotal = prometheus.NewCounterVec(
+	ConsumeMsgsErrorTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: prefix + "parse_in_msgs_total",
-			Help: "input msg total nums before parse",
+			Name: prefix + "consumer_msgs_error_total",
+			Help: "total num of consume errors",
 		},
 		[]string{"task"},
 	)
-	parseOutMsgsTotal = prometheus.NewCounterVec(
+	ParseMsgsErrorTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: prefix + "parse_out_msgs_total",
-			Help: "output msg total nums after parse",
+			Name: prefix + "parse_msgs_error_total",
+			Help: "total num of msgs with parse failure",
 		},
 		[]string{"task"},
 	)
-	parseTimespan = prometheus.NewSummaryVec(
-		prometheus.SummaryOpts{
-			Name:       prefix + "parse_timespan",
-			Help:       "cost time of each parse unit:second",
-			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
-		},
-		[]string{"task"},
-	)
-	flushMsgsTotal = prometheus.NewCounterVec(
+	FlushMsgsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: prefix + "flush_msgs_total",
-			Help: "msg total nums flushed",
+			Help: "total num of flushed msgs",
 		},
 		[]string{"task"},
 	)
-	flushTimespan = prometheus.NewSummaryVec(
-		prometheus.SummaryOpts{
-			Name:       prefix + "flush_timespan",
-			Help:       "cost time of each flush unit:second",
-			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
-		},
-		[]string{"task"},
-	)
-
-	flushErrorTotal = prometheus.NewCounterVec(
+	FlushMsgsErrorTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: prefix + "flush_error_total",
-			Help: "flush to ck error total count",
+			Name: prefix + "flush_msgs_error_total",
+			Help: "total num of msgs failed to flush to ck",
 		},
 		[]string{"task"},
 	)
-
-	offsets = prometheus.NewGaugeVec(
+	ConsumeOffsets = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
-			Name: prefix + "offsets",
+			Name: prefix + "consume_offsets",
 			Help: "last committed offset for each topic partition pair",
 		},
 		[]string{"task", "topic", "partition"},
 	)
-	parseErrorTotal = prometheus.NewCounterVec(
+	ClickhouseReconnectTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: prefix + "parse_error_total",
-			Help: "parse error total nums",
+			Name: prefix + "clickhouse_reconnect_total",
+			Help: "total num of ClickHouse reconnects",
+		},
+		[]string{"task"},
+	)
+	ParseMsgsBacklog = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: prefix + "parse_msgs_backlog",
+			Help: "num of msgs pending to parse",
+		},
+		[]string{"task"},
+	)
+	FlushBatchBacklog = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: prefix + "flush_batch_backlog",
+			Help: "num of batchs pending to flush",
 		},
 		[]string{"task"},
 	)
 )
 
 func init() {
-	prometheus.MustRegister(tasks)
-	prometheus.MustRegister(rebalanceTotal)
-	prometheus.MustRegister(toppars)
-	prometheus.MustRegister(consumeMsgsTotal)
-	prometheus.MustRegister(parseInMsgsTotal)
-	prometheus.MustRegister(parseOutMsgsTotal)
-	prometheus.MustRegister(parseTimespan)
-	prometheus.MustRegister(flushMsgsTotal)
-	prometheus.MustRegister(flushTimespan)
-	prometheus.MustRegister(offsets)
-	prometheus.MustRegister(parseErrorTotal)
-	prometheus.MustRegister(flushErrorTotal)
-}
-
-func UpdateTasks(name string) {
-	tasks.WithLabelValues(name).Set(1)
-}
-
-func UpdateRebalanceTotal(name string, delta int) {
-	rebalanceTotal.WithLabelValues(name).Add(float64(delta))
-}
-
-func UpdateToppars(task, topic string, partition int32, val int) {
-	toppars.WithLabelValues(task, topic, strconv.FormatInt(int64(partition), 10)).Set(float64(val))
-}
-
-func UpdateConsumeMsgsTotal(task, topic string, partition int32, delta int) {
-	consumeMsgsTotal.WithLabelValues(task, topic, strconv.FormatInt(int64(partition), 10)).Add(float64(delta))
-}
-
-func UpdateParseInMsgsTotal(task string, delta int) {
-	parseInMsgsTotal.WithLabelValues(task).Add(float64(delta))
-}
-
-func UpdateParseOutMsgsTotal(task string, delta int) {
-	parseOutMsgsTotal.WithLabelValues(task).Add(float64(delta))
-}
-
-func UpdateParseTimespan(task string, start time.Time) {
-	parseTimespan.WithLabelValues(task).Observe(time.Since(start).Seconds())
-}
-
-func UpdateFlushMsgsTotal(task string, delta int) {
-	flushMsgsTotal.WithLabelValues(task).Add(float64(delta))
-}
-
-func UpdateFlushErrorsTotal(task string, delta int) {
-	flushErrorTotal.WithLabelValues(task).Add(float64(delta))
-}
-
-func UpdateFlushTimespan(task string, start time.Time) {
-	flushTimespan.WithLabelValues(task).Observe(time.Since(start).Seconds())
-}
-
-func UpdateOffsets(task, topic string, partition int32, offset int64) {
-	offsets.WithLabelValues(task, topic, strconv.FormatInt(int64(partition), 10)).Set(float64(offset))
-}
-
-func UpdateParseErrorTotal(task string, delta int) {
-	parseErrorTotal.WithLabelValues(task).Add(float64(delta))
+	prometheus.MustRegister(ConsumeMsgsTotal)
+	prometheus.MustRegister(ConsumeMsgsErrorTotal)
+	prometheus.MustRegister(ParseMsgsErrorTotal)
+	prometheus.MustRegister(FlushMsgsTotal)
+	prometheus.MustRegister(FlushMsgsErrorTotal)
+	prometheus.MustRegister(ConsumeOffsets)
+	prometheus.MustRegister(ClickhouseReconnectTotal)
+	prometheus.MustRegister(ParseMsgsBacklog)
+	prometheus.MustRegister(FlushBatchBacklog)
+	prometheus.MustRegister(prometheus.NewBuildInfoCollector())
 }
 
 // Pusher is the service to push the metrics to pushgateway
@@ -238,18 +163,13 @@ func (p *Pusher) reconnect() {
 		nextAddr = (p.inUseAddr + 1) % len(p.pgwAddrs)
 	}
 	p.pusher = push.New(p.pgwAddrs[nextAddr], "clickhouse_sinker").
-		Collector(tasks).
-		Collector(rebalanceTotal).
-		Collector(toppars).
-		Collector(consumeMsgsTotal).
-		Collector(parseInMsgsTotal).
-		Collector(parseOutMsgsTotal).
-		Collector(parseTimespan).
-		Collector(flushMsgsTotal).
-		Collector(flushTimespan).
-		Collector(offsets).
-		Collector(parseErrorTotal).
-		Collector(flushErrorTotal).
+		Collector(ConsumeMsgsTotal).
+		Collector(ConsumeMsgsErrorTotal).
+		Collector(ParseMsgsErrorTotal).
+		Collector(FlushMsgsTotal).
+		Collector(FlushMsgsErrorTotal).
+		Collector(ConsumeOffsets).
+		Collector(ClickhouseReconnectTotal).
 		Grouping("instance", p.instance)
 	p.inUseAddr = nextAddr
 }

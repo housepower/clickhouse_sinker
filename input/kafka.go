@@ -18,6 +18,7 @@ package input
 import (
 	"context"
 	"io"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -33,6 +34,7 @@ import (
 	"github.com/housepower/clickhouse_sinker/config"
 	"github.com/housepower/clickhouse_sinker/model"
 	"github.com/housepower/clickhouse_sinker/parser"
+	"github.com/housepower/clickhouse_sinker/statistics"
 )
 
 // Kafka reader configuration
@@ -71,8 +73,9 @@ type MsgRow struct {
 }
 
 type Batch struct {
-	MsgRows []MsgRow
-	kafka   *Kafka //point back to who hold this ring
+	MsgRows  []MsgRow
+	RealSize int    //number of messages who's row!=nil
+	kafka    *Kafka //point back to who hold this ring
 }
 
 func NewBatch(batchSize int, k *Kafka) (batch Batch) {
@@ -83,13 +86,20 @@ func NewBatch(batchSize int, k *Kafka) (batch Batch) {
 }
 
 func (batch Batch) Free() (err error) {
-	msgs := make([]kafka.Message, len(batch.MsgRows))
+	numMsgs := len(batch.MsgRows)
+	if numMsgs == 0 {
+		return
+	}
+	msgs := make([]kafka.Message, numMsgs)
 	for i, msgRow := range batch.MsgRows {
 		msgs[i] = *msgRow.Msg
 	}
 	if err = batch.kafka.r.CommitMessages(batch.kafka.ctx, msgs...); err != nil {
 		err = errors.Wrap(err, "")
+		return
 	}
+	lastMsg := msgs[numMsgs-1]
+	statistics.ConsumeOffsets.WithLabelValues(batch.kafka.taskCfg.Name, strconv.Itoa(lastMsg.Partition), lastMsg.Topic).Set(float64(lastMsg.Offset))
 	return
 }
 
@@ -133,32 +143,38 @@ func (k *Kafka) Run(ctx context.Context) {
 		log.Criticalf("got error %+v", err)
 		return
 	}
-FOO:
+LOOP:
 	for {
 		var err error
 		var msg kafka.Message
 		if msg, err = k.r.FetchMessage(ctx); err != nil {
 			if errors.Cause(err) == context.Canceled {
 				log.Infof("%s Kafka.Run quit due to context has been canceled", k.taskCfg.Name)
-				break FOO
+				break LOOP
 			} else if errors.Cause(err) == io.EOF {
 				log.Infof("%s Kafka.Run quit due to reader has been closed", k.taskCfg.Name)
-				break FOO
+				break LOOP
 			} else {
+				statistics.ConsumeMsgsErrorTotal.WithLabelValues(k.taskCfg.Name).Inc()
 				err = errors.Wrap(err, "")
 				log.Errorf("%s Kafka.Run got error %+v", k.taskCfg.Name, err)
 				continue
 			}
 		}
+		statistics.ConsumeMsgsTotal.WithLabelValues(k.taskCfg.Name).Inc()
+		statistics.ParseMsgsBacklog.WithLabelValues(k.taskCfg.Name).Inc()
 		k.wp.Submit(func() {
+			var row []interface{}
 			metric, err := k.parser.Parse(msg.Value)
 			if err != nil {
+				statistics.ParseMsgsErrorTotal.WithLabelValues(k.taskCfg.Name).Inc()
 				cnt := atomic.AddInt64(&k.cntParseErr, int64(1))
 				if k.limiter.Allow() {
 					log.Errorf("failed to parse %+v, string(value) <<<%+v>>>, got error %+v. Parser errors counter %+v", msg, string(msg.Value), err, cnt)
 				}
+			} else {
+				row = model.MetricToRow(metric, k.dims)
 			}
-			row := model.MetricToRow(metric, k.dims)
 			var ring *Ring
 			k.mux.Lock()
 			numRings := len(k.rings)
@@ -199,16 +215,14 @@ FOO:
 func (k *Kafka) PurgeIdleRings(interface{}) {
 	var err error
 	var idleRings []int
-	{
-		k.mux.Lock()
-		defer k.mux.Unlock()
-		for i, ring := range k.rings {
-			if ring != nil && ring.idleCnt >= 2 {
-				k.rings[i] = nil
-				idleRings = append(idleRings, i)
-			}
+	k.mux.Lock()
+	for i, ring := range k.rings {
+		if ring != nil && ring.idleCnt >= 2 {
+			k.rings[i] = nil
+			idleRings = append(idleRings, i)
 		}
 	}
+	k.mux.Unlock()
 	if idleRings != nil {
 		log.Infof("purged idle rings %+v", idleRings)
 	}
@@ -231,22 +245,31 @@ func (k *Kafka) Description() string {
 	return "kafka consumer of topic " + k.taskCfg.Topic
 }
 
-func (ring *Ring) PutElem(msgRow MsgRow) (err error) {
+func (ring *Ring) PutElem(msgRow MsgRow) {
+	var err error
 	msgOffset := msgRow.Msg.Offset
+LOOP:
 	for {
 		ring.mux.Lock()
+		if msgOffset < ring.ringGroundOff {
+			log.Errorf("Ring.PutElem quit due to msgOffset %v is less than ring.ringGroundOff %v", msgOffset, ring.ringGroundOff)
+			ring.mux.Unlock()
+			return
+		}
 		if msgOffset < ring.ringGroundOff+ring.ringCap {
-			break
+			break LOOP
 		}
 		ring.mux.Unlock()
+		log.Warnf("Ring.PutElem sleep due to msgOffset %v exceeds %v (the max offest allowed by the ring)", msgOffset, ring.ringGroundOff+ring.ringCap)
 		select {
 		case <-ring.kafka.ctx.Done():
-			return context.Canceled
+			log.Errorf("Ring.PutElem quit due to the context has been canceled")
+			return
 		default:
 		}
 		time.Sleep(1 * time.Second)
 	}
-	defer ring.mux.Unlock()
+	// ring.mux is locked at this point
 	ring.ringBuf[msgOffset%ring.ringCap] = msgRow
 	if msgOffset >= ring.ringCeilingOff {
 		ring.ringCeilingOff = msgOffset + 1
@@ -259,21 +282,32 @@ func (ring *Ring) PutElem(msgRow MsgRow) (err error) {
 		for i := 0; i < batchSize; i++ {
 			off := (ring.ringGroundOff + int64(i)) % ring.ringCap
 			batch.MsgRows[i] = ring.ringBuf[off]
+			if ring.ringBuf[off].Row != nil {
+				batch.RealSize++
+			}
 			ring.ringBuf[off] = MsgRow{Msg: nil, Row: nil}
 		}
 		ring.ringGroundOff += int64(batchSize)
 		ring.kafka.batchCh <- batch
+		statistics.ParseMsgsBacklog.WithLabelValues(ring.kafka.taskCfg.Name).Sub(float64(batchSize))
 		ring.tid.Stop()
 		if ring.tid, err = ring.kafka.tw.Schedule(time.Duration(ring.kafka.taskCfg.FlushInterval)*time.Second, ring.ForceBatch, nil); err != nil {
 			err = errors.Wrap(err, "")
-			return
+			log.Criticalf("got error %+v", err)
 		}
 	}
+	ring.mux.Unlock()
 	return
 }
 
 func (ring *Ring) ForceBatch(interface{}) {
 	var err error
+	select {
+	case <-ring.kafka.ctx.Done():
+		log.Errorf("Ring.ForceBatch quit due to the context has been canceled")
+		return
+	default:
+	}
 	ring.mux.Lock()
 	defer ring.mux.Unlock()
 	batchSize := int(ring.ringFilledOffset - ring.ringGroundOff)
@@ -288,10 +322,14 @@ func (ring *Ring) ForceBatch(interface{}) {
 	for i := 0; i < batchSize; i++ {
 		off := (ring.ringGroundOff + int64(i)) % ring.ringCap
 		batch.MsgRows[i] = ring.ringBuf[off]
+		if ring.ringBuf[off].Row != nil {
+			batch.RealSize++
+		}
 		ring.ringBuf[off] = MsgRow{Msg: nil, Row: nil}
 	}
 	ring.ringGroundOff += int64(batchSize)
 	ring.kafka.batchCh <- batch
+	statistics.ParseMsgsBacklog.WithLabelValues(ring.kafka.taskCfg.Name).Sub(float64(batchSize))
 	if ring.tid, err = ring.kafka.tw.Schedule(time.Duration(ring.kafka.taskCfg.FlushInterval)*time.Second, ring.ForceBatch, nil); err != nil {
 		err = errors.Wrap(err, "")
 		log.Criticalf("got error %+v", err)

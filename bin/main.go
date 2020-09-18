@@ -32,11 +32,9 @@ import (
 	"github.com/housepower/clickhouse_sinker/input"
 	"github.com/housepower/clickhouse_sinker/output"
 	"github.com/housepower/clickhouse_sinker/parser"
-	"github.com/housepower/clickhouse_sinker/prom"
 	"github.com/housepower/clickhouse_sinker/statistics"
 	"github.com/housepower/clickhouse_sinker/task"
 	_ "github.com/kshvakov/clickhouse"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sundy-li/go_commons/app"
 	"github.com/sundy-li/go_commons/log"
@@ -118,13 +116,6 @@ func main() {
 	consulConfig.Address = *consulAddr
 	consulClient, _ := api.NewClient(consulConfig)
 	consulAgent := consulClient.Agent()
-
-	prometheus.MustRegister(prometheus.NewBuildInfoCollector())
-	prometheus.MustRegister(prom.ClickhouseReconnectTotal)
-	prometheus.MustRegister(prom.ClickhouseEventsSuccess)
-	prometheus.MustRegister(prom.ClickhouseEventsErrors)
-	prometheus.MustRegister(prom.ClickhouseEventsTotal)
-	prometheus.MustRegister(prom.KafkaConsumerErrors)
 
 	serviceRegister(consulAgent)
 	defer func() {

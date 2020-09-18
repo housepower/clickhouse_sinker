@@ -27,7 +27,6 @@ import (
 
 	"github.com/heptiolabs/healthcheck"
 	"github.com/housepower/clickhouse_sinker/health"
-	"github.com/housepower/clickhouse_sinker/prom"
 
 	"github.com/sundy-li/go_commons/log"
 )
@@ -45,7 +44,6 @@ type Connection struct {
 
 // ReConnect used for restablishing connection with server
 func (c *Connection) ReConnect() error {
-	prom.ClickhouseReconnectTotal.Inc()
 	sqlDB, err := sql.Open("clickhouse", c.Dsn)
 	if err != nil {
 		log.Info("reconnect to ", c.Dsn, err.Error())
