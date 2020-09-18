@@ -49,6 +49,8 @@ type Kafka struct {
 	ctx         context.Context
 	limiter     *rate.Limiter
 	cntParseErr int64
+	wp          *workerpool.WorkerPool
+	tid         goetty.Timeout
 }
 
 type Ring struct {
@@ -59,6 +61,7 @@ type Ring struct {
 	ringCeilingOff   int64 //1 + max message offset inside the ring
 	ringFilledOffset int64 //every message which's offset inside range [ringGroundOff, ringFilledOffset) is in the ring
 	tid              goetty.Timeout
+	idleCnt          int
 	kafka            *Kafka //point back to who hold this ring
 }
 
@@ -111,6 +114,7 @@ func (k *Kafka) Init(dims []*model.ColumnWithType) error {
 	})
 	k.rings = make([]*Ring, 0)
 	k.batchCh = make(chan Batch, 32)
+	k.wp = workerpool.New(k.taskCfg.ConcurrentParsers)
 	k.tw = goetty.NewTimeoutWheel(goetty.WithTickInterval(100 * time.Millisecond))
 	k.limiter = rate.NewLimiter(rate.Every(30*time.Second), 1)
 	return nil
@@ -122,8 +126,13 @@ func (k *Kafka) BatchCh() chan Batch {
 
 // kafka main loop
 func (k *Kafka) Run(ctx context.Context) {
+	var err error
 	k.ctx = ctx
-	wp := workerpool.New(k.taskCfg.ConcurrentParsers)
+	if k.tid, err = k.tw.Schedule(time.Duration(k.taskCfg.FlushInterval*4)*time.Second, k.PurgeIdleRings, nil); err != nil {
+		err = errors.Wrap(err, "")
+		log.Criticalf("got error %+v", err)
+		return
+	}
 FOO:
 	for {
 		var err error
@@ -141,7 +150,7 @@ FOO:
 				continue
 			}
 		}
-		wp.Submit(func() {
+		k.wp.Submit(func() {
 			metric, err := k.parser.Parse(msg.Value)
 			if err != nil {
 				cnt := atomic.AddInt64(&k.cntParseErr, int64(1))
@@ -154,6 +163,12 @@ FOO:
 			k.mux.Lock()
 			numRings := len(k.rings)
 			if msg.Partition >= numRings {
+				for i := numRings; i < msg.Partition+1; i++ {
+					k.rings = append(k.rings, nil)
+				}
+			}
+			ring = k.rings[msg.Partition]
+			if ring == nil {
 				cap := 2 ^ 10
 				for ; cap < 2*k.taskCfg.BufferSize; cap *= 2 {
 				}
@@ -169,17 +184,40 @@ FOO:
 					err = errors.Wrap(err, "")
 					log.Criticalf("got error %+v", err)
 				}
-				k.rings = append(k.rings, ring)
-			} else {
-				ring = k.rings[msg.Partition]
+				k.rings[msg.Partition] = ring
 			}
 			k.mux.Unlock()
 			ring.PutElem(MsgRow{Msg: &msg, Row: row})
 		})
 	}
-	wp.StopWait()
+	k.wp.StopWait()
 	k.tw.Stop()
 	return
+}
+
+// Description of this kafka consumre, which topic it reads from
+func (k *Kafka) PurgeIdleRings(interface{}) {
+	var err error
+	var idleRings []int
+	{
+		k.mux.Lock()
+		defer k.mux.Unlock()
+		for i, ring := range k.rings {
+			if ring != nil && ring.idleCnt >= 2 {
+				k.rings[i] = nil
+				idleRings = append(idleRings, i)
+			}
+		}
+	}
+	if idleRings != nil {
+		log.Infof("purged idle rings %+v", idleRings)
+	}
+
+	if k.tid, err = k.tw.Schedule(time.Duration(k.taskCfg.FlushInterval*4)*time.Second, k.PurgeIdleRings, nil); err != nil {
+		err = errors.Wrap(err, "")
+		log.Criticalf("got error %+v", err)
+		return
+	}
 }
 
 // Stop kafka consumer and close all connections
@@ -191,11 +229,6 @@ func (k *Kafka) Stop() error {
 // Description of this kafka consumre, which topic it reads from
 func (k *Kafka) Description() string {
 	return "kafka consumer of topic " + k.taskCfg.Topic
-}
-
-// GetName name of this kafka consumer instance
-func (k *Kafka) GetName() string {
-	return k.taskCfg.Name
 }
 
 func (ring *Ring) PutElem(msgRow MsgRow) (err error) {
@@ -245,6 +278,7 @@ func (ring *Ring) ForceBatch(interface{}) {
 	defer ring.mux.Unlock()
 	batchSize := int(ring.ringFilledOffset - ring.ringGroundOff)
 	if batchSize == 0 {
+		ring.idleCnt++
 		return
 	}
 	if batchSize > ring.kafka.taskCfg.BufferSize {
