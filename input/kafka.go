@@ -143,6 +143,7 @@ func (k *Kafka) Run(ctx context.Context) {
 		log.Criticalf("got error %+v", err)
 		return
 	}
+	numRings := len(k.rings)
 LOOP:
 	for {
 		var err error
@@ -163,6 +164,33 @@ LOOP:
 		}
 		statistics.ConsumeMsgsTotal.WithLabelValues(k.taskCfg.Name).Inc()
 		statistics.ParseMsgsBacklog.WithLabelValues(k.taskCfg.Name).Inc()
+		// ensure ring for this message exist
+		if msg.Partition >= numRings {
+			k.mux.Lock()
+			for i := numRings; i < msg.Partition; i++ {
+				k.rings = append(k.rings, nil)
+			}
+			cap := 2 ^ 10
+			for ; cap < 2*k.taskCfg.BufferSize; cap *= 2 {
+			}
+			ring := &Ring{
+				ringBuf:          make([]MsgRow, cap),
+				ringCap:          int64(cap),
+				ringGroundOff:    msg.Offset,
+				ringCeilingOff:   msg.Offset,
+				ringFilledOffset: msg.Offset,
+				kafka:            k,
+			}
+			if ring.tid, err = ring.kafka.tw.Schedule(time.Duration(k.taskCfg.FlushInterval)*time.Second, ring.ForceBatch, nil); err != nil {
+				err = errors.Wrap(err, "")
+				log.Criticalf("got error %+v", err)
+			}
+			k.rings = append(k.rings, ring)
+			numRings = len(k.rings)
+			k.mux.Unlock()
+		}
+
+		// submit message to a goroutine pool
 		k.wp.Submit(func() {
 			var row []interface{}
 			metric, err := k.parser.Parse(msg.Value)
@@ -177,31 +205,7 @@ LOOP:
 			}
 			var ring *Ring
 			k.mux.Lock()
-			numRings := len(k.rings)
-			if msg.Partition >= numRings {
-				for i := numRings; i < msg.Partition+1; i++ {
-					k.rings = append(k.rings, nil)
-				}
-			}
 			ring = k.rings[msg.Partition]
-			if ring == nil {
-				cap := 2 ^ 10
-				for ; cap < 2*k.taskCfg.BufferSize; cap *= 2 {
-				}
-				ring = &Ring{
-					ringBuf:          make([]MsgRow, cap),
-					ringCap:          int64(cap),
-					ringGroundOff:    msg.Offset,
-					ringCeilingOff:   msg.Offset,
-					ringFilledOffset: msg.Offset,
-					kafka:            k,
-				}
-				if ring.tid, err = ring.kafka.tw.Schedule(time.Duration(k.taskCfg.FlushInterval)*time.Second, ring.ForceBatch, nil); err != nil {
-					err = errors.Wrap(err, "")
-					log.Criticalf("got error %+v", err)
-				}
-				k.rings[msg.Partition] = ring
-			}
 			k.mux.Unlock()
 			ring.PutElem(MsgRow{Msg: &msg, Row: row})
 		})
