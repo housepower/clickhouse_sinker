@@ -170,11 +170,17 @@ LOOP:
 		statistics.ConsumeMsgsTotal.WithLabelValues(k.taskCfg.Name).Inc()
 		statistics.ParseMsgsBacklog.WithLabelValues(k.taskCfg.Name).Inc()
 		// ensure ring for this message exist
-		if msg.Partition >= numRings {
-			k.mux.Lock()
-			for i := numRings; i < msg.Partition; i++ {
+		k.mux.Lock()
+		var ring *Ring
+		if msg.Partition < numRings {
+			ring = k.rings[msg.Partition]
+		} else {
+			for i := numRings; i < msg.Partition+1; i++ {
 				k.rings = append(k.rings, nil)
 			}
+			numRings = msg.Partition + 1
+		}
+		if ring == nil {
 			cap := 2 ^ 10
 			for ; cap < 2*k.taskCfg.BufferSize; cap *= 2 {
 			}
@@ -190,10 +196,9 @@ LOOP:
 				err = errors.Wrap(err, "")
 				log.Criticalf("got error %+v", err)
 			}
-			k.rings = append(k.rings, ring)
-			numRings = len(k.rings)
-			k.mux.Unlock()
+			k.rings[msg.Partition] = ring
 		}
+		k.mux.Unlock()
 
 		// submit message to a goroutine pool
 		k.wp.Submit(func() {
