@@ -92,6 +92,13 @@ func (batch Batch) Free() (err error) {
 	for i, msgRow := range batch.MsgRows {
 		msgs[i] = *msgRow.Msg
 	}
+	// "io: read/write on closed pipe" makes caller hard to tell what happend. context.Canceled is better.
+	select {
+	case <-batch.kafka.ctx.Done():
+		err = errors.Wrap(context.Canceled, "")
+		return
+	default:
+	}
 	if err = batch.kafka.r.CommitMessages(batch.kafka.ctx, msgs...); err != nil {
 		err = errors.Wrap(err, "")
 		return

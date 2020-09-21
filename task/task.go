@@ -70,6 +70,7 @@ LOOP:
 		case <-ctx.Done():
 			break LOOP
 		case batch := <-service.kafka.BatchCh():
+			log.Debugf("%s: going to flush a batch %d", service.taskCfg.Name, len(batch.MsgRows))
 			service.flush(batch)
 		}
 	}
@@ -77,7 +78,6 @@ LOOP:
 }
 
 func (service *Service) flush(batch input.Batch) {
-	log.Infof("%s: buf size:%d", service.taskCfg.Name, len(batch.MsgRows))
 	service.clickhouse.Send(batch)
 }
 
