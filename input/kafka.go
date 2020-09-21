@@ -21,7 +21,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/fagongzi/goetty"
@@ -39,20 +38,19 @@ import (
 
 // Kafka reader configuration
 type Kafka struct {
-	taskCfg     *config.TaskConfig
-	parser      parser.Parser
-	dims        []*model.ColumnWithType
-	r           *kafka.Reader
-	mux         sync.Mutex
-	rings       []*Ring
-	batchCh     chan Batch
-	tw          *goetty.TimeoutWheel
-	stopped     chan struct{}
-	ctx         context.Context
-	limiter     *rate.Limiter
-	cntParseErr int64
-	wp          *workerpool.WorkerPool
-	tid         goetty.Timeout
+	taskCfg *config.TaskConfig
+	parser  parser.Parser
+	dims    []*model.ColumnWithType
+	r       *kafka.Reader
+	mux     sync.Mutex
+	rings   []*Ring
+	batchCh chan Batch
+	tw      *goetty.TimeoutWheel
+	stopped chan struct{}
+	ctx     context.Context
+	limiter *rate.Limiter
+	wp      *workerpool.WorkerPool
+	tid     goetty.Timeout
 }
 
 type Ring struct {
@@ -196,9 +194,8 @@ LOOP:
 			metric, err := k.parser.Parse(msg.Value)
 			if err != nil {
 				statistics.ParseMsgsErrorTotal.WithLabelValues(k.taskCfg.Name).Inc()
-				cnt := atomic.AddInt64(&k.cntParseErr, int64(1))
 				if k.limiter.Allow() {
-					log.Errorf("failed to parse %+v, string(value) <<<%+v>>>, got error %+v. Parser errors counter %+v", msg, string(msg.Value), err, cnt)
+					log.Errorf("failed to parse %+v, string(value) <<<%+v>>>, got error %+v", msg, string(msg.Value), err)
 				}
 			} else {
 				row = model.MetricToRow(metric, k.dims)
@@ -256,6 +253,7 @@ LOOP:
 	for {
 		ring.mux.Lock()
 		if msgOffset < ring.ringGroundOff {
+			statistics.RingMsgsOffTooSmallErrorTotal.WithLabelValues(ring.kafka.taskCfg.Name).Inc()
 			log.Errorf("Ring.PutElem quit due to msgOffset %v is less than ring.ringGroundOff %v", msgOffset, ring.ringGroundOff)
 			ring.mux.Unlock()
 			return
@@ -264,6 +262,7 @@ LOOP:
 			break LOOP
 		}
 		ring.mux.Unlock()
+		statistics.RingMsgsOffTooLargeErrorTotal.WithLabelValues(ring.kafka.taskCfg.Name).Inc()
 		log.Warnf("Ring.PutElem sleep due to msgOffset %v exceeds %v (the max offest allowed by the ring)", msgOffset, ring.ringGroundOff+ring.ringCap)
 		select {
 		case <-ring.kafka.ctx.Done():
@@ -294,6 +293,7 @@ LOOP:
 		ring.ringGroundOff += int64(batchSize)
 		ring.kafka.batchCh <- batch
 		statistics.ParseMsgsBacklog.WithLabelValues(ring.kafka.taskCfg.Name).Sub(float64(batchSize))
+		statistics.RingNormalBatchsTotal.WithLabelValues(ring.kafka.taskCfg.Name).Inc()
 		ring.tid.Stop()
 		if ring.tid, err = ring.kafka.tw.Schedule(time.Duration(ring.kafka.taskCfg.FlushInterval)*time.Second, ring.ForceBatch, nil); err != nil {
 			err = errors.Wrap(err, "")
@@ -334,6 +334,7 @@ func (ring *Ring) ForceBatch(interface{}) {
 	ring.ringGroundOff += int64(batchSize)
 	ring.kafka.batchCh <- batch
 	statistics.ParseMsgsBacklog.WithLabelValues(ring.kafka.taskCfg.Name).Sub(float64(batchSize))
+	statistics.RingForceBatchsTotal.WithLabelValues(ring.kafka.taskCfg.Name).Inc()
 	if ring.tid, err = ring.kafka.tw.Schedule(time.Duration(ring.kafka.taskCfg.FlushInterval)*time.Second, ring.ForceBatch, nil); err != nil {
 		err = errors.Wrap(err, "")
 		log.Criticalf("got error %+v", err)

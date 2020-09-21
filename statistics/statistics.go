@@ -27,7 +27,7 @@ import (
 var (
 	prefix = "clickhouse_sinker_"
 
-	// ConsumeMsgsTotal = ParseMsgsErrorTotal + FlushMsgsTotal + FlushMsgsErrorTotal
+	// ConsumeMsgsTotal = ParseMsgsErrorTotal + RingMsgsOffTooSmallErrorTotal + FlushMsgsTotal + FlushMsgsErrorTotal
 	ConsumeMsgsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: prefix + "consume_msgs_total",
@@ -46,6 +46,34 @@ var (
 		prometheus.CounterOpts{
 			Name: prefix + "parse_msgs_error_total",
 			Help: "total num of msgs with parse failure",
+		},
+		[]string{"task"},
+	)
+	RingMsgsOffTooSmallErrorTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: prefix + "ring_msgs_offset_too_small_error_total",
+			Help: "total num of msgs with too small offset to put into ring",
+		},
+		[]string{"task"},
+	)
+	RingMsgsOffTooLargeErrorTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: prefix + "ring_msgs_offset_too_large_error_total",
+			Help: "total num of msgs with too large offset to put into ring",
+		},
+		[]string{"task"},
+	)
+	RingNormalBatchsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: prefix + "ring_normal_batchs_total",
+			Help: "total num of normal batchs generated",
+		},
+		[]string{"task"},
+	)
+	RingForceBatchsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: prefix + "ring_force_batchs_total",
+			Help: "total num of force batchs generated",
 		},
 		[]string{"task"},
 	)
@@ -97,6 +125,10 @@ func init() {
 	prometheus.MustRegister(ConsumeMsgsTotal)
 	prometheus.MustRegister(ConsumeMsgsErrorTotal)
 	prometheus.MustRegister(ParseMsgsErrorTotal)
+	prometheus.MustRegister(RingMsgsOffTooSmallErrorTotal)
+	prometheus.MustRegister(RingMsgsOffTooLargeErrorTotal)
+	prometheus.MustRegister(RingNormalBatchsTotal)
+	prometheus.MustRegister(RingForceBatchsTotal)
 	prometheus.MustRegister(FlushMsgsTotal)
 	prometheus.MustRegister(FlushMsgsErrorTotal)
 	prometheus.MustRegister(ConsumeOffsets)
