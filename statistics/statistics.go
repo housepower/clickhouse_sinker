@@ -63,6 +63,13 @@ var (
 		},
 		[]string{"task"},
 	)
+	RingMsgsOffDupErrorTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: prefix + "ring_msgs_offset_dup_error_total",
+			Help: "total num of msgs with duplicated offset to put into ring",
+		},
+		[]string{"task"},
+	)
 	RingNormalBatchsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: prefix + "ring_normal_batchs_total",
@@ -74,6 +81,20 @@ var (
 		prometheus.CounterOpts{
 			Name: prefix + "ring_force_batchs_total",
 			Help: "total num of force batchs generated",
+		},
+		[]string{"task"},
+	)
+	RingForceBatchAllTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: prefix + "ring_force_batch_all_total",
+			Help: "total num of force batch_all generated",
+		},
+		[]string{"task"},
+	)
+	RingForceBatchAllGapTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: prefix + "ring_force_batch_all_gap_total",
+			Help: "total num of force batch_all generated with some offset gap",
 		},
 		[]string{"task"},
 	)
@@ -127,8 +148,11 @@ func init() {
 	prometheus.MustRegister(ParseMsgsErrorTotal)
 	prometheus.MustRegister(RingMsgsOffTooSmallErrorTotal)
 	prometheus.MustRegister(RingMsgsOffTooLargeErrorTotal)
+	prometheus.MustRegister(RingMsgsOffDupErrorTotal)
 	prometheus.MustRegister(RingNormalBatchsTotal)
 	prometheus.MustRegister(RingForceBatchsTotal)
+	prometheus.MustRegister(RingForceBatchAllTotal)
+	prometheus.MustRegister(RingForceBatchAllGapTotal)
 	prometheus.MustRegister(FlushMsgsTotal)
 	prometheus.MustRegister(FlushMsgsErrorTotal)
 	prometheus.MustRegister(ConsumeOffsets)
@@ -198,10 +222,19 @@ func (p *Pusher) reconnect() {
 		Collector(ConsumeMsgsTotal).
 		Collector(ConsumeMsgsErrorTotal).
 		Collector(ParseMsgsErrorTotal).
+		Collector(RingMsgsOffTooSmallErrorTotal).
+		Collector(RingMsgsOffTooLargeErrorTotal).
+		Collector(RingMsgsOffDupErrorTotal).
+		Collector(RingNormalBatchsTotal).
+		Collector(RingForceBatchsTotal).
+		Collector(RingForceBatchAllTotal).
+		Collector(RingForceBatchAllGapTotal).
 		Collector(FlushMsgsTotal).
 		Collector(FlushMsgsErrorTotal).
 		Collector(ConsumeOffsets).
 		Collector(ClickhouseReconnectTotal).
+		Collector(ParseMsgsBacklog).
+		Collector(FlushBatchBacklog).
 		Grouping("instance", p.instance)
 	p.inUseAddr = nextAddr
 }

@@ -217,20 +217,22 @@ func (c *ClickHouse) initSchema() (err error) {
 }
 
 func (c *ClickHouse) initConn() (err error) {
-	var hosts []string
+	var ips, ips2, hosts []string
 
 	// if contains ',', that means it's a ip list
 	if strings.Contains(c.chCfg.Host, ",") {
-		hosts = strings.Split(strings.TrimSpace(c.chCfg.Host), ",")
+		ips = strings.Split(strings.TrimSpace(c.chCfg.Host), ",")
 	} else {
-		ips, err := utils.GetIp4Byname(c.chCfg.Host)
-		if err != nil {
+		ips = []string{c.chCfg.Host}
+	}
+	for _, ip := range ips {
+		if ips2, err = utils.GetIp4Byname(ip); err != nil {
 			// fallback to ip
-			ips = []string{c.chCfg.Host}
+			err = nil
+		} else {
+			ip = ips2[0]
 		}
-		for _, ip := range ips {
-			hosts = append(hosts, fmt.Sprintf("%s:%d", ip, c.chCfg.Port))
-		}
+		hosts = append(hosts, fmt.Sprintf("%s:%d", ip, c.chCfg.Port))
 	}
 
 	var dsn = fmt.Sprintf("tcp://%s?database=%s&username=%s&password=%s", hosts[0], c.chCfg.DB, c.chCfg.Username, c.chCfg.Password)
