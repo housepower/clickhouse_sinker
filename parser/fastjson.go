@@ -26,6 +26,7 @@ import (
 // FastjsonParser, parser for get data in json format
 // uses
 type FastjsonParser struct {
+	tsLayout []string
 }
 
 func (p *FastjsonParser) Parse(bs []byte) (metric model.Metric, err error) {
@@ -36,12 +37,13 @@ func (p *FastjsonParser) Parse(bs []byte) (metric model.Metric, err error) {
 		err = errors.Wrapf(err, "")
 		return
 	}
-	metric = &FastjsonMetric{value: value}
+	metric = &FastjsonMetric{value: value, tsLayout: p.tsLayout}
 	return
 }
 
 type FastjsonMetric struct {
 	value *fastjson.Value
+	tsLayout []string
 }
 
 func (c *FastjsonMetric) Get(key string) interface{} {
@@ -89,6 +91,30 @@ func (c *FastjsonMetric) GetArray(key string, t string) interface{} {
 
 func (c *FastjsonMetric) String() string {
 	return c.value.String()
+}
+
+func (c *FastjsonMetric) GetDate(key string) uint16 {
+	val := c.GetString(key)
+	if t, err := time.Parse(c.tsLayout[0], val); err==nil {
+		return uint16(t.Sub(Epoch).Hours() /24.0)
+	}
+	return 0
+}
+
+func (c *FastjsonMetric) GetDateTime(key string) uint32 {
+	val := c.GetString(key)
+	if t, err := time.Parse(c.tsLayout[1], val); err==nil {
+		return uint32(t.Unix())
+	}
+	return 0
+}
+
+func (c *FastjsonMetric) GetDateTime64(key string) int64 {
+	val := c.GetString(key)
+	if t, err := time.Parse(c.tsLayout[2], val); err==nil {
+		return t.UnixNano()/int64(1000000)
+	}
+	return 0
 }
 
 func (c *FastjsonMetric) GetElasticDateTime(key string) int64 {

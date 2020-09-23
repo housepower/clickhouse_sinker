@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/k0kubun/pp"
 	"github.com/sundy-li/go_commons/log"
@@ -46,6 +47,9 @@ type Config struct {
 		MinBufferSize     int
 		MsgSizeHint       int
 		ConcurrentParsers int
+		LayoutDate        string
+		LayoutDateTime    string
+		LayoutDateTime64  string
 		LogLevel          string
 	}
 }
@@ -141,6 +145,15 @@ func (config *Config) normallize() {
 	if baseConfig.Common.ConcurrentParsers <= 0 {
 		config.Common.ConcurrentParsers = defaultConcurrentParsers
 	}
+	if baseConfig.Common.LayoutDate == "" {
+		baseConfig.Common.LayoutDate = defaultLayoutDate
+	}
+	if baseConfig.Common.LayoutDateTime == "" {
+		baseConfig.Common.LayoutDateTime = defaultLayoutDateTime
+	}
+	if baseConfig.Common.LayoutDateTime64 == "" {
+		baseConfig.Common.LayoutDateTime64 = defaultLayoutDateTime64
+	}
 	for _, taskConfig := range config.Tasks {
 		if taskConfig.FlushInterval <= 0 {
 			taskConfig.FlushInterval = config.Common.FlushInterval
@@ -156,6 +169,15 @@ func (config *Config) normallize() {
 		}
 		if taskConfig.ConcurrentParsers <= 0 {
 			taskConfig.ConcurrentParsers = config.Common.ConcurrentParsers
+		}
+		if taskConfig.LayoutDate == "" {
+			taskConfig.LayoutDate = baseConfig.Common.LayoutDate
+		}
+		if taskConfig.LayoutDateTime == "" {
+			taskConfig.LayoutDateTime = baseConfig.Common.LayoutDateTime
+		}
+		if taskConfig.LayoutDateTime64 == "" {
+			taskConfig.LayoutDateTime64 = baseConfig.Common.LayoutDateTime64
 		}
 	}
 }
@@ -211,11 +233,14 @@ type TaskConfig struct {
 		SourceName string
 	} `json:"dims"`
 
-	FlushInterval     int `json:"flushInterval,omitempty"`
-	BufferSize        int `json:"bufferSize,omitempty"`
-	MinBufferSize     int `json:"minBufferSize,omitempty"`
-	MsgSizeHint       int `json:"msgSizeHint,omitempty"`
-	ConcurrentParsers int `json:"concurrentParsers,omitempty"`
+	FlushInterval     int    `json:"flushInterval,omitempty"`
+	BufferSize        int    `json:"bufferSize,omitempty"`
+	MinBufferSize     int    `json:"minBufferSize,omitempty"`
+	MsgSizeHint       int    `json:"msgSizeHint,omitempty"`
+	ConcurrentParsers int    `json:"concurrentParsers,omitempty"`
+	LayoutDate        string `json:"layoutDate,omitempty"`
+	LayoutDateTime    string `json:"layoutDateTime,omitempty"`
+	LayoutDateTime64  string `json:"layoutDateTime64,omitempty"`
 }
 
 var (
@@ -224,4 +249,7 @@ var (
 	defaultMinBufferSize     = 10000
 	defaultMsgSizeHint       = 1000
 	defaultConcurrentParsers = 5
+	defaultLayoutDate        = "2006-01-02"
+	defaultLayoutDateTime    = time.RFC3339
+	defaultLayoutDateTime64  = time.RFC3339
 )

@@ -40,6 +40,12 @@ func GetValueByType(metric Metric, cwt *ColumnWithType) interface{} {
 		return clickhouse.Array(metric.GetArray(name, "int"))
 	case "floatArray":
 		return clickhouse.Array(metric.GetArray(name, "float"))
+	case "Date":
+		return metric.GetDate(name)
+	case "DateTime":
+		return metric.GetDateTime(name)
+	case "DateTime64":
+		return metric.GetDateTime64(name)
 	case "ElasticDateTime":
 		return metric.GetElasticDateTime(name)
 
@@ -51,12 +57,12 @@ func GetValueByType(metric Metric, cwt *ColumnWithType) interface{} {
 
 func switchType(typ string) string {
 	switch typ {
-	case "Date", "DateTime", "UInt8", "UInt16", "UInt32", "UInt64", "Int8",
-		"Int16", "Int32", "Int64", "Nullable(Date)", "Nullable(DateTime)",
+	case "UInt8", "UInt16", "UInt32", "UInt64", "Int8",
+		"Int16", "Int32", "Int64",
 		"Nullable(UInt8)", "Nullable(UInt16)", "Nullable(UInt32)", "Nullable(UInt64)",
 		"Nullable(Int8)", "Nullable(Int16)", "Nullable(Int32)", "Nullable(Int64)":
 		return "int"
-	case "Array(Date)", "Array(DateTime)", "Array(UInt8)", "Array(UInt16)", "Array(UInt32)",
+	case "Array(UInt8)", "Array(UInt16)", "Array(UInt32)",
 		"Array(UInt64)", "Array(Int8)", "Array(Int16)", "Array(Int32)", "Array(Int64)":
 		return "intArray"
 	case "String", "FixedString", "Nullable(String)":
@@ -67,8 +73,8 @@ func switchType(typ string) string {
 		return "float"
 	case "Array(Float32)", "Array(Float64)":
 		return "floatArray"
-	case "ElasticDateTime":
-		return "ElasticDateTime"
+	case "Date", "DateTime", "DateTime64", "ElasticDateTime":
+		return typ
 	default:
 		panic("unsupport type " + typ)
 	}
