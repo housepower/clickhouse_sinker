@@ -1,0 +1,44 @@
+name: Go
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+
+    - name: Set up Go 1.x
+      uses: actions/setup-go@v2
+      with:
+        go-version: ^1.13
+      id: go
+
+    - name: Check out code into the Go module directory
+      uses: actions/checkout@v2
+
+    - name: Start docker-compose
+      run: |
+        docker-compose --version
+        docker-compose up -d
+    
+    - name: Build
+      run: make build
+
+    - name: utest
+      run: make utest
+    
+    - name: itest
+      run: make itest
+    
+    - name: benchtest
+      run: make benchtest
+      
+    - name: systest
+      run: make systest
+    
