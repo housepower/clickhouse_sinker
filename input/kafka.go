@@ -199,7 +199,7 @@ LOOP:
 			if msg.Offset < ring.ringGroundOff {
 				statistics.RingMsgsOffTooSmallErrorTotal.WithLabelValues(ring.kafka.taskCfg.Name).Inc()
 				if ring.kafka.limiter2.Allow() {
-					log.Warnf("got a message(partition %d offset %v) is left to the range [%v, %v)", msg.Partition, msg.Offset, ring.ringGroundOff, ring.ringGroundOff+ring.ringCap)
+					log.Warnf("got a message(topic %v, partition %d, offset %v) is left to the range [%v, %v)", msg.Topic, msg.Partition, msg.Offset, ring.ringGroundOff, ring.ringGroundOff+ring.ringCap)
 				}
 				k.mux.Unlock()
 				continue LOOP
@@ -207,7 +207,7 @@ LOOP:
 			if msg.Offset >= ring.ringGroundOff+ring.ringCap {
 				statistics.RingMsgsOffTooLargeErrorTotal.WithLabelValues(ring.kafka.taskCfg.Name).Inc()
 				if ring.kafka.limiter3.Allow() {
-					log.Warnf("got a message(partition %d offset %v) is right to the range [%v, %v)", msg.Partition, msg.Offset, ring.ringGroundOff, ring.ringGroundOff+ring.ringCap)
+					log.Warnf("got a message(topic %v, partition %d, offset %v) is right to the range [%v, %v)", msg.Topic, msg.Partition, msg.Offset, ring.ringGroundOff, ring.ringGroundOff+ring.ringCap)
 				}
 				k.mux.Unlock()
 				time.Sleep(1 * time.Second)
@@ -230,7 +230,7 @@ LOOP:
 			if err != nil {
 				statistics.ParseMsgsErrorTotal.WithLabelValues(k.taskCfg.Name).Inc()
 				if k.limiter1.Allow() {
-					log.Errorf("failed to parse %+v, string(value) <<<%+v>>>, got error %+v", msg, string(msg.Value), err)
+					log.Errorf("failed to parse message(topic %v, partition %d, offset %v) %+v, string(value) <<<%+v>>>, got error %+v", msg.Topic, msg.Partition, msg.Offset, msg, string(msg.Value), err)
 				}
 			} else {
 				row = model.MetricToRow(metric, k.dims)
@@ -358,7 +358,7 @@ func (ring *Ring) ForceBatch(arg interface{}) {
 			gap := int(ring.ringCeilingOff-ring.ringGroundOff) - batchSize
 			if gap != 0 {
 				statistics.RingForceBatchAllGapTotal.WithLabelValues(ring.kafka.taskCfg.Name).Inc()
-				log.Warnf("Ring.ForceBatchAll noticed partition %d message offset gaps(total %d) %v", newMsg.Partition, gap, gaps)
+				log.Warnf("Ring.ForceBatchAll noticed topic %v partition %d message offset gaps(total %d) %v", newMsg.Topic, newMsg.Partition, gap, gaps)
 			}
 		} else {
 			statistics.RingForceBatchsTotal.WithLabelValues(ring.kafka.taskCfg.Name).Inc()
