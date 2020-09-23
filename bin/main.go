@@ -90,6 +90,7 @@ func serviceRegister(agent *api.Agent) {
 		log.Warnf("Consul: %s", err)
 	}
 }
+
 func init() {
 	flag.Parse()
 	ip, port = parseAddr(*httpAddr)

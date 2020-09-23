@@ -60,3 +60,11 @@ linters:
    - gosec
    - gomnd
    - prealloc
+   - nlreturn
+   - testpackage
+   - nestif
+   - exhaustive
+   - godot
+   - gci
+   - gocritic
+   - gofumpt

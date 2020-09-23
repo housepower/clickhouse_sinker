@@ -47,6 +47,7 @@ type GjsonExtendMetric struct {
 // }
 func (p *GjsonExtendParser) Parse(bs []byte) (metric model.Metric, err error) {
 	var mp = make(map[string]interface{})
+
 	jsonResults := gjson.ParseBytes(bs)
 	jsonResults.ForEach(func(key gjson.Result, value gjson.Result) bool {
 		if key.String() != "" {

@@ -181,9 +181,13 @@ func NewPusher(addrs []string, interval int) *Pusher {
 	}
 }
 
+var (
+	errPgwEmpty = errors.New("invalid configuration for pusher")
+)
+
 func (p *Pusher) Init() error {
 	if len(p.pgwAddrs) == 0 || p.pushInterval <= 0 {
-		return errors.New("invalid configuration for pusher")
+		return errPgwEmpty
 	}
 	p.instance = p.getInstance()
 	p.reconnect()

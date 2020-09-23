@@ -60,3 +60,4 @@ linters:
    - gosec
    - gomnd
    - prealloc
+   - nlrun

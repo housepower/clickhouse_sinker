@@ -42,6 +42,7 @@ func (c *DummyMetric) GetArray(key string, t string) interface{} {
 func (c *DummyMetric) String() string {
 	return "_dummy"
 }
+
 func (c *DummyMetric) GetElasticDateTime(key string) int64 {
 	return 0
 }

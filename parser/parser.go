@@ -34,7 +34,8 @@ func NewParser(name string, csvFormat []string, delimiter string) Parser {
 		return &FastjsonParser{}
 	case "csv":
 		return &CsvParser{title: csvFormat, delimiter: delimiter}
-	case "gjson_extend": //extend gjson that could extract the map
+	//extend gjson that could extract the map
+	case "gjson_extend":
 		return &GjsonExtendParser{}
 	default:
 		return &GjsonParser{}
