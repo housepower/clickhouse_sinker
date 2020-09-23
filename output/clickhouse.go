@@ -171,11 +171,14 @@ func (c *ClickHouse) initAll() error {
 	return nil
 }
 
+var (
+	selectSQLTemplate = `select name, type, default_kind from system.columns where database = '%s' and table = '%s'`
+)
+
 func (c *ClickHouse) initSchema() (err error) {
 	if c.taskCfg.AutoSchema {
 		conn := pool.GetConn(c.chCfg.Host)
-		rs, err := conn.Query(fmt.Sprintf(
-			"select name, type, default_kind from system.columns where database = '%s' and table = '%s'", c.chCfg.DB, c.taskCfg.TableName))
+		rs, err := conn.Query(fmt.Sprintf(selectSQLTemplate, c.chCfg.DB, c.taskCfg.TableName))
 		if err != nil {
 			return err
 		}
@@ -235,7 +238,9 @@ func (c *ClickHouse) initConn() (err error) {
 		hosts = append(hosts, fmt.Sprintf("%s:%d", ip, c.chCfg.Port))
 	}
 
-	var dsn = fmt.Sprintf("tcp://%s?database=%s&username=%s&password=%s", hosts[0], c.chCfg.DB, c.chCfg.Username, c.chCfg.Password)
+	var dsn = fmt.Sprintf("tcp://%s?database=%s&username=%s&password=%s",
+		hosts[0], c.chCfg.DB, c.chCfg.Username, c.chCfg.Password)
+
 	if len(hosts) > 1 {
 		otherHosts := hosts[1:]
 		dsn += "&alt_hosts="

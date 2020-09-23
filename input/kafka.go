@@ -200,7 +200,8 @@ LOOP:
 			if msg.Offset < ring.ringGroundOff {
 				statistics.RingMsgsOffTooSmallErrorTotal.WithLabelValues(ring.kafka.taskCfg.Name).Inc()
 				if ring.kafka.limiter2.Allow() {
-					log.Warnf("got a message(topic %v, partition %d, offset %v) is left to the range [%v, %v)", msg.Topic, msg.Partition, msg.Offset, ring.ringGroundOff, ring.ringGroundOff+ring.ringCap)
+					log.Warnf("got a message(topic %v, partition %d, offset %v) is left to the range [%v, %v)",
+						msg.Topic, msg.Partition, msg.Offset, ring.ringGroundOff, ring.ringGroundOff+ring.ringCap)
 				}
 				k.mux.Unlock()
 				continue LOOP
@@ -208,7 +209,8 @@ LOOP:
 			if msg.Offset >= ring.ringGroundOff+ring.ringCap {
 				statistics.RingMsgsOffTooLargeErrorTotal.WithLabelValues(ring.kafka.taskCfg.Name).Inc()
 				if ring.kafka.limiter3.Allow() {
-					log.Warnf("got a message(topic %v, partition %d, offset %v) is right to the range [%v, %v)", msg.Topic, msg.Partition, msg.Offset, ring.ringGroundOff, ring.ringGroundOff+ring.ringCap)
+					log.Warnf("got a message(topic %v, partition %d, offset %v) is right to the range [%v, %v)",
+						msg.Topic, msg.Partition, msg.Offset, ring.ringGroundOff, ring.ringGroundOff+ring.ringCap)
 				}
 				k.mux.Unlock()
 				time.Sleep(1 * time.Second)
@@ -231,7 +233,8 @@ LOOP:
 			if err != nil {
 				statistics.ParseMsgsErrorTotal.WithLabelValues(k.taskCfg.Name).Inc()
 				if k.limiter1.Allow() {
-					log.Errorf("failed to parse message(topic %v, partition %d, offset %v) %+v, string(value) <<<%+v>>>, got error %+v", msg.Topic, msg.Partition, msg.Offset, msg, string(msg.Value), err)
+					log.Errorf("failed to parse message(topic %v, partition %d, offset %v) %+v, string(value) <<<%+v>>>, got error %+v",
+						msg.Topic, msg.Partition, msg.Offset, msg, string(msg.Value), err)
 				}
 			} else {
 				row = model.MetricToRow(metric, k.dims)
@@ -304,23 +307,27 @@ type OffsetRange struct {
 }
 
 func (ring *Ring) ForceBatch(arg interface{}) {
-	var err error
+	var (
+		err       error
+		batchSize int
+		newMsg    *kafka.Message
+		gaps      []OffsetRange
+	)
+
 	select {
 	case <-ring.kafka.ctx.Done():
 		log.Errorf("Ring.ForceBatch quit due to the context has been canceled")
 		return
 	default:
 	}
+
 	ring.mux.Lock()
 	defer ring.mux.Unlock()
 	batch := NewBatch(0, ring.kafka)
-	var batchSize int
-	var newMsg *kafka.Message
 	if arg != nil {
 		newMsg = arg.(*kafka.Message)
 		log.Warnf("Ring.ForceBatchAll partition %d message range [%d, %d)", newMsg.Partition, ring.ringGroundOff, newMsg.Offset)
 	}
-	var gaps []OffsetRange
 	if !ring.isIdle {
 		var endOff int64
 		if newMsg != nil {

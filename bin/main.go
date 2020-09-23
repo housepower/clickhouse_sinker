@@ -96,7 +96,7 @@ func init() {
 }
 
 // GenTasks generate the tasks via config
-func GenTasks(cfg *config.Config) (res []*task.Service, err error) {
+func GenTasks(cfg *config.Config) (res []*task.Service) {
 	res = make([]*task.Service, 0, len(cfg.Tasks))
 	for _, taskCfg := range cfg.Tasks {
 		ck := output.NewClickHouse(taskCfg)
@@ -196,9 +196,7 @@ func (s *Sinker) Init() (err error) {
 			return err
 		}
 	}
-	if s.tasks, err = GenTasks(s.cfg); err != nil {
-		return
-	}
+	s.tasks = GenTasks(s.cfg)
 	for _, t := range s.tasks {
 		if err := t.Init(); err != nil {
 			return err

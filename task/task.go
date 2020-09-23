@@ -70,7 +70,9 @@ LOOP:
 		case <-ctx.Done():
 			break LOOP
 		case batch := <-service.kafka.BatchCh():
-			log.Debugf("%s: going to flush a batch for topic %v patittion %d, size %d, offset %d-%d", service.taskCfg.Name, batch.MsgRows[0].Msg.Topic, batch.MsgRows[0].Msg.Partition, len(batch.MsgRows), batch.MsgRows[0].Msg.Offset, batch.MsgRows[len(batch.MsgRows)-1].Msg.Offset)
+			log.Debugf("%s: going to flush a batch for topic %v patittion %d, size %d, offset %d-%d",
+				service.taskCfg.Name, batch.MsgRows[0].Msg.Topic, batch.MsgRows[0].Msg.Partition,
+				len(batch.MsgRows), batch.MsgRows[0].Msg.Offset, batch.MsgRows[len(batch.MsgRows)-1].Msg.Offset)
 			service.flush(batch)
 		}
 	}
