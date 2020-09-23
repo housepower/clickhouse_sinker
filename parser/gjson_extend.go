@@ -45,7 +45,7 @@ type GjsonExtendMetric struct {
 // 	"bb_cc" : 3,
 // 	"bb_dd" : ["33", "44"]
 // }
-func (c *GjsonExtendParser) Parse(bs []byte) model.Metric {
+func (p *GjsonExtendParser) Parse(bs []byte) (metric model.Metric, err error) {
 	var mp = make(map[string]interface{})
 	jsonResults := gjson.ParseBytes(bs)
 	jsonResults.ForEach(func(key gjson.Result, value gjson.Result) bool {
@@ -59,7 +59,8 @@ func (c *GjsonExtendParser) Parse(bs []byte) model.Metric {
 		return true
 	})
 
-	return &GjsonExtendMetric{mp}
+	metric = &GjsonExtendMetric{mp}
+	return
 }
 
 func injectObject(prefix string, result map[string]interface{}, t gjson.Result) {

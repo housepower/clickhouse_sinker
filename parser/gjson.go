@@ -26,8 +26,9 @@ import (
 type GjsonParser struct {
 }
 
-func (c *GjsonParser) Parse(bs []byte) model.Metric {
-	return &GjsonMetric{string(bs)}
+func (p *GjsonParser) Parse(bs []byte) (metric model.Metric, err error) {
+	metric = &GjsonMetric{string(bs)}
+	return
 }
 
 type GjsonMetric struct {

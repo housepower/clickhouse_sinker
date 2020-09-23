@@ -16,53 +16,42 @@ limitations under the License.
 package output
 
 import (
+	"context"
+	std_errors "errors"
 	"fmt"
 	"regexp"
 	"strings"
 	"time"
 
+	"github.com/gammazero/workerpool"
+	"github.com/housepower/clickhouse_sinker/config"
+	"github.com/housepower/clickhouse_sinker/input"
 	"github.com/housepower/clickhouse_sinker/model"
 	"github.com/housepower/clickhouse_sinker/pool"
 	"github.com/housepower/clickhouse_sinker/statistics"
 	"github.com/housepower/clickhouse_sinker/util"
+	"github.com/pkg/errors"
 
-	"github.com/housepower/clickhouse_sinker/prom"
 	"github.com/sundy-li/go_commons/log"
 	"github.com/sundy-li/go_commons/utils"
 )
 
 // ClickHouse is an output service consumers from kafka messages
 type ClickHouse struct {
-	Name      string
-	TableName string
-	DB        string
-	Host      string
-	Port      int
-
-	// Clickhouse database config
-	Clickhouse  string
-	Username    string
-	Password    string
-	DsnParams   string
-	MaxLifeTime time.Duration
-	RetryTimes  int
-
-	AutoSchema     bool
-	ExcludeColumns []string
-
+	Dims []*model.ColumnWithType
 	// Table Configs
-	Dims    []*model.ColumnWithType
-	Metrics []*model.ColumnWithType
+	taskCfg *config.TaskConfig
+	chCfg   *config.ClickHouseConfig
 
 	prepareSQL string
-
-	dmMap map[string]*model.ColumnWithType
-	dms   []string
+	dms        []string
+	wp         *workerpool.WorkerPool
 }
 
 // NewClickHouse new a clickhouse instance
-func NewClickHouse() *ClickHouse {
-	return &ClickHouse{}
+func NewClickHouse(taskCfg *config.TaskConfig) *ClickHouse {
+	cfg := config.GetConfig()
+	return &ClickHouse{taskCfg: taskCfg, chCfg: cfg.Clickhouse[taskCfg.Clickhouse]}
 }
 
 // Init the clickhouse intance
@@ -70,17 +59,26 @@ func (c *ClickHouse) Init() error {
 	return c.initAll()
 }
 
+// Send a batch to clickhouse
+func (c *ClickHouse) Send(batch input.Batch) {
+	statistics.FlushBatchBacklog.WithLabelValues(c.taskCfg.Name).Inc()
+	c.wp.Submit(func() {
+		c.loopWrite(batch)
+	})
+}
+
 // Write kvs to clickhouse
-func (c *ClickHouse) Write(metrics []model.Metric) (err error) {
-	if len(metrics) == 0 {
-		return
+func (c *ClickHouse) write(batch input.Batch) error {
+	if len(batch.MsgRows) == 0 {
+		return nil
 	}
 
-	conn := pool.GetConn(c.Host)
+	conn := pool.GetConn(c.chCfg.Host)
 	tx, err := conn.Begin()
 	if err != nil {
 		if shouldReconnect(err) {
 			_ = conn.ReConnect()
+			statistics.ClickhouseReconnectTotal.WithLabelValues(c.taskCfg.Name).Inc()
 		}
 		return err
 	}
@@ -91,31 +89,37 @@ func (c *ClickHouse) Write(metrics []model.Metric) (err error) {
 
 		if shouldReconnect(err) {
 			_ = conn.ReConnect()
+			statistics.ClickhouseReconnectTotal.WithLabelValues(c.taskCfg.Name).Inc()
 		}
 		return err
 	}
 
 	defer stmt.Close()
-	for _, metric := range metrics {
-		prom.ClickhouseEventsTotal.WithLabelValues(c.DB, c.TableName).Inc()
-		var args = make([]interface{}, len(c.dmMap))
-		for i, name := range c.dms {
-			args[i] = util.GetValueByType(metric, c.dmMap[name])
+	var numErr int
+	for _, msgRow := range batch.MsgRows {
+		if msgRow.Row != nil {
+			if _, err = stmt.Exec(msgRow.Row...); err != nil {
+				err = errors.Wrap(err, "")
+				numErr++
+			}
 		}
-		if _, err := stmt.Exec(args...); err != nil {
-			prom.ClickhouseEventsErrors.WithLabelValues(c.DB, c.TableName).Inc()
-			log.Error("execSQL:", err.Error())
-			return err
-		}
-		prom.ClickhouseEventsSuccess.WithLabelValues(c.DB, c.TableName).Inc()
 	}
+	if err != nil {
+		log.Errorf("stmt.Exec failed %d times with following errors: %+v", numErr, err)
+		return err
+	}
+
 	if err = tx.Commit(); err != nil {
+		err = errors.Wrap(err, "")
 		if shouldReconnect(err) {
 			_ = conn.ReConnect()
+			statistics.ClickhouseReconnectTotal.WithLabelValues(c.taskCfg.Name).Inc()
 		}
 		return err
 	}
-	return nil
+	statistics.FlushMsgsTotal.WithLabelValues(c.taskCfg.Name).Add(float64(batch.RealSize))
+	err = batch.Free()
+	return err
 }
 
 func shouldReconnect(err error) bool {
@@ -127,31 +131,33 @@ func shouldReconnect(err error) bool {
 }
 
 // LoopWrite will dead loop to write the records
-func (c *ClickHouse) LoopWrite(metrics []model.Metric) {
-	err := c.Write(metrics)
-	times := c.RetryTimes
-	for err != nil && times > 0 {
-		log.Error("saving msg error", err.Error(), "will loop to write the data")
-		statistics.UpdateFlushErrorsTotal(c.Name, 1)
-		time.Sleep(1 * time.Second)
-		err = c.Write(metrics)
+func (c *ClickHouse) loopWrite(batch input.Batch) {
+	var err error
+	times := c.chCfg.RetryTimes
+	defer statistics.FlushBatchBacklog.WithLabelValues(c.taskCfg.Name).Dec()
+	for {
+		if err = c.write(batch); err == nil {
+			statistics.FlushMsgsTotal.WithLabelValues(c.taskCfg.Name).Add(float64(batch.RealSize))
+			return
+		}
+		if std_errors.Is(err, context.Canceled) {
+			log.Infof("ClickHouse.loopWrite quit due to the context has been cancelled")
+			return
+		}
 		times--
+		log.Errorf("flush batch(try #%d) failed with error %+v", c.chCfg.RetryTimes-times, err)
+		if times > 0 {
+			statistics.FlushMsgsErrorTotal.WithLabelValues(c.taskCfg.Name).Add(float64(batch.RealSize))
+			return
+		}
+		time.Sleep(10 * time.Second)
 	}
 }
 
 // Close does nothing, place holder for handling close
 func (c *ClickHouse) Close() error {
+	c.wp.StopWait()
 	return nil
-}
-
-// GetName return the name of this instance of clickhouse client
-func (c *ClickHouse) GetName() string {
-	return c.Name
-}
-
-// Description describes this instance
-func (c *ClickHouse) Description() string {
-	return "clickhouse desc"
 }
 
 // initAll initialises schema and connections for clickhouse
@@ -166,41 +172,44 @@ func (c *ClickHouse) initAll() error {
 }
 
 func (c *ClickHouse) initSchema() (err error) {
-	if c.AutoSchema {
-		conn := pool.GetConn(c.Host)
+	if c.taskCfg.AutoSchema {
+		conn := pool.GetConn(c.chCfg.Host)
 		rs, err := conn.Query(fmt.Sprintf(
-			"select name, type, default_kind from system.columns where database = '%s' and table = '%s'", c.DB, c.TableName))
+			"select name, type, default_kind from system.columns where database = '%s' and table = '%s'", c.chCfg.DB, c.taskCfg.TableName))
 		if err != nil {
 			return err
 		}
 
 		c.Dims = make([]*model.ColumnWithType, 0, 10)
-		c.Metrics = make([]*model.ColumnWithType, 0, 10)
 		var name, typ, defaultKind string
 		for rs.Next() {
 			_ = rs.Scan(&name, &typ, &defaultKind)
 			typ = lowCardinalityRegexp.ReplaceAllString(typ, "$1")
-			if !util.StringContains(c.ExcludeColumns, name) && defaultKind != "MATERIALIZED" {
+			if !util.StringContains(c.taskCfg.ExcludeColumns, name) && defaultKind != "MATERIALIZED" {
 				c.Dims = append(c.Dims, &model.ColumnWithType{Name: name, Type: typ})
 			}
 		}
+		rs.Close()
+	} else {
+		c.Dims = make([]*model.ColumnWithType, 0)
+		for _, dim := range c.taskCfg.Dims {
+			c.Dims = append(c.Dims, &model.ColumnWithType{
+				Name:       dim.Name,
+				Type:       dim.Type,
+				SourceName: dim.SourceName,
+			})
+		}
 	}
 	//根据 dms 生成prepare的sql语句
-	c.dmMap = make(map[string]*model.ColumnWithType)
-	c.dms = make([]string, 0, len(c.Dims)+len(c.Metrics))
-	for i, d := range c.Dims {
-		c.dmMap[d.Name] = c.Dims[i]
+	c.dms = make([]string, 0, len(c.Dims))
+	for _, d := range c.Dims {
 		c.dms = append(c.dms, d.Name)
 	}
-	for i, m := range c.Metrics {
-		c.dmMap[m.Name] = c.Metrics[i]
-		c.dms = append(c.dms, m.Name)
-	}
-	var params = make([]string, len(c.dmMap))
+	var params = make([]string, len(c.Dims))
 	for i := range params {
 		params[i] = "?"
 	}
-	c.prepareSQL = "INSERT INTO " + c.DB + "." + c.TableName + " (" + strings.Join(c.dms, ",") + ") " +
+	c.prepareSQL = "INSERT INTO " + c.chCfg.DB + "." + c.taskCfg.TableName + " (" + strings.Join(c.dms, ",") + ") " +
 		"VALUES (" + strings.Join(params, ",") + ")"
 
 	log.Info("Prepare sql=>", c.prepareSQL)
@@ -208,23 +217,25 @@ func (c *ClickHouse) initSchema() (err error) {
 }
 
 func (c *ClickHouse) initConn() (err error) {
-	var hosts []string
+	var ips, ips2, hosts []string
 
 	// if contains ',', that means it's a ip list
-	if strings.Contains(c.Host, ",") {
-		hosts = strings.Split(strings.TrimSpace(c.Host), ",")
+	if strings.Contains(c.chCfg.Host, ",") {
+		ips = strings.Split(strings.TrimSpace(c.chCfg.Host), ",")
 	} else {
-		ips, err := utils.GetIp4Byname(c.Host)
-		if err != nil {
+		ips = []string{c.chCfg.Host}
+	}
+	for _, ip := range ips {
+		if ips2, err = utils.GetIp4Byname(ip); err != nil {
 			// fallback to ip
-			ips = []string{c.Host}
+			err = nil
+		} else {
+			ip = ips2[0]
 		}
-		for _, ip := range ips {
-			hosts = append(hosts, fmt.Sprintf("%s:%d", ip, c.Port))
-		}
+		hosts = append(hosts, fmt.Sprintf("%s:%d", ip, c.chCfg.Port))
 	}
 
-	var dsn = fmt.Sprintf("tcp://%s?database=%s&username=%s&password=%s", hosts[0], c.DB, c.Username, c.Password)
+	var dsn = fmt.Sprintf("tcp://%s?database=%s&username=%s&password=%s", hosts[0], c.chCfg.DB, c.chCfg.Username, c.chCfg.Password)
 	if len(hosts) > 1 {
 		otherHosts := hosts[1:]
 		dsn += "&alt_hosts="
@@ -232,13 +243,15 @@ func (c *ClickHouse) initConn() (err error) {
 		dsn += "&connection_open_strategy=random"
 	}
 
-	if c.DsnParams != "" {
-		dsn += "&" + c.DsnParams
+	if c.chCfg.DsnParams != "" {
+		dsn += "&" + c.chCfg.DsnParams
 	}
 	// dsn += "&debug=1"
 	for i := 0; i < len(hosts); i++ {
-		pool.SetDsn(c.Host, dsn, c.MaxLifeTime)
+		pool.SetDsn(c.chCfg.Host, dsn, time.Duration(c.chCfg.MaxLifeTime)*time.Second)
 	}
+
+	c.wp = workerpool.New(2 * len(hosts))
 	return nil
 }
 

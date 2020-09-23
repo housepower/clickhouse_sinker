@@ -5,7 +5,7 @@
       "host": "127.0.0.1",
       "maxLifeTime": 300,
       "password": "",
-      "retryTimes": 5,
+      "retryTimes": 6,
       "port": 9000,
       "username": ""
     }
@@ -23,7 +23,9 @@
   "common": {
     "bufferSize": 90000,
     "minBufferSize": 2000,
+    "msgSizeHint": 1000,
     "flushInterval": 5,
+    "concurrentParsers": 6,
     "logLevel": "debug"
   }
 }

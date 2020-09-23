@@ -20,10 +20,7 @@
 		{"name" : "uri" , "type" : "String"},
 		{"name" : "endpoint" , "type" : "String"},
 		{"name" : "step" , "type" : "Int16"},
-		{"name" : "tagsmap" , "type" : "String"}
-	],
-
-	"metrics" : [
+		{"name" : "tagsmap" , "type" : "String"},
 		{"name" : "value" , "type" : "Float32"}
 	],
 

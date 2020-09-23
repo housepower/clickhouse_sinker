@@ -21,7 +21,7 @@ import (
 	"time"
 
 	"github.com/housepower/clickhouse_sinker/model"
-	"github.com/sundy-li/go_commons/log"
+	"github.com/pkg/errors"
 )
 
 // CsvParser implementation to parse input from a CSV format
@@ -31,19 +31,19 @@ type CsvParser struct {
 }
 
 // Parse extract comma separated values from the data
-func (c *CsvParser) Parse(bs []byte) model.Metric {
+func (p *CsvParser) Parse(bs []byte) (metric model.Metric, err error) {
 	r := csv.NewReader(bytes.NewReader(bs))
-
 	r.Comma = ','
-	if len(c.delimiter) > 0 {
-		r.Comma = rune(c.delimiter[0])
+	if len(p.delimiter) > 0 {
+		r.Comma = rune(p.delimiter[0])
 	}
-	values, err := r.Read()
-	if err != nil {
-		log.Error("Parse csv error:" + err.Error())
-		return &DummyMetric{}
+	var value []string
+	if value, err = r.Read(); err != nil {
+		err = errors.Wrap(err, "")
+		return
 	}
-	return &CsvMetric{c.title, values}
+	metric = &CsvMetric{p.title, value}
+	return
 }
 
 // CsvMetic

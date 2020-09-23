@@ -12,17 +12,16 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
-package util
+package model
 
 import (
 	"strings"
 
-	"github.com/housepower/clickhouse_sinker/model"
 	"github.com/kshvakov/clickhouse"
 )
 
 // There are only three cases for the value type of metric, (float64, string, map [string] interface {})
-func GetValueByType(metric model.Metric, cwt *model.ColumnWithType) interface{} {
+func GetValueByType(metric Metric, cwt *ColumnWithType) interface{} {
 	swType := switchType(cwt.Type)
 	var name string
 	if name = cwt.SourceName; name == "" {

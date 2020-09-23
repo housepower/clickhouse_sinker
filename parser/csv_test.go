@@ -48,7 +48,7 @@ func TestParseCsv(t *testing.T) {
 
 	csvParser := NewParser("csv", nil, ",")
 	for _, c := range testCases {
-		metric := csvParser.Parse([]byte(c.msg))
+		metric, _ := csvParser.Parse([]byte(c.msg))
 		csvMetric, ok := metric.(*CsvMetric)
 		assert.Equal(t, ok, true)
 		assert.Equal(t, c.values, csvMetric.values)

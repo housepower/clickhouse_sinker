@@ -18,9 +18,9 @@ package parser
 import (
 	"time"
 
-	"github.com/valyala/fastjson"
-
 	"github.com/housepower/clickhouse_sinker/model"
+	"github.com/pkg/errors"
+	"github.com/valyala/fastjson"
 )
 
 // FastjsonParser, parser for get data in json format
@@ -28,14 +28,16 @@ import (
 type FastjsonParser struct {
 }
 
-func (c *FastjsonParser) Parse(bs []byte) model.Metric {
+func (p *FastjsonParser) Parse(bs []byte) (metric model.Metric, err error) {
 	// todo pool the parser
 	var parser fastjson.Parser
-	value, err := parser.Parse(string(bs))
-	if err == nil {
-		return &FastjsonMetric{value: value}
+	var value *fastjson.Value
+	if value, err = parser.Parse(string(bs)); err != nil {
+		err = errors.Wrapf(err, "")
+		return
 	}
-	return &DummyMetric{}
+	metric = &FastjsonMetric{value: value}
+	return
 }
 
 type FastjsonMetric struct {
