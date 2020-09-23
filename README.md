@@ -54,12 +54,11 @@ make build
 * [x] Float32, Float64
 * [x] String
 * [x] FixedString
-* [x] DateTime(UInt32), Date(UInt16)
+* [x] Date, DateTime, DateTime64
 * [x] Array(UInt8, UInt16, UInt32, UInt64, Int8, Int16, Int32, Int64)
 * [x] Array(Float32, Float64)
 * [x] Array(String)
 * [x] Array(FixedString)
-* [x] Array(DateTime(UInt32), Date(UInt16))
 * [x] Nullable
 * [x] [ElasticDateTime](https://www.elastic.co/guide/en/elasticsearch/reference/current/date.html) => Int64 (2019-12-16T12:10:30Z => 1576498230)
 

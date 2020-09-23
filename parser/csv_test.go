@@ -16,6 +16,7 @@ package parser
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -46,7 +47,7 @@ func TestParseCsv(t *testing.T) {
 		},
 	}
 
-	csvParser := NewParser("csv", nil, ",")
+	csvParser := NewParser("csv", nil, ",", []string{"2006-01-02", time.RFC3339, time.RFC3339})
 	for _, c := range testCases {
 		metric, _ := csvParser.Parse([]byte(c.msg))
 		csvMetric, ok := metric.(*CsvMetric)

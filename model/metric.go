@@ -22,6 +22,9 @@ type Metric interface {
 	GetArray(key string, t string) interface{}
 	GetFloat(key string) float64
 	GetInt(key string) int64
+	GetDate(key string) uint16
+	GetDateTime(key string) uint32
+	GetDateTime64(key string) int64
 	GetElasticDateTime(key string) int64
 }
 

@@ -24,10 +24,12 @@ import (
 )
 
 type GjsonExtendParser struct {
+	tsLayout []string
 }
 
 type GjsonExtendMetric struct {
 	mp map[string]interface{}
+	tsLayout []string
 }
 
 // {
@@ -60,7 +62,7 @@ func (p *GjsonExtendParser) Parse(bs []byte) (metric model.Metric, err error) {
 		return true
 	})
 
-	metric = &GjsonExtendMetric{mp}
+	metric = &GjsonExtendMetric{mp, p.tsLayout}
 	return
 }
 
@@ -168,6 +170,30 @@ func (c *GjsonExtendMetric) GetInt(key string) int64 {
 	default:
 		return 0
 	}
+}
+
+func (c *GjsonExtendMetric) GetDate(key string) uint16 {
+	val := c.GetString(key)
+	if t, err := time.Parse(c.tsLayout[0], val); err==nil {
+		return uint16(t.Sub(Epoch).Hours() /24.0)
+	}
+	return 0
+}
+
+func (c *GjsonExtendMetric) GetDateTime(key string) uint32 {
+	val := c.GetString(key)
+	if t, err := time.Parse(c.tsLayout[1], val); err==nil {
+		return uint32(t.Unix())
+	}
+	return 0
+}
+
+func (c *GjsonExtendMetric) GetDateTime64(key string) int64 {
+	val := c.GetString(key)
+	if t, err := time.Parse(c.tsLayout[2], val); err==nil {
+		return t.UnixNano()/int64(1000000)
+	}
+	return 0
 }
 
 func (c *GjsonExtendMetric) GetElasticDateTime(key string) int64 {

@@ -101,7 +101,7 @@ func GenTasks(cfg *config.Config) (res []*task.Service) {
 	res = make([]*task.Service, 0, len(cfg.Tasks))
 	for _, taskCfg := range cfg.Tasks {
 		ck := output.NewClickHouse(taskCfg)
-		p := parser.NewParser(taskCfg.Parser, taskCfg.CsvFormat, taskCfg.Delimiter)
+		p := parser.NewParser(taskCfg.Parser, taskCfg.CsvFormat, taskCfg.Delimiter, []string{taskCfg.LayoutDate, taskCfg.LayoutDateTime, taskCfg.LayoutDateTime64})
 		kafka := input.NewKafka(taskCfg, p)
 		taskImpl := task.NewTaskService(kafka, ck, taskCfg)
 		res = append(res, taskImpl)

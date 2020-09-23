@@ -69,6 +69,10 @@ func init() {
 		return impls.NewIntColumn(32, true)
 	})
 
+	regist("DateTime64", func() IColumn {
+		return impls.NewIntColumn(64, true)
+	})
+
 	regist("Float32", func() IColumn {
 		return impls.NewFloatColumn(32)
 	})
