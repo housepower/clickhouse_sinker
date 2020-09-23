@@ -46,7 +46,7 @@ func TestParseCsv(t *testing.T) {
 		},
 	}
 
-	csvParser := NewParser("csv", nil, ",", nil)
+	csvParser := NewParser("csv", nil, ",")
 	for _, c := range testCases {
 		metric, _ := csvParser.Parse([]byte(c.msg))
 		csvMetric, ok := metric.(*CsvMetric)

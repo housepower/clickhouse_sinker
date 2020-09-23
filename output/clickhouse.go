@@ -17,6 +17,7 @@ package output
 
 import (
 	"context"
+	std_errors "errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -67,9 +68,9 @@ func (c *ClickHouse) Send(batch input.Batch) {
 }
 
 // Write kvs to clickhouse
-func (c *ClickHouse) write(batch input.Batch) (err error) {
+func (c *ClickHouse) write(batch input.Batch) error {
 	if len(batch.MsgRows) == 0 {
-		return
+		return nil
 	}
 
 	conn := pool.GetConn(c.chCfg.Host)
@@ -105,7 +106,7 @@ func (c *ClickHouse) write(batch input.Batch) (err error) {
 	}
 	if err != nil {
 		log.Errorf("stmt.Exec failed %d times with following errors: %+v", numErr, err)
-		return
+		return err
 	}
 
 	if err = tx.Commit(); err != nil {
@@ -118,7 +119,7 @@ func (c *ClickHouse) write(batch input.Batch) (err error) {
 	}
 	statistics.FlushMsgsTotal.WithLabelValues(c.taskCfg.Name).Add(float64(batch.RealSize))
 	err = batch.Free()
-	return
+	return err
 }
 
 func shouldReconnect(err error) bool {
@@ -135,23 +136,21 @@ func (c *ClickHouse) loopWrite(batch input.Batch) {
 	times := c.chCfg.RetryTimes
 	defer statistics.FlushBatchBacklog.WithLabelValues(c.taskCfg.Name).Dec()
 	for {
-		if err = c.write(batch); err != nil {
-			if errors.Cause(err) == context.Canceled {
-				log.Infof("ClickHouse.loopWrite quit due to the context has been cancelled")
-				return
-			}
-			times--
-			log.Errorf("flush batch(try #%d) failed with error %+v", c.chCfg.RetryTimes-times, err)
-			if times > 0 {
-				time.Sleep(10 * time.Second)
-				continue
-			}
-			statistics.FlushMsgsErrorTotal.WithLabelValues(c.taskCfg.Name).Add(float64(batch.RealSize))
-			return
-		} else {
+		if err = c.write(batch); err == nil {
 			statistics.FlushMsgsTotal.WithLabelValues(c.taskCfg.Name).Add(float64(batch.RealSize))
 			return
 		}
+		if std_errors.Is(err, context.Canceled) {
+			log.Infof("ClickHouse.loopWrite quit due to the context has been cancelled")
+			return
+		}
+		times--
+		log.Errorf("flush batch(try #%d) failed with error %+v", c.chCfg.RetryTimes-times, err)
+		if times > 0 {
+			statistics.FlushMsgsErrorTotal.WithLabelValues(c.taskCfg.Name).Add(float64(batch.RealSize))
+			return
+		}
+		time.Sleep(10 * time.Second)
 	}
 }
 
@@ -190,6 +189,7 @@ func (c *ClickHouse) initSchema() (err error) {
 				c.Dims = append(c.Dims, &model.ColumnWithType{Name: name, Type: typ})
 			}
 		}
+		rs.Close()
 	} else {
 		c.Dims = make([]*model.ColumnWithType, 0)
 		for _, dim := range c.taskCfg.Dims {

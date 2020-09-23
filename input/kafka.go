@@ -94,7 +94,7 @@ func (batch Batch) Free() (err error) {
 	for i, msgRow := range batch.MsgRows {
 		msgs[i] = *msgRow.Msg
 	}
-	// "io: read/write on closed pipe" makes caller hard to tell what happend. context.Canceled is better.
+	// "io: read/write on closed pipe" makes caller hard to tell what happened. context.Canceled is better.
 	select {
 	case <-batch.kafka.ctx.Done():
 		err = errors.Wrap(context.Canceled, "")
@@ -152,13 +152,14 @@ LOOP:
 		var err error
 		var msg kafka.Message
 		if msg, err = k.r.FetchMessage(ctx); err != nil {
-			if errors.Cause(err) == context.Canceled {
+			switch errors.Cause(err) {
+			case context.Canceled:
 				log.Infof("%s Kafka.Run quit due to context has been canceled", k.taskCfg.Name)
 				break LOOP
-			} else if errors.Cause(err) == io.EOF {
+			case io.EOF:
 				log.Infof("%s Kafka.Run quit due to reader has been closed", k.taskCfg.Name)
 				break LOOP
-			} else {
+			default:
 				statistics.ConsumeMsgsErrorTotal.WithLabelValues(k.taskCfg.Name).Inc()
 				err = errors.Wrap(err, "")
 				log.Errorf("%s Kafka.Run got error %+v", k.taskCfg.Name, err)
@@ -244,7 +245,6 @@ LOOP:
 	}
 	k.wp.StopWait()
 	k.tw.Stop()
-	return
 }
 
 // Stop kafka consumer and close all connections
@@ -296,7 +296,6 @@ func (ring *Ring) PutElem(msgRow MsgRow) {
 			log.Criticalf("got error %+v", err)
 		}
 	}
-	return
 }
 
 type OffsetRange struct {
@@ -321,9 +320,9 @@ func (ring *Ring) ForceBatch(arg interface{}) {
 		newMsg = arg.(*kafka.Message)
 		log.Warnf("Ring.ForceBatchAll partition %d message range [%d, %d)", newMsg.Partition, ring.ringGroundOff, newMsg.Offset)
 	}
-	endOff := ring.ringFilledOffset
 	var gaps []OffsetRange
 	if !ring.isIdle {
+		var endOff int64
 		if newMsg != nil {
 			endOff = ring.ringCeilingOff
 		} else {

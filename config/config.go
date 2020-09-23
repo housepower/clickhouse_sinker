@@ -214,7 +214,7 @@ type TaskConfig struct {
 	FlushInterval     int `json:"flushInterval,omitempty"`
 	BufferSize        int `json:"bufferSize,omitempty"`
 	MinBufferSize     int `json:"minBufferSize,omitempty"`
-	MsgSizeHint       int `json:"msgSizeHint",omitempty`
+	MsgSizeHint       int `json:"msgSizeHint,omitempty"`
 	ConcurrentParsers int `json:"concurrentParsers,omitempty"`
 }
 
