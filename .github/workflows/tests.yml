@@ -26,19 +26,16 @@ jobs:
       run: |
         docker-compose --version
         docker-compose up -d
-    
+
     - name: Build
       run: make build
 
-    - name: utest
-      run: make utest
-    
-    - name: itest
-      run: make itest
-    
+    - name: unittest
+      run: make unittest
+
     - name: benchtest
       run: make benchtest
-      
+
     - name: systest
       run: make systest
-    
+
