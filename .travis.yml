@@ -10,7 +10,7 @@ env:
 services:
   - docker
 before_script:
-  - go install github.com/golangci/golangci-lint/cmd/golangci-lint
+  - curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.31.0
 before_install:
   - docker-compose --version
   - docker-compose up -d
