@@ -15,18 +15,13 @@ limitations under the License.
 package model
 
 import (
-	"strings"
-
-	"github.com/kshvakov/clickhouse"
+	"github.com/ClickHouse/clickhouse-go"
 )
 
 // There are only three cases for the value type of metric, (float64, string, map [string] interface {})
 func GetValueByType(metric Metric, cwt *ColumnWithType) interface{} {
 	swType := switchType(cwt.Type)
-	var name string
-	if name = cwt.SourceName; name == "" {
-		name = strings.Replace(cwt.Name, ".", "\\.", -1)
-	}
+	name := cwt.SourceName
 	switch swType {
 	case "int":
 		return metric.GetInt(name)

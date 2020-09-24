@@ -179,6 +179,11 @@ func (config *Config) normallize() {
 		if taskConfig.LayoutDateTime64 == "" {
 			taskConfig.LayoutDateTime64 = baseConfig.Common.LayoutDateTime64
 		}
+		for i := range taskConfig.Dims {
+			if taskConfig.Dims[i].SourceName == "" {
+				taskConfig.Dims[i].SourceName = strings.Replace(taskConfig.Dims[i].Name, ".", "\\.", -1)
+			}
+		}
 	}
 }
 
