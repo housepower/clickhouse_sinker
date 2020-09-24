@@ -15,6 +15,8 @@ limitations under the License.
 
 package parser
 
+import "time"
+
 type DummyMetric struct {
 }
 
@@ -43,16 +45,16 @@ func (c *DummyMetric) String() string {
 	return "_dummy"
 }
 
-func (c *DummyMetric) GetDate(key string) uint16 {
-	return 0
+func (c *DummyMetric) GetDate(key string) (t time.Time) {
+	return
 }
 
-func (c *DummyMetric) GetDateTime(key string) uint32 {
-	return 0
+func (c *DummyMetric) GetDateTime(key string) (t time.Time) {
+	return
 }
 
-func (c *DummyMetric) GetDateTime64(key string) int64 {
-	return 0
+func (c *DummyMetric) GetDateTime64(key string) (t time.Time) {
+	return
 }
 
 func (c *DummyMetric) GetElasticDateTime(key string) int64 {

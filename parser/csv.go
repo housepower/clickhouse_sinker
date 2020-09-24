@@ -47,12 +47,11 @@ func (p *CsvParser) Parse(bs []byte) (metric model.Metric, err error) {
 	return
 }
 
-
 // CsvMetic
 type CsvMetric struct {
-	titles []string
-	values []string
-	tsLayout  []string
+	titles   []string
+	values   []string
+	tsLayout []string
 }
 
 // Get returns the value corresponding to a column expects called
@@ -103,28 +102,22 @@ func (c *CsvMetric) GetArray(key string, t string) interface{} {
 	return []interface{}{}
 }
 
-func (c *CsvMetric) GetDate(key string) uint16 {
+func (c *CsvMetric) GetDate(key string) (t time.Time) {
 	val := c.GetString(key)
-	if t, err := time.Parse(c.tsLayout[0], val); err==nil {
-		return uint16(t.Sub(Epoch).Hours() /24.0)
-	}
-	return 0
+	t, _ = time.Parse(c.tsLayout[0], val)
+	return
 }
 
-func (c *CsvMetric) GetDateTime(key string) uint32 {
+func (c *CsvMetric) GetDateTime(key string) (t time.Time) {
 	val := c.GetString(key)
-	if t, err := time.Parse(c.tsLayout[1], val); err==nil {
-		return uint32(t.Unix())
-	}
-	return 0
+	t, _ = time.Parse(c.tsLayout[1], val)
+	return
 }
 
-func (c *CsvMetric) GetDateTime64(key string) int64 {
+func (c *CsvMetric) GetDateTime64(key string) (t time.Time) {
 	val := c.GetString(key)
-	if t, err := time.Parse(c.tsLayout[2], val); err==nil {
-		return t.UnixNano()/int64(1000000)
-	}
-	return 0
+	t, _ = time.Parse(c.tsLayout[2], val)
+	return
 }
 
 func (c *CsvMetric) GetElasticDateTime(key string) int64 {

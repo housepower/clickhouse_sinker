@@ -24,6 +24,7 @@ import (
 	"net/http/pprof"
 	"strconv"
 
+	_ "github.com/ClickHouse/clickhouse-go"
 	"github.com/google/gops/agent"
 	"github.com/google/uuid"
 	"github.com/hashicorp/consul/api"
@@ -34,7 +35,6 @@ import (
 	"github.com/housepower/clickhouse_sinker/parser"
 	"github.com/housepower/clickhouse_sinker/statistics"
 	"github.com/housepower/clickhouse_sinker/task"
-	_ "github.com/kshvakov/clickhouse"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sundy-li/go_commons/app"
 	"github.com/sundy-li/go_commons/log"

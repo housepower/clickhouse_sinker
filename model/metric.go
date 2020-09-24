@@ -15,6 +15,8 @@ limitations under the License.
 
 package model
 
+import "time"
+
 // Metric interface for metric collection
 type Metric interface {
 	Get(key string) interface{}
@@ -22,9 +24,9 @@ type Metric interface {
 	GetArray(key string, t string) interface{}
 	GetFloat(key string) float64
 	GetInt(key string) int64
-	GetDate(key string) uint16
-	GetDateTime(key string) uint32
-	GetDateTime64(key string) int64
+	GetDate(key string) time.Time
+	GetDateTime(key string) time.Time
+	GetDateTime64(key string) time.Time
 	GetElasticDateTime(key string) int64
 }
 

@@ -22,8 +22,8 @@ import (
 )
 
 var (
-	DefaultTsLayout = []string{"2006-01-02", time.RFC3339, time.RFC3339}
-	Epoch = time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
+	DefaultTsLayout = []string{"2006-01-02", time.RFC3339Nano, time.RFC3339Nano}
+	Epoch           = time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
 )
 
 // Parse is the Parser interface
