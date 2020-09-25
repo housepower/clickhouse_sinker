@@ -91,7 +91,7 @@ func (c *GjsonMetric) GetDate(key string) (t time.Time) {
 
 func (c *GjsonMetric) GetDateTime(key string) (t time.Time) {
 	if v := c.GetInt(key); v != 0 {
-		return time.Unix(v, 0)
+		return time.Unix(int64(v), int64(v*1e9)%1e9)
 	}
 
 	val := c.GetString(key)
@@ -101,7 +101,7 @@ func (c *GjsonMetric) GetDateTime(key string) (t time.Time) {
 
 func (c *GjsonMetric) GetDateTime64(key string) (t time.Time) {
 	if v := c.GetInt(key); v != 0 {
-		return time.Unix(v, 0)
+		return time.Unix(int64(v), int64(v*1e9)%1e9)
 	}
 
 	val := c.GetString(key)
