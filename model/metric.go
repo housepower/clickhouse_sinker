@@ -15,7 +15,9 @@ limitations under the License.
 
 package model
 
-import "time"
+import (
+	"time"
+)
 
 // Metric interface for metric collection
 type Metric interface {

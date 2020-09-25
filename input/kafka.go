@@ -121,13 +121,20 @@ func (k *Kafka) Init(dims []*model.ColumnWithType) error {
 	kfkCfg := cfg.Kafka[k.taskCfg.Kafka]
 	k.stopped = make(chan struct{})
 	k.dims = dims
+
+	offset := kafka.LastOffset
+	if k.taskCfg.Earliest {
+		offset = kafka.LastOffset
+	}
+
 	k.r = kafka.NewReader(kafka.ReaderConfig{
-		Brokers:  strings.Split(kfkCfg.Brokers, ","),
-		GroupID:  k.taskCfg.ConsumerGroup,
-		Topic:    k.taskCfg.Topic,
-		MinBytes: k.taskCfg.MinBufferSize * k.taskCfg.MsgSizeHint,
-		MaxBytes: k.taskCfg.BufferSize * k.taskCfg.MsgSizeHint,
-		MaxWait:  time.Duration(k.taskCfg.FlushInterval) * time.Second,
+		Brokers:     strings.Split(kfkCfg.Brokers, ","),
+		GroupID:     k.taskCfg.ConsumerGroup,
+		Topic:       k.taskCfg.Topic,
+		StartOffset: offset,
+		MinBytes:    k.taskCfg.MinBufferSize * k.taskCfg.MsgSizeHint,
+		MaxBytes:    k.taskCfg.BufferSize * k.taskCfg.MsgSizeHint,
+		MaxWait:     time.Duration(k.taskCfg.FlushInterval) * time.Second,
 	})
 	k.rings = make([]*Ring, 0)
 	k.batchCh = make(chan Batch, 32)
