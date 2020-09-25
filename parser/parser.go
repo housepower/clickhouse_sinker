@@ -22,7 +22,7 @@ import (
 )
 
 var (
-	DefaultTsLayout = []string{"2006-01-02", time.RFC3339Nano, time.RFC3339Nano}
+	DefaultTSLayout = []string{"2006-01-02", time.RFC3339Nano, time.RFC3339Nano}
 	Epoch           = time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
 )
 

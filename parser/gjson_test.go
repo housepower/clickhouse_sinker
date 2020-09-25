@@ -7,7 +7,7 @@ import (
 )
 
 func TestGjsonInt(t *testing.T) {
-	parser := NewParser("gjson", nil, "", DefaultTsLayout)
+	parser := NewParser("gjson", nil, "", DefaultTSLayout)
 	metric, _ := parser.Parse(jsonSample)
 
 	var expected int64 = 1536813227
@@ -16,7 +16,7 @@ func TestGjsonInt(t *testing.T) {
 }
 
 func TestGjsonArrayInt(t *testing.T) {
-	parser := NewParser("gjson", nil, "", DefaultTsLayout)
+	parser := NewParser("gjson", nil, "", DefaultTSLayout)
 	metric, _ := parser.Parse(jsonSample)
 
 	arr := metric.GetArray("mp.a", "int").([]int64)
@@ -27,7 +27,7 @@ func TestGjsonArrayInt(t *testing.T) {
 }
 
 func TestGjsonStr(t *testing.T) {
-	parser := NewParser("gjson", nil, "", DefaultTsLayout)
+	parser := NewParser("gjson", nil, "", DefaultTSLayout)
 	metric, _ := parser.Parse(jsonSample)
 
 	var expected string = "ws"
@@ -36,7 +36,7 @@ func TestGjsonStr(t *testing.T) {
 }
 
 func TestGjsonArrayString(t *testing.T) {
-	parser := NewParser("gjson", nil, "", DefaultTsLayout)
+	parser := NewParser("gjson", nil, "", DefaultTSLayout)
 	metric, _ := parser.Parse(jsonSample)
 
 	arr := metric.GetArray("mps.a", "string").([]string)
@@ -47,7 +47,7 @@ func TestGjsonArrayString(t *testing.T) {
 }
 
 func TestGjsonFloat(t *testing.T) {
-	parser := NewParser("gjson", nil, "", DefaultTsLayout)
+	parser := NewParser("gjson", nil, "", DefaultTSLayout)
 	metric, _ := parser.Parse(jsonSample)
 
 	var expected float64 = 0.11
@@ -56,7 +56,7 @@ func TestGjsonFloat(t *testing.T) {
 }
 
 func TestGjsonArrayFloat(t *testing.T) {
-	parser := NewParser("gjson", nil, "", DefaultTsLayout)
+	parser := NewParser("gjson", nil, "", DefaultTSLayout)
 	metric, _ := parser.Parse(jsonSample)
 
 	arr := metric.GetArray("mp.f", "float").([]float64)
@@ -67,7 +67,7 @@ func TestGjsonArrayFloat(t *testing.T) {
 }
 
 func TestGjsonElasticDateTime(t *testing.T) {
-	parser := NewParser("gjson", nil, "", DefaultTsLayout)
+	parser := NewParser("gjson", nil, "", DefaultTSLayout)
 	metric, _ := parser.Parse(jsonSample)
 
 	// {"date": "2019-12-16T12:10:30Z"}
