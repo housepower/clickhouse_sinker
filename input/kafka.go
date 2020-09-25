@@ -124,7 +124,7 @@ func (k *Kafka) Init(dims []*model.ColumnWithType) error {
 
 	offset := kafka.LastOffset
 	if k.taskCfg.Earliest {
-		offset = kafka.LastOffset
+		offset = kafka.FirstOffset
 	}
 
 	k.r = kafka.NewReader(kafka.ReaderConfig{
