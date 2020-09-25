@@ -54,7 +54,7 @@ make build
 * [x] Float32, Float64
 * [x] String
 * [x] FixedString
-* [x] Date, DateTime, DateTime64
+* [x] Date, DateTime, DateTime64 (Custom Layout parser)
 * [x] Array(UInt8, UInt16, UInt32, UInt64, Int8, Int16, Int32, Int64)
 * [x] Array(Float32, Float64)
 * [x] Array(String)
@@ -82,7 +82,7 @@ See [json parser](./parser/json.go)
 ```bash
 echo '{"date": "2019-07-11T12:10:30Z", "level": "info", "message": "msg4"}' | kafkacat -b 127.0.0.1:9093 -P -t logstash
 
-clickhouse-client -q 'select * from default.logstash' 
+clickhouse-client -q 'select * from default.logstash'
 2019-12-16	info	msg4
 2019-07-11	info	msg4
 2015-05-11	info	msg4

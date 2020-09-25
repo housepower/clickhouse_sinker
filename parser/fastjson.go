@@ -107,9 +107,6 @@ func (c *FastjsonMetric) GetDate(key string) (t time.Time) {
 
 func (c *FastjsonMetric) GetDateTime(key string) (t time.Time) {
 	if v := c.GetInt(key); v != 0 {
-		if v > 1e9 {
-			v /= 1e3
-		}
 		return time.Unix(v, 0)
 	}
 	val := c.GetString(key)
@@ -119,9 +116,6 @@ func (c *FastjsonMetric) GetDateTime(key string) (t time.Time) {
 
 func (c *FastjsonMetric) GetDateTime64(key string) (t time.Time) {
 	if v := c.GetInt(key); v != 0 {
-		if v > 1e9 {
-			v /= 1e3
-		}
 		return time.Unix(v, 0)
 	}
 
