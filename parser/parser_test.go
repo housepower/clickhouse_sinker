@@ -42,7 +42,7 @@ var jsonSample = []byte(`{
 	"date": "2019-12-16T12:10:30Z"
 }`)
 
-var jsonSample2 = []byte(`{"time":"2006-01-02 15:04:05","timestamp":"2006-01-02T15:04:05.123+08:00","item_guid":"bus070_ins062","metric_name":"CPU繁忙率","alg_name":"Ripple","value":60,"upper":100,"lower":60,"yhat_upper":100,"yhat_lower":60,"yhat_flag":23655,"total_anomaly":61357,"anomaly":0.3,"abnormal_type":22,"abnormality":913,"container_id":39929,"hard_upper":100,"hard_lower":60,"hard_anomaly":39371,"shift_tag":38292,"season_tag":56340,"spike_tag":13231,"is_missing":0}`)
+var jsonSample2 = []byte(`{"time":"2006-01-02 15:04:05","timestamp":"2006-01-02T15:04:05.123+08:00","item_guid":"bus070_ins062","metric_name":"CPU繁忙率","alg_name":"Ripple","value":60,"upper":100,"lower":60,"yhat_upper":100,"yhat_lower":60,"yhat_flag":23655,"total_anomaly":61357,"anomaly":0.3,"abnormal_type":22,"abnormality":913,"container_id":39929,"hard_upper":100,"hard_lower":60,"hard_anomaly":39371,"shift_tag":38292,"season_tag":56340,"spike_tag":13231,"is_missing":0,"str_array":["tag3","tag5"],"int_array":[123,456]}`)
 
 func BenchmarkUnmarshalljson(b *testing.B) {
 	mp := map[string]interface{}{}
@@ -123,6 +123,11 @@ func TestGjsonExtend(t *testing.T) {
 	for i := range arr {
 		assert.Equal(t, arr[i], expected[i])
 	}
+
+	metric, _ = parser.Parse(jsonSample2)
+	arr2 := metric.GetArray("str_array", "string").([]string)
+	exp2 := []string{"tag3", "tag5"}
+	assert.Equal(t, exp2, arr2)
 }
 
 func TestFastJson(t *testing.T) {
@@ -136,4 +141,12 @@ func TestFastJson(t *testing.T) {
 	ts2 := metric.GetDateTime64("timestamp")
 	exp2, _ := time.Parse(time.RFC3339, "2006-01-02T15:04:05.123+08:00")
 	assert.Equal(t, exp2, ts2)
+
+	arr := metric.GetArray("str_array", "string").([]string)
+	exp3 := []string{"tag3", "tag5"}
+	assert.Equal(t, exp3, arr)
+
+	arr2 := metric.GetArray("int_array", "int").([]int)
+	exp4 := []int{123, 456}
+	assert.Equal(t, exp4, arr2)
 }
