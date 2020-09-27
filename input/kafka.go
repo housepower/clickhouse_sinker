@@ -264,7 +264,7 @@ func (k *Kafka) Stop() error {
 	return nil
 }
 
-// Description of this kafka consumre, which topic it reads from
+// Description of this kafka consumer, which topic it reads from
 func (k *Kafka) Description() string {
 	return "kafka consumer of topic " + k.taskCfg.Topic
 }

@@ -20,7 +20,6 @@
 		{"name" : "value" , "type" : "Float32"}
 	],
 
-	"bufferSize" : 50000,
-	"num" : 1
+	"bufferSize" : 50000
 }
 
