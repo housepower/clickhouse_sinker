@@ -43,10 +43,10 @@ sudo docker exec kafka   sh /tmp/send.sh
 timeout 30 ./dist/clickhouse_sinker -conf docker/conf
 
 count=`curl "localhost:8123" -d 'select count() from test1'`
-echo "Got test1 count => $COUNT"
+echo "Got test1 count => $count"
 [ $count -eq 100000 ] || exit 1
 
 
 count=`curl "localhost:8123" -d 'select count() from test_auto_schema'`
-echo "Got test_auto_schema count => $COUNT"
+echo "Got test_auto_schema count => $count"
 [ $count -eq 100000 ] || exit 1
