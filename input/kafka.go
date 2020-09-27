@@ -197,6 +197,7 @@ LOOP:
 				ringFilledOffset: msg.Offset,
 				kafka:            k,
 			}
+			// schedule a delayed ForceBatch
 			if ring.tid, err = ring.kafka.tw.Schedule(time.Duration(k.taskCfg.FlushInterval)*time.Second, ring.ForceBatch, nil); err != nil {
 				err = errors.Wrap(err, "")
 				log.Criticalf("got error %+v", err)
@@ -300,6 +301,7 @@ func (ring *Ring) PutElem(msgRow MsgRow) {
 		ring.kafka.batchCh <- batch
 		statistics.ParseMsgsBacklog.WithLabelValues(ring.kafka.taskCfg.Name).Sub(float64(batchSize))
 		statistics.RingNormalBatchsTotal.WithLabelValues(ring.kafka.taskCfg.Name).Inc()
+		// reschedule the delayed ForceBatch
 		ring.tid.Stop()
 		if ring.tid, err = ring.kafka.tw.Schedule(time.Duration(ring.kafka.taskCfg.FlushInterval)*time.Second, ring.ForceBatch, nil); err != nil {
 			err = errors.Wrap(err, "")
@@ -378,11 +380,6 @@ func (ring *Ring) ForceBatch(arg interface{}) {
 			ring.ringGroundOff = ring.ringFilledOffset
 		}
 		statistics.ParseMsgsBacklog.WithLabelValues(ring.kafka.taskCfg.Name).Sub(float64(batchSize))
-		ring.tid.Stop()
-		if ring.tid, err = ring.kafka.tw.Schedule(time.Duration(ring.kafka.taskCfg.FlushInterval)*time.Second, ring.ForceBatch, nil); err != nil {
-			err = errors.Wrap(err, "")
-			log.Criticalf("got error %+v", err)
-		}
 	}
 	if newMsg != nil {
 		ring.ringGroundOff = newMsg.Offset
@@ -394,6 +391,12 @@ func (ring *Ring) ForceBatch(arg interface{}) {
 			ring.isIdle = true
 			ring.ringBuf = nil
 		}
-		return
+	}
+
+	// reschedule myself
+	ring.tid.Stop()
+	if ring.tid, err = ring.kafka.tw.Schedule(time.Duration(ring.kafka.taskCfg.FlushInterval)*time.Second, ring.ForceBatch, nil); err != nil {
+		err = errors.Wrap(err, "")
+		log.Criticalf("got error %+v", err)
 	}
 }
