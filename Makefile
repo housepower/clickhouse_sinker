@@ -1,7 +1,9 @@
 pre:
 	go mod tidy
 build: pre
-	go build -gcflags "-N -l" -o dist/clickhouse_sinker bin/main.go
+	go build -o dist/clickhouse_sinker bin/main.go
+debug: pre
+	go build -gcflags "all=-N -l" -o dist/clickhouse_sinker bin/main.go
 unittest: pre
 	go test -v ./...
 benchtest: pre
