@@ -22,6 +22,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/pprof"
+	"os"
 	"strconv"
 
 	_ "github.com/ClickHouse/clickhouse-go"
@@ -41,6 +42,7 @@ import (
 )
 
 var (
+	v          = flag.Bool("v", false, "show build version")
 	cfgDir     = flag.String("conf", "", "config dir")
 	httpAddr   = flag.String("http-addr", "0.0.0.0:2112", "http interface")
 	consulAddr = flag.String("consul-addr", "http://127.0.0.1:8500", "consul api interface address")
@@ -93,6 +95,10 @@ func serviceRegister(agent *api.Agent) {
 
 func init() {
 	flag.Parse()
+	if *v {
+		config.PrintSinkerInfo()
+		os.Exit(0)
+	}
 	ip, port = parseAddr(*httpAddr)
 }
 
