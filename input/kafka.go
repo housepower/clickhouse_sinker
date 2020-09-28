@@ -64,6 +64,7 @@ type Ring struct {
 	tid              goetty.Timeout
 	idleCnt          int
 	isIdle           bool
+	partition        int
 	kafka            *Kafka //point back to who hold this ring
 }
 
@@ -195,6 +196,9 @@ LOOP:
 				ringGroundOff:    msg.Offset,
 				ringCeilingOff:   msg.Offset,
 				ringFilledOffset: msg.Offset,
+				idleCnt:          0,
+				isIdle:           false,
+				partition:        msg.Partition,
 				kafka:            k,
 			}
 			// schedule a delayed ForceBatch
@@ -205,32 +209,28 @@ LOOP:
 			k.rings[msg.Partition] = ring
 			k.mux.Unlock()
 		} else {
-			if msg.Offset < ring.ringGroundOff {
+			k.mux.Unlock()
+			var ringGroundOff int64
+			ring.mux.Lock()
+			ringGroundOff = ring.ringGroundOff
+			ring.mux.Unlock()
+			if msg.Offset < ringGroundOff {
 				statistics.RingMsgsOffTooSmallErrorTotal.WithLabelValues(ring.kafka.taskCfg.Name).Inc()
 				if ring.kafka.limiter2.Allow() {
 					log.Warnf("got a message(topic %v, partition %d, offset %v) is left to the range [%v, %v)",
 						msg.Topic, msg.Partition, msg.Offset, ring.ringGroundOff, ring.ringGroundOff+ring.ringCap)
 				}
-				k.mux.Unlock()
 				continue LOOP
 			}
-			if msg.Offset >= ring.ringGroundOff+ring.ringCap {
+			if msg.Offset >= ringGroundOff+ring.ringCap {
 				statistics.RingMsgsOffTooLargeErrorTotal.WithLabelValues(ring.kafka.taskCfg.Name).Inc()
 				if ring.kafka.limiter3.Allow() {
 					log.Warnf("got a message(topic %v, partition %d, offset %v) is right to the range [%v, %v)",
 						msg.Topic, msg.Partition, msg.Offset, ring.ringGroundOff, ring.ringGroundOff+ring.ringCap)
 				}
-				k.mux.Unlock()
 				time.Sleep(1 * time.Second)
 				ring.ForceBatch(&msg)
-				// assert ring.ringGroundOff==ringFilledOff==msg.Offset
-			} else {
-				dup := !ring.isIdle && ring.ringBuf[msg.Offset%ring.ringCap].Msg != nil
-				k.mux.Unlock()
-				if dup {
-					statistics.RingMsgsOffDupErrorTotal.WithLabelValues(ring.kafka.taskCfg.Name).Inc()
-					continue LOOP
-				}
+				// assert ring.ringGroundOff==ring.ringFilledOff==msg.Offset
 			}
 		}
 		// submit message to a goroutine pool
@@ -279,6 +279,7 @@ func (ring *Ring) PutElem(msgRow MsgRow) {
 		ring.idleCnt = 0
 		ring.isIdle = false
 		ring.ringBuf = make([]MsgRow, ring.ringCap)
+		log.Infof("partition %d quit idle", ring.partition)
 	}
 	ring.ringBuf[msgOffset%ring.ringCap] = msgRow
 	if msgOffset >= ring.ringCeilingOff {
@@ -385,11 +386,14 @@ func (ring *Ring) ForceBatch(arg interface{}) {
 		ring.ringGroundOff = newMsg.Offset
 		ring.ringFilledOffset = newMsg.Offset
 		ring.ringCeilingOff = newMsg.Offset
-	} else if batchSize == 0 {
+		ring.idleCnt = 0
+	} else if !ring.isIdle && batchSize == 0 {
 		ring.idleCnt++
 		if ring.idleCnt >= 2 {
+			ring.idleCnt = 0
 			ring.isIdle = true
 			ring.ringBuf = nil
+			log.Infof("partition %d enter idle", ring.partition)
 		}
 	}
 

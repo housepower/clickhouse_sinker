@@ -63,13 +63,6 @@ var (
 		},
 		[]string{"task"},
 	)
-	RingMsgsOffDupErrorTotal = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: prefix + "ring_msgs_offset_dup_error_total",
-			Help: "total num of msgs with duplicated offset to put into ring",
-		},
-		[]string{"task"},
-	)
 	RingNormalBatchsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: prefix + "ring_normal_batchs_total",
@@ -148,7 +141,6 @@ func init() {
 	prometheus.MustRegister(ParseMsgsErrorTotal)
 	prometheus.MustRegister(RingMsgsOffTooSmallErrorTotal)
 	prometheus.MustRegister(RingMsgsOffTooLargeErrorTotal)
-	prometheus.MustRegister(RingMsgsOffDupErrorTotal)
 	prometheus.MustRegister(RingNormalBatchsTotal)
 	prometheus.MustRegister(RingForceBatchsTotal)
 	prometheus.MustRegister(RingForceBatchAllTotal)
@@ -228,7 +220,6 @@ func (p *Pusher) reconnect() {
 		Collector(ParseMsgsErrorTotal).
 		Collector(RingMsgsOffTooSmallErrorTotal).
 		Collector(RingMsgsOffTooLargeErrorTotal).
-		Collector(RingMsgsOffDupErrorTotal).
 		Collector(RingNormalBatchsTotal).
 		Collector(RingForceBatchsTotal).
 		Collector(RingForceBatchAllTotal).
