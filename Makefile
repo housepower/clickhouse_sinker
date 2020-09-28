@@ -1,9 +1,21 @@
+PKG := github.com/housepower/clickhouse_sinker
+EDITION ?= housepower
+
+SINKER_LDFLAGS += -X "$(PKG)/config.SinkerReleaseVersion=$(git describe --tags --dirty)"
+SINKER_LDFLAGS += -X "$(PKG)/config.SinkerBuildTS=$(shell date -u '+%Y-%m-%d %I:%M:%S')"
+SINKER_LDFLAGS += -X "$(PKG)/config.SinkerGitHash=$(shell git rev-parse HEAD)"
+SINKER_LDFLAGS += -X "$(PKG)/config.SinkerGitBranch=$(shell git rev-parse --abbrev-ref HEAD)"
+SINKER_LDFLAGS += -X "$(PKG)/config.SinkerEdition=$(EDITION)"
+
+GO        := go
+GOBUILD   := $(GO) build $(BUILD_FLAG)
+
 pre:
 	go mod tidy
 build: pre
-	go build -o dist/clickhouse_sinker bin/main.go
+	$(GOBUILD) -ldflags '$(SINKER_LDFLAGS)' -o dist/clickhouse_sinker bin/main.go
 debug: pre
-	go build -gcflags "all=-N -l" -o dist/clickhouse_sinker bin/main.go
+	$(GOBUILD) -ldflags '$(SINKER_LDFLAGS)' -gcflags "all=-N -l" -o dist/clickhouse_sinker bin/main.go
 unittest: pre
 	go test -v ./...
 benchtest: pre
