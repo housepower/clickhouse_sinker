@@ -186,7 +186,7 @@ LOOP:
 			numRings = msg.Partition + 1
 		}
 		if ring == nil {
-			cap := 2 ^ 10
+			cap := 1 << 10
 			for ; cap < 2*k.taskCfg.BufferSize; cap *= 2 {
 			}
 			ring := &Ring{
@@ -253,8 +253,11 @@ LOOP:
 			ring = k.rings[msg.Partition]
 			k.mux.Unlock()
 			ring.PutElem(MsgRow{Msg: &msg, Row: row})
+
+			<-k.wp
 		}()
 	}
+
 	k.tw.Stop()
 }
 
@@ -291,7 +294,7 @@ func (ring *Ring) PutElem(msgRow MsgRow) {
 		batchSize := ring.kafka.taskCfg.BufferSize
 		batch := NewBatch(batchSize, ring.kafka)
 		for i := 0; i < batchSize; i++ {
-			off := (ring.ringGroundOff + int64(i)) % ring.ringCap
+			off := (ring.ringGroundOff + int64(i)) & (ring.ringCap - 1)
 			batch.MsgRows[i] = ring.ringBuf[off]
 			if ring.ringBuf[off].Row != nil {
 				batch.RealSize++
@@ -347,7 +350,7 @@ func (ring *Ring) ForceBatch(arg interface{}) {
 		}
 		expOff := ring.ringGroundOff
 		for i := ring.ringGroundOff; i < endOff; i++ {
-			off := i % ring.ringCap
+			off := i & (ring.ringCap - 1)
 			msg := ring.ringBuf[off].Msg
 			if msg != nil {
 				//assert msg.Offset==i
