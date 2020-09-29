@@ -33,6 +33,7 @@ import (
 	"github.com/housepower/clickhouse_sinker/model"
 	"github.com/housepower/clickhouse_sinker/parser"
 	"github.com/housepower/clickhouse_sinker/statistics"
+	"github.com/housepower/clickhouse_sinker/util"
 )
 
 // Kafka reader configuration
@@ -50,7 +51,7 @@ type Kafka struct {
 	limiter1 *rate.Limiter
 	limiter2 *rate.Limiter
 	limiter3 *rate.Limiter
-	wp       chan struct{}
+	wp       *util.WorkerPool
 }
 
 type Ring struct {
@@ -138,7 +139,7 @@ func (k *Kafka) Init(dims []*model.ColumnWithType) error {
 	})
 	k.rings = make([]*Ring, 0)
 	k.batchCh = make(chan Batch, 32)
-	k.wp = make(chan struct{}, k.taskCfg.ConcurrentParsers)
+	k.wp = util.NewWorkerPool(k.taskCfg.ConcurrentParsers)
 	k.tw = goetty.NewTimeoutWheel(goetty.WithTickInterval(100 * time.Millisecond))
 	k.limiter1 = rate.NewLimiter(rate.Every(10*time.Second), 1)
 	k.limiter2 = rate.NewLimiter(rate.Every(10*time.Second), 1)
@@ -234,9 +235,7 @@ LOOP:
 		}
 		// submit message to a goroutine pool
 		statistics.ParseMsgsBacklog.WithLabelValues(k.taskCfg.Name).Inc()
-
-		k.wp <- struct{}{}
-		go func() {
+		_ = k.wp.Submit(func() {
 			var row []interface{}
 			metric, err := k.parser.Parse(msg.Value)
 			if err != nil {
@@ -253,10 +252,9 @@ LOOP:
 			ring = k.rings[msg.Partition]
 			k.mux.Unlock()
 			ring.PutElem(MsgRow{Msg: &msg, Row: row})
-
-			<-k.wp
-		}()
+		})
 	}
+	k.wp.StopWait()
 
 	k.tw.Stop()
 }
