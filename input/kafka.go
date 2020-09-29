@@ -24,7 +24,6 @@ import (
 	"time"
 
 	"github.com/fagongzi/goetty"
-	"github.com/gammazero/workerpool"
 	"github.com/pkg/errors"
 	"github.com/segmentio/kafka-go"
 	"github.com/sundy-li/go_commons/log"
@@ -51,7 +50,7 @@ type Kafka struct {
 	limiter1 *rate.Limiter
 	limiter2 *rate.Limiter
 	limiter3 *rate.Limiter
-	wp       *workerpool.WorkerPool
+	wp       chan struct{}
 }
 
 type Ring struct {
@@ -139,7 +138,7 @@ func (k *Kafka) Init(dims []*model.ColumnWithType) error {
 	})
 	k.rings = make([]*Ring, 0)
 	k.batchCh = make(chan Batch, 32)
-	k.wp = workerpool.New(k.taskCfg.ConcurrentParsers)
+	k.wp = make(chan struct{}, k.taskCfg.ConcurrentParsers)
 	k.tw = goetty.NewTimeoutWheel(goetty.WithTickInterval(100 * time.Millisecond))
 	k.limiter1 = rate.NewLimiter(rate.Every(10*time.Second), 1)
 	k.limiter2 = rate.NewLimiter(rate.Every(10*time.Second), 1)
@@ -235,7 +234,9 @@ LOOP:
 		}
 		// submit message to a goroutine pool
 		statistics.ParseMsgsBacklog.WithLabelValues(k.taskCfg.Name).Inc()
-		k.wp.Submit(func() {
+
+		k.wp <- struct{}{}
+		go func() {
 			var row []interface{}
 			metric, err := k.parser.Parse(msg.Value)
 			if err != nil {
@@ -252,9 +253,8 @@ LOOP:
 			ring = k.rings[msg.Partition]
 			k.mux.Unlock()
 			ring.PutElem(MsgRow{Msg: &msg, Row: row})
-		})
+		}()
 	}
-	k.wp.StopWait()
 	k.tw.Stop()
 }
 
