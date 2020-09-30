@@ -24,7 +24,6 @@ import (
 	"time"
 
 	"github.com/fagongzi/goetty"
-	"github.com/gammazero/workerpool"
 	"github.com/pkg/errors"
 	"github.com/segmentio/kafka-go"
 	"github.com/sundy-li/go_commons/log"
@@ -34,6 +33,7 @@ import (
 	"github.com/housepower/clickhouse_sinker/model"
 	"github.com/housepower/clickhouse_sinker/parser"
 	"github.com/housepower/clickhouse_sinker/statistics"
+	"github.com/housepower/clickhouse_sinker/util"
 )
 
 // Kafka reader configuration
@@ -51,7 +51,7 @@ type Kafka struct {
 	limiter1 *rate.Limiter
 	limiter2 *rate.Limiter
 	limiter3 *rate.Limiter
-	wp       *workerpool.WorkerPool
+	wp       *util.WorkerPool
 }
 
 type Ring struct {
@@ -139,7 +139,7 @@ func (k *Kafka) Init(dims []*model.ColumnWithType) error {
 	})
 	k.rings = make([]*Ring, 0)
 	k.batchCh = make(chan Batch, 32)
-	k.wp = workerpool.New(k.taskCfg.ConcurrentParsers)
+	k.wp = util.NewWorkerPool(k.taskCfg.ConcurrentParsers)
 	k.tw = goetty.NewTimeoutWheel(goetty.WithTickInterval(100 * time.Millisecond))
 	k.limiter1 = rate.NewLimiter(rate.Every(10*time.Second), 1)
 	k.limiter2 = rate.NewLimiter(rate.Every(10*time.Second), 1)
@@ -187,7 +187,7 @@ LOOP:
 			numRings = msg.Partition + 1
 		}
 		if ring == nil {
-			cap := 2 ^ 10
+			cap := 1 << 10
 			for ; cap < 2*k.taskCfg.BufferSize; cap *= 2 {
 			}
 			ring := &Ring{
@@ -235,7 +235,7 @@ LOOP:
 		}
 		// submit message to a goroutine pool
 		statistics.ParseMsgsBacklog.WithLabelValues(k.taskCfg.Name).Inc()
-		k.wp.Submit(func() {
+		_ = k.wp.Submit(func() {
 			var row []interface{}
 			metric, err := k.parser.Parse(msg.Value)
 			if err != nil {
@@ -255,6 +255,7 @@ LOOP:
 		})
 	}
 	k.wp.StopWait()
+
 	k.tw.Stop()
 }
 
@@ -291,7 +292,7 @@ func (ring *Ring) PutElem(msgRow MsgRow) {
 		batchSize := ring.kafka.taskCfg.BufferSize
 		batch := NewBatch(batchSize, ring.kafka)
 		for i := 0; i < batchSize; i++ {
-			off := (ring.ringGroundOff + int64(i)) % ring.ringCap
+			off := (ring.ringGroundOff + int64(i)) & (ring.ringCap - 1)
 			batch.MsgRows[i] = ring.ringBuf[off]
 			if ring.ringBuf[off].Row != nil {
 				batch.RealSize++
@@ -347,7 +348,7 @@ func (ring *Ring) ForceBatch(arg interface{}) {
 		}
 		expOff := ring.ringGroundOff
 		for i := ring.ringGroundOff; i < endOff; i++ {
-			off := i % ring.ringCap
+			off := i & (ring.ringCap - 1)
 			msg := ring.ringBuf[off].Msg
 			if msg != nil {
 				//assert msg.Offset==i
