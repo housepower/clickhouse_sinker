@@ -15,6 +15,8 @@ limitations under the License.
 package model
 
 import (
+	"strings"
+
 	"github.com/ClickHouse/clickhouse-go"
 )
 
@@ -71,6 +73,9 @@ func switchType(typ string) string {
 	case "Date", "DateTime", "DateTime64", "ElasticDateTime":
 		return typ
 	default:
-		panic("unsupport type " + typ)
 	}
+	if strings.HasPrefix(typ, "DateTime64") {
+		return "DateTime64"
+	}
+	panic("unsupport type " + typ)
 }

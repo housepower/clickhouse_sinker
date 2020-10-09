@@ -7,7 +7,7 @@ SINKER_LDFLAGS += -X "$(PKG)/config.SinkerGitHash=$(shell git rev-parse HEAD)"
 SINKER_LDFLAGS += -X "$(PKG)/config.SinkerGitBranch=$(shell git rev-parse --abbrev-ref HEAD)"
 SINKER_LDFLAGS += -X "$(PKG)/config.SinkerEdition=$(EDITION)"
 
-GO        := go
+GO        := CGO_ENABLED=0 go
 GOBUILD   := $(GO) build $(BUILD_FLAG)
 
 pre:
