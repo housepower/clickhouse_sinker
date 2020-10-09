@@ -66,7 +66,7 @@ func (c *ClickHouse) Init() error {
 // Send a batch to clickhouse
 func (c *ClickHouse) Send(batch input.Batch) {
 	statistics.FlushBatchBacklog.WithLabelValues(c.taskCfg.Name).Inc()
-	c.wp.Submit(func() {
+	_ = c.wp.Submit(func() {
 		c.loopWrite(batch)
 	})
 }
