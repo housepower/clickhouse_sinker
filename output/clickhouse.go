@@ -35,6 +35,11 @@ import (
 	"github.com/sundy-li/go_commons/utils"
 )
 
+var (
+	selectSQLTemplate    = `select name, type, default_kind from system.columns where database = '%s' and table = '%s'`
+	lowCardinalityRegexp = regexp.MustCompile(`LowCardinality\((.+)\)`)
+)
+
 // ClickHouse is an output service consumers from kafka messages
 type ClickHouse struct {
 	Dims []*model.ColumnWithType
@@ -170,10 +175,6 @@ func (c *ClickHouse) initAll() error {
 	return nil
 }
 
-var (
-	selectSQLTemplate = `select name, type, default_kind from system.columns where database = '%s' and table = '%s'`
-)
-
 func (c *ClickHouse) initSchema() (err error) {
 	if c.taskCfg.AutoSchema {
 		conn := pool.GetConn(c.chCfg.Host)
@@ -189,7 +190,7 @@ func (c *ClickHouse) initSchema() (err error) {
 			_ = rs.Scan(&name, &typ, &defaultKind)
 			typ = lowCardinalityRegexp.ReplaceAllString(typ, "$1")
 			if !util.StringContains(c.taskCfg.ExcludeColumns, name) && defaultKind != "MATERIALIZED" {
-				c.Dims = append(c.Dims, &model.ColumnWithType{Name: name, Type: typ, SourceName: strings.Replace(name, ".", "\\.", -1)})
+				c.Dims = append(c.Dims, &model.ColumnWithType{Name: name, Type: typ, SourceName: util.GetSourceName(name)})
 			}
 		}
 	} else {
@@ -258,7 +259,3 @@ func (c *ClickHouse) initConn() (err error) {
 	c.wp = util.NewWorkerPool(len(hosts), 10*len(hosts))
 	return nil
 }
-
-var (
-	lowCardinalityRegexp = regexp.MustCompile(`LowCardinality\((.+)\)`)
-)

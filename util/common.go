@@ -15,6 +15,8 @@ limitations under the License.
 
 package util
 
+import "strings"
+
 // StringContainers check if contains string in array
 func StringContains(arr []string, str string) bool {
 	for _, s := range arr {
@@ -23,4 +25,12 @@ func StringContains(arr []string, str string) bool {
 		}
 	}
 	return false
+}
+
+func GetSourceName(name string) (sourcename string) {
+	sourcename = strings.Replace(name, ".", "\\.", -1)
+	if strings.HasPrefix(sourcename, "_") && !strings.HasPrefix(sourcename, "__") {
+		sourcename = "@" + sourcename[1:]
+	}
+	return
 }

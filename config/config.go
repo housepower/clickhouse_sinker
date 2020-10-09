@@ -23,6 +23,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/housepower/clickhouse_sinker/util"
+
 	"github.com/k0kubun/pp"
 	"github.com/sundy-li/go_commons/log"
 	"github.com/sundy-li/go_commons/utils"
@@ -181,7 +183,7 @@ func (config *Config) normallize() {
 		}
 		for i := range taskConfig.Dims {
 			if taskConfig.Dims[i].SourceName == "" {
-				taskConfig.Dims[i].SourceName = strings.Replace(taskConfig.Dims[i].Name, ".", "\\.", -1)
+				taskConfig.Dims[i].SourceName = util.GetSourceName(taskConfig.Dims[i].Name)
 			}
 		}
 	}
