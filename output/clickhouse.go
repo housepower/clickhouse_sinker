@@ -23,7 +23,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gammazero/workerpool"
 	"github.com/housepower/clickhouse_sinker/config"
 	"github.com/housepower/clickhouse_sinker/input"
 	"github.com/housepower/clickhouse_sinker/model"
@@ -45,7 +44,7 @@ type ClickHouse struct {
 
 	prepareSQL string
 	dms        []string
-	wp         *workerpool.WorkerPool
+	wp         *util.WorkerPool
 }
 
 // NewClickHouse new a clickhouse instance
@@ -256,7 +255,7 @@ func (c *ClickHouse) initConn() (err error) {
 		pool.SetDsn(c.chCfg.Host, dsn, time.Duration(c.chCfg.MaxLifeTime)*time.Second)
 	}
 
-	c.wp = workerpool.New(2 * len(hosts))
+	c.wp = util.NewWorkerPool(len(hosts), 10*len(hosts))
 	return nil
 }
 

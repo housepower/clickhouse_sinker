@@ -9,7 +9,6 @@ require (
 	github.com/armon/go-metrics v0.0.0-20190430140413-ec5e00d3c878 // indirect
 	github.com/fagongzi/goetty v1.6.0
 	github.com/frankban/quicktest v1.7.2 // indirect
-	github.com/gammazero/workerpool v1.0.0
 	github.com/golang/protobuf v1.4.2 // indirect
 	github.com/google/btree v1.0.0 // indirect
 	github.com/google/go-cmp v0.5.2 // indirect
