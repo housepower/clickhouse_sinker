@@ -44,11 +44,3 @@ type ColumnWithType struct {
 	Type       string
 	SourceName string
 }
-
-func MetricToRow(metric Metric, dims []*ColumnWithType) (row []interface{}) {
-	row = make([]interface{}, len(dims))
-	for i, dim := range dims {
-		row[i] = GetValueByType(metric, dim)
-	}
-	return
-}

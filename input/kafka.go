@@ -245,7 +245,7 @@ LOOP:
 						msg.Topic, msg.Partition, msg.Offset, msg, string(msg.Value), err)
 				}
 			} else {
-				row = model.MetricToRow(metric, k.dims)
+				row = MetricToRow(metric, msg, k.dims)
 			}
 			var ring *Ring
 			k.mux.Lock()
@@ -404,4 +404,23 @@ func (ring *Ring) ForceBatch(arg interface{}) {
 		err = errors.Wrap(err, "")
 		log.Criticalf("got error %+v", err)
 	}
+}
+
+
+func MetricToRow(metric model.Metric, msg kafka.Message, dims []*model.ColumnWithType) (row []interface{}) {
+	row = make([]interface{}, len(dims))
+	for i, dim := range dims {
+		if strings.HasPrefix(dim.Name, "__kafka") {
+			if strings.HasSuffix(dim.Name, "_topic"){
+				row[i] = msg.Topic
+			} else if strings.HasSuffix(dim.Name, "_partition") {
+				row[i] = msg.Partition
+			} else {
+				row[i] = msg.Offset
+			}
+		} else {
+			row[i] = model.GetValueByType(metric, dim)
+		}
+	}
+	return
 }
