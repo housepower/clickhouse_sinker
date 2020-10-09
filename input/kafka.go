@@ -139,7 +139,7 @@ func (k *Kafka) Init(dims []*model.ColumnWithType) error {
 	})
 	k.rings = make([]*Ring, 0)
 	k.batchCh = make(chan Batch, 32)
-	k.wp = util.NewWorkerPool(k.taskCfg.ConcurrentParsers)
+	k.wp = util.NewWorkerPool(k.taskCfg.ConcurrentParsers, 8)
 	k.tw = goetty.NewTimeoutWheel(goetty.WithTickInterval(100 * time.Millisecond))
 	k.limiter1 = rate.NewLimiter(rate.Every(10*time.Second), 1)
 	k.limiter2 = rate.NewLimiter(rate.Every(10*time.Second), 1)

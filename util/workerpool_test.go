@@ -5,9 +5,9 @@ import (
 )
 
 func TestWorkerPool(t *testing.T) {
-	wp := NewWorkerPool(3)
+	wp := NewWorkerPool(3, 1)
 
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 10000; i++ {
 		wp.Restart()
 		requests := []string{"alpha", "beta", "gamma", "delta", "epsilon"}
 		rspChan := make(chan string, len(requests))

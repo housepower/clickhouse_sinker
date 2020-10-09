@@ -25,10 +25,10 @@ type WorkerPool struct {
 }
 
 // New creates and starts a pool of worker goroutines.
-func NewWorkerPool(maxWorkers int) *WorkerPool {
+func NewWorkerPool(maxWorkers int, queueSize int) *WorkerPool {
 	w := &WorkerPool{
 		maxWorkers: maxWorkers,
-		workChan:   make(chan func(), maxWorkers),
+		workChan:   make(chan func(), queueSize),
 	}
 
 	w.taskDone = sync.NewCond(w)
@@ -80,7 +80,9 @@ func (w *WorkerPool) StopWait() {
 
 	w.Lock()
 	defer w.Unlock()
-	w.taskDone.Wait()
+	for w.inNums != w.outNums {
+		w.taskDone.Wait()
+	}
 }
 
 func (w *WorkerPool) Restart() {
