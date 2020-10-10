@@ -77,6 +77,7 @@ type MsgRow struct {
 type Batch struct {
 	MsgRows  []MsgRow
 	RealSize int    //number of messages who's row!=nil
+	BatchNum int64  //msg.Offset>>batchSizeShift is the same for all messages inside a batch
 	kafka    *Kafka //point back to who hold this ring
 }
 
@@ -399,6 +400,11 @@ func (ring *Ring) genBatch(expNewGroundOff int64) (gaps []OffsetRange) {
 		gaps = append(gaps, OffsetRange{Begin: expOff, End: endOff})
 	}
 	if batch.RealSize > 0 {
+		log.Debugf("%s: going to flush a batch for topic %v patittion %d, size %d, offset %d-%d",
+			ring.kafka.taskCfg.Name, batch.MsgRows[0].Msg.Topic, batch.MsgRows[0].Msg.Partition,
+			len(batch.MsgRows), batch.MsgRows[0].Msg.Offset, batch.MsgRows[len(batch.MsgRows)-1].Msg.Offset)
+
+		batch.BatchNum = batch.MsgRows[0].Msg.Offset >> ring.batchSizeShift
 		ring.kafka.batchCh <- batch
 		statistics.ParseMsgsBacklog.WithLabelValues(ring.kafka.taskCfg.Name).Sub(float64(batch.RealSize))
 		if gaps == nil {

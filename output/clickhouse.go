@@ -77,7 +77,7 @@ func (c *ClickHouse) write(batch input.Batch) error {
 		return nil
 	}
 
-	conn := pool.GetConn(c.chCfg.Host)
+	conn := pool.GetConn(c.taskCfg.Clickhouse, batch.BatchNum)
 	tx, err := conn.Begin()
 	if err != nil {
 		if shouldReconnect(err) {
@@ -177,7 +177,7 @@ func (c *ClickHouse) initAll() error {
 
 func (c *ClickHouse) initSchema() (err error) {
 	if c.taskCfg.AutoSchema {
-		conn := pool.GetConn(c.chCfg.Host)
+		conn := pool.GetConn(c.taskCfg.Clickhouse, 0)
 		rs, err := conn.Query(fmt.Sprintf(selectSQLTemplate, c.chCfg.DB, c.taskCfg.TableName))
 		if err != nil {
 			return err
@@ -220,7 +220,7 @@ func (c *ClickHouse) initSchema() (err error) {
 }
 
 func (c *ClickHouse) initConn() (err error) {
-	var ips, ips2, hosts []string
+	var ips, ips2, dsnArr []string
 
 	// if contains ',', that means it's a ip list
 	if strings.Contains(c.chCfg.Host, ",") {
@@ -235,27 +235,16 @@ func (c *ClickHouse) initConn() (err error) {
 		} else {
 			ip = ips2[0]
 		}
-		hosts = append(hosts, fmt.Sprintf("%s:%d", ip, c.chCfg.Port))
+		dsn := fmt.Sprintf("tcp://%s:%d?database=%s&username=%s&password=%s",
+			ip, c.chCfg.Port, c.chCfg.DB, c.chCfg.Username, c.chCfg.Password)
+		if c.chCfg.DsnParams != "" {
+			dsn += "&" + c.chCfg.DsnParams
+		}
+		dsnArr = append(dsnArr, dsn)
 	}
 
-	var dsn = fmt.Sprintf("tcp://%s?database=%s&username=%s&password=%s",
-		hosts[0], c.chCfg.DB, c.chCfg.Username, c.chCfg.Password)
+	pool.SetDsn(c.taskCfg.Clickhouse, dsnArr)
 
-	if len(hosts) > 1 {
-		otherHosts := hosts[1:]
-		dsn += "&alt_hosts="
-		dsn += strings.Join(otherHosts, ",")
-		dsn += "&connection_open_strategy=random"
-	}
-
-	if c.chCfg.DsnParams != "" {
-		dsn += "&" + c.chCfg.DsnParams
-	}
-	// dsn += "&debug=1"
-	for i := 0; i < len(hosts); i++ {
-		pool.SetDsn(c.chCfg.Host, dsn, time.Duration(c.chCfg.MaxLifeTime)*time.Second)
-	}
-
-	c.wp = util.NewWorkerPool(len(hosts), 10*len(hosts))
+	c.wp = util.NewWorkerPool(len(dsnArr), 10*len(dsnArr))
 	return nil
 }

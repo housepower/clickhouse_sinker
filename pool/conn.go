@@ -20,8 +20,6 @@ package pool
 
 import (
 	"database/sql"
-	"fmt"
-	"math/rand"
 	"sync"
 	"time"
 
@@ -32,8 +30,7 @@ import (
 )
 
 var (
-	connNum = 1
-	lock    sync.Mutex
+	lock sync.Mutex
 )
 
 // Connection a datastructure for storing the clickhouse connection
@@ -57,46 +54,38 @@ func (c *Connection) ReConnect() error {
 var poolMaps = map[string][]*Connection{}
 
 // SetDsn set the dsn for the connection
-func SetDsn(name string, dsn string, maxLifetTime time.Duration) {
+func SetDsn(name string, dsnArr []string) {
 	lock.Lock()
 	defer lock.Unlock()
-
-	sqlDB, err := sql.Open("clickhouse", dsn)
-	if err != nil {
-		panic(err)
+	var cons []*Connection
+	var ok bool
+	if cons, ok = poolMaps[name]; ok {
+		return
 	}
 
-	if maxLifetTime.Seconds() != 0 {
-		sqlDB.SetConnMaxLifetime(maxLifetTime)
-	}
-
-	if ps, ok := poolMaps[name]; ok {
-		//达到最大限制了，不需要新建conn
-		if len(ps) >= connNum {
-			return
+	log.Infof("clickhouse dsn of %s: %+v", name, dsnArr)
+	for _, dsn := range dsnArr {
+		sqlDB, err := sql.Open("clickhouse", dsn)
+		if err != nil {
+			panic(err)
 		}
-		log.Info("clickhouse dsn", dsn)
-		ps = append(ps, &Connection{sqlDB, dsn})
-		poolMaps[name] = ps
-	} else {
-		poolMaps[name] = []*Connection{{sqlDB, dsn}}
+		health.Health.AddReadinessCheck(dsn, healthcheck.DatabasePingCheck(sqlDB, 10*time.Second))
+		cons = append(cons, &Connection{sqlDB, dsn})
 	}
-
-	var ix int
-	var i *Connection
-	for ix, i = range poolMaps[name] {
-		var checkName = fmt.Sprintf("clickhouse(%s, %d)", name, ix)
-		health.Health.AddReadinessCheck(checkName, healthcheck.DatabasePingCheck(i.DB, 1*time.Second))
-	}
+	poolMaps[name] = cons
 }
 
-// GetConn returns a connection for a clickhouse server from the pool
-func GetConn(name string) *Connection {
+// GetConn select a clickhouse node from the cluster based on batchNum
+func GetConn(name string, batchNum int64) (con *Connection) {
 	lock.Lock()
 	defer lock.Unlock()
 
-	ps := poolMaps[name]
-	return ps[rand.Intn(len(ps))]
+	ps, ok := poolMaps[name]
+	if !ok {
+		return
+	}
+	con = ps[batchNum%int64(len(ps))]
+	return
 }
 
 // CloseAll closed all connection and destroys the pool
