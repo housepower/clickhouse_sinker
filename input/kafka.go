@@ -61,6 +61,7 @@ type Ring struct {
 	ringGroundOff    int64 //min message offset inside the ring
 	ringCeilingOff   int64 //1 + max message offset inside the ring
 	ringFilledOffset int64 //every message which's offset inside range [ringGroundOff, ringFilledOffset) is in the ring
+	batchSizeShift   int   //the shift of desired batch size
 	tid              goetty.Timeout
 	idleCnt          int
 	isIdle           bool
@@ -187,15 +188,15 @@ LOOP:
 			numRings = msg.Partition + 1
 		}
 		if ring == nil {
-			cap := 1 << 10
-			for ; cap < 2*k.taskCfg.BufferSize; cap *= 2 {
-			}
+			batchSizeShift := util.GetShift(k.taskCfg.BufferSize)
+			ringCap := int64(1 << (batchSizeShift + 1))
 			ring := &Ring{
-				ringBuf:          make([]MsgRow, cap),
-				ringCap:          int64(cap),
+				ringBuf:          make([]MsgRow, ringCap),
+				ringCap:          ringCap,
 				ringGroundOff:    msg.Offset,
 				ringCeilingOff:   msg.Offset,
 				ringFilledOffset: msg.Offset,
+				batchSizeShift:   batchSizeShift,
 				idleCnt:          0,
 				isIdle:           false,
 				partition:        msg.Partition,
@@ -288,21 +289,8 @@ func (ring *Ring) PutElem(msgRow MsgRow) {
 	}
 	for ; ring.ringFilledOffset < ring.ringCeilingOff && ring.ringBuf[ring.ringFilledOffset%ring.ringCap].Msg != nil; ring.ringFilledOffset++ {
 	}
-	if ring.ringFilledOffset-ring.ringGroundOff >= int64(ring.kafka.taskCfg.BufferSize) {
-		batchSize := ring.kafka.taskCfg.BufferSize
-		batch := NewBatch(batchSize, ring.kafka)
-		for i := 0; i < batchSize; i++ {
-			off := (ring.ringGroundOff + int64(i)) & (ring.ringCap - 1)
-			batch.MsgRows[i] = ring.ringBuf[off]
-			if ring.ringBuf[off].Row != nil {
-				batch.RealSize++
-			}
-			ring.ringBuf[off] = MsgRow{Msg: nil, Row: nil}
-		}
-		ring.ringGroundOff += int64(batchSize)
-		ring.kafka.batchCh <- batch
-		statistics.ParseMsgsBacklog.WithLabelValues(ring.kafka.taskCfg.Name).Sub(float64(batchSize))
-		statistics.RingNormalBatchsTotal.WithLabelValues(ring.kafka.taskCfg.Name).Inc()
+	if (ring.ringFilledOffset >> ring.batchSizeShift) != (ring.ringGroundOff >> ring.batchSizeShift) {
+		ring.genBatch(ring.ringFilledOffset)
 		// reschedule the delayed ForceBatch
 		ring.tid.Stop()
 		if ring.tid, err = ring.kafka.tw.Schedule(time.Duration(ring.kafka.taskCfg.FlushInterval)*time.Second, ring.ForceBatch, nil); err != nil {
@@ -319,10 +307,9 @@ type OffsetRange struct {
 
 func (ring *Ring) ForceBatch(arg interface{}) {
 	var (
-		err       error
-		batchSize int
-		newMsg    *kafka.Message
-		gaps      []OffsetRange
+		err    error
+		newMsg *kafka.Message
+		gaps   []OffsetRange
 	)
 
 	select {
@@ -334,70 +321,42 @@ func (ring *Ring) ForceBatch(arg interface{}) {
 
 	ring.mux.Lock()
 	defer ring.mux.Unlock()
-	batch := NewBatch(0, ring.kafka)
 	if arg != nil {
 		newMsg = arg.(*kafka.Message)
 		log.Warnf("Ring.ForceBatchAll partition %d message range [%d, %d)", newMsg.Partition, ring.ringGroundOff, newMsg.Offset)
 	}
 	if !ring.isIdle {
-		var endOff int64
-		if newMsg != nil {
-			endOff = ring.ringCeilingOff
-		} else {
-			endOff = ring.ringFilledOffset
-		}
-		expOff := ring.ringGroundOff
-		for i := ring.ringGroundOff; i < endOff; i++ {
-			off := i & (ring.ringCap - 1)
-			msg := ring.ringBuf[off].Msg
-			if msg != nil {
-				//assert msg.Offset==i
-				if i != expOff {
-					gaps = append(gaps, OffsetRange{Begin: expOff, End: i})
+		if newMsg == nil {
+			if ring.ringFilledOffset > ring.ringGroundOff {
+				ring.genBatch(ring.ringFilledOffset)
+				ring.idleCnt = 0
+			} else {
+				ring.idleCnt++
+				if ring.idleCnt >= 2 {
+					ring.idleCnt = 0
+					ring.isIdle = true
+					ring.ringBuf = nil
+					log.Infof("partition %d enter idle", ring.partition)
 				}
-				expOff = msg.Offset + 1
-				batch.MsgRows = append(batch.MsgRows, ring.ringBuf[off])
-				if ring.ringBuf[off].Row != nil {
-					batch.RealSize++
-				}
-				ring.ringBuf[off] = MsgRow{Msg: nil, Row: nil}
 			}
-		}
-		if expOff != endOff {
-			gaps = append(gaps, OffsetRange{Begin: expOff, End: endOff})
-		}
-	}
-	batchSize = len(batch.MsgRows)
-	if batchSize != 0 {
-		ring.kafka.batchCh <- batch
-		if newMsg != nil {
+		} else {
 			statistics.RingForceBatchAllTotal.WithLabelValues(ring.kafka.taskCfg.Name).Inc()
-			gap := int(ring.ringCeilingOff-ring.ringGroundOff) - batchSize
-			if gap != 0 {
-				statistics.RingForceBatchAllGapTotal.WithLabelValues(ring.kafka.taskCfg.Name).Inc()
-				log.Warnf("Ring.ForceBatchAll noticed topic %v partition %d message offset gaps(total %d) %v", newMsg.Topic, newMsg.Partition, gap, gaps)
+		LOOP:
+			for {
+				gaps = ring.genBatch(ring.ringCeilingOff)
+				if gaps != nil {
+					log.Warnf("Ring.ForceBatchAll noticed topic %v partition %d message offset gaps %v", newMsg.Topic, newMsg.Partition, gaps)
+				}
+				if ring.ringGroundOff == ring.ringCeilingOff {
+					break LOOP
+				}
 			}
-		} else {
-			statistics.RingForceBatchsTotal.WithLabelValues(ring.kafka.taskCfg.Name).Inc()
-			ring.ringGroundOff = ring.ringFilledOffset
-		}
-		statistics.ParseMsgsBacklog.WithLabelValues(ring.kafka.taskCfg.Name).Sub(float64(batchSize))
-	}
-	if newMsg != nil {
-		ring.ringGroundOff = newMsg.Offset
-		ring.ringFilledOffset = newMsg.Offset
-		ring.ringCeilingOff = newMsg.Offset
-		ring.idleCnt = 0
-	} else if !ring.isIdle && batchSize == 0 {
-		ring.idleCnt++
-		if ring.idleCnt >= 2 {
+			ring.ringGroundOff = newMsg.Offset
+			ring.ringFilledOffset = newMsg.Offset
+			ring.ringCeilingOff = newMsg.Offset
 			ring.idleCnt = 0
-			ring.isIdle = true
-			ring.ringBuf = nil
-			log.Infof("partition %d enter idle", ring.partition)
 		}
 	}
-
 	// reschedule myself
 	ring.tid.Stop()
 	if ring.tid, err = ring.kafka.tw.Schedule(time.Duration(ring.kafka.taskCfg.FlushInterval)*time.Second, ring.ForceBatch, nil); err != nil {
@@ -406,12 +365,60 @@ func (ring *Ring) ForceBatch(arg interface{}) {
 	}
 }
 
+// assume ring.mux is locked
+func (ring *Ring) genBatch(expNewGroundOff int64) (gaps []OffsetRange) {
+	if expNewGroundOff <= ring.ringGroundOff {
+		return
+	}
+	endOff := (ring.ringGroundOff | int64(1<<ring.batchSizeShift-1)) + 1
+	if endOff > expNewGroundOff {
+		endOff = expNewGroundOff
+	}
+	if endOff > ring.ringCeilingOff {
+		endOff = ring.ringCeilingOff
+	}
+	batch := NewBatch(0, ring.kafka)
+	expOff := ring.ringGroundOff
+	for i := ring.ringGroundOff; i < endOff; i++ {
+		off := i & (ring.ringCap - 1)
+		msg := ring.ringBuf[off].Msg
+		if msg != nil {
+			//assert msg.Offset==i
+			if i != expOff {
+				gaps = append(gaps, OffsetRange{Begin: expOff, End: i})
+			}
+			expOff = i + 1
+			batch.MsgRows = append(batch.MsgRows, ring.ringBuf[off])
+			if ring.ringBuf[off].Row != nil {
+				batch.RealSize++
+			}
+			ring.ringBuf[off] = MsgRow{Msg: nil, Row: nil}
+		}
+	}
+	if expOff != endOff {
+		gaps = append(gaps, OffsetRange{Begin: expOff, End: endOff})
+	}
+	if batch.RealSize > 0 {
+		ring.kafka.batchCh <- batch
+		statistics.ParseMsgsBacklog.WithLabelValues(ring.kafka.taskCfg.Name).Sub(float64(batch.RealSize))
+		if gaps == nil {
+			statistics.RingNormalBatchsTotal.WithLabelValues(ring.kafka.taskCfg.Name).Inc()
+		} else {
+			statistics.RingForceBatchAllGapTotal.WithLabelValues(ring.kafka.taskCfg.Name).Inc()
+		}
+	}
+	ring.ringGroundOff = endOff
+	if ring.ringFilledOffset < ring.ringGroundOff {
+		ring.ringFilledOffset = ring.ringGroundOff
+	}
+	return
+}
 
 func MetricToRow(metric model.Metric, msg kafka.Message, dims []*model.ColumnWithType) (row []interface{}) {
 	row = make([]interface{}, len(dims))
 	for i, dim := range dims {
 		if strings.HasPrefix(dim.Name, "__kafka") {
-			if strings.HasSuffix(dim.Name, "_topic"){
+			if strings.HasSuffix(dim.Name, "_topic") {
 				row[i] = msg.Topic
 			} else if strings.HasSuffix(dim.Name, "_partition") {
 				row[i] = msg.Partition

@@ -135,26 +135,30 @@ func (config *Config) normallize() {
 	if config.Common.FlushInterval <= 0 {
 		config.Common.FlushInterval = defaultFlushInterval
 	}
-	if baseConfig.Common.BufferSize <= 0 {
+	if config.Common.BufferSize <= 0 {
 		config.Common.BufferSize = defaultBufferSize
+	} else {
+		config.Common.BufferSize = 1 << util.GetShift(config.Common.BufferSize)
 	}
-	if baseConfig.Common.MinBufferSize <= 0 {
+	if config.Common.MinBufferSize <= 0 {
 		config.Common.MinBufferSize = defaultMinBufferSize
+	} else {
+		config.Common.MinBufferSize = 1 << util.GetShift(config.Common.MinBufferSize)
 	}
-	if baseConfig.Common.MsgSizeHint <= 0 {
+	if config.Common.MsgSizeHint <= 0 {
 		config.Common.MsgSizeHint = defaultMsgSizeHint
 	}
-	if baseConfig.Common.ConcurrentParsers <= 0 {
+	if config.Common.ConcurrentParsers <= 0 {
 		config.Common.ConcurrentParsers = defaultConcurrentParsers
 	}
-	if baseConfig.Common.LayoutDate == "" {
-		baseConfig.Common.LayoutDate = defaultLayoutDate
+	if config.Common.LayoutDate == "" {
+		config.Common.LayoutDate = defaultLayoutDate
 	}
-	if baseConfig.Common.LayoutDateTime == "" {
-		baseConfig.Common.LayoutDateTime = defaultLayoutDateTime
+	if config.Common.LayoutDateTime == "" {
+		config.Common.LayoutDateTime = defaultLayoutDateTime
 	}
-	if baseConfig.Common.LayoutDateTime64 == "" {
-		baseConfig.Common.LayoutDateTime64 = defaultLayoutDateTime64
+	if config.Common.LayoutDateTime64 == "" {
+		config.Common.LayoutDateTime64 = defaultLayoutDateTime64
 	}
 	for _, taskConfig := range config.Tasks {
 		if taskConfig.FlushInterval <= 0 {
@@ -162,9 +166,13 @@ func (config *Config) normallize() {
 		}
 		if taskConfig.BufferSize <= 0 {
 			taskConfig.BufferSize = config.Common.BufferSize
+		} else {
+			taskConfig.BufferSize = 1 << util.GetShift(taskConfig.BufferSize)
 		}
 		if taskConfig.MinBufferSize <= 0 {
 			taskConfig.MinBufferSize = config.Common.MinBufferSize
+		} else {
+			taskConfig.MinBufferSize = 1 << util.GetShift(taskConfig.BufferSize)
 		}
 		if taskConfig.MsgSizeHint <= 0 {
 			taskConfig.MsgSizeHint = config.Common.MsgSizeHint
@@ -173,13 +181,13 @@ func (config *Config) normallize() {
 			taskConfig.ConcurrentParsers = config.Common.ConcurrentParsers
 		}
 		if taskConfig.LayoutDate == "" {
-			taskConfig.LayoutDate = baseConfig.Common.LayoutDate
+			taskConfig.LayoutDate = config.Common.LayoutDate
 		}
 		if taskConfig.LayoutDateTime == "" {
-			taskConfig.LayoutDateTime = baseConfig.Common.LayoutDateTime
+			taskConfig.LayoutDateTime = config.Common.LayoutDateTime
 		}
 		if taskConfig.LayoutDateTime64 == "" {
-			taskConfig.LayoutDateTime64 = baseConfig.Common.LayoutDateTime64
+			taskConfig.LayoutDateTime64 = config.Common.LayoutDateTime64
 		}
 		for i := range taskConfig.Dims {
 			if taskConfig.Dims[i].SourceName == "" {
@@ -252,8 +260,8 @@ type TaskConfig struct {
 
 var (
 	defaultFlushInterval     = 3
-	defaultBufferSize        = 100000
-	defaultMinBufferSize     = 10000
+	defaultBufferSize        = 1 << 20 //1048576
+	defaultMinBufferSize     = 1 << 13 //   8196
 	defaultMsgSizeHint       = 1000
 	defaultConcurrentParsers = 5
 	defaultLayoutDate        = "2006-01-02"

@@ -1,6 +1,6 @@
 module github.com/housepower/clickhouse_sinker
 
-go 1.12
+go 1.14
 
 require (
 	github.com/ClickHouse/clickhouse-go v1.4.3

@@ -27,10 +27,18 @@ func StringContains(arr []string, str string) bool {
 	return false
 }
 
+// GetSourceName returns the field name in message for the given ClickHouse column
 func GetSourceName(name string) (sourcename string) {
 	sourcename = strings.Replace(name, ".", "\\.", -1)
 	if strings.HasPrefix(sourcename, "_") && !strings.HasPrefix(sourcename, "__") {
 		sourcename = "@" + sourcename[1:]
+	}
+	return
+}
+
+// GetShift returns the smallest `shift` which 1<<shift is no smaller than s
+func GetShift(s int) (shift int) {
+	for shift = 0; (1 << shift) < s; shift++ {
 	}
 	return
 }
