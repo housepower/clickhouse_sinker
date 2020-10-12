@@ -91,10 +91,6 @@ func (batch Batch) Free() (err error) {
 	if numMsgs == 0 {
 		return
 	}
-	msgs := make([]kafka.Message, numMsgs)
-	for i, msgRow := range batch.MsgRows {
-		msgs[i] = *msgRow.Msg
-	}
 	// "io: read/write on closed pipe" makes caller hard to tell what happened. context.Canceled is better.
 	select {
 	case <-batch.kafka.ctx.Done():
@@ -102,11 +98,12 @@ func (batch Batch) Free() (err error) {
 		return
 	default:
 	}
-	if err = batch.kafka.r.CommitMessages(batch.kafka.ctx, msgs...); err != nil {
+	// Commit only the last message inside a batch since messages come from the same topic and partition, and are sorted per offset
+	lastMsg := batch.MsgRows[numMsgs-1].Msg
+	if err = batch.kafka.r.CommitMessages(batch.kafka.ctx, *lastMsg); err != nil {
 		err = errors.Wrap(err, "")
 		return
 	}
-	lastMsg := msgs[numMsgs-1]
 	statistics.ConsumeOffsets.WithLabelValues(batch.kafka.taskCfg.Name, strconv.Itoa(lastMsg.Partition), lastMsg.Topic).Set(float64(lastMsg.Offset))
 	return
 }
