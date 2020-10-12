@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"io/ioutil"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -213,11 +214,10 @@ type ClickHouseConfig struct {
 	Host string
 	Port int
 
-	Username    string
-	Password    string
-	DsnParams   string
-	MaxLifeTime int
-	RetryTimes  int
+	Username   string
+	Password   string
+	DsnParams  string
+	RetryTimes int
 }
 
 // Task configuration parameters
@@ -263,7 +263,7 @@ var (
 	defaultBufferSize        = 1 << 20 //1048576
 	defaultMinBufferSize     = 1 << 13 //   8196
 	defaultMsgSizeHint       = 1000
-	defaultConcurrentParsers = 5
+	defaultConcurrentParsers = runtime.NumCPU()
 	defaultLayoutDate        = "2006-01-02"
 	defaultLayoutDateTime    = time.RFC3339
 	defaultLayoutDateTime64  = time.RFC3339

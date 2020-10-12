@@ -20,13 +20,17 @@ package pool
 
 import (
 	"database/sql"
+	"fmt"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/heptiolabs/healthcheck"
 	"github.com/housepower/clickhouse_sinker/health"
+	"github.com/pkg/errors"
 
 	"github.com/sundy-li/go_commons/log"
+	"github.com/sundy-li/go_commons/utils"
 )
 
 var (
@@ -53,26 +57,54 @@ func (c *Connection) ReConnect() error {
 
 var poolMaps = map[string][]*Connection{}
 
-// SetDsn set the dsn for the connection
-func SetDsn(name string, dsnArr []string) {
-	lock.Lock()
-	defer lock.Unlock()
-	var cons []*Connection
-	var ok bool
-	if cons, ok = poolMaps[name]; ok {
-		return
+func InitConn(name, hosts string, port int, db, username, password, dsnParams string) (err error) {
+	var ips, ips2, dsnArr []string
+	var sqlDB *sql.DB
+	// if contains ',', that means it's a ip list
+	if strings.Contains(hosts, ",") {
+		ips = strings.Split(strings.TrimSpace(hosts), ",")
+	} else {
+		ips = []string{hosts}
+	}
+	for _, ip := range ips {
+		if ips2, err = utils.GetIp4Byname(ip); err != nil {
+			// fallback to ip
+			err = nil
+		} else {
+			ip = ips2[0]
+		}
+		dsn := fmt.Sprintf("tcp://%s:%d?database=%s&username=%s&password=%s",
+			ip, port, db, username, password)
+		if dsnParams != "" {
+			dsn += "&" + dsnParams
+		}
+		dsnArr = append(dsnArr, dsn)
 	}
 
 	log.Infof("clickhouse dsn of %s: %+v", name, dsnArr)
+	var cons []*Connection
 	for _, dsn := range dsnArr {
-		sqlDB, err := sql.Open("clickhouse", dsn)
-		if err != nil {
-			panic(err)
+		if sqlDB, err = sql.Open("clickhouse", dsn); err != nil {
+			err = errors.Wrapf(err, "")
+			return
 		}
 		health.Health.AddReadinessCheck(dsn, healthcheck.DatabasePingCheck(sqlDB, 10*time.Second))
 		cons = append(cons, &Connection{sqlDB, dsn})
 	}
+	lock.Lock()
 	poolMaps[name] = cons
+	lock.Unlock()
+	return
+}
+
+// GetNumConn get number of connections for the given name
+func GetNumConn(name string) (numConn int) {
+	lock.Lock()
+	defer lock.Unlock()
+	if ps, ok := poolMaps[name]; ok {
+		numConn = len(ps)
+	}
+	return
 }
 
 // GetConn select a clickhouse node from the cluster based on batchNum

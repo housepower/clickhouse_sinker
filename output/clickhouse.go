@@ -32,7 +32,6 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/sundy-li/go_commons/log"
-	"github.com/sundy-li/go_commons/utils"
 )
 
 var (
@@ -49,7 +48,6 @@ type ClickHouse struct {
 
 	prepareSQL string
 	dms        []string
-	wp         *util.WorkerPool
 }
 
 // NewClickHouse new a clickhouse instance
@@ -60,13 +58,16 @@ func NewClickHouse(taskCfg *config.TaskConfig) *ClickHouse {
 
 // Init the clickhouse intance
 func (c *ClickHouse) Init() error {
-	return c.initAll()
+	if err := c.initSchema(); err != nil {
+		return err
+	}
+	return nil
 }
 
 // Send a batch to clickhouse
 func (c *ClickHouse) Send(batch input.Batch) {
 	statistics.FlushBatchBacklog.WithLabelValues(c.taskCfg.Name).Inc()
-	_ = c.wp.Submit(func() {
+	_ = util.GlobalWorkerPool2.Submit(func() {
 		c.loopWrite(batch)
 	})
 }
@@ -160,18 +161,6 @@ func (c *ClickHouse) loopWrite(batch input.Batch) {
 
 // Close does nothing, place holder for handling close
 func (c *ClickHouse) Close() error {
-	c.wp.StopWait()
-	return nil
-}
-
-// initAll initialises schema and connections for clickhouse
-func (c *ClickHouse) initAll() error {
-	if err := c.initConn(); err != nil {
-		return err
-	}
-	if err := c.initSchema(); err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -216,35 +205,5 @@ func (c *ClickHouse) initSchema() (err error) {
 		"VALUES (" + strings.Join(params, ",") + ")"
 
 	log.Info("Prepare sql=>", c.prepareSQL)
-	return nil
-}
-
-func (c *ClickHouse) initConn() (err error) {
-	var ips, ips2, dsnArr []string
-
-	// if contains ',', that means it's a ip list
-	if strings.Contains(c.chCfg.Host, ",") {
-		ips = strings.Split(strings.TrimSpace(c.chCfg.Host), ",")
-	} else {
-		ips = []string{c.chCfg.Host}
-	}
-	for _, ip := range ips {
-		if ips2, err = utils.GetIp4Byname(ip); err != nil {
-			// fallback to ip
-			err = nil
-		} else {
-			ip = ips2[0]
-		}
-		dsn := fmt.Sprintf("tcp://%s:%d?database=%s&username=%s&password=%s",
-			ip, c.chCfg.Port, c.chCfg.DB, c.chCfg.Username, c.chCfg.Password)
-		if c.chCfg.DsnParams != "" {
-			dsn += "&" + c.chCfg.DsnParams
-		}
-		dsnArr = append(dsnArr, dsn)
-	}
-
-	pool.SetDsn(c.taskCfg.Clickhouse, dsnArr)
-
-	c.wp = util.NewWorkerPool(len(dsnArr), 10*len(dsnArr))
 	return nil
 }

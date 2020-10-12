@@ -15,9 +15,35 @@ limitations under the License.
 
 package util
 
-import "strings"
+import (
+	"strings"
+	"time"
 
-// StringContainers check if contains string in array
+	"github.com/fagongzi/goetty"
+)
+
+var (
+	GlobalTimerWheel  *goetty.TimeoutWheel //the global timer wheel
+	GlobalWorkerPool1 *WorkerPool          //the global worker pool for cpu intensive works
+	GlobalWorkerPool2 *WorkerPool          //the global worker pool for network intensive works
+)
+
+// InitGlobalTimerWheel initialize the global timer wheel
+func InitGlobalTimerWheel() {
+	GlobalTimerWheel = goetty.NewTimeoutWheel(goetty.WithTickInterval(time.Second))
+}
+
+// InitGlobalWorkerPool1 initialize GlobalWorkerPool1
+func InitGlobalWorkerPool1(maxWorkers int) {
+	GlobalWorkerPool1 = NewWorkerPool(maxWorkers, 10*maxWorkers)
+}
+
+// InitGlobalWorkerPool2 initialize GlobalWorkerPool2
+func InitGlobalWorkerPool2(maxWorkers int) {
+	GlobalWorkerPool2 = NewWorkerPool(maxWorkers, 10*maxWorkers)
+}
+
+// StringContains check if contains string in array
 func StringContains(arr []string, str string) bool {
 	for _, s := range arr {
 		if s == str {

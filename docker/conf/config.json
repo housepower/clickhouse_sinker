@@ -3,7 +3,6 @@
     "ch1": {
       "db": "default",
       "host": "127.0.0.1",
-      "maxLifeTime": 300,
       "password": "",
       "retryTimes" : 5,
       "port": 9000,

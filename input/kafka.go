@@ -45,13 +45,11 @@ type Kafka struct {
 	mux      sync.Mutex
 	rings    []*Ring
 	batchCh  chan Batch
-	tw       *goetty.TimeoutWheel
 	stopped  chan struct{}
 	ctx      context.Context
 	limiter1 *rate.Limiter
 	limiter2 *rate.Limiter
 	limiter3 *rate.Limiter
-	wp       *util.WorkerPool
 }
 
 type Ring struct {
@@ -141,8 +139,6 @@ func (k *Kafka) Init(dims []*model.ColumnWithType) error {
 	})
 	k.rings = make([]*Ring, 0)
 	k.batchCh = make(chan Batch, 32)
-	k.wp = util.NewWorkerPool(k.taskCfg.ConcurrentParsers, 10*k.taskCfg.ConcurrentParsers)
-	k.tw = goetty.NewTimeoutWheel(goetty.WithTickInterval(100 * time.Millisecond))
 	k.limiter1 = rate.NewLimiter(rate.Every(10*time.Second), 1)
 	k.limiter2 = rate.NewLimiter(rate.Every(10*time.Second), 1)
 	k.limiter3 = rate.NewLimiter(rate.Every(10*time.Second), 1)
@@ -204,7 +200,7 @@ LOOP:
 				kafka:            k,
 			}
 			// schedule a delayed ForceBatch
-			if ring.tid, err = ring.kafka.tw.Schedule(time.Duration(k.taskCfg.FlushInterval)*time.Second, ring.ForceBatch, nil); err != nil {
+			if ring.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(k.taskCfg.FlushInterval)*time.Second, ring.ForceBatch, nil); err != nil {
 				err = errors.Wrap(err, "")
 				log.Criticalf("got error %+v", err)
 			}
@@ -237,7 +233,7 @@ LOOP:
 		}
 		// submit message to a goroutine pool
 		statistics.ParseMsgsBacklog.WithLabelValues(k.taskCfg.Name).Inc()
-		_ = k.wp.Submit(func() {
+		_ = util.GlobalWorkerPool1.Submit(func() {
 			var row []interface{}
 			metric, err := k.parser.Parse(msg.Value)
 			if err != nil {
@@ -256,9 +252,6 @@ LOOP:
 			ring.PutElem(MsgRow{Msg: &msg, Row: row})
 		})
 	}
-	k.wp.StopWait()
-
-	k.tw.Stop()
 }
 
 // Stop kafka consumer and close all connections
@@ -282,7 +275,7 @@ func (ring *Ring) PutElem(msgRow MsgRow) {
 		ring.idleCnt = 0
 		ring.isIdle = false
 		ring.ringBuf = make([]MsgRow, ring.ringCap)
-		log.Infof("partition %d quit idle", ring.partition)
+		log.Infof("%s: topic %s partition %d quit idle", ring.kafka.taskCfg.Name, ring.kafka.taskCfg.Topic, ring.partition)
 	}
 	ring.ringBuf[msgOffset%ring.ringCap] = msgRow
 	if msgOffset >= ring.ringCeilingOff {
@@ -294,7 +287,7 @@ func (ring *Ring) PutElem(msgRow MsgRow) {
 		ring.genBatch(ring.ringFilledOffset)
 		// reschedule the delayed ForceBatch
 		ring.tid.Stop()
-		if ring.tid, err = ring.kafka.tw.Schedule(time.Duration(ring.kafka.taskCfg.FlushInterval)*time.Second, ring.ForceBatch, nil); err != nil {
+		if ring.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(ring.kafka.taskCfg.FlushInterval)*time.Second, ring.ForceBatch, nil); err != nil {
 			err = errors.Wrap(err, "")
 			log.Criticalf("got error %+v", err)
 		}
@@ -337,7 +330,7 @@ func (ring *Ring) ForceBatch(arg interface{}) {
 					ring.idleCnt = 0
 					ring.isIdle = true
 					ring.ringBuf = nil
-					log.Infof("partition %d enter idle", ring.partition)
+					log.Infof("%s: topic %s partition %d enter idle", ring.kafka.taskCfg.Name, ring.kafka.taskCfg.Topic, ring.partition)
 				}
 			}
 		} else {
@@ -360,7 +353,7 @@ func (ring *Ring) ForceBatch(arg interface{}) {
 	}
 	// reschedule myself
 	ring.tid.Stop()
-	if ring.tid, err = ring.kafka.tw.Schedule(time.Duration(ring.kafka.taskCfg.FlushInterval)*time.Second, ring.ForceBatch, nil); err != nil {
+	if ring.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(ring.kafka.taskCfg.FlushInterval)*time.Second, ring.ForceBatch, nil); err != nil {
 		err = errors.Wrap(err, "")
 		log.Criticalf("got error %+v", err)
 	}

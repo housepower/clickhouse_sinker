@@ -34,8 +34,10 @@ import (
 	"github.com/housepower/clickhouse_sinker/input"
 	"github.com/housepower/clickhouse_sinker/output"
 	"github.com/housepower/clickhouse_sinker/parser"
+	"github.com/housepower/clickhouse_sinker/pool"
 	"github.com/housepower/clickhouse_sinker/statistics"
 	"github.com/housepower/clickhouse_sinker/task"
+	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sundy-li/go_commons/app"
 	"github.com/sundy-li/go_commons/log"
@@ -198,18 +200,31 @@ func (s *Sinker) Init() (err error) {
 	if s.cfg.Statistics.Enable {
 		s.pusher = statistics.NewPusher(s.cfg.Statistics.PushGateWayAddrs,
 			s.cfg.Statistics.PushInterval)
-		err := s.pusher.Init()
-		if err != nil {
-			return err
+		if err = s.pusher.Init(); err != nil {
+			return
 		}
 	}
+
+	util.InitGlobalTimerWheel()
+	util.InitGlobalWorkerPool1(s.cfg.Common.ConcurrentParsers)
+	for ckName, ckCfg := range s.cfg.Clickhouse {
+		if err = pool.InitConn(ckName, ckCfg.Host, ckCfg.Port, ckCfg.DB, ckCfg.Username, ckCfg.Password, ckCfg.DsnParams); err != nil {
+			return
+		}
+	}
+	var totalConn int
+	for _, taskCfg := range s.cfg.Tasks {
+		totalConn += pool.GetNumConn(taskCfg.Clickhouse)
+	}
+	util.InitGlobalWorkerPool2(totalConn)
+
 	s.tasks = GenTasks(s.cfg)
 	for _, t := range s.tasks {
-		if err := t.Init(); err != nil {
-			return err
+		if err = t.Init(); err != nil {
+			return
 		}
 	}
-	return nil
+	return
 }
 
 // Run rull all tasks in different go routines
@@ -229,6 +244,10 @@ func (s *Sinker) Close() {
 	for i := range s.tasks {
 		s.tasks[i].Stop()
 	}
+
+	util.GlobalWorkerPool1.StopWait()
+	util.GlobalWorkerPool2.StopWait()
+	util.GlobalTimerWheel.Stop()
 
 	if s.pusher != nil {
 		s.pusher.Stop()
