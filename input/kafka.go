@@ -126,13 +126,14 @@ func (k *Kafka) Init(dims []*model.ColumnWithType) error {
 	}
 
 	k.r = kafka.NewReader(kafka.ReaderConfig{
-		Brokers:     strings.Split(kfkCfg.Brokers, ","),
-		GroupID:     k.taskCfg.ConsumerGroup,
-		Topic:       k.taskCfg.Topic,
-		StartOffset: offset,
-		MinBytes:    k.taskCfg.MinBufferSize * k.taskCfg.MsgSizeHint,
-		MaxBytes:    k.taskCfg.BufferSize * k.taskCfg.MsgSizeHint,
-		MaxWait:     time.Duration(k.taskCfg.FlushInterval) * time.Second,
+		Brokers:        strings.Split(kfkCfg.Brokers, ","),
+		GroupID:        k.taskCfg.ConsumerGroup,
+		Topic:          k.taskCfg.Topic,
+		StartOffset:    offset,
+		MinBytes:       k.taskCfg.MinBufferSize * k.taskCfg.MsgSizeHint,
+		MaxBytes:       k.taskCfg.BufferSize * k.taskCfg.MsgSizeHint,
+		MaxWait:        time.Duration(k.taskCfg.FlushInterval) * time.Second,
+		CommitInterval: time.Second, // flushes commits to Kafka every second
 	})
 	k.rings = make([]*Ring, 0)
 	k.batchCh = make(chan Batch, 32)
