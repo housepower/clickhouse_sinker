@@ -27,13 +27,12 @@ import (
 // uses
 type FastjsonParser struct {
 	tsLayout []string
+	fjp      fastjson.Parser
 }
 
 func (p *FastjsonParser) Parse(bs []byte) (metric model.Metric, err error) {
-	// todo pool the parser
-	var parser fastjson.Parser
 	var value *fastjson.Value
-	if value, err = parser.Parse(string(bs)); err != nil {
+	if value, err = p.fjp.Parse(string(bs)); err != nil {
 		err = errors.Wrapf(err, "")
 		return
 	}

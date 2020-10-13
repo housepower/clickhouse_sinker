@@ -39,7 +39,7 @@ import (
 // Kafka reader configuration
 type Kafka struct {
 	taskCfg  *config.TaskConfig
-	parser   parser.Parser
+	pp       *parser.ParserPool
 	dims     []*model.ColumnWithType
 	r        *kafka.Reader
 	mux      sync.Mutex
@@ -109,8 +109,8 @@ func (batch Batch) Free() (err error) {
 }
 
 // NewKafka get instance of kafka reader
-func NewKafka(taskCfg *config.TaskConfig, parser parser.Parser) *Kafka {
-	return &Kafka{taskCfg: taskCfg, parser: parser}
+func NewKafka(taskCfg *config.TaskConfig, pp *parser.ParserPool) *Kafka {
+	return &Kafka{taskCfg: taskCfg, pp: pp}
 }
 
 // Init Initialise the kafka instance with configuration
@@ -233,7 +233,8 @@ LOOP:
 		statistics.ParseMsgsBacklog.WithLabelValues(k.taskCfg.Name).Inc()
 		_ = util.GlobalWorkerPool1.Submit(func() {
 			var row []interface{}
-			metric, err := k.parser.Parse(msg.Value)
+			p := k.pp.Get()
+			metric, err := p.Parse(msg.Value)
 			if err != nil {
 				statistics.ParseMsgsErrorTotal.WithLabelValues(k.taskCfg.Name).Inc()
 				if k.limiter1.Allow() {
@@ -243,6 +244,7 @@ LOOP:
 			} else {
 				row = MetricToRow(metric, msg, k.dims)
 			}
+			k.pp.Put(p)
 			var ring *Ring
 			k.mux.Lock()
 			ring = k.rings[msg.Partition]

@@ -16,6 +16,7 @@ package parser
 
 import (
 	"encoding/json"
+	"sync"
 	"time"
 
 	"github.com/housepower/clickhouse_sinker/model"
@@ -31,21 +32,54 @@ type Parser interface {
 	Parse(bs []byte) (metric model.Metric, err error)
 }
 
-// NewParser is a factory method to generate new parse
-func NewParser(name string, csvFormat []string, delimiter string, tsLayout []string) Parser {
-	switch name {
-	case "json", "gjson":
-		return &GjsonParser{tsLayout}
-	case "fastjson":
-		return &FastjsonParser{tsLayout}
-	case "csv":
-		return &CsvParser{title: csvFormat, delimiter: delimiter, tsLayout: tsLayout}
-	//extend gjson that could extract the map
-	case "gjson_extend":
-		return &GjsonExtendParser{tsLayout}
-	default:
-		return &GjsonParser{tsLayout}
+// ParserPool may be used for pooling Parsers for similarly typed JSONs.
+type ParserPool struct {
+	name      string
+	csvFormat []string
+	delimiter string
+	tsLayout  []string
+	pool      sync.Pool
+}
+
+// NewParserPool create a parser pool
+func NewParserPool(name string, csvFormat []string, delimiter string, tsLayout []string) *ParserPool {
+	return &ParserPool{
+		name:      name,
+		csvFormat: csvFormat,
+		delimiter: delimiter,
+		tsLayout:  tsLayout,
 	}
+}
+
+// Get returns a Parser from pp.
+//
+// The Parser must be Put to pp after use.
+func (pp *ParserPool) Get() Parser {
+	v := pp.pool.Get()
+	if v == nil {
+		switch pp.name {
+		case "json", "gjson":
+			return &GjsonParser{pp.tsLayout}
+		case "fastjson":
+			return &FastjsonParser{tsLayout: pp.tsLayout}
+		case "csv":
+			return &CsvParser{pp.csvFormat, pp.delimiter, pp.tsLayout}
+		//extend gjson that could extract the map
+		case "gjson_extend":
+			return &GjsonExtendParser{pp.tsLayout}
+		default:
+			return &GjsonParser{pp.tsLayout}
+		}
+	}
+	return v.(Parser)
+}
+
+// Put returns p to pp.
+//
+// p and objects recursively returned from p cannot be used after p
+// is put into pp.
+func (pp *ParserPool) Put(p Parser) {
+	pp.pool.Put(p)
 }
 
 func GetJSONShortStr(v interface{}) string {
