@@ -39,7 +39,7 @@ import (
 // Kafka reader configuration
 type Kafka struct {
 	taskCfg  *config.TaskConfig
-	pp       *parser.ParserPool
+	pp       *parser.Pool
 	dims     []*model.ColumnWithType
 	r        *kafka.Reader
 	mux      sync.Mutex
@@ -109,7 +109,7 @@ func (batch Batch) Free() (err error) {
 }
 
 // NewKafka get instance of kafka reader
-func NewKafka(taskCfg *config.TaskConfig, pp *parser.ParserPool) *Kafka {
+func NewKafka(taskCfg *config.TaskConfig, pp *parser.Pool) *Kafka {
 	return &Kafka{taskCfg: taskCfg, pp: pp}
 }
 

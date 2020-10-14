@@ -113,9 +113,9 @@ func BenchmarkUnmarshalGabon2(b *testing.B) {
 }
 
 func TestGjsonExtend(t *testing.T) {
-	// mp := map[string]interface{}{}
-	// var p fastjson.Parser
-	parser := NewParser("gjson_extend", nil, ",", DefaultTSLayout)
+	pp := NewParserPool("gjson_extend", nil, "", DefaultTSLayout)
+	parser := pp.Get()
+	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
 
 	arr := metric.GetArray("mp.a", "int").([]int64)
@@ -131,7 +131,9 @@ func TestGjsonExtend(t *testing.T) {
 }
 
 func TestFastJson(t *testing.T) {
-	parser := NewParser("fastjson", nil, ",", []string{DefaultTSLayout[0], "2006-01-02 15:04:05", time.RFC3339})
+	pp := NewParserPool("fastjson", nil, "", []string{DefaultTSLayout[0], "2006-01-02 15:04:05", time.RFC3339})
+	parser := pp.Get()
+	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample2)
 
 	ts1 := metric.GetDateTime("time")

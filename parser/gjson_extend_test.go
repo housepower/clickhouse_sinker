@@ -7,7 +7,9 @@ import (
 )
 
 func TestGjsonExtendInt(t *testing.T) {
-	parser := NewParser("gjson_extend", nil, "", DefaultTSLayout)
+	pp := NewParserPool("gjson_extend", nil, "", DefaultTSLayout)
+	parser := pp.Get()
+	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
 
 	var expected int64 = 1536813227
@@ -16,7 +18,9 @@ func TestGjsonExtendInt(t *testing.T) {
 }
 
 func TestGjsonExtendArrayInt(t *testing.T) {
-	parser := NewParser("gjson_extend", nil, "", DefaultTSLayout)
+	pp := NewParserPool("gjson_extend", nil, "", DefaultTSLayout)
+	parser := pp.Get()
+	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
 
 	arr := metric.GetArray("mp_a", "int").([]int64)
@@ -27,7 +31,9 @@ func TestGjsonExtendArrayInt(t *testing.T) {
 }
 
 func TestGjsonExtendStr(t *testing.T) {
-	parser := NewParser("gjson_extend", nil, "", DefaultTSLayout)
+	pp := NewParserPool("gjson_extend", nil, "", DefaultTSLayout)
+	parser := pp.Get()
+	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
 
 	var expected string = "ws"
@@ -36,7 +42,9 @@ func TestGjsonExtendStr(t *testing.T) {
 }
 
 func TestGjsonExtendArrayString(t *testing.T) {
-	parser := NewParser("gjson_extend", nil, "", DefaultTSLayout)
+	pp := NewParserPool("gjson_extend", nil, "", DefaultTSLayout)
+	parser := pp.Get()
+	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
 
 	arr := metric.GetArray("mps_a", "string").([]string)
@@ -47,7 +55,9 @@ func TestGjsonExtendArrayString(t *testing.T) {
 }
 
 func TestGjsonExtendFloat(t *testing.T) {
-	parser := NewParser("gjson_extend", nil, "", DefaultTSLayout)
+	pp := NewParserPool("gjson_extend", nil, "", DefaultTSLayout)
+	parser := pp.Get()
+	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
 
 	var expected float64 = 0.11
@@ -56,7 +66,9 @@ func TestGjsonExtendFloat(t *testing.T) {
 }
 
 func TestGjsonExtendArrayFloat(t *testing.T) {
-	parser := NewParser("gjson_extend", nil, "", DefaultTSLayout)
+	pp := NewParserPool("gjson_extend", nil, "", DefaultTSLayout)
+	parser := pp.Get()
+	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
 
 	arr := metric.GetArray("mp_f", "float").([]float64)
@@ -67,7 +79,9 @@ func TestGjsonExtendArrayFloat(t *testing.T) {
 }
 
 func TestGjsonExtendElasticDateTime(t *testing.T) {
-	parser := NewParser("gjson_extend", nil, "", DefaultTSLayout)
+	pp := NewParserPool("gjson_extend", nil, "", DefaultTSLayout)
+	parser := pp.Get()
+	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
 
 	// {"date": "2019-12-16T12:10:30Z"}

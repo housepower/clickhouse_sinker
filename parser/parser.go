@@ -32,8 +32,8 @@ type Parser interface {
 	Parse(bs []byte) (metric model.Metric, err error)
 }
 
-// ParserPool may be used for pooling Parsers for similarly typed JSONs.
-type ParserPool struct {
+// Pool may be used for pooling Parsers for similarly typed JSONs.
+type Pool struct {
 	name      string
 	csvFormat []string
 	delimiter string
@@ -42,8 +42,8 @@ type ParserPool struct {
 }
 
 // NewParserPool create a parser pool
-func NewParserPool(name string, csvFormat []string, delimiter string, tsLayout []string) *ParserPool {
-	return &ParserPool{
+func NewParserPool(name string, csvFormat []string, delimiter string, tsLayout []string) *Pool {
+	return &Pool{
 		name:      name,
 		csvFormat: csvFormat,
 		delimiter: delimiter,
@@ -54,7 +54,7 @@ func NewParserPool(name string, csvFormat []string, delimiter string, tsLayout [
 // Get returns a Parser from pp.
 //
 // The Parser must be Put to pp after use.
-func (pp *ParserPool) Get() Parser {
+func (pp *Pool) Get() Parser {
 	v := pp.pool.Get()
 	if v == nil {
 		switch pp.name {
@@ -78,7 +78,7 @@ func (pp *ParserPool) Get() Parser {
 //
 // p and objects recursively returned from p cannot be used after p
 // is put into pp.
-func (pp *ParserPool) Put(p Parser) {
+func (pp *Pool) Put(p Parser) {
 	pp.pool.Put(p)
 }
 

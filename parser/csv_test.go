@@ -47,7 +47,9 @@ func TestParseCsv(t *testing.T) {
 		},
 	}
 
-	csvParser := NewParser("csv", nil, ",", []string{"2006-01-02", time.RFC3339, time.RFC3339})
+	pp := NewParserPool("csv", nil, ",", []string{"2006-01-02", time.RFC3339, time.RFC3339})
+	csvParser := pp.Get()
+	defer pp.Put(csvParser)
 	for _, c := range testCases {
 		metric, _ := csvParser.Parse([]byte(c.msg))
 		csvMetric, ok := metric.(*CsvMetric)
