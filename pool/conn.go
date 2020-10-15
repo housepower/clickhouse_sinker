@@ -94,7 +94,7 @@ func InitConn(name, hosts string, port int, db, username, password, dsnParams st
 	lock.Lock()
 	poolMaps[name] = cons
 	lock.Unlock()
-	return
+	return nil
 }
 
 // GetNumConn get number of connections for the given name
