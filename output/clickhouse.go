@@ -142,7 +142,6 @@ func (c *ClickHouse) loopWrite(batch input.Batch) {
 	defer statistics.FlushBatchBacklog.WithLabelValues(c.taskCfg.Name).Dec()
 	for {
 		if err = c.write(batch); err == nil {
-			statistics.FlushMsgsTotal.WithLabelValues(c.taskCfg.Name).Add(float64(batch.RealSize))
 			return
 		}
 		if std_errors.Is(err, context.Canceled) {
