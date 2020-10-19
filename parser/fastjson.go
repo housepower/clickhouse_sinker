@@ -49,16 +49,25 @@ func (c *FastjsonMetric) Get(key string) interface{} {
 	return c.value.Get(key)
 }
 
-func (c *FastjsonMetric) GetString(key string) string {
+func (c *FastjsonMetric) GetString(key string, nullable bool) interface{} {
 	v := c.value.GetStringBytes(key)
+	if nullable && v == nil {
+		return nil
+	}
 	return string(v)
 }
 
-func (c *FastjsonMetric) GetFloat(key string) float64 {
+func (c *FastjsonMetric) GetFloat(key string, nullable bool) interface{} {
+	if !c.value.Exists(key) && nullable {
+		return nil
+	}
 	return c.value.GetFloat64(key)
 }
 
-func (c *FastjsonMetric) GetInt(key string) int64 {
+func (c *FastjsonMetric) GetInt(key string, nullable bool) interface{} {
+	if !c.value.Exists(key) && nullable {
+		return nil
+	}
 	return int64(c.value.GetInt(key))
 }
 
@@ -99,34 +108,37 @@ func (c *FastjsonMetric) String() string {
 }
 
 func (c *FastjsonMetric) GetDate(key string) (t time.Time) {
-	val := c.GetString(key)
+	val := c.GetString(key, false).(string)
 	t, _ = time.Parse(c.tsLayout[0], val)
 	return
 }
 
 func (c *FastjsonMetric) GetDateTime(key string) (t time.Time) {
-	if v := c.GetFloat(key); v != 0 {
+	if v := c.GetFloat(key, false).(float64); v != 0 {
 		return time.Unix(int64(v), int64(v*1e9)%1e9)
 	}
 
-	val := c.GetString(key)
+	val := c.GetString(key, false).(string)
 	t, _ = time.Parse(c.tsLayout[1], val)
 	return
 }
 
 func (c *FastjsonMetric) GetDateTime64(key string) (t time.Time) {
-	if v := c.GetFloat(key); v != 0 {
+	if v := c.GetFloat(key, false).(float64); v != 0 {
 		return time.Unix(int64(v), int64(v*1e9)%1e9)
 	}
 
-	val := c.GetString(key)
+	val := c.GetString(key, false).(string)
 	t, _ = time.Parse(c.tsLayout[2], val)
 	return
 }
 
-func (c *FastjsonMetric) GetElasticDateTime(key string) int64 {
-	val := c.GetString(key)
-	t, _ := time.Parse(time.RFC3339, val)
+func (c *FastjsonMetric) GetElasticDateTime(key string, nullable bool) interface{} {
+	val := c.GetString(key, nullable)
+	if val == nil {
+		return nil
+	}
+	t, _ := time.Parse(time.RFC3339, val.(string))
 
 	return t.Unix()
 }

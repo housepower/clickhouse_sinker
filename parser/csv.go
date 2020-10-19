@@ -66,7 +66,8 @@ func (c *CsvMetric) Get(key string) interface{} {
 }
 
 // GetString get the value as string
-func (c *CsvMetric) GetString(key string) string {
+func (c *CsvMetric) GetString(key string, nullable bool) interface{} {
+	_ = nullable // nullable can not be supported with csv
 	for i, k := range c.titles {
 		if k == key && i < len(c.values) {
 			return c.values[i]
@@ -76,7 +77,8 @@ func (c *CsvMetric) GetString(key string) string {
 }
 
 // GetFloat returns the value as float
-func (c *CsvMetric) GetFloat(key string) float64 {
+func (c *CsvMetric) GetFloat(key string, nullable bool) interface{} {
+	_ = nullable // nullable can not be supported with csv
 	for i, k := range c.titles {
 		if k == key && i < len(c.values) {
 			n, _ := strconv.ParseFloat(c.values[i], 64)
@@ -87,7 +89,8 @@ func (c *CsvMetric) GetFloat(key string) float64 {
 }
 
 // GetInt returns int
-func (c *CsvMetric) GetInt(key string) int64 {
+func (c *CsvMetric) GetInt(key string, nullable bool) interface{} {
+	_ = nullable // nullable can not be supported with csv
 	for i, k := range c.titles {
 		if k == key && i < len(c.values) {
 			n, _ := strconv.ParseInt(c.values[i], 10, 64)
@@ -103,25 +106,26 @@ func (c *CsvMetric) GetArray(key string, t string) interface{} {
 }
 
 func (c *CsvMetric) GetDate(key string) (t time.Time) {
-	val := c.GetString(key)
+	val := c.GetString(key, false).(string)
 	t, _ = time.Parse(c.tsLayout[0], val)
 	return
 }
 
 func (c *CsvMetric) GetDateTime(key string) (t time.Time) {
-	val := c.GetString(key)
+	val := c.GetString(key, false).(string)
 	t, _ = time.Parse(c.tsLayout[1], val)
 	return
 }
 
 func (c *CsvMetric) GetDateTime64(key string) (t time.Time) {
-	val := c.GetString(key)
+	val := c.GetString(key, false).(string)
 	t, _ = time.Parse(c.tsLayout[2], val)
 	return
 }
 
-func (c *CsvMetric) GetElasticDateTime(key string) int64 {
-	val := c.GetString(key)
+func (c *CsvMetric) GetElasticDateTime(key string, nullable bool) interface{} {
+	_ = nullable // nullable can not be supported with csv
+	val := c.GetString(key, false).(string)
 	t, _ := time.Parse(time.RFC3339, val)
 
 	return t.Unix()

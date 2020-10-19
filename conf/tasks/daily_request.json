@@ -5,7 +5,7 @@
   "earliest": true,
   "consumerGroup": "group",
   "parser": "gjson_extend",
-  "clickhouse": "ch",
+  "clickhouse": "ch1",
   "tableName": "daily",
   "dims": [
     {
@@ -25,6 +25,5 @@
     }
   ],
   "@desc_of_exclude_columns": "this columns will be excluded by insert SQL ",
-  "excludeColumns": [],
-  "bufferSize": 2
+  "excludeColumns": []
 }

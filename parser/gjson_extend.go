@@ -16,6 +16,7 @@ limitations under the License.
 package parser
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/tidwall/gjson"
@@ -86,9 +87,14 @@ func (c *GjsonExtendMetric) Get(key string) interface{} {
 	return c.mp[key]
 }
 
-func (c *GjsonExtendMetric) GetString(key string) string {
+func (c *GjsonExtendMetric) GetString(key string, nullable bool) interface{} {
 	//判断object
 	val := c.mp[key]
+
+	if val == nil && nullable {
+		return nil
+	}
+
 	if val == nil {
 		return ""
 	}
@@ -146,8 +152,11 @@ func (c *GjsonExtendMetric) GetArray(key string, t string) interface{} {
 	}
 }
 
-func (c *GjsonExtendMetric) GetFloat(key string) float64 {
+func (c *GjsonExtendMetric) GetFloat(key string, nullable bool) interface{} {
 	val := c.mp[key]
+	if val == nil && nullable {
+		return nil
+	}
 	if val == nil {
 		return 0
 	}
@@ -159,8 +168,12 @@ func (c *GjsonExtendMetric) GetFloat(key string) float64 {
 	}
 }
 
-func (c *GjsonExtendMetric) GetInt(key string) int64 {
+func (c *GjsonExtendMetric) GetInt(key string, nullable bool) interface{} {
 	val := c.mp[key]
+	if val == nil && nullable {
+		return nil
+	}
+
 	if val == nil {
 		return 0
 	}
@@ -173,34 +186,37 @@ func (c *GjsonExtendMetric) GetInt(key string) int64 {
 }
 
 func (c *GjsonExtendMetric) GetDate(key string) (t time.Time) {
-	val := c.GetString(key)
+	val := fmt.Sprintf("%v", c.GetString(key, false))
+
 	t, _ = time.Parse(c.tsLayout[0], val)
 	return
 }
 
 func (c *GjsonExtendMetric) GetDateTime(key string) (t time.Time) {
-	if v := c.GetFloat(key); v != 0 {
+	if v := c.GetFloat(key, false).(float64); v != 0 {
 		return time.Unix(int64(v), int64(v*1e9)%1e9)
 	}
 
-	val := c.GetString(key)
+	val := c.GetString(key, false).(string)
 	t, _ = time.Parse(c.tsLayout[1], val)
 	return
 }
 
 func (c *GjsonExtendMetric) GetDateTime64(key string) (t time.Time) {
-	if v := c.GetFloat(key); v != 0 {
+	if v := c.GetFloat(key, false).(float64); v != 0 {
 		return time.Unix(int64(v), int64(v*1e9)%1e9)
 	}
 
-	val := c.GetString(key)
+	val := c.GetString(key, false).(string)
 	t, _ = time.Parse(c.tsLayout[2], val)
 	return
 }
 
-func (c *GjsonExtendMetric) GetElasticDateTime(key string) int64 {
-	val := c.GetString(key)
-	t, _ := time.Parse(time.RFC3339, val)
-
+func (c *GjsonExtendMetric) GetElasticDateTime(key string, nullable bool) interface{} {
+	val := c.GetString(key, nullable)
+	if val == nil {
+		return nil
+	}
+	t, _ := time.Parse(time.RFC3339, val.(string))
 	return t.Unix()
 }
