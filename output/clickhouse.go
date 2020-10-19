@@ -24,7 +24,6 @@ import (
 	"time"
 
 	"github.com/housepower/clickhouse_sinker/config"
-	"github.com/housepower/clickhouse_sinker/input"
 	"github.com/housepower/clickhouse_sinker/model"
 	"github.com/housepower/clickhouse_sinker/pool"
 	"github.com/housepower/clickhouse_sinker/statistics"
@@ -65,20 +64,19 @@ func (c *ClickHouse) Init() error {
 }
 
 // Send a batch to clickhouse
-func (c *ClickHouse) Send(batch input.Batch) {
+func (c *ClickHouse) Send(batch model.Batch, callback func(batch model.Batch) error) {
+	// TODO workerpool parallel
 	statistics.FlushBatchBacklog.WithLabelValues(c.taskCfg.Name).Inc()
-	_ = util.GlobalWorkerPool2.Submit(func() {
-		c.loopWrite(batch)
-	})
+	c.loopWrite(batch, callback)
 }
 
 // Write kvs to clickhouse
-func (c *ClickHouse) write(batch input.Batch) error {
+func (c *ClickHouse) write(batch model.Batch) error {
 	if len(batch.MsgRows) == 0 {
 		return nil
 	}
 
-	conn := pool.GetConn(c.taskCfg.Clickhouse, batch.BatchNum)
+	conn := pool.GetConn(c.taskCfg.Clickhouse, batch.BatchIdx)
 	tx, err := conn.Begin()
 	if err != nil {
 		if shouldReconnect(err) {
@@ -123,7 +121,6 @@ func (c *ClickHouse) write(batch input.Batch) error {
 		return err
 	}
 	statistics.FlushMsgsTotal.WithLabelValues(c.taskCfg.Name).Add(float64(batch.RealSize))
-	err = batch.Free()
 	return err
 }
 
@@ -136,12 +133,13 @@ func shouldReconnect(err error) bool {
 }
 
 // LoopWrite will dead loop to write the records
-func (c *ClickHouse) loopWrite(batch input.Batch) {
+func (c *ClickHouse) loopWrite(batch model.Batch, callback func(batch model.Batch) error) {
 	var err error
 	times := c.chCfg.RetryTimes
 	defer statistics.FlushBatchBacklog.WithLabelValues(c.taskCfg.Name).Dec()
 	for {
 		if err = c.write(batch); err == nil {
+			callback(batch)
 			return
 		}
 		if std_errors.Is(err, context.Canceled) {

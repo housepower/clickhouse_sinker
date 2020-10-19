@@ -21,31 +21,51 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/housepower/clickhouse_sinker/config"
 	"github.com/housepower/clickhouse_sinker/input"
+	"github.com/housepower/clickhouse_sinker/model"
 	"github.com/housepower/clickhouse_sinker/output"
+	"github.com/housepower/clickhouse_sinker/parser"
+	"github.com/housepower/clickhouse_sinker/statistics"
+	"github.com/housepower/clickhouse_sinker/util"
+	"github.com/pkg/errors"
+	"golang.org/x/time/rate"
 
 	"github.com/sundy-li/go_commons/log"
 )
 
 // TaskService holds the configuration for each task
 type Service struct {
+	sync.Mutex
+
+	ctx        context.Context
 	started    bool
 	stopped    chan struct{}
-	kafka      *input.Kafka
+	inputer    input.Inputer
 	clickhouse *output.ClickHouse
 	taskCfg    *config.TaskConfig
+	pp         *parser.Pool
+	dims       []*model.ColumnWithType
+
+	rings     []*Ring
+	batchChan chan model.Batch
+	limiter1  *rate.Limiter
+	limiter2  *rate.Limiter
+	limiter3  *rate.Limiter
 }
 
 // NewTaskService creates an instance of new tasks with kafka, clickhouse and paser instances
-func NewTaskService(kafka *input.Kafka, clickhouse *output.ClickHouse, taskCfg *config.TaskConfig) *Service {
+func NewTaskService(inputer input.Inputer, clickhouse *output.ClickHouse, taskCfg *config.TaskConfig, pp *parser.Pool) *Service {
 	return &Service{
 		stopped:    make(chan struct{}),
-		kafka:      kafka,
+		inputer:    inputer,
 		clickhouse: clickhouse,
 		started:    false,
 		taskCfg:    taskCfg,
+		pp:         pp,
 	}
 }
 
@@ -55,42 +75,149 @@ func (service *Service) Init() (err error) {
 	if err = service.clickhouse.Init(); err != nil {
 		return
 	}
-	err = service.kafka.Init(service.clickhouse.Dims)
+
+	service.dims = service.clickhouse.Dims
+	service.batchChan = make(chan model.Batch, 32)
+	service.limiter1 = rate.NewLimiter(rate.Every(10*time.Second), 1)
+	service.limiter2 = rate.NewLimiter(rate.Every(10*time.Second), 1)
+	service.limiter3 = rate.NewLimiter(rate.Every(10*time.Second), 1)
+
+	err = service.inputer.Init(service.taskCfg, service.put)
 	return
 }
 
 // Run starts the task
 func (service *Service) Run(ctx context.Context) {
 	service.started = true
+	service.ctx = ctx
 	log.Infof("task %s has started", service.taskCfg.Name)
-	go service.kafka.Run(ctx)
+	go service.inputer.Run(ctx)
 LOOP:
 	for {
 		select {
 		case <-ctx.Done():
 			break LOOP
-		case batch := <-service.kafka.BatchCh():
-			service.flush(batch)
+		case batch := <-service.batchChan:
+			if err := service.flush(batch); err != nil {
+				log.Errorf("task flush error %v", err.Error())
+			}
 		}
 	}
 	service.stopped <- struct{}{}
 }
 
-func (service *Service) flush(batch input.Batch) {
-	service.clickhouse.Send(batch)
+func (service *Service) put(msg model.InputMessage) {
+	statistics.ConsumeMsgsTotal.WithLabelValues(service.taskCfg.Name).Inc()
+	// ensure ring for this message exist
+	service.Lock()
+	var ring *Ring
+	if msg.Partition < len(service.rings) {
+		ring = service.rings[msg.Partition]
+	} else {
+		for i := len(service.rings); i < msg.Partition+1; i++ {
+			service.rings = append(service.rings, nil)
+		}
+	}
+
+	var err error
+	if ring == nil {
+		batchSizeShift := util.GetShift(service.taskCfg.BufferSize)
+		ringCap := int64(1 << (batchSizeShift + 1))
+		ring := &Ring{
+			ringBuf:          make([]model.MsgRow, ringCap),
+			ringCap:          ringCap,
+			ringGroundOff:    msg.Offset,
+			ringCeilingOff:   msg.Offset,
+			ringFilledOffset: msg.Offset,
+			batchSizeShift:   batchSizeShift,
+			idleCnt:          0,
+			isIdle:           false,
+			partition:        msg.Partition,
+			service:          service,
+		}
+		// schedule a delayed ForceBatch
+		if ring.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(service.taskCfg.FlushInterval)*time.Second, ring.ForceBatch, nil); err != nil {
+			err = errors.Wrap(err, "")
+			log.Criticalf("got error %+v", err)
+		}
+		service.rings[msg.Partition] = ring
+		service.Unlock()
+	} else {
+		service.Unlock()
+		var ringGroundOff int64
+		ring.mux.Lock()
+		ringGroundOff = ring.ringGroundOff
+		ring.mux.Unlock()
+		if msg.Offset < ringGroundOff {
+			statistics.RingMsgsOffTooSmallErrorTotal.WithLabelValues(service.taskCfg.Name).Inc()
+			if service.limiter2.Allow() {
+				log.Warnf("got a message(topic %v, partition %d, offset %v) is left to the range [%v, %v)",
+					msg.Topic, msg.Partition, msg.Offset, ring.ringGroundOff, ring.ringGroundOff+ring.ringCap)
+			}
+			return
+		}
+		if msg.Offset >= ringGroundOff+ring.ringCap {
+			statistics.RingMsgsOffTooLargeErrorTotal.WithLabelValues(service.taskCfg.Name).Inc()
+			if service.limiter3.Allow() {
+				log.Warnf("got a message(topic %v, partition %d, offset %v) is right to the range [%v, %v)",
+					msg.Topic, msg.Partition, msg.Offset, ring.ringGroundOff, ring.ringGroundOff+ring.ringCap)
+			}
+			time.Sleep(1 * time.Second)
+			ring.ForceBatch(&msg)
+		}
+	}
+
+	// submit message to a goroutine pool
+	statistics.ParseMsgsBacklog.WithLabelValues(service.taskCfg.Name).Inc()
+	_ = util.GlobalWorkerPool1.Submit(func() {
+		var row []interface{}
+		p := service.pp.Get()
+		metric, err := p.Parse(msg.Value)
+		if err != nil {
+			statistics.ParseMsgsErrorTotal.WithLabelValues(service.taskCfg.Name).Inc()
+			if service.limiter1.Allow() {
+				log.Errorf("failed to parse message(topic %v, partition %d, offset %v) %+v, string(value) <<<%+v>>>, got error %+v",
+					msg.Topic, msg.Partition, msg.Offset, msg, string(msg.Value), err)
+			}
+		} else {
+			row = model.MetricToRow(metric, msg, service.dims)
+		}
+
+		service.pp.Put(p)
+		var ring *Ring
+		service.Lock()
+		ring = service.rings[msg.Partition]
+		service.Unlock()
+		ring.PutElem(model.MsgRow{Msg: &msg, Row: row})
+	})
+}
+
+func (service *Service) flush(batch model.Batch) (err error) {
+	if (len(batch.MsgRows)) == 0 {
+		return
+	}
+
+	log.Debugf("Start to flush %d", len(batch.MsgRows))
+	service.clickhouse.Send(batch, func(batch model.Batch) error {
+		lastMsg := batch.MsgRows[len(batch.MsgRows)-1].Msg
+		statistics.ConsumeOffsets.WithLabelValues(service.taskCfg.Name, strconv.Itoa(lastMsg.Partition), lastMsg.Topic).Set(float64(lastMsg.Offset))
+		log.Debugf("Finish to flush %d", len(batch.MsgRows))
+		return service.inputer.CommitMessages(service.ctx, lastMsg)
+	})
+
+	return nil
 }
 
 // Stop stop kafka and clickhouse client
 func (service *Service) Stop() {
-	log.Infof("%s: stopping task...", service.taskCfg.Name)
-	if err := service.kafka.Stop(); err != nil {
+	log.Infof("%s: stopping task service...", service.taskCfg.Name)
+	if err := service.inputer.Stop(); err != nil {
 		panic(err)
 	}
 	log.Infof("%s: stopped kafka", service.taskCfg.Name)
 
 	_ = service.clickhouse.Close()
 	log.Infof("%s: closed clickhouse", service.taskCfg.Name)
-
 	if service.started {
 		<-service.stopped
 	}
