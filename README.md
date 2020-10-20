@@ -3,14 +3,14 @@
 [![Build Status](https://travis-ci.com/housepower/clickhouse_sinker.svg?branch=master)](https://travis-ci.com/housepower/clickhouse_sinker)
 [![Go Report Card](https://goreportcard.com/badge/github.com/housepower/clickhouse_sinker)](https://goreportcard.com/report/github.com/housepower/clickhouse_sinker)
 
-clickhouse_sinker is a sinker program that transfer kafka/pulsar message into [ClickHouse](https://clickhouse.yandex/).
+clickhouse_sinker is a sinker program that transfer kafka message into [ClickHouse](https://clickhouse.yandex/).
 
 ## Features
 
 - Easy to use and deploy, you don't need write any hard code, just care about the configuration file
 - Custom parser support.
 - Support multiple sinker tasks, each runs on parallel.
-- Support multiply kafka/pulsar and ClickHouse clusters.
+- Support multiply kafka and ClickHouse clusters.
 - Bulk insert (by config `bufferSize` and `flushInterval`).
 - Parse messages concurrently (by config `concurrentParsers`).
 - Loop write (when some node crashes, it will retry write the data to the other healthy node)
