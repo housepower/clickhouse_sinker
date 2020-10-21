@@ -8,7 +8,7 @@ clickhouse_sinker is a sinker program that transfer kafka message into [ClickHou
 ## Features
 
 - Easy to use and deploy, you don't need write any hard code, just care about the configuration file
-- Support multiple parses: csv, fastjson, gjson.
+- Support multiple parsers: csv, fastjson, gjson.
 - Support multiple Kafka client: sarama, kafka-go.
 - Custom parser support.
 - Support multiple sinker tasks, each runs on parallel.
@@ -47,11 +47,6 @@ make build
 
 - look at the [integration test](https://github.com/housepower/clickhouse_sinker/blob/master/go.test.sh).
 - there is a simple [tutorial in Chinese](https://note.youdao.com/ynoteshare1/index.html?id=c4b4a84a08e2312da6c6d733a5074c7a&type=note) which created by user @taiyang-li.
-
-## Support parsers
-
-- [x] Json
-- [x] Csv
 
 ## Supported data types
 
@@ -137,7 +132,6 @@ security.protocol：SASL_PLAINTEXT
 sasl.kerberos.service.name：kafka
 sasl.mechanism：GSSAPI
 sasl.jaas.config：com.sun.security.auth.module.Krb5LoginModule required useKeyTab=true storeKey=true debug=true keyTab=\"/home/keytab/zhangtao.keytab\" principal=\"zhangtao/localhost@ALANWANG.COM\";
-
 ```
 
 ## Custom metric parser
