@@ -2,6 +2,7 @@
 
 	"name" : "faclon_sample",
 
+    "kafkaClient": "sarama",
 	"kafka": "kfk1",
 	"topic": "falcon",
 	"consumerGroup" : "falcon_sample_ck",

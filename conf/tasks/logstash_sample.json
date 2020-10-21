@@ -2,6 +2,7 @@
 
 	"name" : "logstash_sample",
 
+    "kafkaClient": "sarama",
 	"kafka": "kfk1",
 	"topic": "logstash",
 	"consumerGroup" : "logstash_sample_ck",

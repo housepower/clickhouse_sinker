@@ -8,6 +8,8 @@ clickhouse_sinker is a sinker program that transfer kafka message into [ClickHou
 ## Features
 
 - Easy to use and deploy, you don't need write any hard code, just care about the configuration file
+- Support multiple parses: csv, fastjson, gjson.
+- Support multiple Kafka client: sarama, kafka-go.
 - Custom parser support.
 - Support multiple sinker tasks, each runs on parallel.
 - Support multiply kafka and ClickHouse clusters.

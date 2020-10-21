@@ -17,10 +17,13 @@ package input
 
 import (
 	"context"
+	"io"
 	"strings"
+	"time"
 
 	"github.com/Shopify/sarama"
 	"github.com/pkg/errors"
+	"github.com/segmentio/kafka-go"
 	"github.com/sundy-li/go_commons/log"
 
 	"github.com/housepower/clickhouse_sinker/config"
@@ -32,6 +35,7 @@ import (
 type Kafka struct {
 	taskCfg *config.TaskConfig
 
+	r       *kafka.Reader
 	cg      sarama.ConsumerGroup
 	sess    sarama.ConsumerGroupSession
 	stopped chan struct{}
@@ -76,75 +80,141 @@ func (k *Kafka) Init(taskCfg *config.TaskConfig, putFn func(msg model.InputMessa
 	cfg := config.GetConfig()
 	kfkCfg := cfg.Kafka[k.taskCfg.Kafka]
 	k.stopped = make(chan struct{})
-	config := sarama.NewConfig()
-	if kfkCfg.Version != "" {
-		version, err := sarama.ParseKafkaVersion(kfkCfg.Version)
+	k.putFn = putFn
+	if taskCfg.KafkaClient=="kafka-go" {
+		if kfkCfg.Sasl.Enable && kfkCfg.Sasl.Username=="" {
+			return errors.Errorf("kafka-go doesn't support SASL/GSSAPI(Kerberos)")
+		}
+		offset := kafka.LastOffset
+		if k.taskCfg.Earliest {
+			offset = kafka.FirstOffset
+		}
+		k.r = kafka.NewReader(kafka.ReaderConfig{
+			Brokers:        strings.Split(kfkCfg.Brokers, ","),
+			GroupID:        k.taskCfg.ConsumerGroup,
+			Topic:          k.taskCfg.Topic,
+			StartOffset:    offset,
+			MinBytes:       k.taskCfg.MinBufferSize * k.taskCfg.MsgSizeHint,
+			MaxBytes:       k.taskCfg.BufferSize * k.taskCfg.MsgSizeHint,
+			MaxWait:        time.Duration(k.taskCfg.FlushInterval) * time.Second,
+			CommitInterval: time.Second, // flushes commits to Kafka every second
+		})
+	} else {
+		config := sarama.NewConfig()
+		if kfkCfg.Version != "" {
+			version, err := sarama.ParseKafkaVersion(kfkCfg.Version)
+			if err != nil {
+				err = errors.Wrap(err, "")
+				return err
+			}
+			config.Version = version
+		}
+		// sarama.Logger = log.New(os.Stdout, "[sarama] ", log.LstdFlags)
+		// check for authentication
+		if kfkCfg.Sasl.Enable {
+			config.Net.SASL.Enable = true
+			if kfkCfg.Sasl.Username != "" {
+				config.Net.SASL.Mechanism = sarama.SASLTypePlaintext
+				config.Net.SASL.User = kfkCfg.Sasl.Username
+				config.Net.SASL.Password = kfkCfg.Sasl.Password
+			} else {
+				config.Net.SASL.Mechanism = sarama.SASLTypeGSSAPI
+				config.Net.SASL.GSSAPI = kfkCfg.Sasl.GSSAPI
+			}
+		}
+		if k.taskCfg.Earliest {
+			config.Consumer.Offsets.Initial = sarama.OffsetOldest
+		}
+		config.ChannelBufferSize = k.taskCfg.MinBufferSize
+		cg, err := sarama.NewConsumerGroup(strings.Split(kfkCfg.Brokers, ","), k.taskCfg.ConsumerGroup, config)
 		if err != nil {
-			err = errors.Wrap(err, "")
 			return err
 		}
-		config.Version = version
+		k.cg = cg
 	}
-	// sarama.Logger = log.New(os.Stdout, "[sarama] ", log.LstdFlags)
-	// check for authentication
-	if kfkCfg.Sasl.Enable {
-		config.Net.SASL.Enable = true
-		if kfkCfg.Sasl.Username != "" {
-			config.Net.SASL.Mechanism = sarama.SASLTypePlaintext
-			config.Net.SASL.User = kfkCfg.Sasl.Username
-			config.Net.SASL.Password = kfkCfg.Sasl.Password
-		} else {
-			config.Net.SASL.Mechanism = sarama.SASLTypeGSSAPI
-			config.Net.SASL.GSSAPI = kfkCfg.Sasl.GSSAPI
-		}
-	}
-	if k.taskCfg.Earliest {
-		config.Consumer.Offsets.Initial = sarama.OffsetOldest
-	}
-	config.ChannelBufferSize = k.taskCfg.MinBufferSize
-	cg, err := sarama.NewConsumerGroup(strings.Split(kfkCfg.Brokers, ","), k.taskCfg.ConsumerGroup, config)
-	if err != nil {
-		return err
-	}
-	k.cg = cg
-	k.putFn = putFn
 	return nil
 }
 
 // kafka main loop
 func (k *Kafka) Run(ctx context.Context) {
-LOOP:
-	for {
-		handler := MyConsumerGroupHandler{k}
-		// `Consume` should be called inside an infinite loop, when a
-		// server-side rebalance happens, the consumer session will need to be
-		// recreated to get the new claims
-		if err := k.cg.Consume(ctx, []string{k.taskCfg.Topic}, handler); err != nil {
-			switch errors.Cause(err) {
-			case context.Canceled:
-				log.Infof("%s Kafka.Run quit due to context has been canceled", k.taskCfg.Name)
-				break LOOP
-			case sarama.ErrClosedConsumerGroup:
-				log.Infof("%s Kafka.Run quit due to consumer group has been closed", k.taskCfg.Name)
-				break LOOP
-			default:
-				statistics.ConsumeMsgsErrorTotal.WithLabelValues(k.taskCfg.Name).Inc()
-				err = errors.Wrap(err, "")
-				log.Errorf("%s Kafka.Run got error %+v", k.taskCfg.Name, err)
-				continue
+	if k.r!=nil{
+		LOOP_KAFKA_GO:
+		for {
+			var err error
+			var msg kafka.Message
+			if msg, err = k.r.FetchMessage(ctx); err != nil {
+				switch errors.Cause(err) {
+				case context.Canceled:
+					log.Infof("%s Kafka.Run quit due to context has been canceled", k.taskCfg.Name)
+					break LOOP_KAFKA_GO
+				case io.EOF:
+					log.Infof("%s Kafka.Run quit due to reader has been closed", k.taskCfg.Name)
+					break LOOP_KAFKA_GO
+				default:
+					statistics.ConsumeMsgsErrorTotal.WithLabelValues(k.taskCfg.Name).Inc()
+					err = errors.Wrap(err, "")
+					log.Errorf("%s Kafka.Run got error %+v", k.taskCfg.Name, err)
+					continue
+				}
 			}
+			k.putFn(model.InputMessage{
+				Topic:     msg.Topic,
+				Partition: msg.Partition,
+				Key:       msg.Key,
+				Value:     msg.Value,
+				Offset:    msg.Offset,
+				Timestamp: &msg.Time,
+			})
+		}
+	}else{
+		LOOP_SARAMA:
+		for {
+			handler := MyConsumerGroupHandler{k}
+			// `Consume` should be called inside an infinite loop, when a
+			// server-side rebalance happens, the consumer session will need to be
+			// recreated to get the new claims
+			if err := k.cg.Consume(ctx, []string{k.taskCfg.Topic}, handler); err != nil {
+				switch errors.Cause(err) {
+				case context.Canceled:
+					log.Infof("%s Kafka.Run quit due to context has been canceled", k.taskCfg.Name)
+					break LOOP_SARAMA
+				case sarama.ErrClosedConsumerGroup:
+					log.Infof("%s Kafka.Run quit due to consumer group has been closed", k.taskCfg.Name)
+					break LOOP_SARAMA
+				default:
+					statistics.ConsumeMsgsErrorTotal.WithLabelValues(k.taskCfg.Name).Inc()
+					err = errors.Wrap(err, "")
+					log.Errorf("%s Kafka.Run got error %+v", k.taskCfg.Name, err)
+					continue
+				}
+			}
+			log.Infof("%s consumer group %s rebalanced", k.taskCfg.Name, k.taskCfg.ConsumerGroup)
+			//TODO: Flush all rings helps to consuming duplicated messages?
 		}
 	}
 }
 
 func (k *Kafka) CommitMessages(ctx context.Context, msg *model.InputMessage) error {
+	if k.r!=nil{
+		return k.r.CommitMessages(ctx, kafka.Message{
+			Topic:     msg.Topic,
+			Partition: msg.Partition,
+			Key:       msg.Key,
+			Value:     msg.Value,
+			Offset:    msg.Offset,
+		})			
+	}
 	k.sess.MarkOffset(msg.Topic, int32(msg.Partition), msg.Offset, "")
 	return nil
 }
 
 // Stop kafka consumer and close all connections
 func (k *Kafka) Stop() error {
-	_ = k.cg.Close()
+	if k.r != nil {
+		k.r.Close()
+	} else {
+		k.cg.Close()
+	}
 	return nil
 }
 

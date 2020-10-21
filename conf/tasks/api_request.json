@@ -2,6 +2,7 @@
 
 	"name" : "api_request",
 
+    "kafkaClient": "sarama",
 	"kafka": "kfk1",
 	"topic": "real_time",
 	"earliest" : true,

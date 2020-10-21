@@ -2,6 +2,7 @@
 
 	"name" : "csv_request",
 
+    "kafkaClient": "kafka-go",
 	"kafka": "kfk1",
 	"topic": "csv-topic",
 	"earliest" : true,

@@ -236,6 +236,7 @@ type ClickHouseConfig struct {
 type TaskConfig struct {
 	Name string
 
+	KafkaClient   string
 	Kafka         string
 	Topic         string
 	ConsumerGroup string
