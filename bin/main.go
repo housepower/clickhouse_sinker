@@ -110,8 +110,11 @@ func GenTasks(cfg *config.Config) (res []*task.Service) {
 	for _, taskCfg := range cfg.Tasks {
 		ck := output.NewClickHouse(taskCfg)
 		pp := parser.NewParserPool(taskCfg.Parser, taskCfg.CsvFormat, taskCfg.Delimiter, []string{taskCfg.LayoutDate, taskCfg.LayoutDateTime, taskCfg.LayoutDateTime64})
-		kafka := input.NewKafka(taskCfg, pp)
-		taskImpl := task.NewTaskService(kafka, ck, taskCfg)
+		var inputer input.Inputer
+		if taskCfg.Kafka != "" {
+			inputer = input.NewInputer(input.TypeKafkaGo)
+		}
+		taskImpl := task.NewTaskService(inputer, ck, taskCfg, pp)
 		res = append(res, taskImpl)
 	}
 	return

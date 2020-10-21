@@ -4,7 +4,7 @@
       "db": "default",
       "host": "127.0.0.1",
       "password": "",
-      "retryTimes" : 5,
+      "retryTimes": 5,
       "port": 9000,
       "username": ""
     }
@@ -16,13 +16,13 @@
         "password": "",
         "username": ""
       },
-      "version" : "2.0.0"
+      "version": "2.0.0"
     }
   },
   "common": {
     "bufferSize": 90000,
     "minBufferSize": 2000,
     "flushInterval": 5,
-    "logLevel": "info"
+    "logLevel": "debug"
   }
 }
