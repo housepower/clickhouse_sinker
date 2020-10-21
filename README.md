@@ -69,6 +69,75 @@ make build
 
 See config [example](./conf/config.json)
 
+### Authentication with Kafka
+
+clickhouse_sinker support following three authentication mechanism:
+
+* [x] No authentication
+
+An example clickhouse_sinker config:
+
+```
+    "kfk1": {
+      "brokers": "127.0.0.1:9092",
+      "Version": "0.10.2.1"
+    }
+```
+
+* [x] SASL/PLAIN
+
+An example clickhouse_sinker config:
+```
+    "kfk2": {
+      "brokers": "127.0.0.1:9093",
+      "sasl": {
+        "enable": true,
+        "password": "username",
+        "username": "password"
+      "Version": "0.10.2.1"
+    }
+```
+
+* [x] SASL/GSSAPI(Kerberos)
+
+You need to configuring a Kerberos Client on the host on which the clickhouse_sinker run. Refers to [Kafka Security](https://kafka.apache.org/documentation/#security).
+
+1. Install the krb5-libs package on all of the client machine.
+```
+$ sudo yum install -y krb5-libs
+```
+2. Supply a valid /etc/krb5.conf file for each client. Usually this can be the same krb5.conf file used by the Kerberos Distribution Center (KDC).
+
+
+An example clickhouse_sinker config:
+
+```
+    "kfk3": {
+      "brokers": "127.0.0.1:9094",
+      "sasl": {
+        "enable": true,
+        "gssapi": {
+          "authtype": 2,
+          "keytabpath": "/home/keytab/zhangtao.keytab",
+          "kerberosconfigpath": "/etc/krb5.conf",
+          "servicename": "kafka",
+          "username": "zhangtao/localhost",
+          "realm": "ALANWANG.COM"
+        }
+      },
+      "Version": "0.10.2.1"
+    }
+```
+
+FYI. The same config looks like the following in Java code:
+```
+security.protocol：SASL_PLAINTEXT
+sasl.kerberos.service.name：kafka
+sasl.mechanism：GSSAPI
+sasl.jaas.config：com.sun.security.auth.module.Krb5LoginModule required useKeyTab=true storeKey=true debug=true keyTab=\"/home/keytab/zhangtao.keytab\" principal=\"zhangtao/localhost@ALANWANG.COM\";
+
+```
+
 ## Custom metric parser
 
 - You just need to implement the parser interface on your own

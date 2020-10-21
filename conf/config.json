@@ -13,8 +13,19 @@
     "kfk1": {
       "brokers": "127.0.0.1:9092",
       "sasl": {
+        "enable": false,
         "password": "",
-        "username": ""
+        "username": "",
+        "gssapi": {
+          "authtype": 0,
+          "keytabpath": "",
+          "kerberosconfigpath": "",
+          "servicename": "",
+          "username": "",
+          "password": "",
+          "realm": "",
+          "disablepafxfast": false
+        }
       },
       "Version": "0.10.2.1"
     }

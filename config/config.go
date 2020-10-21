@@ -201,9 +201,21 @@ func (config *Config) normallize() {
 // KafkaConfig configuration parameters
 type KafkaConfig struct {
 	Brokers string
-	Sasl    struct {
-		Password string
+	//simplified sarama.Config.Net.SASL to only support SASL/PLAIN and SASL/GSSAPI(Kerberos)
+	Sasl struct {
+		Enable   bool
 		Username string
+		Password string
+		GSSAPI   struct {
+			AuthType           int //1. KRB5_USER_AUTH, 2. KRB5_KEYTAB_AUTH
+			KeyTabPath         string
+			KerberosConfigPath string
+			ServiceName        string
+			Username           string
+			Password           string
+			Realm              string
+			DisablePAFXFAST    bool
+		}
 	}
 	Version string
 }
