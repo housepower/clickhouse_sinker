@@ -56,6 +56,8 @@ func (h MyConsumerGroupHandler) Setup(sess sarama.ConsumerGroupSession) error {
 	return nil
 }
 func (h MyConsumerGroupHandler) Cleanup(_ sarama.ConsumerGroupSession) error {
+	log.Infof("%s consumer group %s rebalanced", h.k.taskCfg.Name, h.k.taskCfg.ConsumerGroup)
+	//TODO: Flush all rings helps to consuming duplicated messages?
 	return nil
 }
 
@@ -188,8 +190,6 @@ func (k *Kafka) Run(ctx context.Context) {
 					continue
 				}
 			}
-			log.Infof("%s consumer group %s rebalanced", k.taskCfg.Name, k.taskCfg.ConsumerGroup)
-			//TODO: Flush all rings helps to consuming duplicated messages?
 		}
 	}
 }
@@ -199,12 +199,10 @@ func (k *Kafka) CommitMessages(ctx context.Context, msg *model.InputMessage) err
 		return k.r.CommitMessages(ctx, kafka.Message{
 			Topic:     msg.Topic,
 			Partition: msg.Partition,
-			Key:       msg.Key,
-			Value:     msg.Value,
 			Offset:    msg.Offset,
 		})			
 	}
-	k.sess.MarkOffset(msg.Topic, int32(msg.Partition), msg.Offset, "")
+	k.sess.MarkOffset(msg.Topic, int32(msg.Partition), msg.Offset+1, "")
 	return nil
 }
 
