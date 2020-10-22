@@ -112,7 +112,7 @@ func GenTasks(cfg *config.Config) (res []*task.Service) {
 		pp := parser.NewParserPool(taskCfg.Parser, taskCfg.CsvFormat, taskCfg.Delimiter, []string{taskCfg.LayoutDate, taskCfg.LayoutDateTime, taskCfg.LayoutDateTime64})
 		var inputer input.Inputer
 		if taskCfg.Kafka != "" {
-			inputer = input.NewInputer(input.TypeKafka)
+			inputer = input.NewInputer(taskCfg.KafkaClient)
 		}
 		taskImpl := task.NewTaskService(inputer, ck, taskCfg, pp)
 		res = append(res, taskImpl)

@@ -2,13 +2,15 @@ package input
 
 import (
 	"context"
+	"log"
 
 	"github.com/housepower/clickhouse_sinker/config"
 	"github.com/housepower/clickhouse_sinker/model"
 )
 
 const (
-	TypeKafka       = "kafka"
+	TypeKafkaGo     = "kafka-go"
+	TypeKafkaSarama = "sarama"
 	TypePulsar      = "pulsar"
 )
 
@@ -21,9 +23,12 @@ type Inputer interface {
 
 func NewInputer(typ string) Inputer {
 	switch typ {
-	case TypeKafka:
-		return NewKafka()
+	case TypeKafkaGo:
+		return NewKafkaGo()
+	case TypeKafkaSarama:
+		return NewKafkaSarama()
 	default:
+		log.Fatalf("%s is not a supported input type", typ)
 		return nil
 	}
 }

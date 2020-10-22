@@ -162,6 +162,9 @@ func (config *Config) normallize() {
 		config.Common.LayoutDateTime64 = defaultLayoutDateTime64
 	}
 	for _, taskConfig := range config.Tasks {
+		if taskConfig.KafkaClient == "" {
+			taskConfig.KafkaClient = "sarama"
+		}
 		if taskConfig.FlushInterval <= 0 {
 			taskConfig.FlushInterval = config.Common.FlushInterval
 		}
