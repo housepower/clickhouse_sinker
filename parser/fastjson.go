@@ -58,14 +58,14 @@ func (c *FastjsonMetric) GetString(key string, nullable bool) interface{} {
 }
 
 func (c *FastjsonMetric) GetFloat(key string, nullable bool) interface{} {
-	if !c.value.Exists(key) && nullable {
+	if nullable && !c.value.Exists(key) {
 		return nil
 	}
 	return c.value.GetFloat64(key)
 }
 
 func (c *FastjsonMetric) GetInt(key string, nullable bool) interface{} {
-	if !c.value.Exists(key) && nullable {
+	if nullable && !c.value.Exists(key) {
 		return nil
 	}
 	return int64(c.value.GetInt(key))
@@ -107,30 +107,42 @@ func (c *FastjsonMetric) String() string {
 	return c.value.String()
 }
 
-func (c *FastjsonMetric) GetDate(key string) (t time.Time) {
+func (c *FastjsonMetric) GetDate(key string, nullable bool) interface{} {
+	if nullable && !c.value.Exists(key) {
+		return nil
+	}
+
 	val := c.GetString(key, false).(string)
-	t, _ = time.Parse(c.tsLayout[0], val)
-	return
+	t, _ := time.Parse(c.tsLayout[0], val)
+	return t
 }
 
-func (c *FastjsonMetric) GetDateTime(key string) (t time.Time) {
+func (c *FastjsonMetric) GetDateTime(key string, nullable bool) interface{} {
+	if nullable && !c.value.Exists(key) {
+		return nil
+	}
+
 	if v := c.GetFloat(key, false).(float64); v != 0 {
 		return time.Unix(int64(v), int64(v*1e9)%1e9)
 	}
 
 	val := c.GetString(key, false).(string)
-	t, _ = time.Parse(c.tsLayout[1], val)
-	return
+	t, _ := time.Parse(c.tsLayout[1], val)
+	return t
 }
 
-func (c *FastjsonMetric) GetDateTime64(key string) (t time.Time) {
+func (c *FastjsonMetric) GetDateTime64(key string, nullable bool) interface{} {
+	if nullable && !c.value.Exists(key) {
+		return nil
+	}
+
 	if v := c.GetFloat(key, false).(float64); v != 0 {
 		return time.Unix(int64(v), int64(v*1e9)%1e9)
 	}
 
 	val := c.GetString(key, false).(string)
-	t, _ = time.Parse(c.tsLayout[2], val)
-	return
+	t, _ := time.Parse(c.tsLayout[2], val)
+	return t
 }
 
 func (c *FastjsonMetric) GetElasticDateTime(key string, nullable bool) interface{} {

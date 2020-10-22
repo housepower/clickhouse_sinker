@@ -96,30 +96,45 @@ func (c *GjsonMetric) GetInt(key string, nullable bool) interface{} {
 	return r.Int()
 }
 
-func (c *GjsonMetric) GetDate(key string) (t time.Time) {
-	val := gjson.Get(c.raw, key).String()
-	t, _ = time.Parse(c.tsLayout[0], val)
-	return
+func (c *GjsonMetric) GetDate(key string, nullable bool) interface{} {
+	r := gjson.Get(c.raw, key)
+	if nullable && !r.Exists() {
+		return nil
+	}
+
+	val := r.String()
+	t, _ := time.Parse(c.tsLayout[0], val)
+	return t
 }
 
-func (c *GjsonMetric) GetDateTime(key string) (t time.Time) {
-	if v := gjson.Get(c.raw, key).Float(); v != 0 {
+func (c *GjsonMetric) GetDateTime(key string, nullable bool) interface{} {
+	r := gjson.Get(c.raw, key)
+	if nullable && !r.Exists() {
+		return nil
+	}
+
+	if v := r.Float(); v != 0 {
 		return time.Unix(int64(v), int64(v*1e9)%1e9)
 	}
 
-	val := gjson.Get(c.raw, key).String()
-	t, _ = time.Parse(c.tsLayout[1], val)
-	return
+	val := r.String()
+	t, _ := time.Parse(c.tsLayout[1], val)
+	return t
 }
 
-func (c *GjsonMetric) GetDateTime64(key string) (t time.Time) {
-	if v := gjson.Get(c.raw, key).Float(); v != 0 {
+func (c *GjsonMetric) GetDateTime64(key string, nullable bool) interface{} {
+	r := gjson.Get(c.raw, key)
+	if nullable && !r.Exists() {
+		return nil
+	}
+
+	if v := r.Float(); v != 0 {
 		return time.Unix(int64(v), int64(v*1e9)%1e9)
 	}
 
-	val := gjson.Get(c.raw, key).String()
-	t, _ = time.Parse(c.tsLayout[2], val)
-	return
+	val := r.String()
+	t, _ := time.Parse(c.tsLayout[2], val)
+	return t
 }
 
 func (c *GjsonMetric) GetElasticDateTime(key string, nullable bool) interface{} {

@@ -136,11 +136,11 @@ func TestFastJson(t *testing.T) {
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample2)
 
-	ts1 := metric.GetDateTime("time")
+	ts1 := metric.GetDateTime("time", false)
 	exp1, _ := time.Parse("2006-01-02 15:04:05", "2006-01-02 15:04:05")
 	assert.Equal(t, exp1, ts1)
 
-	ts2 := metric.GetDateTime64("timestamp")
+	ts2 := metric.GetDateTime64("timestamp", false)
 	exp2, _ := time.Parse(time.RFC3339, "2006-01-02T15:04:05.123+08:00")
 	assert.Equal(t, exp2, ts2)
 

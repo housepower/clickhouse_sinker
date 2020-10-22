@@ -105,22 +105,24 @@ func (c *CsvMetric) GetArray(key string, t string) interface{} {
 	return []interface{}{}
 }
 
-func (c *CsvMetric) GetDate(key string) (t time.Time) {
+func (c *CsvMetric) GetDate(key string, nullable bool) interface{} {
+	_ = nullable // nullable can not be supported with csv
+
 	val := c.GetString(key, false).(string)
-	t, _ = time.Parse(c.tsLayout[0], val)
-	return
+	t, _ := time.Parse(c.tsLayout[0], val)
+	return t
 }
 
-func (c *CsvMetric) GetDateTime(key string) (t time.Time) {
+func (c *CsvMetric) GetDateTime(key string, nullable bool) interface{} {
 	val := c.GetString(key, false).(string)
-	t, _ = time.Parse(c.tsLayout[1], val)
-	return
+	t, _ := time.Parse(c.tsLayout[1], val)
+	return t
 }
 
-func (c *CsvMetric) GetDateTime64(key string) (t time.Time) {
+func (c *CsvMetric) GetDateTime64(key string, nullable bool) interface{} {
 	val := c.GetString(key, false).(string)
-	t, _ = time.Parse(c.tsLayout[2], val)
-	return
+	t, _ := time.Parse(c.tsLayout[2], val)
+	return t
 }
 
 func (c *CsvMetric) GetElasticDateTime(key string, nullable bool) interface{} {
