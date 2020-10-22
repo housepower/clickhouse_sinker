@@ -64,14 +64,14 @@ func (c *ClickHouse) Init() error {
 }
 
 // Send a batch to clickhouse
-func (c *ClickHouse) Send(batch model.Batch, callback func(batch model.Batch) error) {
+func (c *ClickHouse) Send(batch *model.Batch, callback func(batch *model.Batch) error) {
 	// TODO workerpool parallel
 	statistics.FlushBatchBacklog.WithLabelValues(c.taskCfg.Name).Inc()
 	c.loopWrite(batch, callback)
 }
 
 // Write kvs to clickhouse
-func (c *ClickHouse) write(batch model.Batch) error {
+func (c *ClickHouse) write(batch *model.Batch) error {
 	if len(batch.MsgRows) == 0 {
 		return nil
 	}
@@ -133,7 +133,7 @@ func shouldReconnect(err error) bool {
 }
 
 // LoopWrite will dead loop to write the records
-func (c *ClickHouse) loopWrite(batch model.Batch, callback func(batch model.Batch) error) {
+func (c *ClickHouse) loopWrite(batch *model.Batch, callback func(batch *model.Batch) error) {
 	var err error
 	times := c.chCfg.RetryTimes
 	defer statistics.FlushBatchBacklog.WithLabelValues(c.taskCfg.Name).Dec()
