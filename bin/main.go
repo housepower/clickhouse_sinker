@@ -47,14 +47,19 @@ var (
 	v          = flag.Bool("v", false, "show build version")
 	cfgDir     = flag.String("conf", "", "config dir")
 	httpAddr   = flag.String("http-addr", "0.0.0.0:2112", "http interface")
-	consulAddr = flag.String("consul-addr", "http://127.0.0.1:8500", "consul api interface address")
+	consulAddr = flag.String("consul-addr", "http://127.0.0.1:8500",
+		"consul api interface address")
+	consulRegister = flag.Bool("consul-register-enable", false,
+		"register current instance in consul")
+	consulDeregisterCriticalServiceAfter = flag.String("consul-deregister-critical-services-after", "30m",
+		"configure service check DeregisterCriticalServiceAfter")
 
-	httpMetrcs = promhttp.Handler()
-	runner     *Sinker
-	ip         string
-	port       int
-	appID, _   = uuid.NewUUID()
-	appIDStr   = fmt.Sprintf("clickhouse_sinker-%s", appID.String())
+	httpMetrics = promhttp.Handler()
+	runner      *Sinker
+	ip          string
+	port        int
+	appID, _    = uuid.NewUUID()
+	appIDStr    = fmt.Sprintf("clickhouse_sinker-%s", appID.String())
 )
 
 func parseAddr(addr string) (string, int) {
@@ -83,11 +88,12 @@ func serviceRegister(agent *api.Agent) {
 		Port:    port,
 		Address: ip,
 		Check: &api.AgentServiceCheck{
-			CheckID:  appIDStr + "-http-heath",
-			Name:     "/ready",
-			Interval: "15s",
-			Timeout:  "15s",
-			HTTP:     fmt.Sprintf("http://%s/ready?full=1", *httpAddr),
+			CheckID:                        appIDStr + "-http-heath",
+			Name:                           "/ready",
+			Interval:                       "15s",
+			Timeout:                        "15s",
+			HTTP:                           fmt.Sprintf("http://%s/ready?full=1", *httpAddr),
+			DeregisterCriticalServiceAfter: *consulDeregisterCriticalServiceAfter,
 		},
 	})
 	if err != nil {
@@ -129,14 +135,16 @@ func main() {
 	consulClient, _ := api.NewClient(consulConfig)
 	consulAgent := consulClient.Agent()
 
-	serviceRegister(consulAgent)
-	defer func() {
-		log.Debug("Consul: de-register service")
-		err := consulAgent.ServiceDeregister(appIDStr)
-		if err != nil {
-			log.Warnf("Consul: %s", err)
-		}
-	}()
+	if *consulRegister {
+		serviceRegister(consulAgent)
+		defer func() {
+			log.Debug("Consul: de-register service")
+			err := consulAgent.ServiceDeregister(appIDStr)
+			if err != nil {
+				log.Warnf("Consul: %s", err)
+			}
+		}()
+	}
 
 	app.Run("clickhouse_sinker", func() error {
 		config.SetConfigDir(*cfgDir)
@@ -159,7 +167,7 @@ func main() {
 				</body></html>`))
 			})
 
-			mux.Handle("/metrics", httpMetrcs)
+			mux.Handle("/metrics", httpMetrics)
 			mux.HandleFunc("/ready", health.Health.ReadyEndpoint) // GET /ready?full=1
 			mux.HandleFunc("/live", health.Health.LiveEndpoint)   // GET /live?full=1
 
