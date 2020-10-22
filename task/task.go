@@ -51,7 +51,7 @@ type Service struct {
 	dims       []*model.ColumnWithType
 
 	rings     []*Ring
-	batchChan chan model.Batch
+	batchChan chan *model.Batch
 	limiter1  *rate.Limiter
 	limiter2  *rate.Limiter
 	limiter3  *rate.Limiter
@@ -77,7 +77,7 @@ func (service *Service) Init() (err error) {
 	}
 
 	service.dims = service.clickhouse.Dims
-	service.batchChan = make(chan model.Batch, 32)
+	service.batchChan = make(chan *model.Batch, 32)
 	service.limiter1 = rate.NewLimiter(rate.Every(10*time.Second), 1)
 	service.limiter2 = rate.NewLimiter(rate.Every(10*time.Second), 1)
 	service.limiter3 = rate.NewLimiter(rate.Every(10*time.Second), 1)
@@ -104,6 +104,11 @@ LOOP:
 		}
 	}
 	service.stopped <- struct{}{}
+}
+
+func (service *Service) fnCommit(partition int, offset int64) {
+	msg := model.InputMessage{Topic: service.taskCfg.Topic, Partition: partition, Offset: offset}
+	service.inputer.CommitMessages(service.ctx, &msg)
 }
 
 func (service *Service) put(msg model.InputMessage) {
@@ -133,6 +138,7 @@ func (service *Service) put(msg model.InputMessage) {
 			idleCnt:          0,
 			isIdle:           false,
 			partition:        msg.Partition,
+			batchSys:         model.NewBatchSys(service.fnCommit),
 			service:          service,
 		}
 		// schedule a delayed ForceBatch
@@ -192,19 +198,17 @@ func (service *Service) put(msg model.InputMessage) {
 	})
 }
 
-func (service *Service) flush(batch model.Batch) (err error) {
+func (service *Service) flush(batch *model.Batch) (err error) {
 	if (len(batch.MsgRows)) == 0 {
-		return
+		batch.Commit()
+		return nil
 	}
-
-	log.Debugf("Start to flush %d", len(batch.MsgRows))
-	service.clickhouse.Send(batch, func(batch model.Batch) error {
+	service.clickhouse.Send(batch, func(batch *model.Batch) error {
 		lastMsg := batch.MsgRows[len(batch.MsgRows)-1].Msg
 		statistics.ConsumeOffsets.WithLabelValues(service.taskCfg.Name, strconv.Itoa(lastMsg.Partition), lastMsg.Topic).Set(float64(lastMsg.Offset))
-		log.Debugf("Finish to flush %d", len(batch.MsgRows))
-		return service.inputer.CommitMessages(service.ctx, lastMsg)
+		batch.Commit()
+		return nil
 	})
-
 	return nil
 }
 

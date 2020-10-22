@@ -26,6 +26,7 @@ type Ring struct {
 	idleCnt          int
 	isIdle           bool
 	partition        int
+	batchSys         *model.BatchSys
 
 	service *Service
 }
@@ -138,7 +139,7 @@ func (ring *Ring) genBatch(expNewGroundOff int64) (gaps []OffsetRange) {
 	if endOff > ring.ringCeilingOff {
 		endOff = ring.ringCeilingOff
 	}
-	batch := model.NewBatch(0, ring.service.taskCfg.BufferSize)
+	batch := ring.batchSys.NewBatchGroup().NewBatch(0, ring.service.taskCfg.BufferSize)
 	expOff := ring.ringGroundOff
 	for i := ring.ringGroundOff; i < endOff; i++ {
 		off := i & (ring.ringCap - 1)
@@ -150,6 +151,7 @@ func (ring *Ring) genBatch(expNewGroundOff int64) (gaps []OffsetRange) {
 			}
 			expOff = i + 1
 			batch.MsgRows = append(batch.MsgRows, ring.ringBuf[off])
+			batch.Group.UpdateOffset(msg.Partition, msg.Offset)
 			if ring.ringBuf[off].Row != nil {
 				batch.RealSize++
 			}
