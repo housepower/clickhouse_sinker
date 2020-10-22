@@ -8,8 +8,7 @@ import (
 )
 
 const (
-	TypeKafkaGo     = "kafka-go"
-	TypeKafkaSarama = "kafka-sarama"
+	TypeKafka       = "kafka"
 	TypePulsar      = "pulsar"
 )
 
@@ -22,7 +21,7 @@ type Inputer interface {
 
 func NewInputer(typ string) Inputer {
 	switch typ {
-	case TypeKafkaGo:
+	case TypeKafka:
 		return NewKafka()
 	default:
 		return nil
