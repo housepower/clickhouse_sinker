@@ -19,6 +19,7 @@ import (
 	"context"
 	std_errors "errors"
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -147,10 +148,12 @@ func (c *ClickHouse) loopWrite(batch *model.Batch, callback func(batch *model.Ba
 			return
 		}
 		times--
-		log.Errorf("flush batch(try #%d) failed with error %+v", c.chCfg.RetryTimes-times, err)
-		if times > 0 {
-			statistics.FlushMsgsErrorTotal.WithLabelValues(c.taskCfg.Name).Add(float64(batch.RealSize))
-			return
+		statistics.FlushMsgsErrorTotal.WithLabelValues(c.taskCfg.Name).Add(float64(batch.RealSize))
+		if times <= 0 {
+			log.Criticalf("flush batch(try #%d) failed with error %+v", c.chCfg.RetryTimes-times, err)
+			os.Exit(-1)
+		} else {
+			log.Errorf("flush batch(try #%d) failed with error %+v", c.chCfg.RetryTimes-times, err)
 		}
 		time.Sleep(10 * time.Second)
 	}
