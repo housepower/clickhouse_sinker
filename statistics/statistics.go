@@ -15,13 +15,15 @@ limitations under the License.
 package statistics
 
 import (
-	"errors"
 	"math/rand"
 	"net"
 	"time"
 
+	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/push"
+	"github.com/prometheus/common/expfmt"
+	"github.com/sundy-li/go_commons/log"
 )
 
 var (
@@ -194,6 +196,8 @@ FOR:
 		case <-ticker.C:
 			err := p.pusher.Push()
 			if err != nil {
+				err = errors.Wrapf(err, "")
+				log.Infof("pushing metrics failed. %v", err)
 				p.reconnect()
 			}
 		case <-p.stopped:
@@ -230,7 +234,7 @@ func (p *Pusher) reconnect() {
 		Collector(ClickhouseReconnectTotal).
 		Collector(ParseMsgsBacklog).
 		Collector(FlushBatchBacklog).
-		Grouping("instance", p.instance)
+		Grouping("instance", p.instance).Format(expfmt.FmtText)
 	p.inUseAddr = nextAddr
 }
 

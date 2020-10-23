@@ -27,7 +27,7 @@ require (
 	github.com/mattn/go-colorable v0.1.7 // indirect
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.3.0
-	github.com/prometheus/common v0.8.0 // indirect
+	github.com/prometheus/common v0.8.0
 	github.com/segmentio/kafka-go v0.4.2
 	github.com/smartystreets/goconvey v1.6.4 // indirect
 	github.com/stretchr/testify v1.6.1
