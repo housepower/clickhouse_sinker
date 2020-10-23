@@ -18,6 +18,7 @@ package config
 import (
 	"encoding/json"
 	"io/ioutil"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -197,6 +198,16 @@ func (config *Config) normallize() {
 			if taskConfig.Dims[i].SourceName == "" {
 				taskConfig.Dims[i].SourceName = util.GetSourceName(taskConfig.Dims[i].Name)
 			}
+		}
+	}
+	pgwAddrs, found := os.LookupEnv("METRICS_PUSH_GATEWAY_ADDR")
+	if found {
+		config.Statistics.Enable = true
+		config.Statistics.PushGateWayAddrs = strings.Split(pgwAddrs, ",")
+	}
+	if config.Statistics.Enable {
+		if config.Statistics.PushInterval == 0 {
+			config.Statistics.PushInterval = 10
 		}
 	}
 }
