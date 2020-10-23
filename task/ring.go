@@ -6,7 +6,6 @@ import (
 
 	"github.com/fagongzi/goetty"
 	"github.com/pkg/errors"
-	"github.com/segmentio/kafka-go"
 	"github.com/sundy-li/go_commons/log"
 
 	"github.com/housepower/clickhouse_sinker/model"
@@ -70,7 +69,7 @@ type OffsetRange struct {
 func (ring *Ring) ForceBatch(arg interface{}) {
 	var (
 		err    error
-		newMsg *kafka.Message
+		newMsg *model.InputMessage
 		gaps   []OffsetRange
 	)
 
@@ -84,7 +83,7 @@ func (ring *Ring) ForceBatch(arg interface{}) {
 	ring.mux.Lock()
 	defer ring.mux.Unlock()
 	if arg != nil {
-		newMsg = arg.(*kafka.Message)
+		newMsg = arg.(*model.InputMessage)
 		log.Warnf("Ring.ForceBatchAll partition %d message range [%d, %d)", newMsg.Partition, ring.ringGroundOff, newMsg.Offset)
 	}
 	if !ring.isIdle {
