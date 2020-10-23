@@ -206,8 +206,13 @@ func (config *Config) normallize() {
 		config.Statistics.PushGateWayAddrs = strings.Split(pgwAddrs, ",")
 	}
 	if config.Statistics.Enable {
-		if config.Statistics.PushInterval == 0 {
+		if config.Statistics.PushInterval <= 0 {
 			config.Statistics.PushInterval = 10
+		}
+	}
+	for _, chConfig := range config.Clickhouse {
+		if chConfig.RetryTimes <=0 {
+			chConfig.RetryTimes = 6
 		}
 	}
 }
