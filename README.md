@@ -134,6 +134,29 @@ sasl.mechanism：GSSAPI
 sasl.jaas.config：com.sun.security.auth.module.Krb5LoginModule required useKeyTab=true storeKey=true debug=true keyTab=\"/home/keytab/zhangtao.keytab\" principal=\"zhangtao/localhost@ALANWANG.COM\";
 ```
 
+### Prometheus Metrics
+
+All metrics are in `statistics.go`.
+
+* [x] Push to promethues
+
+Add a piece like the following to config.json:
+
+```
+  "statistics": {
+    "enable": true,
+    "pushGatewayAddrs": ["http://node3:33445/cks/prom/write"]
+  },
+```
+
+Or set env `METRICS_PUSH_GATEWAY_ADDR` to a list of urls joined with comma.
+The env have precedence over the config file.
+
+* [x] Pull with prometheus
+
+The command line parameter `--http-addr` expects a `ip:port`. Metrics are exposed at `http://ip:port/metrics`.
+
+
 ## Custom metric parser
 
 - You just need to implement the parser interface on your own
