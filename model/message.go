@@ -61,7 +61,9 @@ LOOP:
 		}
 		// commit the whole group
 		for j, off := range grp.Offsets {
-			bs.fnCommit(j, off+1)
+			if off >= 0 {
+				bs.fnCommit(j, off)
+			}
 		}
 	}
 	bs.groups = bs.groups[i:]
