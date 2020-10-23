@@ -82,5 +82,8 @@ func switchType(typ string) (dataType string, nullable bool) {
 		return "ElasticDateTime", nullable
 	default:
 	}
+	if strings.HasPrefix(typ, "DateTime64") {
+		return "DateTime64", nullable
+	}
 	panic("unsupported type " + typ)
 }
