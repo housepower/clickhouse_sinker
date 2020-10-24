@@ -57,7 +57,7 @@ func (c *Connection) ReConnect() error {
 
 var poolMaps = map[string][]*Connection{}
 
-func InitConn(name, hosts string, port int, db, username, password, dsnParams string) (err error) {
+func InitConn(name, hosts string, port int, db, username, password, dsnParams string, blockSize int) (err error) {
 	var ips, ips2, dsnArr []string
 	var sqlDB *sql.DB
 	// if contains ',', that means it's a ip list
@@ -73,8 +73,9 @@ func InitConn(name, hosts string, port int, db, username, password, dsnParams st
 		} else {
 			ip = ips2[0]
 		}
-		dsn := fmt.Sprintf("tcp://%s:%d?database=%s&username=%s&password=%s",
-			ip, port, db, username, password)
+		// Set block_size to max BufferSize of all tasks so that no batch will be split into several blocks.
+		dsn := fmt.Sprintf("tcp://%s:%d?database=%s&username=%s&password=%s&block_size=%d",
+			ip, port, db, username, password, blockSize)
 		if dsnParams != "" {
 			dsn += "&" + dsnParams
 		}

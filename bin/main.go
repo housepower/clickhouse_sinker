@@ -218,8 +218,14 @@ func (s *Sinker) Init() (err error) {
 
 	util.InitGlobalTimerWheel()
 	util.InitGlobalWorkerPool1(s.cfg.Common.ConcurrentParsers)
+	blockSize := s.cfg.Common.BufferSize
+	for _, taskCfg := range s.cfg.Tasks {
+		if blockSize < taskCfg.BufferSize {
+			blockSize = taskCfg.BufferSize
+		}
+	}
 	for ckName, ckCfg := range s.cfg.Clickhouse {
-		if err = pool.InitConn(ckName, ckCfg.Host, ckCfg.Port, ckCfg.DB, ckCfg.Username, ckCfg.Password, ckCfg.DsnParams); err != nil {
+		if err = pool.InitConn(ckName, ckCfg.Host, ckCfg.Port, ckCfg.DB, ckCfg.Username, ckCfg.Password, ckCfg.DsnParams, blockSize); err != nil {
 			return
 		}
 	}
