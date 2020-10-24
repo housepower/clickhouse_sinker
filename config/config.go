@@ -211,7 +211,7 @@ func (config *Config) normallize() {
 		}
 	}
 	for _, chConfig := range config.Clickhouse {
-		if chConfig.RetryTimes <=0 {
+		if chConfig.RetryTimes <= 0 {
 			chConfig.RetryTimes = 6
 		}
 	}
