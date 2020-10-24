@@ -7,6 +7,7 @@ clickhouse_sinker is a sinker program that transfer kafka message into [ClickHou
 
 ## Features
 
+- Uses Native ClickHouse client-server TCP protocol, with higher performance than HTTP.
 - Easy to use and deploy, you don't need write any hard code, just care about the configuration file
 - Support multiple parsers: csv, fastjson, gjson.
 - Support multiple Kafka client: sarama, kafka-go.
@@ -15,9 +16,9 @@ clickhouse_sinker is a sinker program that transfer kafka message into [ClickHou
 - Support multiply kafka and ClickHouse clusters.
 - Bulk insert (by config `bufferSize` and `flushInterval`).
 - Parse messages concurrently (by config `concurrentParsers`).
-- Loop write (when some node crashes, it will retry write the data to the other healthy node)
-- Uses Native ClickHouse client-server TCP protocol, with higher performance than HTTP.
-- At least once message guarantee, [more info](https://github.com/housepower/clickhouse_sinker/issues/76) about it.
+- Write batches concurrently.
+- Every batch is routed to a determined clickhouse node. Exit if loop write failed.
+- At least once delivery guarantee, [more info](https://github.com/housepower/clickhouse_sinker/issues/76) about it.
 
 ## Install && Run
 
