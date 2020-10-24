@@ -91,7 +91,7 @@ func (c *ClickHouse) write(batch *model.Batch) error {
 
 	stmt, err := tx.Prepare(c.prepareSQL)
 	if err != nil {
-		log.Error("prepareSQL:", err.Error())
+		log.Error("%s: tx.Prepare failed with error %+v", c.taskCfg.Name, err.Error())
 
 		if shouldReconnect(err) {
 			_ = conn.ReConnect()
@@ -111,7 +111,7 @@ func (c *ClickHouse) write(batch *model.Batch) error {
 		}
 	}
 	if err != nil {
-		log.Errorf("stmt.Exec failed %d times with following errors: %+v", numErr, err)
+		log.Errorf("%s: stmt.Exec failed %d times with errors %+v", c.taskCfg.Name, numErr, err)
 		return err
 	}
 
@@ -142,23 +142,23 @@ func (c *ClickHouse) loopWrite(batch *model.Batch, callback func(batch *model.Ba
 	defer statistics.FlushBatchBacklog.WithLabelValues(c.taskCfg.Name).Dec()
 	for {
 		if err = c.write(batch); err == nil {
-			if err = callback(batch); err!=nil{
-				log.Criticalf("commiting offset failed with error %+v", err)
-				os.Exit(-1)	
+			if err = callback(batch); err != nil {
+				log.Criticalf("%s: committing offset to failed with error %+v", c.taskCfg.Name, err)
+				os.Exit(-1)
 			}
 			return
 		}
 		if std_errors.Is(err, context.Canceled) {
-			log.Infof("ClickHouse.loopWrite quit due to the context has been cancelled")
+			log.Infof("%s: ClickHouse.loopWrite quit due to the context has been cancelled", c.taskCfg.Name)
 			return
 		}
 		times--
 		statistics.FlushMsgsErrorTotal.WithLabelValues(c.taskCfg.Name).Add(float64(batch.RealSize))
 		if times <= 0 {
-			log.Criticalf("flush batch(try #%d) failed with error %+v", c.chCfg.RetryTimes-times, err)
+			log.Criticalf("%s: flush batch(try #%d) failed with error %+v", c.taskCfg.Name, c.chCfg.RetryTimes-times, err)
 			os.Exit(-1)
 		} else {
-			log.Errorf("flush batch(try #%d) failed with error %+v", c.chCfg.RetryTimes-times, err)
+			log.Errorf("%s: flush batch(try #%d) failed with error %+v", c.taskCfg.Name, c.chCfg.RetryTimes-times, err)
 		}
 		time.Sleep(10 * time.Second)
 	}
@@ -209,6 +209,6 @@ func (c *ClickHouse) initSchema() (err error) {
 	c.prepareSQL = "INSERT INTO " + c.chCfg.DB + "." + c.taskCfg.TableName + " (" + strings.Join(c.dms, ",") + ") " +
 		"VALUES (" + strings.Join(params, ",") + ")"
 
-	log.Info("Prepare sql=>", c.prepareSQL)
+	log.Info("%s: Prepare sql=>", c.taskCfg.Name, c.prepareSQL)
 	return nil
 }

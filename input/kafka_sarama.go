@@ -52,9 +52,9 @@ func (h MyConsumerGroupHandler) Setup(sess sarama.ConsumerGroupSession) error {
 	return nil
 }
 func (h MyConsumerGroupHandler) Cleanup(_ sarama.ConsumerGroupSession) error {
-	log.Infof("%s consumer group %s rebalanced", h.k.taskCfg.Name, h.k.taskCfg.ConsumerGroup)
+	log.Infof("%s: consumer group %s rebalanced", h.k.taskCfg.Name, h.k.taskCfg.ConsumerGroup)
 	//TODO: Flush all rings helps to consuming duplicated messages?
-	time.Sleep(5 * time.Second)
+	time.Sleep(1 * time.Second)
 	return nil
 }
 
@@ -124,15 +124,15 @@ LOOP_SARAMA:
 		if err := k.cg.Consume(ctx, []string{k.taskCfg.Topic}, handler); err != nil {
 			switch errors.Cause(err) {
 			case context.Canceled:
-				log.Infof("%s Kafka.Run quit due to context has been canceled", k.taskCfg.Name)
+				log.Infof("%s: Kafka.Run quit due to context has been canceled", k.taskCfg.Name)
 				break LOOP_SARAMA
 			case sarama.ErrClosedConsumerGroup:
-				log.Infof("%s Kafka.Run quit due to consumer group has been closed", k.taskCfg.Name)
+				log.Infof("%s: Kafka.Run quit due to consumer group has been closed", k.taskCfg.Name)
 				break LOOP_SARAMA
 			default:
 				statistics.ConsumeMsgsErrorTotal.WithLabelValues(k.taskCfg.Name).Inc()
 				err = errors.Wrap(err, "")
-				log.Errorf("%s Kafka.Run got error %+v", k.taskCfg.Name, err)
+				log.Errorf("%s: Kafka.Run got error %+v", k.taskCfg.Name, err)
 				continue
 			}
 		}

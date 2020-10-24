@@ -60,7 +60,7 @@ func (ring *Ring) PutElem(msgRow model.MsgRow) {
 		ring.tid.Stop()
 		if ring.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(ring.service.taskCfg.FlushInterval)*time.Second, ring.ForceBatch, nil); err != nil {
 			err = errors.Wrap(err, "")
-			log.Criticalf("got error %+v", err)
+			log.Criticalf("%s: got error %+v", ring.service.taskCfg.Name, err)
 		}
 	}
 }
@@ -79,7 +79,7 @@ func (ring *Ring) ForceBatch(arg interface{}) {
 
 	select {
 	case <-ring.service.ctx.Done():
-		log.Errorf("Ring.ForceBatch quit due to the context has been canceled")
+		log.Errorf("%s: Ring.ForceBatch quit due to the context has been canceled", ring.service.taskCfg.Name)
 		return
 	default:
 	}
@@ -88,7 +88,7 @@ func (ring *Ring) ForceBatch(arg interface{}) {
 	defer ring.mux.Unlock()
 	if arg != nil {
 		newMsg = arg.(*model.InputMessage)
-		log.Warnf("Ring.ForceBatchAll partition %d message range [%d, %d)", newMsg.Partition, ring.ringGroundOff, newMsg.Offset)
+		log.Warnf("%s: Ring.ForceBatchAll partition %d message range [%d, %d)", ring.service.taskCfg.Name, newMsg.Partition, ring.ringGroundOff, newMsg.Offset)
 	}
 	if !ring.isIdle {
 		if newMsg == nil {
@@ -110,7 +110,7 @@ func (ring *Ring) ForceBatch(arg interface{}) {
 			for {
 				gaps = ring.genBatch(ring.ringCeilingOff)
 				if gaps != nil {
-					log.Warnf("Ring.ForceBatchAll noticed topic %v partition %d message offset gaps %v", newMsg.Topic, newMsg.Partition, gaps)
+					log.Warnf("%s: Ring.ForceBatchAll noticed topic %v partition %d message offset gaps %v", ring.service.taskCfg.Name, newMsg.Topic, newMsg.Partition, gaps)
 				}
 				if ring.ringGroundOff == ring.ringCeilingOff {
 					break LOOP
@@ -126,7 +126,7 @@ func (ring *Ring) ForceBatch(arg interface{}) {
 	ring.tid.Stop()
 	if ring.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(ring.service.taskCfg.FlushInterval)*time.Second, ring.ForceBatch, nil); err != nil {
 		err = errors.Wrap(err, "")
-		log.Criticalf("got error %+v", err)
+		log.Criticalf("%s: got error %+v", ring.service.taskCfg.Name, err)
 	}
 }
 
