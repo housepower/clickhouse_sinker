@@ -150,22 +150,22 @@ func (service *Service) put(msg model.InputMessage) {
 		service.Unlock()
 	} else {
 		service.Unlock()
-		var ringGroundOff int64
+		var ringGroundOff, ringFilledOffset int64
 		ring.mux.Lock()
-		ringGroundOff = ring.ringGroundOff
+		ringGroundOff, ringFilledOffset = ring.ringGroundOff, ring.ringFilledOffset
 		ring.mux.Unlock()
-		if msg.Offset < ringGroundOff {
+		if msg.Offset < ringFilledOffset {
 			statistics.RingMsgsOffTooSmallErrorTotal.WithLabelValues(service.taskCfg.Name).Inc()
 			if service.limiter2.Allow() {
-				log.Warnf("got a message(topic %v, partition %d, offset %v) is left to the range [%v, %v)",
-					msg.Topic, msg.Partition, msg.Offset, ring.ringGroundOff, ring.ringGroundOff+ring.ringCap)
+				log.Warnf("got a message(topic %v, partition %d, offset %v) left to %v",
+					msg.Topic, msg.Partition, msg.Offset, ringFilledOffset)
 			}
 			return
 		}
 		if msg.Offset >= ringGroundOff+ring.ringCap {
 			statistics.RingMsgsOffTooLargeErrorTotal.WithLabelValues(service.taskCfg.Name).Inc()
 			if service.limiter3.Allow() {
-				log.Warnf("got a message(topic %v, partition %d, offset %v) is right to the range [%v, %v)",
+				log.Warnf("got a message(topic %v, partition %d, offset %v) right to the range [%v, %v)",
 					msg.Topic, msg.Partition, msg.Offset, ring.ringGroundOff, ring.ringGroundOff+ring.ringCap)
 			}
 			time.Sleep(1 * time.Second)

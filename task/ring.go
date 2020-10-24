@@ -35,6 +35,9 @@ func (ring *Ring) PutElem(msgRow model.MsgRow) {
 	msgOffset := msgRow.Msg.Offset
 	ring.mux.Lock()
 	defer ring.mux.Unlock()
+	if msgOffset < ring.ringFilledOffset {
+		return
+	}
 	// ring.mux is locked at this point
 	if ring.isIdle {
 		ring.idleCnt = 0
@@ -42,6 +45,7 @@ func (ring *Ring) PutElem(msgRow model.MsgRow) {
 		ring.ringBuf = make([]model.MsgRow, ring.ringCap)
 		log.Infof("%s: topic %s partition %d quit idle", ring.service.taskCfg.Name, ring.service.taskCfg.Topic, ring.partition)
 	}
+	// assert(msgOffset < ring.ringGroundOff + ring.ringCap)
 	ring.ringBuf[msgOffset%ring.ringCap] = msgRow
 	if msgOffset >= ring.ringCeilingOff {
 		ring.ringCeilingOff = msgOffset + 1
@@ -154,7 +158,8 @@ func (ring *Ring) genBatch(expNewGroundOff int64) (gaps []OffsetRange) {
 			if ring.ringBuf[off].Row != nil {
 				batch.RealSize++
 			}
-			ring.ringBuf[off] = model.MsgRow{Msg: nil, Row: nil}
+			ring.ringBuf[off].Msg = nil
+			ring.ringBuf[off].Row = nil
 		}
 	}
 
