@@ -90,7 +90,7 @@ func (service *Service) Init() (err error) {
 func (service *Service) Run(ctx context.Context) {
 	service.started = true
 	service.ctx = ctx
-	log.Infof("task %s has started", service.taskCfg.Name)
+	log.Infof("%s: task started", service.taskCfg.Name)
 	go service.inputer.Run(ctx)
 LOOP:
 	for {
@@ -99,7 +99,7 @@ LOOP:
 			break LOOP
 		case batch := <-service.batchChan:
 			if err := service.flush(batch); err != nil {
-				log.Errorf("task flush error %v", err.Error())
+				log.Errorf("%s: got error %+v", service.taskCfg.Name, err)
 			}
 		}
 	}
@@ -144,7 +144,7 @@ func (service *Service) put(msg model.InputMessage) {
 		// schedule a delayed ForceBatch
 		if ring.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(service.taskCfg.FlushInterval)*time.Second, ring.ForceBatch, nil); err != nil {
 			err = errors.Wrap(err, "")
-			log.Criticalf("got error %+v", err)
+			log.Criticalf("%s: got error %+v", service.taskCfg.Name, err)
 		}
 		service.rings[msg.Partition] = ring
 		service.Unlock()
@@ -157,16 +157,16 @@ func (service *Service) put(msg model.InputMessage) {
 		if msg.Offset < ringFilledOffset {
 			statistics.RingMsgsOffTooSmallErrorTotal.WithLabelValues(service.taskCfg.Name).Inc()
 			if service.limiter2.Allow() {
-				log.Warnf("got a message(topic %v, partition %d, offset %v) left to %v",
-					msg.Topic, msg.Partition, msg.Offset, ringFilledOffset)
+				log.Warnf("%s: got a message(topic %v, partition %d, offset %v) left to %v",
+					service.taskCfg.Name, msg.Topic, msg.Partition, msg.Offset, ringFilledOffset)
 			}
 			return
 		}
 		if msg.Offset >= ringGroundOff+ring.ringCap {
 			statistics.RingMsgsOffTooLargeErrorTotal.WithLabelValues(service.taskCfg.Name).Inc()
 			if service.limiter3.Allow() {
-				log.Warnf("got a message(topic %v, partition %d, offset %v) right to the range [%v, %v)",
-					msg.Topic, msg.Partition, msg.Offset, ring.ringGroundOff, ring.ringGroundOff+ring.ringCap)
+				log.Warnf("%s: got a message(topic %v, partition %d, offset %v) right to the range [%v, %v)",
+					service.taskCfg.Name, msg.Topic, msg.Partition, msg.Offset, ring.ringGroundOff, ring.ringGroundOff+ring.ringCap)
 			}
 			time.Sleep(1 * time.Second)
 			ring.ForceBatch(&msg)
@@ -182,8 +182,8 @@ func (service *Service) put(msg model.InputMessage) {
 		if err != nil {
 			statistics.ParseMsgsErrorTotal.WithLabelValues(service.taskCfg.Name).Inc()
 			if service.limiter1.Allow() {
-				log.Errorf("failed to parse message(topic %v, partition %d, offset %v) %+v, string(value) <<<%+v>>>, got error %+v",
-					msg.Topic, msg.Partition, msg.Offset, msg, string(msg.Value), err)
+				log.Errorf("%s: failed to parse message(topic %v, partition %d, offset %v) %+v, string(value) <<<%+v>>>, got error %+v",
+					service.taskCfg.Name, msg.Topic, msg.Partition, msg.Offset, msg, string(msg.Value), err)
 			}
 		} else {
 			row = model.MetricToRow(metric, msg, service.dims)
@@ -200,14 +200,12 @@ func (service *Service) put(msg model.InputMessage) {
 
 func (service *Service) flush(batch *model.Batch) (err error) {
 	if (len(batch.MsgRows)) == 0 {
-		batch.Commit()
-		return nil
+		return batch.Commit()
 	}
 	service.clickhouse.Send(batch, func(batch *model.Batch) error {
 		lastMsg := batch.MsgRows[len(batch.MsgRows)-1].Msg
 		statistics.ConsumeOffsets.WithLabelValues(service.taskCfg.Name, strconv.Itoa(lastMsg.Partition), lastMsg.Topic).Set(float64(lastMsg.Offset))
-		batch.Commit()
-		return nil
+		return batch.Commit()
 	})
 	return nil
 }
@@ -228,7 +226,7 @@ func (service *Service) Stop() {
 	log.Infof("%s: got notify from service.stopped", service.taskCfg.Name)
 }
 
-// GoID returns go routine id 获取goroutine的id
+// GoID returns goroutine id
 func GoID() int {
 	var buf [64]byte
 	n := runtime.Stack(buf[:], false)

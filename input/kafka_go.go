@@ -79,15 +79,15 @@ LOOP_KAFKA_GO:
 		if msg, err = k.r.FetchMessage(ctx); err != nil {
 			switch errors.Cause(err) {
 			case context.Canceled:
-				log.Infof("%s Kafka.Run quit due to context has been canceled", k.taskCfg.Name)
+				log.Infof("%s: Kafka.Run quit due to context has been canceled", k.taskCfg.Name)
 				break LOOP_KAFKA_GO
 			case io.EOF:
-				log.Infof("%s Kafka.Run quit due to reader has been closed", k.taskCfg.Name)
+				log.Infof("%s: Kafka.Run quit due to reader has been closed", k.taskCfg.Name)
 				break LOOP_KAFKA_GO
 			default:
 				statistics.ConsumeMsgsErrorTotal.WithLabelValues(k.taskCfg.Name).Inc()
 				err = errors.Wrap(err, "")
-				log.Errorf("%s Kafka.Run got error %+v", k.taskCfg.Name, err)
+				log.Errorf("%s: Kafka.Run got error %+v", k.taskCfg.Name, err)
 				continue
 			}
 		}
