@@ -30,7 +30,9 @@ type Batch struct {
 	Group    *BatchGroup
 }
 
-//BatchGroup consists of multiple batchs. The `before` relationship could be impossilbe if messages of a partition are distributed to multiple batchs. So thoese batchs need to be committed after ALL of them have been written to clickhouse.
+//BatchGroup consists of multiple batchs.
+//The `before` relationship could be impossilbe if messages of a partition are distributed to multiple batchs.
+//So thoese batchs need to be committed after ALL of them have been written to clickhouse.
 type BatchGroup struct {
 	Batchs    []*Batch
 	Offsets   []int64
@@ -41,14 +43,14 @@ type BatchGroup struct {
 type BatchSys struct {
 	mux      sync.Mutex
 	groups   []*BatchGroup
-	fnCommit func(partition int, offset int64)
+	fnCommit func(partition int, offset int64) error
 }
 
-func NewBatchSys(fnCommit func(partition int, offset int64)) *BatchSys {
+func NewBatchSys(fnCommit func(partition int, offset int64) error) *BatchSys {
 	return &BatchSys{fnCommit: fnCommit}
 }
 
-func (bs *BatchSys) TryCommit() {
+func (bs *BatchSys) TryCommit() error {
 	bs.mux.Lock()
 	defer bs.mux.Unlock()
 	var i int
@@ -62,11 +64,14 @@ LOOP:
 		// commit the whole group
 		for j, off := range grp.Offsets {
 			if off >= 0 {
-				bs.fnCommit(j, off)
+				if err := bs.fnCommit(j, off); err != nil {
+					return err
+				}
 			}
 		}
 	}
 	bs.groups = bs.groups[i:]
+	return nil
 }
 
 func (bs *BatchSys) NewBatchGroup() *BatchGroup {
@@ -103,9 +108,9 @@ func (b *Batch) Size() int {
 	return len(b.MsgRows)
 }
 
-func (b *Batch) Commit() {
+func (b *Batch) Commit() error {
 	atomic.AddInt32(&b.Group.PendWrite, -1)
-	b.Group.Sys.TryCommit()
+	return b.Group.Sys.TryCommit()
 }
 
 func MetricToRow(metric Metric, msg InputMessage, dims []*ColumnWithType) (row []interface{}) {

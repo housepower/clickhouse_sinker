@@ -50,7 +50,7 @@ func (k *KafkaGo) Init(taskCfg *config.TaskConfig, putFn func(msg model.InputMes
 	kfkCfg := cfg.Kafka[k.taskCfg.Kafka]
 	k.stopped = make(chan struct{})
 	k.putFn = putFn
-	if kfkCfg.Sasl.Enable && kfkCfg.Sasl.Username=="" {
+	if kfkCfg.Sasl.Enable && kfkCfg.Sasl.Username == "" {
 		return errors.Errorf("kafka-go doesn't support SASL/GSSAPI(Kerberos)")
 	}
 	offset := kafka.LastOffset
@@ -72,42 +72,47 @@ func (k *KafkaGo) Init(taskCfg *config.TaskConfig, putFn func(msg model.InputMes
 
 // kafka main loop
 func (k *KafkaGo) Run(ctx context.Context) {
-		LOOP_KAFKA_GO:
-		for {
-			var err error
-			var msg kafka.Message
-			if msg, err = k.r.FetchMessage(ctx); err != nil {
-				switch errors.Cause(err) {
-				case context.Canceled:
-					log.Infof("%s Kafka.Run quit due to context has been canceled", k.taskCfg.Name)
-					break LOOP_KAFKA_GO
-				case io.EOF:
-					log.Infof("%s Kafka.Run quit due to reader has been closed", k.taskCfg.Name)
-					break LOOP_KAFKA_GO
-				default:
-					statistics.ConsumeMsgsErrorTotal.WithLabelValues(k.taskCfg.Name).Inc()
-					err = errors.Wrap(err, "")
-					log.Errorf("%s Kafka.Run got error %+v", k.taskCfg.Name, err)
-					continue
-				}
+LOOP_KAFKA_GO:
+	for {
+		var err error
+		var msg kafka.Message
+		if msg, err = k.r.FetchMessage(ctx); err != nil {
+			switch errors.Cause(err) {
+			case context.Canceled:
+				log.Infof("%s Kafka.Run quit due to context has been canceled", k.taskCfg.Name)
+				break LOOP_KAFKA_GO
+			case io.EOF:
+				log.Infof("%s Kafka.Run quit due to reader has been closed", k.taskCfg.Name)
+				break LOOP_KAFKA_GO
+			default:
+				statistics.ConsumeMsgsErrorTotal.WithLabelValues(k.taskCfg.Name).Inc()
+				err = errors.Wrap(err, "")
+				log.Errorf("%s Kafka.Run got error %+v", k.taskCfg.Name, err)
+				continue
 			}
-			k.putFn(model.InputMessage{
-				Topic:     msg.Topic,
-				Partition: msg.Partition,
-				Key:       msg.Key,
-				Value:     msg.Value,
-				Offset:    msg.Offset,
-				Timestamp: &msg.Time,
-			})
 		}
+		k.putFn(model.InputMessage{
+			Topic:     msg.Topic,
+			Partition: msg.Partition,
+			Key:       msg.Key,
+			Value:     msg.Value,
+			Offset:    msg.Offset,
+			Timestamp: &msg.Time,
+		})
+	}
 }
 
 func (k *KafkaGo) CommitMessages(ctx context.Context, msg *model.InputMessage) error {
-		return k.r.CommitMessages(ctx, kafka.Message{
-			Topic:     msg.Topic,
-			Partition: msg.Partition,
-			Offset:    msg.Offset,
-		})			
+	err := k.r.CommitMessages(ctx, kafka.Message{
+		Topic:     msg.Topic,
+		Partition: msg.Partition,
+		Offset:    msg.Offset,
+	})
+	if err != nil {
+		err = errors.Wrapf(err, "")
+		return err
+	}
+	return nil
 }
 
 // Stop kafka consumer and close all connections

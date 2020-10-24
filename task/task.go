@@ -106,9 +106,9 @@ LOOP:
 	service.stopped <- struct{}{}
 }
 
-func (service *Service) fnCommit(partition int, offset int64) {
+func (service *Service) fnCommit(partition int, offset int64) error {
 	msg := model.InputMessage{Topic: service.taskCfg.Topic, Partition: partition, Offset: offset}
-	service.inputer.CommitMessages(service.ctx, &msg)
+	return service.inputer.CommitMessages(service.ctx, &msg)
 }
 
 func (service *Service) put(msg model.InputMessage) {

@@ -142,7 +142,10 @@ func (c *ClickHouse) loopWrite(batch *model.Batch, callback func(batch *model.Ba
 	defer statistics.FlushBatchBacklog.WithLabelValues(c.taskCfg.Name).Dec()
 	for {
 		if err = c.write(batch); err == nil {
-			callback(batch)
+			if err = callback(batch); err!=nil{
+				log.Criticalf("commiting offset failed with error %+v", err)
+				os.Exit(-1)	
+			}
 			return
 		}
 		if std_errors.Is(err, context.Canceled) {
