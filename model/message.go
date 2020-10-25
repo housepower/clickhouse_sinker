@@ -1,6 +1,7 @@
 package model
 
 import (
+	"container/list"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -42,7 +43,7 @@ type BatchGroup struct {
 
 type BatchSys struct {
 	mux      sync.Mutex
-	groups   []*BatchGroup
+	groups   list.List
 	fnCommit func(partition int, offset int64) error
 }
 
@@ -53,11 +54,10 @@ func NewBatchSys(fnCommit func(partition int, offset int64) error) *BatchSys {
 func (bs *BatchSys) TryCommit() error {
 	bs.mux.Lock()
 	defer bs.mux.Unlock()
-	var i int
-	var grp *BatchGroup
 	// ensure groups be committed orderly
 LOOP:
-	for i, grp = range bs.groups {
+	for e := bs.groups.Front(); e!=nil; {
+		grp := e.Value.(*BatchGroup)
 		if atomic.LoadInt32(&grp.PendWrite) != 0 {
 			break LOOP
 		}
@@ -69,15 +69,17 @@ LOOP:
 				}
 			}
 		}
+		eNext := e.Next()
+		bs.groups.Remove(e)
+		e = eNext
 	}
-	bs.groups = bs.groups[i:]
 	return nil
 }
 
 func (bs *BatchSys) NewBatchGroup() *BatchGroup {
 	bg := &BatchGroup{Sys: bs}
 	bs.mux.Lock()
-	bs.groups = append(bs.groups, bg)
+	bs.groups.PushBack(bg)
 	bs.mux.Unlock()
 	return bg
 }

@@ -209,6 +209,6 @@ func (c *ClickHouse) initSchema() (err error) {
 	c.prepareSQL = "INSERT INTO " + c.chCfg.DB + "." + c.taskCfg.TableName + " (" + strings.Join(c.dms, ",") + ") " +
 		"VALUES (" + strings.Join(params, ",") + ")"
 
-	log.Info("%s: Prepare sql=>", c.taskCfg.Name, c.prepareSQL)
+	log.Infof("%s: Prepare sql=> %s", c.taskCfg.Name, c.prepareSQL)
 	return nil
 }
