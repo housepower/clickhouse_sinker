@@ -68,14 +68,14 @@ var (
 	RingNormalBatchsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: prefix + "ring_normal_batchs_total",
-			Help: "total num of normal batchs generated",
+			Help: "total num of normal batches generated",
 		},
 		[]string{"task"},
 	)
 	RingForceBatchsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: prefix + "ring_force_batchs_total",
-			Help: "total num of force batchs generated",
+			Help: "total num of force batches generated",
 		},
 		[]string{"task"},
 	)
@@ -131,7 +131,7 @@ var (
 	FlushBatchBacklog = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: prefix + "flush_batch_backlog",
-			Help: "num of batchs pending to flush",
+			Help: "num of batches pending to flush",
 		},
 		[]string{"task"},
 	)

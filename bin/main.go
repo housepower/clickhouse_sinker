@@ -217,7 +217,7 @@ func (s *Sinker) Init() (err error) {
 	}
 
 	util.InitGlobalTimerWheel()
-	util.InitGlobalWorkerPool1(s.cfg.Common.ConcurrentParsers)
+	util.InitGlobalParsingPool(s.cfg.Common.ConcurrentParsers)
 	blockSize := s.cfg.Common.BufferSize
 	for _, taskCfg := range s.cfg.Tasks {
 		if blockSize < taskCfg.BufferSize {
@@ -233,7 +233,7 @@ func (s *Sinker) Init() (err error) {
 	for _, taskCfg := range s.cfg.Tasks {
 		totalConn += pool.GetNumConn(taskCfg.Clickhouse)
 	}
-	util.InitGlobalWorkerPool2(totalConn)
+	util.InitGlobalWritingPool(totalConn)
 
 	s.tasks = GenTasks(s.cfg)
 	for _, t := range s.tasks {
@@ -262,8 +262,8 @@ func (s *Sinker) Close() {
 		s.tasks[i].Stop()
 	}
 
-	util.GlobalWorkerPool1.StopWait()
-	util.GlobalWorkerPool2.StopWait()
+	util.GlobalParsingPool.StopWait()
+	util.GlobalWritingPool.StopWait()
 	util.GlobalTimerWheel.Stop()
 
 	if s.pusher != nil {

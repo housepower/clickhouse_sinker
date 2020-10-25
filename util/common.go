@@ -24,8 +24,8 @@ import (
 
 var (
 	GlobalTimerWheel  *goetty.TimeoutWheel //the global timer wheel
-	GlobalWorkerPool1 *WorkerPool          //the global worker pool for cpu intensive works
-	GlobalWorkerPool2 *WorkerPool          //the global worker pool for network intensive works
+	GlobalParsingPool *WorkerPool          //for all tasks' parsing, cpu intensive
+	GlobalWritingPool *WorkerPool          //the all tasks' writing ClickHouse, cpu-net balance
 )
 
 // InitGlobalTimerWheel initialize the global timer wheel
@@ -33,14 +33,14 @@ func InitGlobalTimerWheel() {
 	GlobalTimerWheel = goetty.NewTimeoutWheel(goetty.WithTickInterval(time.Second))
 }
 
-// InitGlobalWorkerPool1 initialize GlobalWorkerPool1
-func InitGlobalWorkerPool1(maxWorkers int) {
-	GlobalWorkerPool1 = NewWorkerPool(maxWorkers, 10*maxWorkers)
+// InitGlobalParsingPool initialize GlobalParsingPool
+func InitGlobalParsingPool(maxWorkers int) {
+	GlobalParsingPool = NewWorkerPool(maxWorkers, 10*maxWorkers)
 }
 
-// InitGlobalWorkerPool2 initialize GlobalWorkerPool2
-func InitGlobalWorkerPool2(maxWorkers int) {
-	GlobalWorkerPool2 = NewWorkerPool(maxWorkers, 10*maxWorkers)
+// InitGlobalWritingPool initialize GlobalWritingPool
+func InitGlobalWritingPool(maxWorkers int) {
+	GlobalWritingPool = NewWorkerPool(maxWorkers, 10*maxWorkers)
 }
 
 // StringContains check if contains string in array
