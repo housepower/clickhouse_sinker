@@ -31,14 +31,14 @@ type Batch struct {
 	Group    *BatchGroup
 }
 
-//BatchGroup consists of multiple batchs.
-//The `before` relationship could be impossilbe if messages of a partition are distributed to multiple batchs.
-//So thoese batchs need to be committed after ALL of them have been written to clickhouse.
+//BatchGroup consists of multiple batches.
+//The `before` relationship could be impossilbe if messages of a partition are distributed to multiple batches.
+//So those batches need to be committed after ALL of them have been written to clickhouse.
 type BatchGroup struct {
 	Batchs    []*Batch
 	Offsets   []int64
 	Sys       *BatchSys
-	PendWrite int32 //how many batchs in this group are pending to wirte to ClickHouse
+	PendWrite int32 //how many batches in this group are pending to wirte to ClickHouse
 }
 
 type BatchSys struct {
