@@ -56,7 +56,7 @@ func (bs *BatchSys) TryCommit() error {
 	defer bs.mux.Unlock()
 	// ensure groups be committed orderly
 LOOP:
-	for e := bs.groups.Front(); e!=nil; {
+	for e := bs.groups.Front(); e != nil; {
 		grp := e.Value.(*BatchGroup)
 		if atomic.LoadInt32(&grp.PendWrite) != 0 {
 			break LOOP
