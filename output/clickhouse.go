@@ -42,12 +42,12 @@ var (
 // ClickHouse is an output service consumers from kafka messages
 type ClickHouse struct {
 	Dims []*model.ColumnWithType
+	Dms  []string
 	// Table Configs
 	taskCfg *config.TaskConfig
 	chCfg   *config.ClickHouseConfig
 
 	prepareSQL string
-	dms        []string
 }
 
 // NewClickHouse new a clickhouse instance
@@ -197,16 +197,16 @@ func (c *ClickHouse) initSchema() (err error) {
 			})
 		}
 	}
-	//根据 dms 生成prepare的sql语句
-	c.dms = make([]string, 0, len(c.Dims))
+	//根据 Dms 生成prepare的sql语句
+	c.Dms = make([]string, 0, len(c.Dims))
 	for _, d := range c.Dims {
-		c.dms = append(c.dms, d.Name)
+		c.Dms = append(c.Dms, d.Name)
 	}
 	var params = make([]string, len(c.Dims))
 	for i := range params {
 		params[i] = "?"
 	}
-	c.prepareSQL = "INSERT INTO " + c.chCfg.DB + "." + c.taskCfg.TableName + " (" + strings.Join(c.dms, ",") + ") " +
+	c.prepareSQL = "INSERT INTO " + c.chCfg.DB + "." + c.taskCfg.TableName + " (" + strings.Join(c.Dms, ",") + ") " +
 		"VALUES (" + strings.Join(params, ",") + ")"
 
 	log.Infof("%s: Prepare sql=> %s", c.taskCfg.Name, c.prepareSQL)

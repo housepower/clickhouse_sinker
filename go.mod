@@ -8,6 +8,7 @@ require (
 	github.com/Shopify/sarama v1.27.1
 	github.com/andybalholm/cascadia v0.0.0-20161224141413-349dd0209470 // indirect
 	github.com/armon/go-metrics v0.0.0-20190430140413-ec5e00d3c878 // indirect
+	github.com/cespare/xxhash v1.1.0
 	github.com/fagongzi/goetty v1.6.0
 	github.com/golang/protobuf v1.4.2 // indirect
 	github.com/google/btree v1.0.0 // indirect

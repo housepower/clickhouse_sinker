@@ -20,8 +20,9 @@ type InputMessage struct {
 }
 
 type MsgRow struct {
-	Msg *InputMessage
-	Row []interface{}
+	Msg   *InputMessage
+	Row   []interface{}
+	Shard int
 }
 
 type Batch struct {
@@ -76,34 +77,40 @@ LOOP:
 	return nil
 }
 
-func (bs *BatchSys) NewBatchGroup() *BatchGroup {
-	bg := &BatchGroup{Sys: bs}
+func (bs *BatchSys) CreateBatchGroupSingle(batch *Batch, partition int, offset int64) {
+	bg := &BatchGroup{
+		Sys:       bs,
+		Batchs:    []*Batch{batch},
+		Offsets:   make([]int64, partition+1),
+		PendWrite: 1,
+	}
+	bg.Batchs[0].Group = bg
+	for i := 0; i < partition; i++ {
+		bg.Offsets[i] = -1
+	}
+	bg.Offsets[partition] = offset
 	bs.mux.Lock()
 	bs.groups.PushBack(bg)
 	bs.mux.Unlock()
-	return bg
 }
 
-func (bg *BatchGroup) NewBatch(batchSize int, cap int) (batch *Batch) {
+func (bs *BatchSys) CreateBatchGroupMulti(batches []*Batch, offsets []int64) {
+	bg := &BatchGroup{Sys: bs, PendWrite: int32(len(batches))}
+	bg.Batchs = append(bg.Batchs, batches...)
+	bg.Offsets = append(bg.Offsets, offsets...)
+	for _, batch := range bg.Batchs {
+		batch.Group = bg
+	}
+	bs.mux.Lock()
+	bs.groups.PushBack(bg)
+	bs.mux.Unlock()
+}
+
+func NewBatch(cap int) (batch *Batch) {
 	b := &Batch{
-		MsgRows: make([]MsgRow, batchSize, cap),
-		Group:   bg,
+		MsgRows: make([]MsgRow, 0, cap),
 	}
-	bg.Batchs = append(bg.Batchs, b)
-	atomic.AddInt32(&bg.PendWrite, 1)
 	return b
-}
-
-func (bg *BatchGroup) UpdateOffset(partition int, offset int64) bool {
-	gap := partition + 1 - len(bg.Offsets)
-	for i := 0; i < gap; i++ {
-		bg.Offsets = append(bg.Offsets, -1)
-	}
-	if offset <= bg.Offsets[partition] {
-		return false
-	}
-	bg.Offsets[partition] = offset
-	return true
 }
 
 func (b *Batch) Size() int {

@@ -128,6 +128,13 @@ var (
 		},
 		[]string{"task"},
 	)
+	ShardMsgsBacklog = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: prefix + "shard_msgs_backlog",
+			Help: "num of msgs pending to shard",
+		},
+		[]string{"task"},
+	)
 	FlushBatchBacklog = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: prefix + "flush_batch_backlog",
@@ -152,6 +159,7 @@ func init() {
 	prometheus.MustRegister(ConsumeOffsets)
 	prometheus.MustRegister(ClickhouseReconnectTotal)
 	prometheus.MustRegister(ParseMsgsBacklog)
+	prometheus.MustRegister(ShardMsgsBacklog)
 	prometheus.MustRegister(FlushBatchBacklog)
 	prometheus.MustRegister(prometheus.NewBuildInfoCollector())
 }
@@ -233,6 +241,7 @@ func (p *Pusher) reconnect() {
 		Collector(ConsumeOffsets).
 		Collector(ClickhouseReconnectTotal).
 		Collector(ParseMsgsBacklog).
+		Collector(ShardMsgsBacklog).
 		Collector(FlushBatchBacklog).
 		Grouping("instance", p.instance).Format(expfmt.FmtText)
 	p.inUseAddr = nextAddr

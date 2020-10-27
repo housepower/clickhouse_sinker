@@ -51,6 +51,7 @@ type Service struct {
 	dims       []*model.ColumnWithType
 
 	rings     []*Ring
+	sharder   *Sharder
 	batchChan chan *model.Batch
 	limiter1  *rate.Limiter
 	limiter2  *rate.Limiter
@@ -82,16 +83,31 @@ func (service *Service) Init() (err error) {
 	service.limiter2 = rate.NewLimiter(rate.Every(10*time.Second), 1)
 	service.limiter3 = rate.NewLimiter(rate.Every(10*time.Second), 1)
 
+	if service.taskCfg.ShardingKey != "" {
+		if service.sharder, err = NewSharder(service); err != nil {
+			return
+		}
+	}
+
 	err = service.inputer.Init(service.taskCfg, service.put)
 	return
 }
 
 // Run starts the task
 func (service *Service) Run(ctx context.Context) {
+	var err error
 	service.started = true
 	service.ctx = ctx
 	log.Infof("%s: task started", service.taskCfg.Name)
 	go service.inputer.Run(ctx)
+	if service.sharder != nil {
+		// schedule a delayed ForceFlush
+		if service.sharder.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(service.taskCfg.FlushInterval)*time.Second, service.sharder.ForceFlush, nil); err != nil {
+			err = errors.Wrap(err, "")
+			log.Criticalf("%s: got error %+v", service.taskCfg.Name, err)
+		}
+	}
+
 LOOP:
 	for {
 		select {
@@ -141,8 +157,8 @@ func (service *Service) put(msg model.InputMessage) {
 			batchSys:         model.NewBatchSys(service.fnCommit),
 			service:          service,
 		}
-		// schedule a delayed ForceBatch
-		if ring.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(service.taskCfg.FlushInterval)*time.Second, ring.ForceBatch, nil); err != nil {
+		// schedule a delayed ForceBatchOrShard
+		if ring.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(service.taskCfg.FlushInterval)*time.Second, ring.ForceBatchOrShard, nil); err != nil {
 			err = errors.Wrap(err, "")
 			log.Criticalf("%s: got error %+v", service.taskCfg.Name, err)
 		}
@@ -169,7 +185,7 @@ func (service *Service) put(msg model.InputMessage) {
 					service.taskCfg.Name, msg.Topic, msg.Partition, msg.Offset, ring.ringGroundOff, ring.ringGroundOff+ring.ringCap)
 			}
 			time.Sleep(1 * time.Second)
-			ring.ForceBatch(&msg)
+			ring.ForceBatchOrShard(&msg)
 		}
 	}
 
