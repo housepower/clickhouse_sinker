@@ -17,9 +17,9 @@ import (
 )
 
 type ShardingPolicy struct {
-	ckNum  int   //number of clickhouse instances
-	colSeq int   //shardingKey column seq, 0 based
-	stripe int64 //<=0 means hash, >0 means stripe size
+	ckNum  int    //number of clickhouse instances
+	colSeq int    //shardingKey column seq, 0 based
+	stripe uint64 //=0 means hash, >0 means stripe size
 }
 
 func NewShardingPolicy(shardingKey, shardingPolicy string, dims []string, ckNum int) (policy *ShardingPolicy, err error) {
@@ -38,7 +38,7 @@ func NewShardingPolicy(shardingKey, shardingPolicy string, dims []string, ckNum 
 	if shardingPolicy == "hash" {
 		policy.stripe = 0
 	} else if strings.HasPrefix(shardingPolicy, "stripe,") {
-		if policy.stripe, err = strconv.ParseInt(shardingPolicy[len("stripe,"):], 10, 64); err != nil {
+		if policy.stripe, err = strconv.ParseUint(shardingPolicy[len("stripe,"):], 10, 64); err != nil {
 			err = errors.Wrapf(err, "invalid shardingPolicy %s", shardingPolicy)
 		}
 	} else {
@@ -50,54 +50,51 @@ func NewShardingPolicy(shardingKey, shardingPolicy string, dims []string, ckNum 
 func (policy *ShardingPolicy) Calc(row []interface{}) (shard int, err error) {
 	val := row[policy.colSeq]
 	if policy.stripe > 0 {
-		var valI64 int64
+		var valu64 uint64
 		switch v := val.(type) {
 		case int:
-			valI64 = int64(v)
+			valu64 = uint64(v)
 		case int8:
-			valI64 = int64(v)
+			valu64 = uint64(v)
 		case int16:
-			valI64 = int64(v)
+			valu64 = uint64(v)
 		case int32:
-			valI64 = int64(v)
+			valu64 = uint64(v)
 		case int64:
-			valI64 = v
+			valu64 = uint64(v)
 		case uint:
-			valI64 = int64(v)
+			valu64 = uint64(v)
 		case uint8:
-			valI64 = int64(v)
+			valu64 = uint64(v)
 		case uint16:
-			valI64 = int64(v)
+			valu64 = uint64(v)
 		case uint32:
-			valI64 = int64(v)
+			valu64 = uint64(v)
 		case uint64:
-			valI64 = int64(v)
+			valu64 = v
 		case float32:
-			valI64 = int64(v)
+			valu64 = uint64(v)
 		case float64:
-			valI64 = int64(v)
+			valu64 = uint64(v)
 		case time.Time:
-			valI64 = v.Unix()
+			valu64 = uint64(v.Unix())
 		default:
 			err = errors.Errorf("failed to convert %+v to integer", v)
 			return
 		}
-		shard = int((valI64 / policy.stripe) % int64(policy.ckNum))
+		shard = int((valu64 / policy.stripe) % uint64(policy.ckNum))
 	} else {
-		var valI64 uint64
+		var valu64 uint64
 		switch v := val.(type) {
 		case []byte:
-			valI64 = xxhash.Sum64(v)
+			valu64 = xxhash.Sum64(v)
 		case string:
-			valI64 = xxhash.Sum64String(v)
+			valu64 = xxhash.Sum64String(v)
 		default:
 			err = errors.Errorf("failed to convert %+v to string", v)
 			return
 		}
-		shard = int(valI64 % uint64(policy.ckNum))
-	}
-	if shard < 0 {
-		shard += policy.ckNum
+		shard = int(valu64 % uint64(policy.ckNum))
 	}
 	return
 }

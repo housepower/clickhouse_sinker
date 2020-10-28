@@ -206,5 +206,4 @@ func (ring *Ring) genBatchOrShard(expNewGroundOff int64) {
 	if ring.ringFilledOffset < ring.ringGroundOff {
 		ring.ringFilledOffset = ring.ringGroundOff
 	}
-	return
 }
