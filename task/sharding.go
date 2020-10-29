@@ -105,7 +105,7 @@ type Sharder struct {
 	batchSys *model.BatchSys
 	ckNum    int
 	mux      sync.Mutex
-	msgBuf   []model.Rows
+	msgBuf   []*model.Rows
 	offsets  []int64
 	tid      goetty.Timeout
 }
@@ -121,8 +121,11 @@ func NewSharder(service *Service) (sh *Sharder, err error) {
 		policy:   policy,
 		batchSys: model.NewBatchSys(service.taskCfg, service.fnCommit),
 		ckNum:    ckNum,
-		msgBuf:   make([]model.Rows, ckNum),
+		msgBuf:   make([]*model.Rows, ckNum),
 		offsets:  make([]int64, 0),
+	}
+	for i := 0; i < ckNum; i++ {
+		sh.msgBuf[i] = model.GetRows()
 	}
 	return
 }
@@ -141,7 +144,8 @@ func (sh *Sharder) PutElems(partition int, ringBuf []model.MsgRow, begOff, endOf
 		if msgRow.Msg != nil {
 			msgCnt++
 			//assert msg.Offset==i
-			sh.msgBuf[msgRow.Shard] = append(sh.msgBuf[msgRow.Shard], msgRow.Row)
+			rows := sh.msgBuf[msgRow.Shard]
+			*rows = append(*rows, msgRow.Row)
 			if gapBegOff >= 0 {
 				gaps = append(gaps, OffsetRange{Begin: gapBegOff, End: i})
 				gapBegOff = -1
@@ -167,7 +171,7 @@ func (sh *Sharder) PutElems(partition int, ringBuf []model.MsgRow, begOff, endOf
 	}
 	var maxBatchSize int
 	for i := 0; i < sh.ckNum; i++ {
-		batchSize := len(sh.msgBuf[i])
+		batchSize := len(*sh.msgBuf[i])
 		if maxBatchSize < batchSize {
 			maxBatchSize = batchSize
 		}
@@ -193,15 +197,16 @@ func (sh *Sharder) doFlush(_ interface{}) {
 	var msgCnt int
 	var batches []*model.Batch
 	for i, rows := range sh.msgBuf {
-		realSize := len(rows)
+		realSize := len(*rows)
 		if realSize > 0 {
 			msgCnt += realSize
-			batch := model.NewBatch(0)
-			batch.Rows = rows
-			batch.BatchIdx = int64(i)
-			batch.RealSize = realSize
+			batch := &model.Batch{
+				Rows:     rows,
+				BatchIdx: int64(i),
+				RealSize: realSize,
+			}
 			batches = append(batches, batch)
-			sh.msgBuf[i] = make(model.Rows, 0, sh.service.taskCfg.BufferSize)
+			sh.msgBuf[i] = model.GetRows()
 		}
 	}
 	if msgCnt > 0 {

@@ -75,7 +75,7 @@ func (c *ClickHouse) Send(batch *model.Batch, callback func(batch *model.Batch) 
 
 // Write kvs to clickhouse
 func (c *ClickHouse) write(batch *model.Batch) error {
-	if len(batch.Rows) == 0 {
+	if len(*batch.Rows) == 0 {
 		return nil
 	}
 
@@ -102,7 +102,7 @@ func (c *ClickHouse) write(batch *model.Batch) error {
 
 	defer stmt.Close()
 	var numErr int
-	for _, row := range batch.Rows {
+	for _, row := range *batch.Rows {
 		if row != nil {
 			if _, err = stmt.Exec(*row...); err != nil {
 				err = errors.Wrap(err, "")

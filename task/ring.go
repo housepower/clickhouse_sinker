@@ -146,7 +146,7 @@ func (ring *Ring) genBatchOrShard(expNewGroundOff int64) {
 		statistics.ParseMsgsBacklog.WithLabelValues(ring.service.taskCfg.Name).Sub(float64(msgCnt))
 	} else {
 		gapBegOff := int64(-1)
-		batch := model.NewBatch(ring.service.taskCfg.BufferSize)
+		batch := model.NewBatch()
 		for i := ring.ringGroundOff; i < endOff; i++ {
 			off := i & (ring.ringCap - 1)
 			msg := ring.ringBuf[off].Msg
@@ -156,7 +156,7 @@ func (ring *Ring) genBatchOrShard(expNewGroundOff int64) {
 					gaps = append(gaps, OffsetRange{Begin: gapBegOff, End: i})
 					gapBegOff = -1
 				}
-				batch.Rows = append(batch.Rows, ring.ringBuf[off].Row)
+				*batch.Rows = append(*batch.Rows, ring.ringBuf[off].Row)
 			} else if gapBegOff < 0 {
 				gapBegOff = i
 			}

@@ -12,6 +12,10 @@ import (
 	"github.com/housepower/clickhouse_sinker/statistics"
 )
 
+var (
+	rowsPool sync.Pool
+)
+
 // MsgWithMeta abstract messages
 // We are not using interface because virtual call. See https://syslog.ravelin.com/go-interfaces-but-at-what-cost-961e0f58a07b?gi=58f6761d1d70
 type InputMessage struct {
@@ -33,7 +37,7 @@ type MsgRow struct {
 }
 
 type Batch struct {
-	Rows     Rows
+	Rows     *Rows
 	BatchIdx int64
 	RealSize int
 	Group    *BatchGroup
@@ -115,17 +119,35 @@ func (bs *BatchSys) CreateBatchGroupMulti(batches []*Batch, offsets []int64) {
 	bs.mux.Unlock()
 }
 
-func NewBatch(cap int) *Batch {
-	return &Batch{Rows: make(Rows, 0, cap)}
+func NewBatch() (b *Batch) {
+	return &Batch{
+		Rows: GetRows(),
+	}
 }
 
 func (b *Batch) Size() int {
-	return len(b.Rows)
+	return len(*b.Rows)
 }
 
 func (b *Batch) Commit() error {
+	PutRows(b.Rows)
+	b.Rows = nil
 	atomic.AddInt32(&b.Group.PendWrite, -1)
 	return b.Group.Sys.TryCommit()
+}
+
+func GetRows() (rs *Rows) {
+	v := rowsPool.Get()
+	if v == nil {
+		rows := make(Rows, 0)
+		return &rows
+	}
+	return v.(*Rows)
+}
+
+func PutRows(rs *Rows) {
+	*rs = (*rs)[:0]
+	rowsPool.Put(rs)
 }
 
 var rowPool sync.Pool
