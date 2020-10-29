@@ -161,6 +161,7 @@ func (ring *Ring) genBatchOrShard(expNewGroundOff int64) {
 				gapBegOff = i
 			}
 		}
+		batch.RealSize = len(*batch.Rows)
 		if gapBegOff >= 0 {
 			gaps = append(gaps, OffsetRange{Begin: gapBegOff, End: endOff})
 		}
