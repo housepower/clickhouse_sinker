@@ -2,10 +2,14 @@ package model
 
 import (
 	"container/list"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/housepower/clickhouse_sinker/config"
+	"github.com/housepower/clickhouse_sinker/statistics"
 )
 
 // MsgWithMeta abstract messages
@@ -19,14 +23,17 @@ type InputMessage struct {
 	Timestamp *time.Time
 }
 
+type Row []interface{}
+type Rows []Row
+
 type MsgRow struct {
 	Msg   *InputMessage
-	Row   []interface{}
+	Row   Row
 	Shard int
 }
 
 type Batch struct {
-	MsgRows  []MsgRow
+	Rows     Rows
 	BatchIdx int64
 	RealSize int
 	Group    *BatchGroup
@@ -43,13 +50,14 @@ type BatchGroup struct {
 }
 
 type BatchSys struct {
+	taskCfg  *config.TaskConfig
 	mux      sync.Mutex
 	groups   list.List
 	fnCommit func(partition int, offset int64) error
 }
 
-func NewBatchSys(fnCommit func(partition int, offset int64) error) *BatchSys {
-	return &BatchSys{fnCommit: fnCommit}
+func NewBatchSys(taskCfg *config.TaskConfig, fnCommit func(partition int, offset int64) error) *BatchSys {
+	return &BatchSys{taskCfg: taskCfg, fnCommit: fnCommit}
 }
 
 func (bs *BatchSys) TryCommit() error {
@@ -68,6 +76,7 @@ LOOP:
 				if err := bs.fnCommit(j, off); err != nil {
 					return err
 				}
+				statistics.ConsumeOffsets.WithLabelValues(bs.taskCfg.Name, strconv.Itoa(j), bs.taskCfg.Topic).Set(float64(off))
 			}
 		}
 		eNext := e.Next()
@@ -108,13 +117,13 @@ func (bs *BatchSys) CreateBatchGroupMulti(batches []*Batch, offsets []int64) {
 
 func NewBatch(cap int) (batch *Batch) {
 	b := &Batch{
-		MsgRows: make([]MsgRow, 0, cap),
+		Rows: make([]Row, 0, cap),
 	}
 	return b
 }
 
 func (b *Batch) Size() int {
-	return len(b.MsgRows)
+	return len(b.Rows)
 }
 
 func (b *Batch) Commit() error {

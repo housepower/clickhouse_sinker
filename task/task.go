@@ -154,7 +154,7 @@ func (service *Service) put(msg model.InputMessage) {
 			idleCnt:          0,
 			isIdle:           false,
 			partition:        msg.Partition,
-			batchSys:         model.NewBatchSys(service.fnCommit),
+			batchSys:         model.NewBatchSys(service.taskCfg, service.fnCommit),
 			service:          service,
 		}
 		// schedule a delayed ForceBatchOrShard
@@ -215,12 +215,10 @@ func (service *Service) put(msg model.InputMessage) {
 }
 
 func (service *Service) flush(batch *model.Batch) (err error) {
-	if (len(batch.MsgRows)) == 0 {
+	if (len(batch.Rows)) == 0 {
 		return batch.Commit()
 	}
 	service.clickhouse.Send(batch, func(batch *model.Batch) error {
-		lastMsg := batch.MsgRows[len(batch.MsgRows)-1].Msg
-		statistics.ConsumeOffsets.WithLabelValues(service.taskCfg.Name, strconv.Itoa(lastMsg.Partition), lastMsg.Topic).Set(float64(lastMsg.Offset))
 		return batch.Commit()
 	})
 	return nil

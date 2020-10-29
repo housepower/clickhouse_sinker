@@ -105,7 +105,7 @@ type Sharder struct {
 	batchSys *model.BatchSys
 	ckNum    int
 	mux      sync.Mutex
-	msgBuf   [][]model.MsgRow
+	msgBuf   []model.Rows
 	offsets  []int64
 	tid      goetty.Timeout
 }
@@ -119,9 +119,9 @@ func NewSharder(service *Service) (sh *Sharder, err error) {
 	sh = &Sharder{
 		service:  service,
 		policy:   policy,
-		batchSys: model.NewBatchSys(service.fnCommit),
+		batchSys: model.NewBatchSys(service.taskCfg, service.fnCommit),
 		ckNum:    ckNum,
-		msgBuf:   make([][]model.MsgRow, ckNum),
+		msgBuf:   make([]model.Rows, ckNum),
 		offsets:  make([]int64, 0),
 	}
 	return
@@ -131,20 +131,32 @@ func (sh *Sharder) Calc(row []interface{}) (int, error) {
 	return sh.policy.Calc(row)
 }
 
-func (sh *Sharder) PutElems(partition int, ringBuf []model.MsgRow, begOff, endOff, ringCap int64) {
+func (sh *Sharder) PutElems(partition int, ringBuf []model.MsgRow, begOff, endOff, ringCap int64) (msgCnt int) {
 	sh.mux.Lock()
 	defer sh.mux.Unlock()
-	var msgCnt int
+	var gaps []OffsetRange
+	gapBegOff := int64(-1)
 	for i := begOff; i < endOff; i++ {
 		msgRow := &ringBuf[i&(ringCap-1)]
 		if msgRow.Msg != nil {
 			msgCnt++
-			sh.msgBuf[msgRow.Shard] = append(sh.msgBuf[msgRow.Shard], *msgRow)
+			//assert msg.Offset==i
+			sh.msgBuf[msgRow.Shard] = append(sh.msgBuf[msgRow.Shard], msgRow.Row)
+			if gapBegOff >= 0 {
+				gaps = append(gaps, OffsetRange{Begin: gapBegOff, End: i})
+				gapBegOff = -1
+			}
+		} else if gapBegOff < 0 {
+			gapBegOff = i
 		}
 		msgRow.Msg = nil
 		msgRow.Row = nil
 		msgRow.Shard = -1
 	}
+	if gapBegOff >= 0 {
+		gaps = append(gaps, OffsetRange{Begin: gapBegOff, End: endOff})
+	}
+
 	gap := partition + 1 - len(sh.offsets)
 	for i := 0; i < gap; i++ {
 		sh.offsets = append(sh.offsets, -1)
@@ -160,9 +172,13 @@ func (sh *Sharder) PutElems(partition int, ringBuf []model.MsgRow, begOff, endOf
 			maxBatchSize = batchSize
 		}
 	}
+	log.Debugf("%s: sharded a batch for topic %v patittion %d, offset %d, messages %d, gaps: %+v",
+		sh.service.taskCfg.Name, sh.service.taskCfg.Topic, partition, endOff-1,
+		msgCnt, gaps)
 	if maxBatchSize >= sh.service.taskCfg.BufferSize {
 		sh.doFlush(nil)
 	}
+	return
 }
 
 func (sh *Sharder) ForceFlush(arg interface{}) {
@@ -176,16 +192,16 @@ func (sh *Sharder) doFlush(_ interface{}) {
 	var err error
 	var msgCnt int
 	var batches []*model.Batch
-	for i, msgRows := range sh.msgBuf {
-		realSize := len(msgRows)
-		msgCnt += realSize
+	for i, rows := range sh.msgBuf {
+		realSize := len(rows)
 		if realSize > 0 {
+			msgCnt += realSize
 			batch := model.NewBatch(0)
-			batch.MsgRows = msgRows
+			batch.Rows = rows
 			batch.BatchIdx = int64(i)
-			batch.RealSize = len(msgRows)
+			batch.RealSize = realSize
 			batches = append(batches, batch)
-			sh.msgBuf[i] = make([]model.MsgRow, 0, sh.service.taskCfg.BufferSize)
+			sh.msgBuf[i] = make(model.Rows, 0, sh.service.taskCfg.BufferSize)
 		}
 	}
 	if msgCnt > 0 {

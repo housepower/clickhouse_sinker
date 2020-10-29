@@ -141,57 +141,37 @@ func (ring *Ring) genBatchOrShard(expNewGroundOff int64) {
 	if endOff > ring.ringCeilingOff {
 		endOff = ring.ringCeilingOff
 	}
-	expOff := ring.ringGroundOff
 	if ring.service.sharder != nil {
-		var msgCnt int
-		for i := ring.ringGroundOff; i < endOff; i++ {
-			off := i & (ring.ringCap - 1)
-			msg := ring.ringBuf[off].Msg
-			if msg != nil {
-				msgCnt++
-				//assert msg.Offset==i
-				if i != expOff {
-					gaps = append(gaps, OffsetRange{Begin: expOff, End: i})
-				}
-				expOff = i + 1
-			}
-		}
-		if expOff != endOff {
-			gaps = append(gaps, OffsetRange{Begin: expOff, End: endOff})
-		}
-		log.Debugf("%s: going to shard a batch for topic %v patittion %d, offset %d, messages %d, gaps: %+v",
-			ring.service.taskCfg.Name, ring.service.taskCfg.Topic, ring.partition, endOff,
-			msgCnt, gaps)
-		if msgCnt > 0 {
-			ring.service.sharder.PutElems(ring.partition, ring.ringBuf, ring.ringGroundOff, endOff, ring.ringCap)
-			statistics.ParseMsgsBacklog.WithLabelValues(ring.service.taskCfg.Name).Sub(float64(msgCnt))
-		}
+		msgCnt := ring.service.sharder.PutElems(ring.partition, ring.ringBuf, ring.ringGroundOff, endOff, ring.ringCap)
+		statistics.ParseMsgsBacklog.WithLabelValues(ring.service.taskCfg.Name).Sub(float64(msgCnt))
 	} else {
+		gapBegOff := int64(-1)
 		batch := model.NewBatch(ring.service.taskCfg.BufferSize)
 		for i := ring.ringGroundOff; i < endOff; i++ {
 			off := i & (ring.ringCap - 1)
 			msg := ring.ringBuf[off].Msg
 			if msg != nil {
 				//assert msg.Offset==i
-				if i != expOff {
-					gaps = append(gaps, OffsetRange{Begin: expOff, End: i})
+				if gapBegOff >= 0 {
+					gaps = append(gaps, OffsetRange{Begin: gapBegOff, End: i})
+					gapBegOff = -1
 				}
-				expOff = i + 1
-				batch.MsgRows = append(batch.MsgRows, ring.ringBuf[off])
+				batch.Rows = append(batch.Rows, ring.ringBuf[off].Row)
+			} else if gapBegOff < 0 {
+				gapBegOff = i
 			}
 		}
-
-		if expOff != endOff {
-			gaps = append(gaps, OffsetRange{Begin: expOff, End: endOff})
+		if gapBegOff >= 0 {
+			gaps = append(gaps, OffsetRange{Begin: gapBegOff, End: endOff})
 		}
 
 		if batch.RealSize > 0 {
 			log.Debugf("%s: going to flush a batch for topic %v patittion %d, offset %d, messages %d, gaps: %+v",
-				ring.service.taskCfg.Name, ring.service.taskCfg.Topic, ring.partition, endOff,
+				ring.service.taskCfg.Name, ring.service.taskCfg.Topic, ring.partition, endOff-1,
 				batch.RealSize, gaps)
 
-			batch.BatchIdx = batch.MsgRows[0].Msg.Offset >> ring.batchSizeShift
-			ring.batchSys.CreateBatchGroupSingle(batch, ring.partition, endOff)
+			batch.BatchIdx = (endOff - 1) >> ring.batchSizeShift
+			ring.batchSys.CreateBatchGroupSingle(batch, ring.partition, endOff-1)
 			ring.service.batchChan <- batch
 			statistics.ParseMsgsBacklog.WithLabelValues(ring.service.taskCfg.Name).Sub(float64(batch.RealSize))
 			if gaps == nil {
