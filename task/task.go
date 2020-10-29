@@ -192,7 +192,7 @@ func (service *Service) put(msg model.InputMessage) {
 	// submit message to a goroutine pool
 	statistics.ParseMsgsBacklog.WithLabelValues(service.taskCfg.Name).Inc()
 	_ = util.GlobalParsingPool.Submit(func() {
-		var row []interface{}
+		var row *model.Row
 		p := service.pp.Get()
 		metric, err := p.Parse(msg.Value)
 		if err != nil {

@@ -24,11 +24,11 @@ type InputMessage struct {
 }
 
 type Row []interface{}
-type Rows []Row
+type Rows []*Row
 
 type MsgRow struct {
 	Msg   *InputMessage
-	Row   Row
+	Row   *Row
 	Shard int
 }
 
@@ -115,11 +115,8 @@ func (bs *BatchSys) CreateBatchGroupMulti(batches []*Batch, offsets []int64) {
 	bs.mux.Unlock()
 }
 
-func NewBatch(cap int) (batch *Batch) {
-	b := &Batch{
-		Rows: make([]Row, 0, cap),
-	}
-	return b
+func NewBatch(cap int) *Batch {
+	return &Batch{Rows: make(Rows, 0, cap)}
 }
 
 func (b *Batch) Size() int {
@@ -131,19 +128,35 @@ func (b *Batch) Commit() error {
 	return b.Group.Sys.TryCommit()
 }
 
-func MetricToRow(metric Metric, msg InputMessage, dims []*ColumnWithType) (row []interface{}) {
-	row = make([]interface{}, len(dims))
-	for i, dim := range dims {
+var rowPool sync.Pool
+
+func GetRow() *Row {
+	v := rowPool.Get()
+	if v == nil {
+		row := make(Row, 0)
+		return &row
+	}
+	return v.(*Row)
+}
+
+func PutRow(r *Row) {
+	*r = (*r)[:0]
+	rowPool.Put(r)
+}
+
+func MetricToRow(metric Metric, msg InputMessage, dims []*ColumnWithType) (row *Row) {
+	row = GetRow()
+	for _, dim := range dims {
 		if strings.HasPrefix(dim.Name, "__kafka") {
 			if strings.HasSuffix(dim.Name, "_topic") {
-				row[i] = msg.Topic
+				*row = append(*row, msg.Topic)
 			} else if strings.HasSuffix(dim.Name, "_partition") {
-				row[i] = msg.Partition
+				*row = append(*row, msg.Partition)
 			} else {
-				row[i] = msg.Offset
+				*row = append(*row, msg.Offset)
 			}
 		} else {
-			row[i] = GetValueByType(metric, dim)
+			*row = append(*row, GetValueByType(metric, dim))
 		}
 	}
 	return

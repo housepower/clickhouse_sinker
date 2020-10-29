@@ -47,8 +47,8 @@ func NewShardingPolicy(shardingKey, shardingPolicy string, dims []string, ckNum 
 	return
 }
 
-func (policy *ShardingPolicy) Calc(row []interface{}) (shard int, err error) {
-	val := row[policy.colSeq]
+func (policy *ShardingPolicy) Calc(row *model.Row) (shard int, err error) {
+	val := (*row)[policy.colSeq]
 	if policy.stripe > 0 {
 		var valu64 uint64
 		switch v := val.(type) {
@@ -127,7 +127,7 @@ func NewSharder(service *Service) (sh *Sharder, err error) {
 	return
 }
 
-func (sh *Sharder) Calc(row []interface{}) (int, error) {
+func (sh *Sharder) Calc(row *model.Row) (int, error) {
 	return sh.policy.Calc(row)
 }
 
