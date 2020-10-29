@@ -51,6 +51,7 @@ type Service struct {
 	dims       []*model.ColumnWithType
 
 	rings     []*Ring
+	sharder   *Sharder
 	batchChan chan *model.Batch
 	limiter1  *rate.Limiter
 	limiter2  *rate.Limiter
@@ -82,16 +83,31 @@ func (service *Service) Init() (err error) {
 	service.limiter2 = rate.NewLimiter(rate.Every(10*time.Second), 1)
 	service.limiter3 = rate.NewLimiter(rate.Every(10*time.Second), 1)
 
+	if service.taskCfg.ShardingKey != "" {
+		if service.sharder, err = NewSharder(service); err != nil {
+			return
+		}
+	}
+
 	err = service.inputer.Init(service.taskCfg, service.put)
 	return
 }
 
 // Run starts the task
 func (service *Service) Run(ctx context.Context) {
+	var err error
 	service.started = true
 	service.ctx = ctx
 	log.Infof("%s: task started", service.taskCfg.Name)
 	go service.inputer.Run(ctx)
+	if service.sharder != nil {
+		// schedule a delayed ForceFlush
+		if service.sharder.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(service.taskCfg.FlushInterval)*time.Second, service.sharder.ForceFlush, nil); err != nil {
+			err = errors.Wrap(err, "")
+			log.Criticalf("%s: got error %+v", service.taskCfg.Name, err)
+		}
+	}
+
 LOOP:
 	for {
 		select {
@@ -138,11 +154,11 @@ func (service *Service) put(msg model.InputMessage) {
 			idleCnt:          0,
 			isIdle:           false,
 			partition:        msg.Partition,
-			batchSys:         model.NewBatchSys(service.fnCommit),
+			batchSys:         model.NewBatchSys(service.taskCfg, service.fnCommit),
 			service:          service,
 		}
-		// schedule a delayed ForceBatch
-		if ring.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(service.taskCfg.FlushInterval)*time.Second, ring.ForceBatch, nil); err != nil {
+		// schedule a delayed ForceBatchOrShard
+		if ring.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(service.taskCfg.FlushInterval)*time.Second, ring.ForceBatchOrShard, nil); err != nil {
 			err = errors.Wrap(err, "")
 			log.Criticalf("%s: got error %+v", service.taskCfg.Name, err)
 		}
@@ -169,14 +185,14 @@ func (service *Service) put(msg model.InputMessage) {
 					service.taskCfg.Name, msg.Topic, msg.Partition, msg.Offset, ring.ringGroundOff, ring.ringGroundOff+ring.ringCap)
 			}
 			time.Sleep(1 * time.Second)
-			ring.ForceBatch(&msg)
+			ring.ForceBatchOrShard(&msg)
 		}
 	}
 
 	// submit message to a goroutine pool
 	statistics.ParseMsgsBacklog.WithLabelValues(service.taskCfg.Name).Inc()
 	_ = util.GlobalParsingPool.Submit(func() {
-		var row []interface{}
+		var row *model.Row
 		p := service.pp.Get()
 		metric, err := p.Parse(msg.Value)
 		if err != nil {
@@ -199,12 +215,10 @@ func (service *Service) put(msg model.InputMessage) {
 }
 
 func (service *Service) flush(batch *model.Batch) (err error) {
-	if (len(batch.MsgRows)) == 0 {
+	if (len(*batch.Rows)) == 0 {
 		return batch.Commit()
 	}
 	service.clickhouse.Send(batch, func(batch *model.Batch) error {
-		lastMsg := batch.MsgRows[len(batch.MsgRows)-1].Msg
-		statistics.ConsumeOffsets.WithLabelValues(service.taskCfg.Name, strconv.Itoa(lastMsg.Partition), lastMsg.Topic).Set(float64(lastMsg.Offset))
 		return batch.Commit()
 	})
 	return nil

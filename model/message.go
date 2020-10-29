@@ -2,10 +2,18 @@ package model
 
 import (
 	"container/list"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/housepower/clickhouse_sinker/config"
+	"github.com/housepower/clickhouse_sinker/statistics"
+)
+
+var (
+	rowsPool sync.Pool
 )
 
 // MsgWithMeta abstract messages
@@ -19,13 +27,17 @@ type InputMessage struct {
 	Timestamp *time.Time
 }
 
+type Row []interface{}
+type Rows []*Row
+
 type MsgRow struct {
-	Msg *InputMessage
-	Row []interface{}
+	Msg   *InputMessage
+	Row   *Row
+	Shard int
 }
 
 type Batch struct {
-	MsgRows  []MsgRow
+	Rows     *Rows
 	BatchIdx int64
 	RealSize int
 	Group    *BatchGroup
@@ -42,13 +54,14 @@ type BatchGroup struct {
 }
 
 type BatchSys struct {
+	taskCfg  *config.TaskConfig
 	mux      sync.Mutex
 	groups   list.List
 	fnCommit func(partition int, offset int64) error
 }
 
-func NewBatchSys(fnCommit func(partition int, offset int64) error) *BatchSys {
-	return &BatchSys{fnCommit: fnCommit}
+func NewBatchSys(taskCfg *config.TaskConfig, fnCommit func(partition int, offset int64) error) *BatchSys {
+	return &BatchSys{taskCfg: taskCfg, fnCommit: fnCommit}
 }
 
 func (bs *BatchSys) TryCommit() error {
@@ -56,7 +69,7 @@ func (bs *BatchSys) TryCommit() error {
 	defer bs.mux.Unlock()
 	// ensure groups be committed orderly
 LOOP:
-	for e := bs.groups.Front(); e!=nil; {
+	for e := bs.groups.Front(); e != nil; {
 		grp := e.Value.(*BatchGroup)
 		if atomic.LoadInt32(&grp.PendWrite) != 0 {
 			break LOOP
@@ -67,6 +80,7 @@ LOOP:
 				if err := bs.fnCommit(j, off); err != nil {
 					return err
 				}
+				statistics.ConsumeOffsets.WithLabelValues(bs.taskCfg.Name, strconv.Itoa(j), bs.taskCfg.Topic).Set(float64(off))
 			}
 		}
 		eNext := e.Next()
@@ -76,58 +90,95 @@ LOOP:
 	return nil
 }
 
-func (bs *BatchSys) NewBatchGroup() *BatchGroup {
-	bg := &BatchGroup{Sys: bs}
+func (bs *BatchSys) CreateBatchGroupSingle(batch *Batch, partition int, offset int64) {
+	bg := &BatchGroup{
+		Sys:       bs,
+		Batchs:    []*Batch{batch},
+		Offsets:   make([]int64, partition+1),
+		PendWrite: 1,
+	}
+	bg.Batchs[0].Group = bg
+	for i := 0; i < partition; i++ {
+		bg.Offsets[i] = -1
+	}
+	bg.Offsets[partition] = offset
 	bs.mux.Lock()
 	bs.groups.PushBack(bg)
 	bs.mux.Unlock()
-	return bg
 }
 
-func (bg *BatchGroup) NewBatch(batchSize int, cap int) (batch *Batch) {
-	b := &Batch{
-		MsgRows: make([]MsgRow, batchSize, cap),
-		Group:   bg,
+func (bs *BatchSys) CreateBatchGroupMulti(batches []*Batch, offsets []int64) {
+	bg := &BatchGroup{Sys: bs, PendWrite: int32(len(batches))}
+	bg.Batchs = append(bg.Batchs, batches...)
+	bg.Offsets = append(bg.Offsets, offsets...)
+	for _, batch := range bg.Batchs {
+		batch.Group = bg
 	}
-	bg.Batchs = append(bg.Batchs, b)
-	atomic.AddInt32(&bg.PendWrite, 1)
-	return b
+	bs.mux.Lock()
+	bs.groups.PushBack(bg)
+	bs.mux.Unlock()
 }
 
-func (bg *BatchGroup) UpdateOffset(partition int, offset int64) bool {
-	gap := partition + 1 - len(bg.Offsets)
-	for i := 0; i < gap; i++ {
-		bg.Offsets = append(bg.Offsets, -1)
+func NewBatch() (b *Batch) {
+	return &Batch{
+		Rows: GetRows(),
 	}
-	if offset <= bg.Offsets[partition] {
-		return false
-	}
-	bg.Offsets[partition] = offset
-	return true
 }
 
 func (b *Batch) Size() int {
-	return len(b.MsgRows)
+	return len(*b.Rows)
 }
 
 func (b *Batch) Commit() error {
+	PutRows(b.Rows)
+	b.Rows = nil
 	atomic.AddInt32(&b.Group.PendWrite, -1)
 	return b.Group.Sys.TryCommit()
 }
 
-func MetricToRow(metric Metric, msg InputMessage, dims []*ColumnWithType) (row []interface{}) {
-	row = make([]interface{}, len(dims))
-	for i, dim := range dims {
+func GetRows() (rs *Rows) {
+	v := rowsPool.Get()
+	if v == nil {
+		rows := make(Rows, 0)
+		return &rows
+	}
+	return v.(*Rows)
+}
+
+func PutRows(rs *Rows) {
+	*rs = (*rs)[:0]
+	rowsPool.Put(rs)
+}
+
+var rowPool sync.Pool
+
+func GetRow() *Row {
+	v := rowPool.Get()
+	if v == nil {
+		row := make(Row, 0)
+		return &row
+	}
+	return v.(*Row)
+}
+
+func PutRow(r *Row) {
+	*r = (*r)[:0]
+	rowPool.Put(r)
+}
+
+func MetricToRow(metric Metric, msg InputMessage, dims []*ColumnWithType) (row *Row) {
+	row = GetRow()
+	for _, dim := range dims {
 		if strings.HasPrefix(dim.Name, "__kafka") {
 			if strings.HasSuffix(dim.Name, "_topic") {
-				row[i] = msg.Topic
+				*row = append(*row, msg.Topic)
 			} else if strings.HasSuffix(dim.Name, "_partition") {
-				row[i] = msg.Partition
+				*row = append(*row, msg.Partition)
 			} else {
-				row[i] = msg.Offset
+				*row = append(*row, msg.Offset)
 			}
 		} else {
-			row[i] = GetValueByType(metric, dim)
+			*row = append(*row, GetValueByType(metric, dim))
 		}
 	}
 	return

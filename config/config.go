@@ -273,12 +273,16 @@ type TaskConfig struct {
 	// AutoSchema will auto fetch the schema from clickhouse
 	AutoSchema     bool
 	ExcludeColumns []string
-
-	Dims []struct {
+	Dims           []struct {
 		Name       string
 		Type       string
 		SourceName string
 	} `json:"dims"`
+
+	// ShardingKey is the column name to which sharding against
+	ShardingKey string `json:"shardingKey,omitempty"`
+	// ShardingPolicy is `stripe,<interval>`(requires ShardingKey be numerical) or `hash`(requires ShardingKey be string)
+	ShardingPolicy string `json:"shardingPolicy,omitempty"`
 
 	FlushInterval     int    `json:"flushInterval,omitempty"`
 	BufferSize        int    `json:"bufferSize,omitempty"`

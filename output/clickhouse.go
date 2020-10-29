@@ -42,12 +42,12 @@ var (
 // ClickHouse is an output service consumers from kafka messages
 type ClickHouse struct {
 	Dims []*model.ColumnWithType
+	Dms  []string
 	// Table Configs
 	taskCfg *config.TaskConfig
 	chCfg   *config.ClickHouseConfig
 
 	prepareSQL string
-	dms        []string
 }
 
 // NewClickHouse new a clickhouse instance
@@ -75,7 +75,7 @@ func (c *ClickHouse) Send(batch *model.Batch, callback func(batch *model.Batch) 
 
 // Write kvs to clickhouse
 func (c *ClickHouse) write(batch *model.Batch) error {
-	if len(batch.MsgRows) == 0 {
+	if len(*batch.Rows) == 0 {
 		return nil
 	}
 
@@ -102,12 +102,13 @@ func (c *ClickHouse) write(batch *model.Batch) error {
 
 	defer stmt.Close()
 	var numErr int
-	for _, msgRow := range batch.MsgRows {
-		if msgRow.Row != nil {
-			if _, err = stmt.Exec(msgRow.Row...); err != nil {
+	for _, row := range *batch.Rows {
+		if row != nil {
+			if _, err = stmt.Exec(*row...); err != nil {
 				err = errors.Wrap(err, "")
 				numErr++
 			}
+			model.PutRow(row)
 		}
 	}
 	if err != nil {
@@ -197,16 +198,16 @@ func (c *ClickHouse) initSchema() (err error) {
 			})
 		}
 	}
-	//根据 dms 生成prepare的sql语句
-	c.dms = make([]string, 0, len(c.Dims))
+	//根据 Dms 生成prepare的sql语句
+	c.Dms = make([]string, 0, len(c.Dims))
 	for _, d := range c.Dims {
-		c.dms = append(c.dms, d.Name)
+		c.Dms = append(c.Dms, d.Name)
 	}
 	var params = make([]string, len(c.Dims))
 	for i := range params {
 		params[i] = "?"
 	}
-	c.prepareSQL = "INSERT INTO " + c.chCfg.DB + "." + c.taskCfg.TableName + " (" + strings.Join(c.dms, ",") + ") " +
+	c.prepareSQL = "INSERT INTO " + c.chCfg.DB + "." + c.taskCfg.TableName + " (" + strings.Join(c.Dms, ",") + ") " +
 		"VALUES (" + strings.Join(params, ",") + ")"
 
 	log.Infof("%s: Prepare sql=> %s", c.taskCfg.Name, c.prepareSQL)
