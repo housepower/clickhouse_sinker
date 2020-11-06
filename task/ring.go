@@ -55,8 +55,8 @@ func (ring *Ring) PutElem(msgRow model.MsgRow) {
 			log.Criticalf("%s: got error %+v", ring.service.taskCfg.Name, err)
 		}
 	}
-	ring.ringBuf[msgOffset%ring.ringCap] = msgRow
-	for ; ring.ringFilledOffset < ring.ringCeilingOff && ring.ringBuf[ring.ringFilledOffset%ring.ringCap].Msg != nil; ring.ringFilledOffset++ {
+	ring.ringBuf[msgOffset&(ring.ringCap-1)] = msgRow
+	for ; ring.ringFilledOffset < ring.ringCeilingOff && ring.ringBuf[ring.ringFilledOffset&(ring.ringCap-1)].Msg != nil; ring.ringFilledOffset++ {
 	}
 	if (ring.ringFilledOffset >> ring.batchSizeShift) != (ring.ringGroundOff >> ring.batchSizeShift) {
 		ring.genBatchOrShard(ring.ringFilledOffset)
@@ -94,7 +94,7 @@ func (ring *Ring) ForceBatchOrShard(arg interface{}) {
 			if ring.ringFilledOffset > ring.ringGroundOff {
 				ring.genBatchOrShard(ring.ringFilledOffset)
 				ring.idleCnt = 0
-			} else {
+			} else if ring.ringGroundOff == ring.ringCeilingOff {
 				ring.idleCnt++
 				if ring.idleCnt >= 2 {
 					ring.idleCnt = 0
@@ -134,6 +134,7 @@ func (ring *Ring) genBatchOrShard(expNewGroundOff int64) {
 		return
 	}
 	var gaps []OffsetRange
+	var msgCnt, parseErrs int
 	endOff := (ring.ringGroundOff | int64(1<<ring.batchSizeShift-1)) + 1
 	if endOff > expNewGroundOff {
 		endOff = expNewGroundOff
@@ -142,24 +143,31 @@ func (ring *Ring) genBatchOrShard(expNewGroundOff int64) {
 		endOff = ring.ringCeilingOff
 	}
 	if ring.service.sharder != nil {
-		msgCnt := ring.service.sharder.PutElems(ring.partition, ring.ringBuf, ring.ringGroundOff, endOff, ring.ringCap)
+		msgCnt = ring.service.sharder.PutElems(ring.partition, ring.ringBuf, ring.ringGroundOff, endOff, ring.ringCap)
 		statistics.ParseMsgsBacklog.WithLabelValues(ring.service.taskCfg.Name).Sub(float64(msgCnt))
 	} else {
 		gapBegOff := int64(-1)
 		batch := model.NewBatch()
 		for i := ring.ringGroundOff; i < endOff; i++ {
-			off := i & (ring.ringCap - 1)
-			msg := ring.ringBuf[off].Msg
-			if msg != nil {
+			msgRow := &ring.ringBuf[i&(ring.ringCap-1)]
+			if msgRow.Msg != nil {
+				msgCnt++
 				//assert msg.Offset==i
 				if gapBegOff >= 0 {
 					gaps = append(gaps, OffsetRange{Begin: gapBegOff, End: i})
 					gapBegOff = -1
 				}
-				*batch.Rows = append(*batch.Rows, ring.ringBuf[off].Row)
+				if msgRow.Row != nil {
+					*batch.Rows = append(*batch.Rows, msgRow.Row)
+				} else {
+					parseErrs++
+				}
 			} else if gapBegOff < 0 {
 				gapBegOff = i
 			}
+			msgRow.Msg = nil
+			msgRow.Row = nil
+			msgRow.Shard = -1
 		}
 		batch.RealSize = len(*batch.Rows)
 		if gapBegOff >= 0 {
@@ -167,20 +175,20 @@ func (ring *Ring) genBatchOrShard(expNewGroundOff int64) {
 		}
 
 		if batch.RealSize > 0 {
-			log.Debugf("%s: going to flush a batch for topic %v patittion %d, offset %d, messages %d, gaps: %+v",
+			log.Debugf("%s: going to flush a batch for topic %v patittion %d, offset %d, messages %d, gaps: %+v, parse errors: %d",
 				ring.service.taskCfg.Name, ring.service.taskCfg.Topic, ring.partition, endOff-1,
-				batch.RealSize, gaps)
+				batch.RealSize, gaps, parseErrs)
 
 			batch.BatchIdx = (endOff - 1) >> ring.batchSizeShift
 			ring.batchSys.CreateBatchGroupSingle(batch, ring.partition, endOff-1)
 			ring.service.batchChan <- batch
-			statistics.ParseMsgsBacklog.WithLabelValues(ring.service.taskCfg.Name).Sub(float64(batch.RealSize))
 			if gaps == nil {
 				statistics.RingNormalBatchsTotal.WithLabelValues(ring.service.taskCfg.Name).Inc()
 			} else {
 				statistics.RingForceBatchAllGapTotal.WithLabelValues(ring.service.taskCfg.Name).Inc()
 			}
 		}
+		statistics.ParseMsgsBacklog.WithLabelValues(ring.service.taskCfg.Name).Sub(float64(batch.RealSize))
 	}
 
 	ring.ringGroundOff = endOff

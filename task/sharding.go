@@ -138,14 +138,19 @@ func (sh *Sharder) PutElems(partition int, ringBuf []model.MsgRow, begOff, endOf
 	sh.mux.Lock()
 	defer sh.mux.Unlock()
 	var gaps []OffsetRange
+	var parseErrs int
 	gapBegOff := int64(-1)
 	for i := begOff; i < endOff; i++ {
 		msgRow := &ringBuf[i&(ringCap-1)]
 		if msgRow.Msg != nil {
 			msgCnt++
 			//assert msg.Offset==i
-			rows := sh.msgBuf[msgRow.Shard]
-			*rows = append(*rows, msgRow.Row)
+			if msgRow.Row != nil {
+				rows := sh.msgBuf[msgRow.Shard]
+				*rows = append(*rows, msgRow.Row)
+			} else {
+				parseErrs++
+			}
 			if gapBegOff >= 0 {
 				gaps = append(gaps, OffsetRange{Begin: gapBegOff, End: i})
 				gapBegOff = -1
@@ -176,9 +181,9 @@ func (sh *Sharder) PutElems(partition int, ringBuf []model.MsgRow, begOff, endOf
 			maxBatchSize = batchSize
 		}
 	}
-	log.Debugf("%s: sharded a batch for topic %v patittion %d, offset %d, messages %d, gaps: %+v",
+	log.Debugf("%s: sharded a batch for topic %v patittion %d, offset %d, messages %d, gaps: %+v, parse errors: %d",
 		sh.service.taskCfg.Name, sh.service.taskCfg.Topic, partition, endOff-1,
-		msgCnt, gaps)
+		msgCnt, gaps, parseErrs)
 	if maxBatchSize >= sh.service.taskCfg.BufferSize {
 		sh.doFlush(nil)
 	}

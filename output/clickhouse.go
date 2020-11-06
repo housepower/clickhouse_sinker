@@ -103,12 +103,9 @@ func (c *ClickHouse) write(batch *model.Batch) error {
 	defer stmt.Close()
 	var numErr int
 	for _, row := range *batch.Rows {
-		if row != nil {
-			if _, err = stmt.Exec(*row...); err != nil {
-				err = errors.Wrap(err, "")
-				numErr++
-			}
-			model.PutRow(row)
+		if _, err = stmt.Exec(*row...); err != nil {
+			err = errors.Wrap(err, "")
+			numErr++
 		}
 	}
 	if err != nil {

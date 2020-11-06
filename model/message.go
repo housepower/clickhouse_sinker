@@ -130,6 +130,9 @@ func (b *Batch) Size() int {
 }
 
 func (b *Batch) Commit() error {
+	for _, row := range *b.Rows {
+		PutRow(row)
+	}
 	PutRows(b.Rows)
 	b.Rows = nil
 	atomic.AddInt32(&b.Group.PendWrite, -1)
