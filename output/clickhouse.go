@@ -67,9 +67,10 @@ func (c *ClickHouse) Init() error {
 // Send a batch to clickhouse
 func (c *ClickHouse) Send(batch *model.Batch, callback func(batch *model.Batch) error) {
 	// TODO workerpool parallel
-	statistics.FlushBatchBacklog.WithLabelValues(c.taskCfg.Name).Inc()
+	statistics.WritingPoolBacklog.WithLabelValues(c.taskCfg.Name).Inc()
 	_ = util.GlobalWritingPool.Submit(func() {
 		c.loopWrite(batch, callback)
+		statistics.WritingPoolBacklog.WithLabelValues(c.taskCfg.Name).Dec()
 	})
 }
 
@@ -137,7 +138,6 @@ func shouldReconnect(err error) bool {
 func (c *ClickHouse) loopWrite(batch *model.Batch, callback func(batch *model.Batch) error) {
 	var err error
 	times := c.chCfg.RetryTimes
-	defer statistics.FlushBatchBacklog.WithLabelValues(c.taskCfg.Name).Dec()
 	for {
 		if err = c.write(batch); err == nil {
 			if err = callback(batch); err != nil {

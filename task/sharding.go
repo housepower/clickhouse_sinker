@@ -172,7 +172,7 @@ func (sh *Sharder) PutElems(partition int, ringBuf []model.MsgRow, begOff, endOf
 	}
 	if msgCnt > 0 {
 		sh.offsets[partition] = endOff - 1
-		statistics.ShardMsgsBacklog.WithLabelValues(sh.service.taskCfg.Name).Add(float64(msgCnt))
+		statistics.ShardMsgs.WithLabelValues(sh.service.taskCfg.Name).Add(float64(msgCnt))
 	}
 	var maxBatchSize int
 	for i := 0; i < sh.ckNum; i++ {
@@ -222,7 +222,7 @@ func (sh *Sharder) doFlush(_ interface{}) {
 		for _, batch := range batches {
 			sh.service.batchChan <- batch
 		}
-		statistics.ShardMsgsBacklog.WithLabelValues(sh.service.taskCfg.Name).Sub(float64(msgCnt))
+		statistics.ShardMsgs.WithLabelValues(sh.service.taskCfg.Name).Sub(float64(msgCnt))
 	}
 
 	// reschedule the delayed ForceFlush

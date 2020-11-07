@@ -121,24 +121,31 @@ var (
 		},
 		[]string{"task"},
 	)
-	ParseMsgsBacklog = prometheus.NewGaugeVec(
+	RingMsgs = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
-			Name: prefix + "parse_msgs_backlog",
-			Help: "num of msgs pending to parse",
+			Name: prefix + "ring_msgs",
+			Help: "num of msgs in ring",
 		},
 		[]string{"task"},
 	)
-	ShardMsgsBacklog = prometheus.NewGaugeVec(
+	ShardMsgs = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
-			Name: prefix + "shard_msgs_backlog",
-			Help: "num of msgs pending to shard",
+			Name: prefix + "shard_msgs",
+			Help: "num of msgs in shard",
 		},
 		[]string{"task"},
 	)
-	FlushBatchBacklog = prometheus.NewGaugeVec(
+	ParsingPoolBacklog = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
-			Name: prefix + "flush_batch_backlog",
-			Help: "num of batches pending to flush",
+			Name: prefix + "parsing_pool_backlog",
+			Help: "GlobalParsingPool backlog",
+		},
+		[]string{"task"},
+	)
+	WritingPoolBacklog = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: prefix + "writing_pool_backlog",
+			Help: "GlobalWritingPool backlog",
 		},
 		[]string{"task"},
 	)
@@ -158,9 +165,10 @@ func init() {
 	prometheus.MustRegister(FlushMsgsErrorTotal)
 	prometheus.MustRegister(ConsumeOffsets)
 	prometheus.MustRegister(ClickhouseReconnectTotal)
-	prometheus.MustRegister(ParseMsgsBacklog)
-	prometheus.MustRegister(ShardMsgsBacklog)
-	prometheus.MustRegister(FlushBatchBacklog)
+	prometheus.MustRegister(RingMsgs)
+	prometheus.MustRegister(ShardMsgs)
+	prometheus.MustRegister(ParsingPoolBacklog)
+	prometheus.MustRegister(WritingPoolBacklog)
 	prometheus.MustRegister(prometheus.NewBuildInfoCollector())
 }
 
@@ -240,9 +248,10 @@ func (p *Pusher) reconnect() {
 		Collector(FlushMsgsErrorTotal).
 		Collector(ConsumeOffsets).
 		Collector(ClickhouseReconnectTotal).
-		Collector(ParseMsgsBacklog).
-		Collector(ShardMsgsBacklog).
-		Collector(FlushBatchBacklog).
+		Collector(RingMsgs).
+		Collector(ShardMsgs).
+		Collector(ParsingPoolBacklog).
+		Collector(WritingPoolBacklog).
 		Grouping("instance", p.instance).Format(expfmt.FmtText)
 	p.inUseAddr = nextAddr
 }

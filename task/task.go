@@ -190,7 +190,7 @@ func (service *Service) put(msg model.InputMessage) {
 	}
 
 	// submit message to a goroutine pool
-	statistics.ParseMsgsBacklog.WithLabelValues(service.taskCfg.Name).Inc()
+	statistics.ParsingPoolBacklog.WithLabelValues(service.taskCfg.Name).Inc()
 	_ = util.GlobalParsingPool.Submit(func() {
 		var row *model.Row
 		p := service.pp.Get()
@@ -211,6 +211,7 @@ func (service *Service) put(msg model.InputMessage) {
 		ring = service.rings[msg.Partition]
 		service.Unlock()
 		ring.PutElem(model.MsgRow{Msg: &msg, Row: row})
+		statistics.ParsingPoolBacklog.WithLabelValues(service.taskCfg.Name).Dec()
 	})
 }
 
