@@ -164,7 +164,10 @@ func (config *Config) normallize() {
 	}
 	for _, taskConfig := range config.Tasks {
 		if taskConfig.KafkaClient == "" {
-			taskConfig.KafkaClient = "sarama"
+			taskConfig.KafkaClient = "kafka-go"
+		}
+		if taskConfig.Parser == "" {
+			taskConfig.Parser = "fastjson"
 		}
 		if taskConfig.FlushInterval <= 0 {
 			taskConfig.FlushInterval = config.Common.FlushInterval

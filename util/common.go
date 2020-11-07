@@ -40,7 +40,7 @@ func InitGlobalParsingPool(maxWorkers int) {
 
 // InitGlobalWritingPool initialize GlobalWritingPool
 func InitGlobalWritingPool(maxWorkers int) {
-	GlobalWritingPool = NewWorkerPool(maxWorkers, 10*maxWorkers)
+	GlobalWritingPool = NewWorkerPool(maxWorkers, maxWorkers)
 }
 
 // StringContains check if contains string in array

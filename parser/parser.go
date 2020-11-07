@@ -58,9 +58,9 @@ func (pp *Pool) Get() Parser {
 	v := pp.pool.Get()
 	if v == nil {
 		switch pp.name {
-		case "json", "gjson":
+		case "gjson":
 			return &GjsonParser{pp.tsLayout}
-		case "fastjson":
+		case "json", "fastjson":
 			return &FastjsonParser{tsLayout: pp.tsLayout}
 		case "csv":
 			return &CsvParser{pp.csvFormat, pp.delimiter, pp.tsLayout}
@@ -68,7 +68,7 @@ func (pp *Pool) Get() Parser {
 		case "gjson_extend":
 			return &GjsonExtendParser{pp.tsLayout}
 		default:
-			return &GjsonParser{pp.tsLayout}
+			return &FastjsonParser{tsLayout: pp.tsLayout}
 		}
 	}
 	return v.(Parser)
