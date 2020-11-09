@@ -23,7 +23,6 @@ import (
 	"net/http"
 	"net/http/pprof"
 	"os"
-	"strconv"
 
 	_ "github.com/ClickHouse/clickhouse-go"
 	"github.com/google/gops/agent"
@@ -46,7 +45,7 @@ import (
 var (
 	v          = flag.Bool("v", false, "show build version")
 	cfgDir     = flag.String("conf", "", "config dir")
-	httpAddr   = flag.String("http-addr", "0.0.0.0:2112", "http interface")
+	httpPort   = flag.Int("http-port", 2112, "http listen port")
 	consulAddr = flag.String("consul-addr", "http://127.0.0.1:8500",
 		"consul api interface address")
 	consulRegister = flag.Bool("consul-register-enable", false,
@@ -62,24 +61,6 @@ var (
 	appIDStr    = fmt.Sprintf("clickhouse_sinker-%s", appID.String())
 )
 
-func parseAddr(addr string) (string, int) {
-	ip, portStr, err := net.SplitHostPort(addr)
-	if err != nil {
-		panic(err)
-	}
-
-	port, err := strconv.Atoi(portStr)
-	if err != nil {
-		panic(err)
-	}
-
-	if ip == "0.0.0.0" {
-		ip = ""
-	}
-
-	return ip, port
-}
-
 func serviceRegister(agent *api.Agent) {
 	log.Debug("Consul: register service")
 	err := agent.ServiceRegister(&api.AgentServiceRegistration{
@@ -92,7 +73,7 @@ func serviceRegister(agent *api.Agent) {
 			Name:                           "/ready",
 			Interval:                       "15s",
 			Timeout:                        "15s",
-			HTTP:                           fmt.Sprintf("http://%s/ready?full=1", *httpAddr),
+			HTTP:                           fmt.Sprintf("http://0.0.0.0:%d/ready?full=1", *httpPort),
 			DeregisterCriticalServiceAfter: *consulDeregisterCriticalServiceAfter,
 		},
 	})
@@ -107,7 +88,17 @@ func init() {
 		config.PrintSinkerInfo()
 		os.Exit(0)
 	}
-	ip, port = parseAddr(*httpAddr)
+	// Find a spare TCP port
+LOOP:
+	for {
+		ln, err := net.Listen("tcp", fmt.Sprintf(":%d", *httpPort))
+		if err == nil {
+			ln.Close()
+			break LOOP
+		}
+		log.Warnf("Can't listen on port %d: %s", port, err)
+		*httpPort++
+	}
 }
 
 // GenTasks generate the tasks via config
@@ -177,8 +168,8 @@ func main() {
 			mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
 			mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 
-			log.Infof("Run http server http://%s", *httpAddr)
-			log.Error(http.ListenAndServe(*httpAddr, mux))
+			log.Infof("Run http server http://0.0.0.0:%s", *httpPort)
+			log.Error(http.ListenAndServe(fmt.Sprintf(":%d", *httpPort), mux))
 		}()
 
 		runner.Run()
