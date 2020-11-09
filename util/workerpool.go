@@ -13,8 +13,9 @@ const (
 
 // WorkerPool is a blocked worker pool inspired by https://github.com/gammazero/workerpool/
 type WorkerPool struct {
-	inNums  uint64
-	outNums uint64
+	inNums     uint64
+	outNums    uint64
+	curWorkers int
 
 	maxWorkers int
 	workChan   chan func()
@@ -33,7 +34,7 @@ func NewWorkerPool(maxWorkers int, queueSize int) *WorkerPool {
 
 	w.taskDone = sync.NewCond(w)
 
-	go w.start()
+	w.start()
 	return w
 }
 
@@ -42,21 +43,45 @@ var (
 	ErrorStopped = errors.New("WorkerPool already stopped")
 )
 
+func (w *WorkerPool) wokerFunc() {
+	w.Lock()
+	w.curWorkers++
+	w.Unlock()
+LOOP:
+	for fn := range w.workChan {
+		fn()
+		var needQuit bool
+		w.Lock()
+		w.outNums++
+		if w.inNums == w.outNums {
+			w.taskDone.Signal()
+		}
+		if w.curWorkers > w.maxWorkers {
+			w.curWorkers--
+			needQuit = true
+		}
+		w.Unlock()
+		if needQuit {
+			break LOOP
+		}
+	}
+}
+
 func (w *WorkerPool) start() {
 	for i := 0; i < w.maxWorkers; i++ {
-		go func() {
-			for fn := range w.workChan {
-				fn()
-
-				w.Lock()
-				w.outNums++
-				if w.inNums == w.outNums {
-					w.taskDone.Signal()
-				}
-				w.Unlock()
-			}
-		}()
+		go w.wokerFunc()
 	}
+}
+
+// Resize ensures worker number match the expected one.
+func (w *WorkerPool) Resize(maxWorkers int) {
+	w.Lock()
+	defer w.Unlock()
+	for i := 0; i < maxWorkers-w.maxWorkers; i++ {
+		go w.wokerFunc()
+	}
+	w.maxWorkers = maxWorkers
+	// if maxWorkers<w.maxWorkers, redundant workers quit by themselves
 }
 
 // Submit enqueues a function for a worker to execute.
