@@ -174,8 +174,8 @@ func (c *ClickHouse) loopWrite(batch *model.Batch, callback func(batch *model.Ba
 	}
 }
 
-// Close does nothing, place holder for handling close
-func (c *ClickHouse) Close() error {
+// Stop does nothing, place holder for handling stop
+func (c *ClickHouse) Stop() error {
 	return nil
 }
 

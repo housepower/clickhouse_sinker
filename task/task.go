@@ -231,14 +231,25 @@ func (service *Service) Stop() {
 	if err := service.inputer.Stop(); err != nil {
 		panic(err)
 	}
-	log.Infof("%s: stopped kafka", service.taskCfg.Name)
+	log.Infof("%s: stopped input", service.taskCfg.Name)
 
-	_ = service.clickhouse.Close()
-	log.Infof("%s: closed clickhouse", service.taskCfg.Name)
+	_ = service.clickhouse.Stop()
+	log.Infof("%s: stopped output", service.taskCfg.Name)
+
+	if service.sharder != nil {
+		service.sharder.tid.Stop()
+	}
+	for _, ring := range service.rings {
+		if ring != nil {
+			ring.tid.Stop()
+		}
+	}
+	log.Infof("%s: stopped internal timers", service.taskCfg.Name)
+
 	if service.started {
 		<-service.stopped
 	}
-	log.Infof("%s: got notify from service.stopped", service.taskCfg.Name)
+	log.Infof("%s: stopped", service.taskCfg.Name)
 }
 
 // GoID returns goroutine id
