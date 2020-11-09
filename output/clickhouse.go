@@ -140,25 +140,37 @@ func (c *ClickHouse) loopWrite(batch *model.Batch, callback func(batch *model.Ba
 	times := c.chCfg.RetryTimes
 	for {
 		if err = c.write(batch); err == nil {
-			if err = callback(batch); err != nil {
-				log.Criticalf("%s: committing offset to failed with error %+v", c.taskCfg.Name, err)
-				os.Exit(-1)
+			for {
+				if err = callback(batch); err == nil {
+					return
+				}
+				if std_errors.Is(err, context.Canceled) {
+					log.Infof("%s: ClickHouse.loopWrite quit due to the context has been cancelled", c.taskCfg.Name)
+					return
+				}
+				log.Criticalf("%s: committing offset(try %%d) failed with error %+v", c.taskCfg.Name, c.chCfg.RetryTimes-times, err)
+				if c.chCfg.RetryTimes > 0 {
+					times--
+					if times <= 0 {
+						os.Exit(-1)
+					}
+					time.Sleep(10 * time.Second)
+				}
 			}
-			return
 		}
 		if std_errors.Is(err, context.Canceled) {
 			log.Infof("%s: ClickHouse.loopWrite quit due to the context has been cancelled", c.taskCfg.Name)
 			return
 		}
-		times--
+		log.Errorf("%s: flush batch(try #%d) failed with error %+v", c.taskCfg.Name, c.chCfg.RetryTimes-times, err)
 		statistics.FlushMsgsErrorTotal.WithLabelValues(c.taskCfg.Name).Add(float64(batch.RealSize))
-		if times <= 0 {
-			log.Criticalf("%s: flush batch(try #%d) failed with error %+v", c.taskCfg.Name, c.chCfg.RetryTimes-times, err)
-			os.Exit(-1)
-		} else {
-			log.Errorf("%s: flush batch(try #%d) failed with error %+v", c.taskCfg.Name, c.chCfg.RetryTimes-times, err)
+		if c.chCfg.RetryTimes > 0 {
+			times--
+			if times <= 0 {
+				os.Exit(-1)
+			}
+			time.Sleep(10 * time.Second)
 		}
-		time.Sleep(10 * time.Second)
 	}
 }
 

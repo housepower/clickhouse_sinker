@@ -214,8 +214,8 @@ func (config *Config) normallize() {
 		}
 	}
 	for _, chConfig := range config.Clickhouse {
-		if chConfig.RetryTimes <= 0 {
-			chConfig.RetryTimes = 6
+		if chConfig.RetryTimes < 0 {
+			chConfig.RetryTimes = 0
 		}
 	}
 }
@@ -251,7 +251,7 @@ type ClickHouseConfig struct {
 	Username   string
 	Password   string
 	DsnParams  string
-	RetryTimes int
+	RetryTimes int //<=0 means retry infinitely
 }
 
 // Task configuration parameters
