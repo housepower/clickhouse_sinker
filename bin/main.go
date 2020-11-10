@@ -19,15 +19,12 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"net"
 	"net/http"
 	"net/http/pprof"
 	"os"
 
 	_ "github.com/ClickHouse/clickhouse-go"
 	"github.com/google/gops/agent"
-	"github.com/google/uuid"
-	"github.com/hashicorp/consul/api"
 	"github.com/housepower/clickhouse_sinker/config"
 	"github.com/housepower/clickhouse_sinker/health"
 	"github.com/housepower/clickhouse_sinker/input"
@@ -43,43 +40,34 @@ import (
 )
 
 var (
-	v          = flag.Bool("v", false, "show build version")
-	cfgDir     = flag.String("conf", "", "config dir")
-	httpPort   = flag.Int("http-port", 2112, "http listen port")
-	consulAddr = flag.String("consul-addr", "http://127.0.0.1:8500",
-		"consul api interface address")
+	v        = flag.Bool("v", false, "show build version")
+	cfgDir   = flag.String("conf", "", "config dir")
+	httpPort = flag.Int("http-port", 2112, "http listen port")
+
 	consulRegister = flag.Bool("consul-register-enable", false,
 		"register current instance in consul")
+	consulAddr = flag.String("consul-addr", "http://127.0.0.1:8500",
+		"consul api interface address")
 	consulDeregisterCriticalServiceAfter = flag.String("consul-deregister-critical-services-after", "30m",
 		"configure service check DeregisterCriticalServiceAfter")
+
+	nacosRegister = flag.Bool("nacos-register-enable", false,
+		"register current instance in nacos")
+	nacosAddr = flag.String("nacos-addr", "127.0.0.1:8848",
+		"nacos server addresses, separated with comma")
+	nacosNamespaceID = flag.String("nacos-namespace-id", "vision",
+		"nacos namespace ID")
+	nacosUsername = flag.String("nacos-username", "username",
+		"nacos username")
+	nacosPassword = flag.String("nacos-password", "password",
+		"nacos password")
+	nacosGroup = flag.String("nacos-group", "",
+		"nacos group name")
 
 	httpMetrics = promhttp.Handler()
 	runner      *Sinker
 	ip          string
-	appID, _    = uuid.NewUUID()
-	appIDStr    = fmt.Sprintf("clickhouse_sinker-%s", appID.String())
 )
-
-func serviceRegister(agent *api.Agent) {
-	log.Debug("Consul: register service")
-	err := agent.ServiceRegister(&api.AgentServiceRegistration{
-		Name:    "clickhouse_sinker",
-		ID:      appIDStr,
-		Port:    *httpPort,
-		Address: ip,
-		Check: &api.AgentServiceCheck{
-			CheckID:                        appIDStr + "-http-heath",
-			Name:                           "/ready",
-			Interval:                       "15s",
-			Timeout:                        "15s",
-			HTTP:                           fmt.Sprintf("http://%s:%d/ready?full=1", ip, *httpPort),
-			DeregisterCriticalServiceAfter: *consulDeregisterCriticalServiceAfter,
-		},
-	})
-	if err != nil {
-		log.Warnf("Consul: %s", err)
-	}
-}
 
 func init() {
 	flag.Parse()
@@ -88,18 +76,7 @@ func init() {
 		os.Exit(0)
 	}
 	ip = util.GetOutboundIP().String()
-	// Find a spare TCP port
-LOOP:
-	for {
-		addr := fmt.Sprintf("%s:%d", ip, *httpPort)
-		ln, err := net.Listen("tcp", addr)
-		if err == nil {
-			ln.Close()
-			break LOOP
-		}
-		log.Warnf("Can't listen on %s: %s", addr, err)
-		*httpPort++
-	}
+	*httpPort = util.GetSpareTcpPort(ip, *httpPort)
 }
 
 // GenTasks generate the tasks via config
@@ -122,20 +99,36 @@ func main() {
 	if err := agent.Listen(agent.Options{}); err != nil {
 		log.Critical(err)
 	}
-	consulConfig := api.DefaultConfig()
-	consulConfig.Address = *consulAddr
-	consulClient, _ := api.NewClient(consulConfig)
-	consulAgent := consulClient.Agent()
 
+	var rcm config.RemoteConfManager
+	var properties map[string]interface{}
 	if *consulRegister {
-		serviceRegister(consulAgent)
-		defer func() {
-			log.Debug("Consul: de-register service")
-			err := consulAgent.ServiceDeregister(appIDStr)
-			if err != nil {
-				log.Warnf("Consul: %s", err)
-			}
-		}()
+		rcm = &config.ConsulConfManager{}
+		properties = make(map[string]interface{})
+		properties["consulAddr"] = *consulAddr
+		properties["deregisterCriticalServiceAfter"] = *consulDeregisterCriticalServiceAfter
+		properties["ip"] = ip
+		properties["port"] = *httpPort
+	} else if *nacosRegister {
+		rcm = &config.NacosConfManager{}
+		properties = make(map[string]interface{})
+		properties["serverAddrs"] = *nacosAddr
+		properties["namespaceId"] = *nacosNamespaceID
+		properties["username"] = *nacosUsername
+		properties["password"] = *nacosPassword
+		properties["group"] = *nacosGroup
+		properties["ip"] = ip
+		properties["port"] = *httpPort
+	}
+	if rcm!=nil {
+		if err := rcm.Init(properties); err != nil {
+			log.Critical(err)
+		}
+		if err := rcm.Register(); err != nil {
+			log.Critical(err)
+			os.Exit(-1)
+		}
+		defer func() { _ = rcm.Deregister() }()
 	}
 
 	app.Run("clickhouse_sinker", func() error {

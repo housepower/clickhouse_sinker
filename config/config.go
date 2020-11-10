@@ -20,7 +20,6 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -31,6 +30,26 @@ import (
 	"github.com/sundy-li/go_commons/log"
 	"github.com/sundy-li/go_commons/utils"
 )
+
+// RemoteConfManager can be implemented by many backends: Nacos, Consul, etcd, ZooKeeper...
+type RemoteConfManager interface {
+	Init(properties map[string]interface{}) error
+	// Register this instance, and keep-alive via heartbeat.
+	Register() error
+	Deregister() error
+	// GetInstances fetchs healthy instances.
+	// Mature service-discovery solutions(Nacos, Consul etc.) have client side cache
+	// so that frequent invoking of GetInstances() and GetConfig() don't harm.
+	GetInstances() (instances []Instance, err error)
+	// GetConfig fetchs the config.
+	GetConfig() (conf *Config, err error)
+	PublishConfig(conf *Config) (err error)
+}
+
+type Instance struct {
+	Addr   string
+	Weight int
+}
 
 // Config struct used for different configurations use
 type Config struct {
@@ -59,6 +78,94 @@ type Config struct {
 
 	Assignment map[string][]string
 }
+
+// KafkaConfig configuration parameters
+type KafkaConfig struct {
+	Brokers string
+	//simplified sarama.Config.Net.SASL to only support SASL/PLAIN and SASL/GSSAPI(Kerberos)
+	Sasl struct {
+		Enable   bool
+		Username string
+		Password string
+		GSSAPI   struct {
+			AuthType           int //1. KRB5_USER_AUTH, 2. KRB5_KEYTAB_AUTH
+			KeyTabPath         string
+			KerberosConfigPath string
+			ServiceName        string
+			Username           string
+			Password           string
+			Realm              string
+			DisablePAFXFAST    bool
+		}
+	}
+	Version string
+}
+
+// ClickHouseConfig configuration parameters
+type ClickHouseConfig struct {
+	DB   string
+	Host string
+	Port int
+
+	Username   string
+	Password   string
+	DsnParams  string
+	RetryTimes int //<=0 means retry infinitely
+}
+
+// Task configuration parameters
+type TaskConfig struct {
+	Name string
+
+	KafkaClient   string
+	Kafka         string
+	Topic         string
+	ConsumerGroup string
+
+	// Earliest set to true to consume the message from oldest position
+	Earliest bool
+	Parser   string
+	// the csv cloum title if Parser is csv
+	CsvFormat []string
+	Delimiter string
+
+	Clickhouse string
+	TableName  string
+
+	// AutoSchema will auto fetch the schema from clickhouse
+	AutoSchema     bool
+	ExcludeColumns []string
+	Dims           []struct {
+		Name       string
+		Type       string
+		SourceName string
+	} `json:"dims"`
+
+	// ShardingKey is the column name to which sharding against
+	ShardingKey string `json:"shardingKey,omitempty"`
+	// ShardingPolicy is `stripe,<interval>`(requires ShardingKey be numerical) or `hash`(requires ShardingKey be string)
+	ShardingPolicy string `json:"shardingPolicy,omitempty"`
+
+	FlushInterval     int    `json:"flushInterval,omitempty"`
+	BufferSize        int    `json:"bufferSize,omitempty"`
+	MinBufferSize     int    `json:"minBufferSize,omitempty"`
+	MsgSizeHint       int    `json:"msgSizeHint,omitempty"`
+	ConcurrentParsers int    `json:"concurrentParsers,omitempty"`
+	LayoutDate        string `json:"layoutDate,omitempty"`
+	LayoutDateTime    string `json:"layoutDateTime,omitempty"`
+	LayoutDateTime64  string `json:"layoutDateTime64,omitempty"`
+}
+
+const (
+	defaultFlushInterval     = 3
+	defaultBufferSize        = 1 << 20 //1048576
+	defaultMinBufferSize     = 1 << 13 //   8196
+	defaultMsgSizeHint       = 1000
+	defaultConcurrentParsers = 10
+	defaultLayoutDate        = "2006-01-02"
+	defaultLayoutDateTime    = time.RFC3339
+	defaultLayoutDateTime64  = time.RFC3339
+)
 
 var (
 	baseConfig     *Config
@@ -221,91 +328,3 @@ func (config *Config) normallize() {
 		}
 	}
 }
-
-// KafkaConfig configuration parameters
-type KafkaConfig struct {
-	Brokers string
-	//simplified sarama.Config.Net.SASL to only support SASL/PLAIN and SASL/GSSAPI(Kerberos)
-	Sasl struct {
-		Enable   bool
-		Username string
-		Password string
-		GSSAPI   struct {
-			AuthType           int //1. KRB5_USER_AUTH, 2. KRB5_KEYTAB_AUTH
-			KeyTabPath         string
-			KerberosConfigPath string
-			ServiceName        string
-			Username           string
-			Password           string
-			Realm              string
-			DisablePAFXFAST    bool
-		}
-	}
-	Version string
-}
-
-// ClickHouseConfig configuration parameters
-type ClickHouseConfig struct {
-	DB   string
-	Host string
-	Port int
-
-	Username   string
-	Password   string
-	DsnParams  string
-	RetryTimes int //<=0 means retry infinitely
-}
-
-// Task configuration parameters
-type TaskConfig struct {
-	Name string
-
-	KafkaClient   string
-	Kafka         string
-	Topic         string
-	ConsumerGroup string
-
-	// Earliest set to true to consume the message from oldest position
-	Earliest bool
-	Parser   string
-	// the csv cloum title if Parser is csv
-	CsvFormat []string
-	Delimiter string
-
-	Clickhouse string
-	TableName  string
-
-	// AutoSchema will auto fetch the schema from clickhouse
-	AutoSchema     bool
-	ExcludeColumns []string
-	Dims           []struct {
-		Name       string
-		Type       string
-		SourceName string
-	} `json:"dims"`
-
-	// ShardingKey is the column name to which sharding against
-	ShardingKey string `json:"shardingKey,omitempty"`
-	// ShardingPolicy is `stripe,<interval>`(requires ShardingKey be numerical) or `hash`(requires ShardingKey be string)
-	ShardingPolicy string `json:"shardingPolicy,omitempty"`
-
-	FlushInterval     int    `json:"flushInterval,omitempty"`
-	BufferSize        int    `json:"bufferSize,omitempty"`
-	MinBufferSize     int    `json:"minBufferSize,omitempty"`
-	MsgSizeHint       int    `json:"msgSizeHint,omitempty"`
-	ConcurrentParsers int    `json:"concurrentParsers,omitempty"`
-	LayoutDate        string `json:"layoutDate,omitempty"`
-	LayoutDateTime    string `json:"layoutDateTime,omitempty"`
-	LayoutDateTime64  string `json:"layoutDateTime64,omitempty"`
-}
-
-var (
-	defaultFlushInterval     = 3
-	defaultBufferSize        = 1 << 20 //1048576
-	defaultMinBufferSize     = 1 << 13 //   8196
-	defaultMsgSizeHint       = 1000
-	defaultConcurrentParsers = runtime.NumCPU()
-	defaultLayoutDate        = "2006-01-02"
-	defaultLayoutDateTime    = time.RFC3339
-	defaultLayoutDateTime64  = time.RFC3339
-)

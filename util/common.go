@@ -16,6 +16,7 @@ limitations under the License.
 package util
 
 import (
+	"fmt"
 	"log"
 	"net"
 	"strings"
@@ -82,3 +83,18 @@ func GetOutboundIP() net.IP {
 	localAddr := conn.LocalAddr().(*net.UDPAddr)
 	return localAddr.IP
 }
+
+// GetSpareTcpPort find a spare TCP port
+func GetSpareTcpPort(ip string, portBegin int) (port int) {
+	port = portBegin
+	LOOP:
+	for port = portBegin;;port++{
+		addr := fmt.Sprintf("%s:%d", ip, port)
+		ln, err := net.Listen("tcp", addr)
+		if err == nil {
+			ln.Close()
+			break LOOP
+		}
+	}
+	return
+} 
