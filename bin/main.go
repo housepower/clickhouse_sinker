@@ -56,7 +56,6 @@ var (
 	httpMetrics = promhttp.Handler()
 	runner      *Sinker
 	ip          string
-	port        int
 	appID, _    = uuid.NewUUID()
 	appIDStr    = fmt.Sprintf("clickhouse_sinker-%s", appID.String())
 )
@@ -66,14 +65,14 @@ func serviceRegister(agent *api.Agent) {
 	err := agent.ServiceRegister(&api.AgentServiceRegistration{
 		Name:    "clickhouse_sinker",
 		ID:      appIDStr,
-		Port:    port,
+		Port:    *httpPort,
 		Address: ip,
 		Check: &api.AgentServiceCheck{
 			CheckID:                        appIDStr + "-http-heath",
 			Name:                           "/ready",
 			Interval:                       "15s",
 			Timeout:                        "15s",
-			HTTP:                           fmt.Sprintf("http://0.0.0.0:%d/ready?full=1", *httpPort),
+			HTTP:                           fmt.Sprintf("http://%s:%d/ready?full=1", ip, *httpPort),
 			DeregisterCriticalServiceAfter: *consulDeregisterCriticalServiceAfter,
 		},
 	})
@@ -88,15 +87,17 @@ func init() {
 		config.PrintSinkerInfo()
 		os.Exit(0)
 	}
+	ip = util.GetOutboundIP().String()
 	// Find a spare TCP port
 LOOP:
 	for {
-		ln, err := net.Listen("tcp", fmt.Sprintf(":%d", *httpPort))
+		addr := fmt.Sprintf("%s:%d", ip, *httpPort)
+		ln, err := net.Listen("tcp", addr)
 		if err == nil {
 			ln.Close()
 			break LOOP
 		}
-		log.Warnf("Can't listen on port %d: %s", port, err)
+		log.Warnf("Can't listen on %s: %s", addr, err)
 		*httpPort++
 	}
 }
@@ -168,8 +169,9 @@ func main() {
 			mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
 			mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 
-			log.Infof("Run http server http://0.0.0.0:%s", *httpPort)
-			log.Error(http.ListenAndServe(fmt.Sprintf(":%d", *httpPort), mux))
+			addr := fmt.Sprintf("%s:%d", ip, *httpPort)
+			log.Infof("Run http server http://%s", addr)
+			log.Error(http.ListenAndServe(addr, mux))
 		}()
 
 		runner.Run()

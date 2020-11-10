@@ -37,7 +37,7 @@ type Config struct {
 	Kafka      map[string]*KafkaConfig
 	Clickhouse map[string]*ClickHouseConfig
 
-	Tasks []*TaskConfig
+	Tasks map[string]*TaskConfig
 
 	Statistics struct {
 		Enable           bool
@@ -56,6 +56,8 @@ type Config struct {
 		LayoutDateTime64  string
 		LogLevel          string
 	}
+
+	Assignment map[string][]string
 }
 
 var (
@@ -114,7 +116,7 @@ func (config *Config) loadTasks(dir string) error {
 	if err != nil {
 		return err
 	}
-	config.Tasks = make([]*TaskConfig, 0, len(files))
+	config.Tasks = make(map[string]*TaskConfig)
 	for _, f := range files {
 		if strings.HasSuffix(f.Name(), ".json") {
 			s, err := utils.ExtendFile(filepath.Join(dir, f.Name()))
@@ -126,7 +128,7 @@ func (config *Config) loadTasks(dir string) error {
 			if err != nil {
 				return err
 			}
-			config.Tasks = append(config.Tasks, taskConfig)
+			config.Tasks[taskConfig.Name] = taskConfig
 		}
 	}
 	return nil
