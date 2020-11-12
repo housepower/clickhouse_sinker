@@ -42,6 +42,7 @@ type Service struct {
 	sync.Mutex
 
 	ctx        context.Context
+	cancel     context.CancelFunc
 	started    bool
 	stopped    chan struct{}
 	inputer    input.Inputer
@@ -99,9 +100,9 @@ func (service *Service) Init() (err error) {
 func (service *Service) Run(ctx context.Context) {
 	var err error
 	service.started = true
-	service.ctx = ctx
+	service.ctx, service.cancel = context.WithCancel(ctx)
 	log.Infof("%s: task started", service.taskCfg.Name)
-	go service.inputer.Run(ctx)
+	go service.inputer.Run(service.ctx)
 	if service.sharder != nil {
 		// schedule a delayed ForceFlush
 		if service.sharder.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(service.taskCfg.FlushInterval)*time.Second, service.sharder.ForceFlush, nil); err != nil {
@@ -113,7 +114,7 @@ func (service *Service) Run(ctx context.Context) {
 LOOP:
 	for {
 		select {
-		case <-ctx.Done():
+		case <-service.ctx.Done():
 			break LOOP
 		case batch := <-service.batchChan:
 			if err := service.flush(batch); err != nil {
@@ -230,6 +231,7 @@ func (service *Service) flush(batch *model.Batch) (err error) {
 // Stop stop kafka and clickhouse client
 func (service *Service) Stop() {
 	log.Infof("%s: stopping task service...", service.taskCfg.Name)
+	service.cancel()
 	if err := service.inputer.Stop(); err != nil {
 		panic(err)
 	}
