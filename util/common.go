@@ -38,12 +38,12 @@ func InitGlobalTimerWheel() {
 
 // InitGlobalParsingPool initialize GlobalParsingPool
 func InitGlobalParsingPool(maxWorkers int) {
-	GlobalParsingPool = NewWorkerPool(maxWorkers, 10*maxWorkers)
+	GlobalParsingPool = NewWorkerPool(maxWorkers, 1000)
 }
 
 // InitGlobalWritingPool initialize GlobalWritingPool
 func InitGlobalWritingPool(maxWorkers int) {
-	GlobalWritingPool = NewWorkerPool(maxWorkers, maxWorkers)
+	GlobalWritingPool = NewWorkerPool(maxWorkers, 32)
 }
 
 // StringContains check if contains string in array
