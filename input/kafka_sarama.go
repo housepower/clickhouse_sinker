@@ -22,7 +22,7 @@ import (
 
 	"github.com/Shopify/sarama"
 	"github.com/pkg/errors"
-	"github.com/sundy-li/go_commons/log"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/housepower/clickhouse_sinker/config"
 	"github.com/housepower/clickhouse_sinker/model"

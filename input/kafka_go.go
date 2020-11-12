@@ -23,7 +23,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/segmentio/kafka-go"
-	"github.com/sundy-li/go_commons/log"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/housepower/clickhouse_sinker/config"
 	"github.com/housepower/clickhouse_sinker/model"

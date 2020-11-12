@@ -7,7 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/hashicorp/consul/api"
 	"github.com/pkg/errors"
-	"github.com/sundy-li/go_commons/log"
+	log "github.com/sirupsen/logrus"
 )
 
 var _ RemoteConfManager = (*ConsulConfManager)(nil)

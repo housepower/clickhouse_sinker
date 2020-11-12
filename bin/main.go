@@ -40,8 +40,8 @@ import (
 	"github.com/k0kubun/pp"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	log "github.com/sirupsen/logrus"
 	"github.com/sundy-li/go_commons/app"
-	"github.com/sundy-li/go_commons/log"
 )
 
 var (
@@ -99,8 +99,11 @@ func GenTask(taskCfg *config.TaskConfig) (taskImpl *task.Service) {
 }
 
 func main() {
+	log.SetFormatter(&log.TextFormatter{
+		FullTimestamp: true,
+	})
 	if err := agent.Listen(agent.Options{}); err != nil {
-		log.Criticalf("%+v", err)
+		log.Fatalf("%+v", err)
 	}
 
 	app.Run("clickhouse_sinker", func() error {
@@ -126,11 +129,10 @@ func main() {
 		}
 		if rcm != nil {
 			if err := rcm.Init(properties); err != nil {
-				log.Criticalf("%+v", err)
+				log.Fatalf("%+v", err)
 			}
 			if err := rcm.Register(); err != nil {
-				log.Criticalf("%+v", err)
-				os.Exit(-1)
+				log.Fatalf("%+v", err)
 			}
 		}
 		runner = NewSinker(rcm)
@@ -201,11 +203,11 @@ func (s *Sinker) Run() {
 	var newCfg *config.Config
 	if s.rcm == nil {
 		if newCfg, err = config.ParseLocalConfig(*cfgDir, selfAddr); err != nil {
-			log.Criticalf("%+v", err)
+			log.Fatalf("%+v", err)
 			return
 		}
 		if err = s.applyConfig(newCfg); err != nil {
-			log.Criticalf("%+v", err)
+			log.Fatalf("%+v", err)
 			return
 		}
 		<-s.ctx.Done()
@@ -217,11 +219,11 @@ func (s *Sinker) Run() {
 				return
 			case <-t.C:
 				if newCfg, err = s.rcm.GetConfig(); err != nil {
-					log.Criticalf("%+v", err)
+					log.Fatalf("%+v", err)
 					return
 				}
 				if err = s.applyConfig(newCfg); err != nil {
-					log.Criticalf("%+v", err)
+					log.Fatalf("%+v", err)
 					return
 				}
 			}
@@ -256,7 +258,12 @@ func (s *Sinker) applyConfig(newCfg *config.Config) (err error) {
 	if err = newCfg.Normallize(); err != nil {
 		return
 	}
-	log.SetLevelStr(newCfg.Common.LogLevel)
+	var lvl log.Level
+	if lvl, err = log.ParseLevel(newCfg.Common.LogLevel); err != nil {
+		err = errors.Wrapf(err, "")
+		return
+	}
+	log.SetLevel(lvl)
 	_, _ = pp.Println(newCfg)
 	if config.GetGlobalConfig() == nil {
 		// The first time invoking of applyConfig

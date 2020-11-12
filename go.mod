@@ -31,6 +31,7 @@ require (
 	github.com/prometheus/client_golang v1.3.0
 	github.com/prometheus/common v0.8.0
 	github.com/segmentio/kafka-go v0.4.8
+	github.com/sirupsen/logrus v1.4.2
 	github.com/smartystreets/goconvey v1.6.4 // indirect
 	github.com/stretchr/testify v1.6.1
 	github.com/sundy-li/go_commons v0.0.0-20191120121859-84e4cb0afce4

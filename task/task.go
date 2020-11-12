@@ -34,7 +34,7 @@ import (
 	"github.com/pkg/errors"
 	"golang.org/x/time/rate"
 
-	"github.com/sundy-li/go_commons/log"
+	log "github.com/sirupsen/logrus"
 )
 
 // TaskService holds the configuration for each task
@@ -104,7 +104,7 @@ func (service *Service) Run(ctx context.Context) {
 		// schedule a delayed ForceFlush
 		if service.sharder.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(service.taskCfg.FlushInterval)*time.Second, service.sharder.ForceFlush, nil); err != nil {
 			err = errors.Wrap(err, "")
-			log.Criticalf("%s: got error %+v", service.taskCfg.Name, err)
+			log.Fatalf("%s: got error %+v", service.taskCfg.Name, err)
 		}
 	}
 
@@ -160,7 +160,7 @@ func (service *Service) put(msg model.InputMessage) {
 		// schedule a delayed ForceBatchOrShard
 		if ring.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(service.taskCfg.FlushInterval)*time.Second, ring.ForceBatchOrShard, nil); err != nil {
 			err = errors.Wrap(err, "")
-			log.Criticalf("%s: got error %+v", service.taskCfg.Name, err)
+			log.Fatalf("%s: got error %+v", service.taskCfg.Name, err)
 		}
 		service.rings[msg.Partition] = ring
 		service.Unlock()

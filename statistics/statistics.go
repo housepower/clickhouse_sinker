@@ -23,7 +23,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/push"
 	"github.com/prometheus/common/expfmt"
-	"github.com/sundy-li/go_commons/log"
+	log "github.com/sirupsen/logrus"
 )
 
 var (

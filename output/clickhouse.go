@@ -31,7 +31,7 @@ import (
 	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/pkg/errors"
 
-	"github.com/sundy-li/go_commons/log"
+	log "github.com/sirupsen/logrus"
 )
 
 var (
@@ -95,8 +95,7 @@ func (c *ClickHouse) write(batch *model.Batch) error {
 
 	stmt, err := tx.Prepare(c.prepareSQL)
 	if err != nil {
-		log.Error("%s: tx.Prepare failed with error %+v", c.taskCfg.Name, err.Error())
-
+		log.Errorf("%s: tx.Prepare failed with error %+v", c.taskCfg.Name, err.Error())
 		if shouldReconnect(err) {
 			_ = conn.ReConnect()
 			statistics.ClickhouseReconnectTotal.WithLabelValues(c.taskCfg.Name).Inc()
@@ -133,7 +132,7 @@ func shouldReconnect(err error) bool {
 	if strings.Contains(err.Error(), "connection refused") || strings.Contains(err.Error(), "bad connection") {
 		return true
 	}
-	log.Info("not match reconnect rules", err.Error())
+	log.Infof("not match reconnect rules: %v", err.Error())
 	return false
 }
 
@@ -151,7 +150,7 @@ func (c *ClickHouse) loopWrite(batch *model.Batch, callback func(batch *model.Ba
 					log.Infof("%s: ClickHouse.loopWrite quit due to the context has been cancelled", c.taskCfg.Name)
 					return
 				}
-				log.Criticalf("%s: committing offset(try %%d) failed with error %+v", c.taskCfg.Name, c.chCfg.RetryTimes-times, err)
+				log.Errorf("%s: committing offset(try #%d) failed with error %+v", c.taskCfg.Name, c.chCfg.RetryTimes-times, err)
 				if c.chCfg.RetryTimes > 0 {
 					times--
 					if times <= 0 {

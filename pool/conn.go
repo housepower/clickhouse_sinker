@@ -29,7 +29,7 @@ import (
 	"github.com/housepower/clickhouse_sinker/health"
 	"github.com/pkg/errors"
 
-	"github.com/sundy-li/go_commons/log"
+	log "github.com/sirupsen/logrus"
 	"github.com/sundy-li/go_commons/utils"
 )
 
@@ -60,7 +60,7 @@ func (c *Connection) ReConnect() error {
 		log.Info("reconnect to ", c.dsn, err.Error())
 		return err
 	}
-	log.Info("reconnect success to  ", c.dsn)
+	log.Info("reconnect success to ", c.dsn)
 	c.DB = sqlDB
 	return nil
 }
