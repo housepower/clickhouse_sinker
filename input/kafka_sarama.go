@@ -56,7 +56,7 @@ func (h MyConsumerGroupHandler) Setup(sess sarama.ConsumerGroupSession) error {
 func (h MyConsumerGroupHandler) Cleanup(_ sarama.ConsumerGroupSession) error {
 	log.Infof("%s: consumer group %s cleanup", h.k.taskCfg.Name, h.k.taskCfg.ConsumerGroup)
 	//TODO: Flush all rings helps to consuming duplicated messages?
-	time.Sleep(1 * time.Second)
+	time.Sleep(5 * time.Second)
 	return nil
 }
 

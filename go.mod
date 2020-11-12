@@ -5,7 +5,7 @@ go 1.14
 require (
 	github.com/ClickHouse/clickhouse-go v1.4.3
 	github.com/PuerkitoBio/goquery v0.0.0-20170623162102-8806ada2a4ab // indirect
-	github.com/Shopify/sarama v1.27.1
+	github.com/Shopify/sarama v1.27.2
 	github.com/andybalholm/cascadia v0.0.0-20161224141413-349dd0209470 // indirect
 	github.com/armon/go-metrics v0.0.0-20190430140413-ec5e00d3c878 // indirect
 	github.com/cespare/xxhash v1.1.0
