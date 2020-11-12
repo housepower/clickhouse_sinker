@@ -15,13 +15,13 @@ import (
 	"github.com/nacos-group/nacos-sdk-go/model"
 	"github.com/nacos-group/nacos-sdk-go/vo"
 	"github.com/pkg/errors"
-	"github.com/sundy-li/go_commons/log"
 )
 
 var _ RemoteConfManager = (*NacosConfManager)(nil)
 
 const (
 	ServiceName = "clickhouse_sinker"
+	DataId      = "clickhouse_sinker.json"
 )
 
 type NacosConfManager struct {
@@ -54,8 +54,23 @@ func (ncm *NacosConfManager) Init(properties map[string]interface{}) (err error)
 	} else {
 		clientDir = "/tmp/nacos"
 	}
+	namespaceID := constant.DEFAULT_NAMESPACE_ID
+	group := constant.DEFAULT_GROUP
+	var ok bool
+	if _, ok = properties["namespaceId"]; ok {
+		ns := properties["namespaceId"].(string)
+		if ns != "" {
+			namespaceID = ns
+		}
+	}
+	if _, ok = properties["group"]; ok {
+		grp := properties["group"].(string)
+		if grp != "" {
+			group = grp
+		}
+	}
 	cc := constant.ClientConfig{
-		NamespaceId:         properties["namespaceId"].(string),
+		NamespaceId:         namespaceID,
 		TimeoutMs:           5000,
 		ListenInterval:      10000,
 		NotLoadCacheAtStart: true,
@@ -86,7 +101,7 @@ func (ncm *NacosConfManager) Init(properties map[string]interface{}) (err error)
 		return
 	}
 
-	ncm.group = properties["group"].(string)
+	ncm.group = group
 	ncm.ip = properties["ip"].(string)
 	ncm.port = properties["port"].(int)
 	return
@@ -145,7 +160,7 @@ func (ncm *NacosConfManager) GetInstances() (instances []Instance, err error) {
 func (ncm *NacosConfManager) GetConfig() (conf *Config, err error) {
 	var content string
 	content, err = ncm.configClient.GetConfig(vo.ConfigParam{
-		DataId: "config",
+		DataId: DataId,
 		Group:  ncm.group,
 	})
 	if err != nil {
@@ -157,7 +172,6 @@ func (ncm *NacosConfManager) GetConfig() (conf *Config, err error) {
 		err = errors.Wrapf(err, "")
 		return
 	}
-	log.Debugf("NacosConfManager.GetConfig %+v, parsed as %+v", content, conf)
 	return
 }
 
@@ -169,7 +183,7 @@ func (ncm *NacosConfManager) PublishConfig(conf *Config) (err error) {
 	}
 	content := string(bs)
 	_, err = ncm.configClient.PublishConfig(vo.ConfigParam{
-		DataId:  "config",
+		DataId:  DataId,
 		Group:   ncm.group,
 		Content: content,
 	})

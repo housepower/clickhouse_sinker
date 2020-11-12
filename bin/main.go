@@ -60,14 +60,14 @@ var (
 		"register current instance in nacos")
 	nacosAddr = flag.String("nacos-addr", "127.0.0.1:8848",
 		"nacos server addresses, separated with comma")
-	nacosNamespaceID = flag.String("nacos-namespace-id", "vision",
+	nacosNamespaceID = flag.String("nacos-namespace-id", "",
 		"nacos namespace ID")
+	nacosGroup = flag.String("nacos-group", "",
+		"nacos group name")
 	nacosUsername = flag.String("nacos-username", "username",
 		"nacos username")
 	nacosPassword = flag.String("nacos-password", "password",
 		"nacos password")
-	nacosGroup = flag.String("nacos-group", "",
-		"nacos group name")
 
 	httpMetrics = promhttp.Handler()
 	runner      *Sinker
@@ -264,7 +264,6 @@ func (s *Sinker) applyConfig(newCfg *config.Config) (err error) {
 		return
 	}
 	log.SetLevel(lvl)
-	_, _ = pp.Println(newCfg)
 	if config.GetGlobalConfig() == nil {
 		// The first time invoking of applyConfig
 		err = s.applyFirstConfig(newCfg)
@@ -275,7 +274,7 @@ func (s *Sinker) applyConfig(newCfg *config.Config) (err error) {
 }
 
 func (s *Sinker) applyFirstConfig(newCfg *config.Config) (err error) {
-	config.SetGlobalConfig(newCfg)
+	log.Infof("going to apply the first config: %+v", pp.Sprint(newCfg))
 	if newCfg.Statistics.Enable {
 		s.pusher = statistics.NewPusher(newCfg.Statistics.PushGateWayAddrs,
 			newCfg.Statistics.PushInterval)
@@ -311,6 +310,7 @@ func (s *Sinker) applyFirstConfig(newCfg *config.Config) (err error) {
 	for _, t := range s.tasks {
 		go t.Run(s.ctx)
 	}
+	config.SetGlobalConfig(newCfg)
 	return
 }
 
@@ -320,6 +320,7 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 	if reflect.DeepEqual(newCfg, curCfg) {
 		return
 	}
+	log.Infof("going to apply a different config: %+v", pp.Sprint(newCfg))
 	//2. Found all tasks need to stop.
 	// Each such task matches at least one of the following conditions:
 	// - task not in new assignment
@@ -365,7 +366,8 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 			log.Warnf("Failed to stop task %s. It's disappeared.", taskName)
 		}
 	}
-	// 4. Start all tasks which is new or its config differ.
+	// 4. Initailize all tasks which is new or its config differ.
+	var newTasks []*task.Service
 	if taskNames, ok := newCfg.Assignment[selfAddr]; ok {
 		for _, taskName := range taskNames {
 			if _, ok2 := s.tasks[taskName]; !ok2 {
@@ -375,11 +377,11 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 					return
 				}
 				s.tasks[taskName] = t
-				go t.Run(s.ctx)
+				newTasks = append(newTasks, t)
 			}
 		}
 	}
-	// 5. Resize goroutine pools
+	// 5. Resize goroutine pools.
 	concurrentParsers := len(s.tasks) * 10
 	if concurrentParsers > runtime.NumCPU()/2 {
 		concurrentParsers = runtime.NumCPU() / 2
@@ -403,5 +405,13 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 			go s.pusher.Run()
 		}
 	}
+
+	// 7. Start new tasks. We don't do it at step 4 in order to avoid goroutine leak due to errors raised by later steps.
+	for _, t := range newTasks {
+		go t.Run(s.ctx)
+	}
+
+	// 8. Replace the global config with the new one.
+	config.SetGlobalConfig(newCfg)
 	return
 }

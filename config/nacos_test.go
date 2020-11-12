@@ -7,24 +7,25 @@ import (
 	"time"
 
 	"github.com/housepower/clickhouse_sinker/util"
+	"github.com/nacos-group/nacos-sdk-go/common/constant"
 	"github.com/stretchr/testify/assert"
 )
 
 var (
-	nacosAddr     = "192.168.21.42:8848,192.168.31.46:8848,192.168.32.25:8848"
-	namespaceID   = "vision" //"f8c69e42-61f2-462e-9f79-bab14972a1c6". Empty string is invalid!
-	nacosUsername = "nacos"
-	nacosPassword = "0192023A7BBD73250516F069DF18B500"
-	nacosGroup    = "testing"
-	ip            = util.GetOutboundIP().String()
-	port          = 9090
+	nacosAddr      = "192.168.21.42:8848,192.168.31.46:8848,192.168.32.25:8848"
+	nacosNamespace = "vision"               //"", DEFAULT_NAMESPACE_ID are invalid
+	nacosGroup     = constant.DEFAULT_GROUP //"" is invalid
+	nacosUsername  = "nacos"
+	nacosPassword  = "0192023A7BBD73250516F069DF18B500"
+	ip             = util.GetOutboundIP().String()
+	port           = 9090
 )
 
 // Empty is not valid namespaceID
 func _getProperties() map[string]interface{} {
 	properties := make(map[string]interface{})
 	properties["serverAddrs"] = nacosAddr
-	properties["namespaceId"] = namespaceID
+	properties["namespaceId"] = nacosNamespace
 	properties["username"] = nacosUsername
 	properties["password"] = nacosPassword
 	properties["group"] = nacosGroup
