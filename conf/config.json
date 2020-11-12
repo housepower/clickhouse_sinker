@@ -35,7 +35,6 @@
     "minBufferSize": 1,
     "msgSizeHint": 1000,
     "flushInterval": 5,
-    "concurrentParsers": 6,
     "logLevel": "debug"
   }
 }

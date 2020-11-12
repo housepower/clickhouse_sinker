@@ -84,11 +84,10 @@ func GetOutboundIP() net.IP {
 	return localAddr.IP
 }
 
-// GetSpareTcpPort find a spare TCP port
-func GetSpareTcpPort(ip string, portBegin int) (port int) {
-	port = portBegin
-	LOOP:
-	for port = portBegin;;port++{
+// GetSpareTCPPort find a spare TCP port
+func GetSpareTCPPort(ip string, portBegin int) (port int) {
+LOOP:
+	for port = portBegin; ; port++ {
 		addr := fmt.Sprintf("%s:%d", ip, port)
 		ln, err := net.Listen("tcp", addr)
 		if err == nil {
@@ -97,4 +96,4 @@ func GetSpareTcpPort(ip string, portBegin int) (port int) {
 		}
 	}
 	return
-} 
+}

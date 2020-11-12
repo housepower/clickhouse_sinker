@@ -52,13 +52,16 @@ type ClickHouse struct {
 
 // NewClickHouse new a clickhouse instance
 func NewClickHouse(taskCfg *config.TaskConfig) *ClickHouse {
-	cfg := config.GetConfig()
+	cfg := config.GetGlobalConfig()
 	return &ClickHouse{taskCfg: taskCfg, chCfg: cfg.Clickhouse[taskCfg.Clickhouse]}
 }
 
 // Init the clickhouse intance
-func (c *ClickHouse) Init() error {
-	if err := c.initSchema(); err != nil {
+func (c *ClickHouse) Init() (err error) {
+	if err = pool.InitConn(c.taskCfg.Clickhouse, c.chCfg.Host, c.chCfg.Port, c.chCfg.DB, c.chCfg.Username, c.chCfg.Password, c.chCfg.DsnParams); err != nil {
+		return
+	}
+	if err = c.initSchema(); err != nil {
 		return err
 	}
 	return nil
@@ -174,8 +177,9 @@ func (c *ClickHouse) loopWrite(batch *model.Batch, callback func(batch *model.Ba
 	}
 }
 
-// Stop does nothing, place holder for handling stop
+// Stop free clickhouse connections
 func (c *ClickHouse) Stop() error {
+	pool.FreeConn(c.taskCfg.Clickhouse)
 	return nil
 }
 

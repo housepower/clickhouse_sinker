@@ -15,7 +15,7 @@ clickhouse_sinker is a sinker program that transfer kafka message into [ClickHou
 - Support multiple sinker tasks, each runs on parallel.
 - Support multiply kafka and ClickHouse clusters.
 - Bulk insert (by config `bufferSize` and `flushInterval`).
-- Parse messages concurrently (by config `concurrentParsers`).
+- Parse messages concurrently.
 - Write batches concurrently.
 - Every batch is sharded to a determined clickhouse node. Exit if loop write failed.
 - Custom sharding policy (by config `shardingKey` and `shardingPolicy`).

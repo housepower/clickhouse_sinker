@@ -46,7 +46,7 @@ func NewKafkaGo() *KafkaGo {
 // Init Initialise the kafka instance with configuration
 func (k *KafkaGo) Init(taskCfg *config.TaskConfig, putFn func(msg model.InputMessage)) error {
 	k.taskCfg = taskCfg
-	cfg := config.GetConfig()
+	cfg := config.GetGlobalConfig()
 	kfkCfg := cfg.Kafka[k.taskCfg.Kafka]
 	k.stopped = make(chan struct{})
 	k.putFn = putFn
@@ -77,14 +77,13 @@ LOOP_KAFKA_GO:
 		var err error
 		var msg kafka.Message
 		if msg, err = k.r.FetchMessage(ctx); err != nil {
-			switch errors.Cause(err) {
-			case context.Canceled:
+			if errors.Is(err, context.Canceled) {
 				log.Infof("%s: Kafka.Run quit due to context has been canceled", k.taskCfg.Name)
 				break LOOP_KAFKA_GO
-			case io.EOF:
+			} else if errors.Is(err, io.EOF) {
 				log.Infof("%s: Kafka.Run quit due to reader has been closed", k.taskCfg.Name)
 				break LOOP_KAFKA_GO
-			default:
+			} else {
 				statistics.ConsumeMsgsErrorTotal.WithLabelValues(k.taskCfg.Name).Inc()
 				err = errors.Wrap(err, "")
 				log.Errorf("%s: Kafka.Run got error %+v", k.taskCfg.Name, err)
@@ -102,17 +101,16 @@ LOOP_KAFKA_GO:
 	}
 }
 
-func (k *KafkaGo) CommitMessages(ctx context.Context, msg *model.InputMessage) error {
-	err := k.r.CommitMessages(ctx, kafka.Message{
+func (k *KafkaGo) CommitMessages(ctx context.Context, msg *model.InputMessage) (err error) {
+	if err = k.r.CommitMessages(ctx, kafka.Message{
 		Topic:     msg.Topic,
 		Partition: msg.Partition,
 		Offset:    msg.Offset,
-	})
-	if err != nil {
+	}); err != nil {
 		err = errors.Wrapf(err, "")
-		return err
+		return
 	}
-	return nil
+	return
 }
 
 // Stop kafka consumer and close all connections

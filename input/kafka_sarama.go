@@ -75,7 +75,7 @@ func (h MyConsumerGroupHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, c
 // Init Initialise the kafka instance with configuration
 func (k *KafkaSarama) Init(taskCfg *config.TaskConfig, putFn func(msg model.InputMessage)) error {
 	k.taskCfg = taskCfg
-	cfg := config.GetConfig()
+	cfg := config.GetGlobalConfig()
 	kfkCfg := cfg.Kafka[k.taskCfg.Kafka]
 	k.stopped = make(chan struct{})
 	k.putFn = putFn
@@ -122,14 +122,13 @@ LOOP_SARAMA:
 		// server-side rebalance happens, the consumer session will need to be
 		// recreated to get the new claims
 		if err := k.cg.Consume(ctx, []string{k.taskCfg.Topic}, handler); err != nil {
-			switch errors.Cause(err) {
-			case context.Canceled:
+			if errors.Is(err, context.Canceled) {
 				log.Infof("%s: Kafka.Run quit due to context has been canceled", k.taskCfg.Name)
 				break LOOP_SARAMA
-			case sarama.ErrClosedConsumerGroup:
+			} else if errors.Is(err, sarama.ErrClosedConsumerGroup) {
 				log.Infof("%s: Kafka.Run quit due to consumer group has been closed", k.taskCfg.Name)
 				break LOOP_SARAMA
-			default:
+			} else {
 				statistics.ConsumeMsgsErrorTotal.WithLabelValues(k.taskCfg.Name).Inc()
 				err = errors.Wrap(err, "")
 				log.Errorf("%s: Kafka.Run got error %+v", k.taskCfg.Name, err)

@@ -23,7 +23,7 @@ benchtest: pre
 systest: build
 	bash go.test.sh
 lint:
-	golangci-lint run --issues-exit-code=0 --disable=nakedret
+	golangci-lint run --issues-exit-code=0 --disable=nakedret,exhaustivestruct,wrapcheck
 run: pre
 	go run bin/main.go -conf conf/
 

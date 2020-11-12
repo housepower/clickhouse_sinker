@@ -90,7 +90,7 @@ func TestNacosConfig(t *testing.T) {
 	assert.Nil(t, err)
 
 	expConf := &Config{}
-	expConf.Common.ConcurrentParsers = 13
+	expConf.Common.MinBufferSize = 13
 	var conf *Config
 	err = ncm.PublishConfig(expConf)
 	assert.Nil(t, err)
