@@ -30,6 +30,8 @@ import (
 	"github.com/housepower/clickhouse_sinker/statistics"
 )
 
+var _ Inputer = (*KafkaGo)(nil)
+
 // KafkaGo implements input.Inputer
 type KafkaGo struct {
 	taskCfg *config.TaskConfig
@@ -44,9 +46,8 @@ func NewKafkaGo() *KafkaGo {
 }
 
 // Init Initialise the kafka instance with configuration
-func (k *KafkaGo) Init(taskCfg *config.TaskConfig, putFn func(msg model.InputMessage)) error {
-	k.taskCfg = taskCfg
-	cfg := config.GetGlobalConfig()
+func (k *KafkaGo) Init(cfg *config.Config, taskName string, putFn func(msg model.InputMessage)) error {
+	k.taskCfg = cfg.Tasks[taskName]
 	kfkCfg := cfg.Kafka[k.taskCfg.Kafka]
 	k.stopped = make(chan struct{})
 	k.putFn = putFn

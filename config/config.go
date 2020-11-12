@@ -164,18 +164,6 @@ const (
 	defaultLayoutDateTime64 = time.RFC3339
 )
 
-var (
-	globalConfig *Config
-)
-
-func GetGlobalConfig() *Config {
-	return globalConfig
-}
-
-func SetGlobalConfig(newCfg *Config) {
-	globalConfig = newCfg
-}
-
 func ParseLocalConfig(cfgPath, selfAddr string) (cfg *Config, err error) {
 	var f = "config.json"
 	f = filepath.Join(cfgPath, f)

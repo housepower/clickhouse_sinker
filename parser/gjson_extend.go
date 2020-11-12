@@ -24,6 +24,8 @@ import (
 	"github.com/housepower/clickhouse_sinker/model"
 )
 
+var _ Parser = (*GjsonExtendParser)(nil)
+
 type GjsonExtendParser struct {
 	tsLayout []string
 }

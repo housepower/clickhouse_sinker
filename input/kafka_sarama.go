@@ -29,6 +29,8 @@ import (
 	"github.com/housepower/clickhouse_sinker/statistics"
 )
 
+var _ Inputer = (*KafkaSarama)(nil)
+
 // KafkaSarama implements input.Inputer
 type KafkaSarama struct {
 	taskCfg *config.TaskConfig
@@ -73,9 +75,8 @@ func (h MyConsumerGroupHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, c
 }
 
 // Init Initialise the kafka instance with configuration
-func (k *KafkaSarama) Init(taskCfg *config.TaskConfig, putFn func(msg model.InputMessage)) error {
-	k.taskCfg = taskCfg
-	cfg := config.GetGlobalConfig()
+func (k *KafkaSarama) Init(cfg *config.Config, taskName string, putFn func(msg model.InputMessage)) error {
+	k.taskCfg = cfg.Tasks[taskName]
 	kfkCfg := cfg.Kafka[k.taskCfg.Kafka]
 	k.stopped = make(chan struct{})
 	k.putFn = putFn

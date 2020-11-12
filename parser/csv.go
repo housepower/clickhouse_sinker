@@ -24,6 +24,8 @@ import (
 	"github.com/pkg/errors"
 )
 
+var _ Parser = (*CsvParser)(nil)
+
 // CsvParser implementation to parse input from a CSV format
 type CsvParser struct {
 	title     []string

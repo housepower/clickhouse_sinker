@@ -51,9 +51,10 @@ type ClickHouse struct {
 }
 
 // NewClickHouse new a clickhouse instance
-func NewClickHouse(taskCfg *config.TaskConfig) *ClickHouse {
-	cfg := config.GetGlobalConfig()
-	return &ClickHouse{taskCfg: taskCfg, chCfg: cfg.Clickhouse[taskCfg.Clickhouse]}
+func NewClickHouse(cfg *config.Config, taskName string) *ClickHouse {
+	taskCfg := cfg.Tasks[taskName]
+	chCfg := cfg.Clickhouse[taskCfg.Clickhouse]
+	return &ClickHouse{taskCfg: taskCfg, chCfg: chCfg}
 }
 
 // Init the clickhouse intance

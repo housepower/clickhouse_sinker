@@ -21,7 +21,7 @@ var _ RemoteConfManager = (*NacosConfManager)(nil)
 
 const (
 	ServiceName = "clickhouse_sinker"
-	DataId      = "clickhouse_sinker.json"
+	DataID      = "clickhouse_sinker.json"
 )
 
 type NacosConfManager struct {
@@ -160,7 +160,7 @@ func (ncm *NacosConfManager) GetInstances() (instances []Instance, err error) {
 func (ncm *NacosConfManager) GetConfig() (conf *Config, err error) {
 	var content string
 	content, err = ncm.configClient.GetConfig(vo.ConfigParam{
-		DataId: DataId,
+		DataId: DataID,
 		Group:  ncm.group,
 	})
 	if err != nil {
@@ -183,7 +183,7 @@ func (ncm *NacosConfManager) PublishConfig(conf *Config) (err error) {
 	}
 	content := string(bs)
 	_, err = ncm.configClient.PublishConfig(vo.ConfigParam{
-		DataId:  DataId,
+		DataId:  DataID,
 		Group:   ncm.group,
 		Content: content,
 	})

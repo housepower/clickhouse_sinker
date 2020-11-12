@@ -87,14 +87,15 @@ func init() {
 }
 
 // GenTask generate a task via config
-func GenTask(taskCfg *config.TaskConfig) (taskImpl *task.Service) {
-	ck := output.NewClickHouse(taskCfg)
+func GenTask(cfg *config.Config, taskName string) (taskImpl *task.Service) {
+	taskCfg := cfg.Tasks[taskName]
+	ck := output.NewClickHouse(cfg, taskName)
 	pp := parser.NewParserPool(taskCfg.Parser, taskCfg.CsvFormat, taskCfg.Delimiter, []string{taskCfg.LayoutDate, taskCfg.LayoutDateTime, taskCfg.LayoutDateTime64})
 	var inputer input.Inputer
 	if taskCfg.Kafka != "" {
 		inputer = input.NewInputer(taskCfg.KafkaClient)
 	}
-	taskImpl = task.NewTaskService(inputer, ck, taskCfg, pp)
+	taskImpl = task.NewTaskService(inputer, ck, pp, cfg, taskName)
 	return
 }
 
@@ -177,6 +178,7 @@ func main() {
 
 // Sinker object maintains number of task for each partition
 type Sinker struct {
+	curCfg *config.Config
 	pusher *statistics.Pusher
 	tasks  map[string]*task.Service
 	rcm    config.RemoteConfManager
@@ -264,7 +266,7 @@ func (s *Sinker) applyConfig(newCfg *config.Config) (err error) {
 		return
 	}
 	log.SetLevel(lvl)
-	if config.GetGlobalConfig() == nil {
+	if s.curCfg == nil {
 		// The first time invoking of applyConfig
 		err = s.applyFirstConfig(newCfg)
 	} else {
@@ -288,8 +290,7 @@ func (s *Sinker) applyFirstConfig(newCfg *config.Config) (err error) {
 	s.tasks = make(map[string]*task.Service)
 	if taskNames, ok := newCfg.Assignment[selfAddr]; ok {
 		for _, taskName := range taskNames {
-			taskCfg := newCfg.Tasks[taskName]
-			t := GenTask(taskCfg)
+			t := GenTask(newCfg, taskName)
 			if err = t.Init(); err != nil {
 				return
 			}
@@ -310,14 +311,13 @@ func (s *Sinker) applyFirstConfig(newCfg *config.Config) (err error) {
 	for _, t := range s.tasks {
 		go t.Run(s.ctx)
 	}
-	config.SetGlobalConfig(newCfg)
+	s.curCfg = newCfg
 	return
 }
 
 func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 	// 1. Quit if the two configs are the same.
-	curCfg := config.GetGlobalConfig()
-	if reflect.DeepEqual(newCfg, curCfg) {
+	if reflect.DeepEqual(newCfg, s.curCfg) {
 		return
 	}
 	log.Infof("going to apply a different config: %+v", pp.Sprint(newCfg))
@@ -328,22 +328,22 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 	// - task clickhouse config differ
 	// - task kafka config differ
 	var tasksToStop []string
-	if taskNames, ok := curCfg.Assignment[selfAddr]; ok {
+	if taskNames, ok := s.curCfg.Assignment[selfAddr]; ok {
 		for _, taskName := range taskNames {
 			var needStop bool
-			curTaskCfg := curCfg.Tasks[taskName]
+			curTaskCfg := s.curCfg.Tasks[taskName]
 			if newTaskCfg, ok2 := newCfg.Tasks[taskName]; ok2 {
 				if !reflect.DeepEqual(newTaskCfg, curTaskCfg) {
 					needStop = true
 				} else {
 					chName := curTaskCfg.Clickhouse
-					curChCfg := curCfg.Clickhouse[chName]
+					curChCfg := s.curCfg.Clickhouse[chName]
 					newChCfg := newCfg.Clickhouse[chName]
 					if !reflect.DeepEqual(newChCfg, curChCfg) {
 						needStop = true
 					}
 					kfkName := curTaskCfg.Kafka
-					curKfkCfg := curCfg.Kafka[kfkName]
+					curKfkCfg := s.curCfg.Kafka[kfkName]
 					newKfkCfg := newCfg.Kafka[kfkName]
 					if !reflect.DeepEqual(newKfkCfg, curKfkCfg) {
 						needStop = true
@@ -371,8 +371,7 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 	if taskNames, ok := newCfg.Assignment[selfAddr]; ok {
 		for _, taskName := range taskNames {
 			if _, ok2 := s.tasks[taskName]; !ok2 {
-				taskCfg := newCfg.Tasks[taskName]
-				t := GenTask(taskCfg)
+				t := GenTask(newCfg, taskName)
 				if err = t.Init(); err != nil {
 					return
 				}
@@ -391,7 +390,7 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 	util.GlobalWritingPool.Resize(totalConn)
 
 	// 6. Handle pusher config
-	if !reflect.DeepEqual(newCfg.Statistics, curCfg.Statistics) {
+	if !reflect.DeepEqual(newCfg.Statistics, s.curCfg.Statistics) {
 		if s.pusher != nil {
 			s.pusher.Stop()
 			s.pusher = nil
@@ -411,7 +410,7 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 		go t.Run(s.ctx)
 	}
 
-	// 8. Replace the global config with the new one.
-	config.SetGlobalConfig(newCfg)
+	// 8. Record the new config.
+	s.curCfg = newCfg
 	return
 }

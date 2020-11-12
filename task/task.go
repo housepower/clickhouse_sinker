@@ -46,8 +46,9 @@ type Service struct {
 	stopped    chan struct{}
 	inputer    input.Inputer
 	clickhouse *output.ClickHouse
-	taskCfg    *config.TaskConfig
 	pp         *parser.Pool
+	cfg        *config.Config
+	taskCfg    *config.TaskConfig
 	dims       []*model.ColumnWithType
 
 	rings     []*Ring
@@ -59,14 +60,15 @@ type Service struct {
 }
 
 // NewTaskService creates an instance of new tasks with kafka, clickhouse and paser instances
-func NewTaskService(inputer input.Inputer, clickhouse *output.ClickHouse, taskCfg *config.TaskConfig, pp *parser.Pool) *Service {
+func NewTaskService(inputer input.Inputer, clickhouse *output.ClickHouse, pp *parser.Pool, cfg *config.Config, taskName string) *Service {
 	return &Service{
 		stopped:    make(chan struct{}),
 		inputer:    inputer,
 		clickhouse: clickhouse,
 		started:    false,
-		taskCfg:    taskCfg,
 		pp:         pp,
+		cfg:        cfg,
+		taskCfg:    cfg.Tasks[taskName],
 	}
 }
 
@@ -89,7 +91,7 @@ func (service *Service) Init() (err error) {
 		}
 	}
 
-	err = service.inputer.Init(service.taskCfg, service.put)
+	err = service.inputer.Init(service.cfg, service.taskCfg.Name, service.put)
 	return
 }
 
