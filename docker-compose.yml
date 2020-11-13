@@ -63,3 +63,11 @@ services:
     restart: always
     network_mode: host
     command: "agent -dev -ui -client 0.0.0.0"
+  nacos:
+    image: nacos/nacos-server:latest
+    container_name: nacos-standalone
+    environment:
+    - PREFER_HOST_MODE=hostname
+    - MODE=standalone
+    ports:
+    - "8848:8848"

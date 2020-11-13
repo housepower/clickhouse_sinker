@@ -228,7 +228,13 @@ func (service *Service) flush(batch *model.Batch) (err error) {
 	return nil
 }
 
-// Stop stop kafka and clickhouse client
+// NotifyStop notify task to stop, This is non-blocking.
+func (service *Service) NotifyStop() {
+	log.Infof("%s: notified to stop", service.taskCfg.Name)
+	service.cancel()
+}
+
+// Stop stop kafka and clickhouse client. This is blocking.
 func (service *Service) Stop() {
 	log.Infof("%s: stopping task service...", service.taskCfg.Name)
 	service.cancel()

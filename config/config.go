@@ -34,8 +34,8 @@ import (
 type RemoteConfManager interface {
 	Init(properties map[string]interface{}) error
 	// Register this instance, and keep-alive via heartbeat.
-	Register() error
-	Deregister() error
+	Register(ip string, port int) error
+	Deregister(ip string, port int) error
 	// GetInstances fetchs healthy instances.
 	// Mature service-discovery solutions(Nacos, Consul etc.) have client side cache
 	// so that frequent invoking of GetInstances() and GetGlobalConfig() don't harm.

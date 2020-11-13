@@ -102,15 +102,13 @@ func (ncm *NacosConfManager) Init(properties map[string]interface{}) (err error)
 	}
 
 	ncm.group = group
-	ncm.ip = properties["ip"].(string)
-	ncm.port = properties["port"].(int)
 	return
 }
 
-func (ncm *NacosConfManager) Register() (err error) {
+func (ncm *NacosConfManager) Register(ip string, port int) (err error) {
 	_, err = ncm.namingClient.RegisterInstance(vo.RegisterInstanceParam{
-		Ip:          ncm.ip,
-		Port:        uint64(ncm.port),
+		Ip:          ip,
+		Port:        uint64(port),
 		ServiceName: ServiceName,
 		Weight:      float64(runtime.NumCPU()),
 		GroupName:   ncm.group,
@@ -124,11 +122,11 @@ func (ncm *NacosConfManager) Register() (err error) {
 	return
 }
 
-func (ncm *NacosConfManager) Deregister() (err error) {
+func (ncm *NacosConfManager) Deregister(ip string, port int) (err error) {
 	_, err = ncm.namingClient.DeregisterInstance(
 		vo.DeregisterInstanceParam{
-			Ip:          ncm.ip,
-			Port:        uint64(ncm.port),
+			Ip:          ip,
+			Port:        uint64(port),
 			ServiceName: ServiceName,
 			GroupName:   ncm.group,
 			Ephemeral:   true,

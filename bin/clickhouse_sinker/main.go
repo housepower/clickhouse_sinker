@@ -115,24 +115,20 @@ func main() {
 			properties = make(map[string]interface{})
 			properties["consulAddr"] = *consulAddr
 			properties["deregisterCriticalServiceAfter"] = *consulDeregisterCriticalServiceAfter
-			properties["ip"] = ip
-			properties["port"] = *httpPort
 		} else if *nacosRegister {
 			rcm = &config.NacosConfManager{}
 			properties = make(map[string]interface{})
 			properties["serverAddrs"] = *nacosAddr
-			properties["namespaceId"] = *nacosNamespaceID
 			properties["username"] = *nacosUsername
 			properties["password"] = *nacosPassword
+			properties["namespaceId"] = *nacosNamespaceID
 			properties["group"] = *nacosGroup
-			properties["ip"] = ip
-			properties["port"] = *httpPort
 		}
 		if rcm != nil {
 			if err := rcm.Init(properties); err != nil {
 				log.Fatalf("%+v", err)
 			}
-			if err := rcm.Register(); err != nil {
+			if err := rcm.Register(ip, *httpPort); err != nil {
 				log.Fatalf("%+v", err)
 			}
 		}
@@ -214,12 +210,11 @@ func (s *Sinker) Run() {
 		}
 		<-s.ctx.Done()
 	} else {
-		t := time.NewTicker(5 * time.Second)
 		for {
 			select {
 			case <-s.ctx.Done():
 				return
-			case <-t.C:
+			case <-time.After(5 * time.Second):
 				if newCfg, err = s.rcm.GetConfig(); err != nil {
 					log.Fatalf("%+v", err)
 					return
@@ -248,7 +243,7 @@ func (s *Sinker) Close() {
 		s.pusher.Stop()
 	}
 	if s.rcm != nil {
-		_ = s.rcm.Deregister()
+		_ = s.rcm.Deregister(ip, *httpPort)
 	}
 }
 
@@ -357,7 +352,12 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 			}
 		}
 	}
-	// 3. Stop all tasks found at the step 2.
+	// 3. Stop all tasks in parallel found at the step 2.
+	for _, taskName := range tasksToStop {
+		if task, ok := s.tasks[taskName]; ok {
+			task.NotifyStop()
+		}
+	}
 	for _, taskName := range tasksToStop {
 		if task, ok := s.tasks[taskName]; ok {
 			task.Stop()
