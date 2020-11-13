@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"runtime"
 	"strings"
 	"time"
 
@@ -38,12 +39,12 @@ func InitGlobalTimerWheel() {
 
 // InitGlobalParsingPool initialize GlobalParsingPool
 func InitGlobalParsingPool(maxWorkers int) {
-	GlobalParsingPool = NewWorkerPool(maxWorkers, 1000)
+	GlobalParsingPool = NewWorkerPool(maxWorkers, 100*runtime.NumCPU())
 }
 
 // InitGlobalWritingPool initialize GlobalWritingPool
 func InitGlobalWritingPool(maxWorkers int) {
-	GlobalWritingPool = NewWorkerPool(maxWorkers, 32)
+	GlobalWritingPool = NewWorkerPool(maxWorkers, runtime.NumCPU())
 }
 
 // StringContains check if contains string in array

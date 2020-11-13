@@ -237,6 +237,11 @@ func (cfg *Config) Normallize() (err error) {
 	if cfg.Common.LayoutDateTime64 == "" {
 		cfg.Common.LayoutDateTime64 = defaultLayoutDateTime64
 	}
+	switch strings.ToLower(cfg.Common.LogLevel) {
+	case "panic", "fatal", "error", "warn", "warning", "info", "debug", "trace":
+	default:
+		cfg.Common.LogLevel = "info"
+	}
 	if err = cfg.normallizeTasks(); err != nil {
 		return
 	}

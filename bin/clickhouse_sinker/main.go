@@ -61,9 +61,9 @@ var (
 	nacosAddr = flag.String("nacos-addr", "127.0.0.1:8848",
 		"nacos server addresses, separated with comma")
 	nacosNamespaceID = flag.String("nacos-namespace-id", "",
-		"nacos namespace ID")
-	nacosGroup = flag.String("nacos-group", "",
-		"nacos group name")
+		`nacos namespace ID. Neither DEFAULT_NAMESPACE_ID("public") nor namespace name work!`)
+	nacosGroup = flag.String("nacos-group", "DEFAULT_GROUP",
+		`nacos group name. Empty string doesn't work!`)
 	nacosUsername = flag.String("nacos-username", "username",
 		"nacos username")
 	nacosPassword = flag.String("nacos-password", "password",

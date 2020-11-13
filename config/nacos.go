@@ -28,8 +28,6 @@ type NacosConfManager struct {
 	configClient config_client.IConfigClient
 	namingClient naming_client.INamingClient
 	group        string
-	ip           string
-	port         int
 }
 
 func (ncm *NacosConfManager) Init(properties map[string]interface{}) (err error) {
@@ -54,20 +52,14 @@ func (ncm *NacosConfManager) Init(properties map[string]interface{}) (err error)
 	} else {
 		clientDir = "/tmp/nacos"
 	}
-	namespaceID := constant.DEFAULT_NAMESPACE_ID
-	group := constant.DEFAULT_GROUP
+	var namespaceID string          //Neither DEFAULT_NAMESPACE_ID("public") nor namespace name work!
+	group := constant.DEFAULT_GROUP //Empty string doesn't work!
 	var ok bool
 	if _, ok = properties["namespaceId"]; ok {
-		ns := properties["namespaceId"].(string)
-		if ns != "" {
-			namespaceID = ns
-		}
+		namespaceID = properties["namespaceId"].(string)
 	}
 	if _, ok = properties["group"]; ok {
-		grp := properties["group"].(string)
-		if grp != "" {
-			group = grp
-		}
+		group = properties["group"].(string)
 	}
 	cc := constant.ClientConfig{
 		NamespaceId:         namespaceID,
