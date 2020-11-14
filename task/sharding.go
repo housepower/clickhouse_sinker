@@ -13,7 +13,7 @@ import (
 	"github.com/housepower/clickhouse_sinker/statistics"
 	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/pkg/errors"
-	"github.com/sundy-li/go_commons/log"
+	log "github.com/sirupsen/logrus"
 )
 
 type ShardingPolicy struct {
@@ -229,6 +229,6 @@ func (sh *Sharder) doFlush(_ interface{}) {
 	sh.tid.Stop()
 	if sh.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(sh.service.taskCfg.FlushInterval)*time.Second, sh.ForceFlush, nil); err != nil {
 		err = errors.Wrap(err, "")
-		log.Criticalf("%s: got error %+v", sh.service.taskCfg.Name, err)
+		log.Fatalf("%s: got error %+v", sh.service.taskCfg.Name, err)
 	}
 }

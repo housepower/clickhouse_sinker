@@ -13,9 +13,11 @@ GOBUILD   := $(GO) build $(BUILD_FLAG)
 pre:
 	go mod tidy
 build: pre
-	$(GOBUILD) -ldflags '$(SINKER_LDFLAGS)' -o dist/clickhouse_sinker bin/main.go
+	$(GOBUILD) -ldflags '$(SINKER_LDFLAGS)' -o dist/clickhouse_sinker cmd/clickhouse_sinker/main.go
+	$(GOBUILD) -ldflags '$(SINKER_LDFLAGS)' -o dist/nacos_publish_config cmd/nacos_publish_config/main.go
 debug: pre
-	$(GOBUILD) -ldflags '$(SINKER_LDFLAGS)' -gcflags "all=-N -l" -o dist/clickhouse_sinker bin/main.go
+	$(GOBUILD) -ldflags '$(SINKER_LDFLAGS)' -gcflags "all=-N -l" -o dist/clickhouse_sinker cmd/clickhouse_sinker/main.go
+	$(GOBUILD) -ldflags '$(SINKER_LDFLAGS)' -gcflags "all=-N -l" -o dist/nacos_publish_config cmd/nacos_publish_config/main.go
 unittest: pre
 	go test -v ./...
 benchtest: pre
@@ -23,9 +25,9 @@ benchtest: pre
 systest: build
 	bash go.test.sh
 lint:
-	golangci-lint run --issues-exit-code=0 --disable=nakedret
+	golangci-lint run --issues-exit-code=0 --disable=nakedret,exhaustivestruct,wrapcheck
 run: pre
-	go run bin/main.go -conf conf/
+	go run cmd/clickhouse_sinker/main.go --local-cfg-dir conf/
 
 docker-run:
 	docker run --net=host -e "CONFIG=`cat conf/config.json`" -e "TASK=`cat conf/tasks/logstash_sample.json`" --rm -it `docker build -q .`

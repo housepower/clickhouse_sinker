@@ -23,8 +23,9 @@ import (
 	"github.com/valyala/fastjson"
 )
 
+var _ Parser = (*FastjsonParser)(nil)
+
 // FastjsonParser, parser for get data in json format
-// uses
 type FastjsonParser struct {
 	tsLayout []string
 	fjp      fastjson.Parser

@@ -6,7 +6,7 @@ import (
 
 	"github.com/fagongzi/goetty"
 	"github.com/pkg/errors"
-	"github.com/sundy-li/go_commons/log"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/housepower/clickhouse_sinker/model"
 	"github.com/housepower/clickhouse_sinker/statistics"
@@ -52,7 +52,7 @@ func (ring *Ring) PutElem(msgRow model.MsgRow) {
 
 	if ring.service.sharder != nil {
 		if msgRow.Shard, err = ring.service.sharder.Calc(msgRow.Row); err != nil {
-			log.Criticalf("%s: got error %+v", ring.service.taskCfg.Name, err)
+			log.Fatalf("%s: got error %+v", ring.service.taskCfg.Name, err)
 		}
 	}
 	statistics.RingMsgs.WithLabelValues(ring.service.taskCfg.Name).Inc()
@@ -65,7 +65,7 @@ func (ring *Ring) PutElem(msgRow model.MsgRow) {
 		ring.tid.Stop()
 		if ring.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(ring.service.taskCfg.FlushInterval)*time.Second, ring.ForceBatchOrShard, nil); err != nil {
 			err = errors.Wrap(err, "")
-			log.Criticalf("%s: got error %+v", ring.service.taskCfg.Name, err)
+			log.Fatalf("%s: got error %+v", ring.service.taskCfg.Name, err)
 		}
 	}
 }
@@ -125,7 +125,7 @@ func (ring *Ring) ForceBatchOrShard(arg interface{}) {
 	var err error
 	if ring.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(ring.service.taskCfg.FlushInterval)*time.Second, ring.ForceBatchOrShard, nil); err != nil {
 		err = errors.Wrap(err, "")
-		log.Criticalf("%s: got error %+v", ring.service.taskCfg.Name, err)
+		log.Fatalf("%s: got error %+v", ring.service.taskCfg.Name, err)
 	}
 }
 

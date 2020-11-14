@@ -5,7 +5,7 @@ go 1.14
 require (
 	github.com/ClickHouse/clickhouse-go v1.4.3
 	github.com/PuerkitoBio/goquery v0.0.0-20170623162102-8806ada2a4ab // indirect
-	github.com/Shopify/sarama v1.27.1
+	github.com/Shopify/sarama v1.27.2
 	github.com/andybalholm/cascadia v0.0.0-20161224141413-349dd0209470 // indirect
 	github.com/armon/go-metrics v0.0.0-20190430140413-ec5e00d3c878 // indirect
 	github.com/cespare/xxhash v1.1.0
@@ -13,7 +13,6 @@ require (
 	github.com/golang/protobuf v1.4.2 // indirect
 	github.com/google/btree v1.0.0 // indirect
 	github.com/google/gops v0.3.12
-	github.com/google/uuid v1.1.1
 	github.com/hashicorp/consul/api v1.3.0
 	github.com/hashicorp/go-msgpack v0.5.5 // indirect
 	github.com/hashicorp/go-rootcerts v1.0.1 // indirect
@@ -24,12 +23,13 @@ require (
 	github.com/heptiolabs/healthcheck v0.0.0-20180807145615-6ff867650f40
 	github.com/jmoiron/jsonq v0.0.0-20150511023944-e874b168d07e // indirect
 	github.com/k0kubun/colorstring v0.0.0-20150214042306-9440f1994b88 // indirect
-	github.com/k0kubun/pp v2.2.0+incompatible
-	github.com/mattn/go-colorable v0.1.7 // indirect
+	github.com/k0kubun/pp v3.0.1+incompatible
+	github.com/nacos-group/nacos-sdk-go v1.0.1
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.3.0
 	github.com/prometheus/common v0.8.0
 	github.com/segmentio/kafka-go v0.4.8
+	github.com/sirupsen/logrus v1.4.2
 	github.com/smartystreets/goconvey v1.6.4 // indirect
 	github.com/stretchr/testify v1.6.1
 	github.com/sundy-li/go_commons v0.0.0-20191120121859-84e4cb0afce4

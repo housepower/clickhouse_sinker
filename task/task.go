@@ -34,7 +34,7 @@ import (
 	"github.com/pkg/errors"
 	"golang.org/x/time/rate"
 
-	"github.com/sundy-li/go_commons/log"
+	log "github.com/sirupsen/logrus"
 )
 
 // TaskService holds the configuration for each task
@@ -42,12 +42,14 @@ type Service struct {
 	sync.Mutex
 
 	ctx        context.Context
+	cancel     context.CancelFunc
 	started    bool
 	stopped    chan struct{}
 	inputer    input.Inputer
 	clickhouse *output.ClickHouse
-	taskCfg    *config.TaskConfig
 	pp         *parser.Pool
+	cfg        *config.Config
+	taskCfg    *config.TaskConfig
 	dims       []*model.ColumnWithType
 
 	rings     []*Ring
@@ -59,14 +61,15 @@ type Service struct {
 }
 
 // NewTaskService creates an instance of new tasks with kafka, clickhouse and paser instances
-func NewTaskService(inputer input.Inputer, clickhouse *output.ClickHouse, taskCfg *config.TaskConfig, pp *parser.Pool) *Service {
+func NewTaskService(inputer input.Inputer, clickhouse *output.ClickHouse, pp *parser.Pool, cfg *config.Config, taskName string) *Service {
 	return &Service{
 		stopped:    make(chan struct{}),
 		inputer:    inputer,
 		clickhouse: clickhouse,
 		started:    false,
-		taskCfg:    taskCfg,
 		pp:         pp,
+		cfg:        cfg,
+		taskCfg:    cfg.Tasks[taskName],
 	}
 }
 
@@ -89,7 +92,7 @@ func (service *Service) Init() (err error) {
 		}
 	}
 
-	err = service.inputer.Init(service.taskCfg, service.put)
+	err = service.inputer.Init(service.cfg, service.taskCfg.Name, service.put)
 	return
 }
 
@@ -97,21 +100,21 @@ func (service *Service) Init() (err error) {
 func (service *Service) Run(ctx context.Context) {
 	var err error
 	service.started = true
-	service.ctx = ctx
+	service.ctx, service.cancel = context.WithCancel(ctx)
 	log.Infof("%s: task started", service.taskCfg.Name)
-	go service.inputer.Run(ctx)
+	go service.inputer.Run(service.ctx)
 	if service.sharder != nil {
 		// schedule a delayed ForceFlush
 		if service.sharder.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(service.taskCfg.FlushInterval)*time.Second, service.sharder.ForceFlush, nil); err != nil {
 			err = errors.Wrap(err, "")
-			log.Criticalf("%s: got error %+v", service.taskCfg.Name, err)
+			log.Fatalf("%s: got error %+v", service.taskCfg.Name, err)
 		}
 	}
 
 LOOP:
 	for {
 		select {
-		case <-ctx.Done():
+		case <-service.ctx.Done():
 			break LOOP
 		case batch := <-service.batchChan:
 			if err := service.flush(batch); err != nil {
@@ -160,7 +163,7 @@ func (service *Service) put(msg model.InputMessage) {
 		// schedule a delayed ForceBatchOrShard
 		if ring.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(service.taskCfg.FlushInterval)*time.Second, ring.ForceBatchOrShard, nil); err != nil {
 			err = errors.Wrap(err, "")
-			log.Criticalf("%s: got error %+v", service.taskCfg.Name, err)
+			log.Fatalf("%s: got error %+v", service.taskCfg.Name, err)
 		}
 		service.rings[msg.Partition] = ring
 		service.Unlock()
@@ -225,20 +228,38 @@ func (service *Service) flush(batch *model.Batch) (err error) {
 	return nil
 }
 
-// Stop stop kafka and clickhouse client
+// NotifyStop notify task to stop, This is non-blocking.
+func (service *Service) NotifyStop() {
+	log.Infof("%s: notified to stop", service.taskCfg.Name)
+	service.cancel()
+}
+
+// Stop stop kafka and clickhouse client. This is blocking.
 func (service *Service) Stop() {
 	log.Infof("%s: stopping task service...", service.taskCfg.Name)
+	service.cancel()
 	if err := service.inputer.Stop(); err != nil {
 		panic(err)
 	}
-	log.Infof("%s: stopped kafka", service.taskCfg.Name)
+	log.Infof("%s: stopped input", service.taskCfg.Name)
 
-	_ = service.clickhouse.Close()
-	log.Infof("%s: closed clickhouse", service.taskCfg.Name)
+	_ = service.clickhouse.Stop()
+	log.Infof("%s: stopped output", service.taskCfg.Name)
+
+	if service.sharder != nil {
+		service.sharder.tid.Stop()
+	}
+	for _, ring := range service.rings {
+		if ring != nil {
+			ring.tid.Stop()
+		}
+	}
+	log.Infof("%s: stopped internal timers", service.taskCfg.Name)
+
 	if service.started {
 		<-service.stopped
 	}
-	log.Infof("%s: got notify from service.stopped", service.taskCfg.Name)
+	log.Infof("%s: stopped", service.taskCfg.Name)
 }
 
 // GoID returns goroutine id

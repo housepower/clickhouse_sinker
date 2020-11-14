@@ -20,204 +20,53 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
-	"runtime"
+	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/housepower/clickhouse_sinker/util"
+	"github.com/pkg/errors"
 
-	"github.com/k0kubun/pp"
-	"github.com/sundy-li/go_commons/log"
 	"github.com/sundy-li/go_commons/utils"
 )
+
+// RemoteConfManager can be implemented by many backends: Nacos, Consul, etcd, ZooKeeper...
+type RemoteConfManager interface {
+	Init(properties map[string]interface{}) error
+	// Register this instance, and keep-alive via heartbeat.
+	Register(ip string, port int) error
+	Deregister(ip string, port int) error
+	// GetInstances fetchs healthy instances.
+	// Mature service-discovery solutions(Nacos, Consul etc.) have client side cache
+	// so that frequent invoking of GetInstances() and GetGlobalConfig() don't harm.
+	GetInstances() (instances []Instance, err error)
+	// GetConfig fetchs the config. The manager shall not reference the returned Config object after call.
+	GetConfig() (conf *Config, err error)
+	// PublishConfig publishs the config. The manager shall not reference the passed Config object after call.
+	PublishConfig(conf *Config) (err error)
+}
+
+type Instance struct {
+	Addr   string
+	Weight int
+}
 
 // Config struct used for different configurations use
 type Config struct {
 	Kafka      map[string]*KafkaConfig
 	Clickhouse map[string]*ClickHouseConfig
-
-	Tasks []*TaskConfig
-
-	Statistics struct {
-		Enable           bool
-		PushGateWayAddrs []string
-		PushInterval     int
+	Tasks      map[string]*TaskConfig
+	Common     struct {
+		FlushInterval    int
+		BufferSize       int
+		MinBufferSize    int
+		MsgSizeHint      int
+		LayoutDate       string
+		LayoutDateTime   string
+		LayoutDateTime64 string
+		LogLevel         string
 	}
-
-	Common struct {
-		FlushInterval     int
-		BufferSize        int
-		MinBufferSize     int
-		MsgSizeHint       int
-		ConcurrentParsers int
-		LayoutDate        string
-		LayoutDateTime    string
-		LayoutDateTime64  string
-		LogLevel          string
-	}
-}
-
-var (
-	baseConfig     *Config
-	configDir      string
-	baseConfigOnce sync.Once
-)
-
-func SetConfigDir(dir string) {
-	configDir = dir
-}
-
-func GetConfig() *Config {
-	baseConfigOnce.Do(func() {
-		if configDir == "" {
-			panic("Need to call SetConfigDir before GetConfig")
-		}
-		baseConfig = initConfig(configDir)
-	})
-	return baseConfig
-}
-
-// InitConfig must run before the server start
-func initConfig(dir string) *Config {
-	confPath := ""
-	if len(dir) > 0 {
-		confPath = dir
-	}
-	var f = "config.json"
-	f = filepath.Join(confPath, f)
-	s, err := utils.ExtendFile(f)
-	if err != nil {
-		panic(err)
-	}
-	baseConfig = &Config{}
-	err = json.Unmarshal([]byte(s), baseConfig)
-	if err != nil {
-		panic(err)
-	}
-
-	err = baseConfig.loadTasks(filepath.Join(confPath, "tasks"))
-	if err != nil {
-		panic(err)
-	}
-	baseConfig.normallize()
-
-	log.SetLevelStr(baseConfig.Common.LogLevel)
-	_, _ = pp.Println(baseConfig)
-	return baseConfig
-}
-
-// loadTasks read the task definition from json configuration and load
-func (config *Config) loadTasks(dir string) error {
-	// Check if the configuration is correct
-	files, err := ioutil.ReadDir(dir)
-	if err != nil {
-		return err
-	}
-	config.Tasks = make([]*TaskConfig, 0, len(files))
-	for _, f := range files {
-		if strings.HasSuffix(f.Name(), ".json") {
-			s, err := utils.ExtendFile(filepath.Join(dir, f.Name()))
-			if err != nil {
-				return err
-			}
-			taskConfig := &TaskConfig{}
-			err = json.Unmarshal([]byte(s), taskConfig)
-			if err != nil {
-				return err
-			}
-			config.Tasks = append(config.Tasks, taskConfig)
-		}
-	}
-	return nil
-}
-
-// normallize configuration
-func (config *Config) normallize() {
-	if config.Common.FlushInterval <= 0 {
-		config.Common.FlushInterval = defaultFlushInterval
-	}
-	if config.Common.BufferSize <= 0 {
-		config.Common.BufferSize = defaultBufferSize
-	} else {
-		config.Common.BufferSize = 1 << util.GetShift(config.Common.BufferSize)
-	}
-	if config.Common.MinBufferSize <= 0 {
-		config.Common.MinBufferSize = defaultMinBufferSize
-	} else {
-		config.Common.MinBufferSize = 1 << util.GetShift(config.Common.MinBufferSize)
-	}
-	if config.Common.MsgSizeHint <= 0 {
-		config.Common.MsgSizeHint = defaultMsgSizeHint
-	}
-	if config.Common.ConcurrentParsers <= 0 {
-		config.Common.ConcurrentParsers = defaultConcurrentParsers
-	}
-	if config.Common.LayoutDate == "" {
-		config.Common.LayoutDate = defaultLayoutDate
-	}
-	if config.Common.LayoutDateTime == "" {
-		config.Common.LayoutDateTime = defaultLayoutDateTime
-	}
-	if config.Common.LayoutDateTime64 == "" {
-		config.Common.LayoutDateTime64 = defaultLayoutDateTime64
-	}
-	for _, taskConfig := range config.Tasks {
-		if taskConfig.KafkaClient == "" {
-			taskConfig.KafkaClient = "kafka-go"
-		}
-		if taskConfig.Parser == "" {
-			taskConfig.Parser = "fastjson"
-		}
-		if taskConfig.FlushInterval <= 0 {
-			taskConfig.FlushInterval = config.Common.FlushInterval
-		}
-		if taskConfig.BufferSize <= 0 {
-			taskConfig.BufferSize = config.Common.BufferSize
-		} else {
-			taskConfig.BufferSize = 1 << util.GetShift(taskConfig.BufferSize)
-		}
-		if taskConfig.MinBufferSize <= 0 {
-			taskConfig.MinBufferSize = config.Common.MinBufferSize
-		} else {
-			taskConfig.MinBufferSize = 1 << util.GetShift(taskConfig.BufferSize)
-		}
-		if taskConfig.MsgSizeHint <= 0 {
-			taskConfig.MsgSizeHint = config.Common.MsgSizeHint
-		}
-		if taskConfig.ConcurrentParsers <= 0 {
-			taskConfig.ConcurrentParsers = config.Common.ConcurrentParsers
-		}
-		if taskConfig.LayoutDate == "" {
-			taskConfig.LayoutDate = config.Common.LayoutDate
-		}
-		if taskConfig.LayoutDateTime == "" {
-			taskConfig.LayoutDateTime = config.Common.LayoutDateTime
-		}
-		if taskConfig.LayoutDateTime64 == "" {
-			taskConfig.LayoutDateTime64 = config.Common.LayoutDateTime64
-		}
-		for i := range taskConfig.Dims {
-			if taskConfig.Dims[i].SourceName == "" {
-				taskConfig.Dims[i].SourceName = util.GetSourceName(taskConfig.Dims[i].Name)
-			}
-		}
-	}
-	pgwAddrs, found := os.LookupEnv("METRICS_PUSH_GATEWAY_ADDR")
-	if found {
-		config.Statistics.Enable = true
-		config.Statistics.PushGateWayAddrs = strings.Split(pgwAddrs, ",")
-	}
-	if config.Statistics.Enable {
-		if config.Statistics.PushInterval <= 0 {
-			config.Statistics.PushInterval = 10
-		}
-	}
-	for _, chConfig := range config.Clickhouse {
-		if chConfig.RetryTimes <= 0 {
-			chConfig.RetryTimes = 6
-		}
-	}
+	Assignment map[string][]string
 }
 
 // KafkaConfig configuration parameters
@@ -251,7 +100,7 @@ type ClickHouseConfig struct {
 	Username   string
 	Password   string
 	DsnParams  string
-	RetryTimes int
+	RetryTimes int //<=0 means retry infinitely
 }
 
 // Task configuration parameters
@@ -287,23 +136,172 @@ type TaskConfig struct {
 	// ShardingPolicy is `stripe,<interval>`(requires ShardingKey be numerical) or `hash`(requires ShardingKey be string)
 	ShardingPolicy string `json:"shardingPolicy,omitempty"`
 
-	FlushInterval     int    `json:"flushInterval,omitempty"`
-	BufferSize        int    `json:"bufferSize,omitempty"`
-	MinBufferSize     int    `json:"minBufferSize,omitempty"`
-	MsgSizeHint       int    `json:"msgSizeHint,omitempty"`
-	ConcurrentParsers int    `json:"concurrentParsers,omitempty"`
-	LayoutDate        string `json:"layoutDate,omitempty"`
-	LayoutDateTime    string `json:"layoutDateTime,omitempty"`
-	LayoutDateTime64  string `json:"layoutDateTime64,omitempty"`
+	FlushInterval    int    `json:"flushInterval,omitempty"`
+	BufferSize       int    `json:"bufferSize,omitempty"`
+	MinBufferSize    int    `json:"minBufferSize,omitempty"`
+	MsgSizeHint      int    `json:"msgSizeHint,omitempty"`
+	LayoutDate       string `json:"layoutDate,omitempty"`
+	LayoutDateTime   string `json:"layoutDateTime,omitempty"`
+	LayoutDateTime64 string `json:"layoutDateTime64,omitempty"`
 }
 
-var (
-	defaultFlushInterval     = 3
-	defaultBufferSize        = 1 << 20 //1048576
-	defaultMinBufferSize     = 1 << 13 //   8196
-	defaultMsgSizeHint       = 1000
-	defaultConcurrentParsers = runtime.NumCPU()
-	defaultLayoutDate        = "2006-01-02"
-	defaultLayoutDateTime    = time.RFC3339
-	defaultLayoutDateTime64  = time.RFC3339
+const (
+	defaultFlushInterval    = 3
+	defaultBufferSize       = 1 << 20 //1048576
+	defaultMinBufferSize    = 1 << 13 //   8196
+	defaultMsgSizeHint      = 1000
+	defaultLayoutDate       = "2006-01-02"
+	defaultLayoutDateTime   = time.RFC3339
+	defaultLayoutDateTime64 = time.RFC3339
 )
+
+func ParseLocalConfig(cfgPath, selfAddr string) (cfg *Config, err error) {
+	var f = "config.json"
+	f = filepath.Join(cfgPath, f)
+	var s string
+	if s, err = utils.ExtendFile(f); err != nil {
+		err = errors.Wrapf(err, "")
+		return
+	}
+	cfg = &Config{}
+	if err = json.Unmarshal([]byte(s), cfg); err != nil {
+		err = errors.Wrapf(err, "")
+		return
+	}
+
+	var files []os.FileInfo
+	if files, err = ioutil.ReadDir(filepath.Join(cfgPath, "tasks")); err != nil {
+		err = errors.Wrapf(err, "")
+		return
+	}
+	cfg.Tasks = make(map[string]*TaskConfig)
+	for _, f := range files {
+		if strings.HasSuffix(f.Name(), ".json") {
+			if s, err = utils.ExtendFile(filepath.Join(cfgPath, "tasks", f.Name())); err != nil {
+				err = errors.Wrapf(err, "")
+				return
+			}
+			taskConfig := &TaskConfig{}
+			if err = json.Unmarshal([]byte(s), taskConfig); err != nil {
+				err = errors.Wrapf(err, "")
+				return
+			}
+			cfg.Tasks[taskConfig.Name] = taskConfig
+		}
+	}
+
+	//assign all tasks to myself
+	var taskNames []string
+	for taskName := range cfg.Tasks {
+		taskNames = append(taskNames, taskName)
+	}
+	sort.Strings(taskNames)
+	cfg.Assignment = make(map[string][]string)
+	cfg.Assignment[selfAddr] = taskNames
+	return
+}
+
+// normallize and validate configuration
+func (cfg *Config) Normallize() (err error) {
+	if cfg.Common.FlushInterval <= 0 {
+		cfg.Common.FlushInterval = defaultFlushInterval
+	}
+	if cfg.Common.BufferSize <= 0 {
+		cfg.Common.BufferSize = defaultBufferSize
+	} else {
+		cfg.Common.BufferSize = 1 << util.GetShift(cfg.Common.BufferSize)
+	}
+	if cfg.Common.MinBufferSize <= 0 {
+		cfg.Common.MinBufferSize = defaultMinBufferSize
+	} else {
+		cfg.Common.MinBufferSize = 1 << util.GetShift(cfg.Common.MinBufferSize)
+	}
+	if cfg.Common.MsgSizeHint <= 0 {
+		cfg.Common.MsgSizeHint = defaultMsgSizeHint
+	}
+	if cfg.Common.LayoutDate == "" {
+		cfg.Common.LayoutDate = defaultLayoutDate
+	}
+	if cfg.Common.LayoutDateTime == "" {
+		cfg.Common.LayoutDateTime = defaultLayoutDateTime
+	}
+	if cfg.Common.LayoutDateTime64 == "" {
+		cfg.Common.LayoutDateTime64 = defaultLayoutDateTime64
+	}
+	switch strings.ToLower(cfg.Common.LogLevel) {
+	case "panic", "fatal", "error", "warn", "warning", "info", "debug", "trace":
+	default:
+		cfg.Common.LogLevel = "info"
+	}
+	if err = cfg.normallizeTasks(); err != nil {
+		return
+	}
+	for _, chConfig := range cfg.Clickhouse {
+		if chConfig.RetryTimes < 0 {
+			chConfig.RetryTimes = 0
+		}
+	}
+	for instAddr, taskNames := range cfg.Assignment {
+		sort.Strings(taskNames)
+		for _, taskName := range taskNames {
+			if _, ok := cfg.Tasks[taskName]; !ok {
+				err = errors.Errorf("Instance %s assignment is Invalid, task %s doesn't exit", instAddr, taskName)
+				return
+			}
+		}
+	}
+	return
+}
+
+func (cfg *Config) normallizeTasks() (err error) {
+	for taskName, taskConfig := range cfg.Tasks {
+		if taskConfig.Name != taskName {
+			taskConfig.Name = taskName
+		}
+		if taskConfig.KafkaClient == "" {
+			taskConfig.KafkaClient = "kafka-go"
+		}
+		if taskConfig.Parser == "" {
+			taskConfig.Parser = "fastjson"
+		}
+		if taskConfig.FlushInterval <= 0 {
+			taskConfig.FlushInterval = cfg.Common.FlushInterval
+		}
+		if taskConfig.BufferSize <= 0 {
+			taskConfig.BufferSize = cfg.Common.BufferSize
+		} else {
+			taskConfig.BufferSize = 1 << util.GetShift(taskConfig.BufferSize)
+		}
+		if taskConfig.MinBufferSize <= 0 {
+			taskConfig.MinBufferSize = cfg.Common.MinBufferSize
+		} else {
+			taskConfig.MinBufferSize = 1 << util.GetShift(taskConfig.BufferSize)
+		}
+		if taskConfig.MsgSizeHint <= 0 {
+			taskConfig.MsgSizeHint = cfg.Common.MsgSizeHint
+		}
+		if taskConfig.LayoutDate == "" {
+			taskConfig.LayoutDate = cfg.Common.LayoutDate
+		}
+		if taskConfig.LayoutDateTime == "" {
+			taskConfig.LayoutDateTime = cfg.Common.LayoutDateTime
+		}
+		if taskConfig.LayoutDateTime64 == "" {
+			taskConfig.LayoutDateTime64 = cfg.Common.LayoutDateTime64
+		}
+		for i := range taskConfig.Dims {
+			if taskConfig.Dims[i].SourceName == "" {
+				taskConfig.Dims[i].SourceName = util.GetSourceName(taskConfig.Dims[i].Name)
+			}
+		}
+		if _, ok := cfg.Kafka[taskConfig.Kafka]; !ok {
+			err = errors.Errorf("task %s config is invalid, kafka %s doesn't exist.", taskConfig.Name, taskConfig.Kafka)
+			return
+		}
+		if _, ok := cfg.Clickhouse[taskConfig.Clickhouse]; !ok {
+			err = errors.Errorf("task %s config is invalid, clickhouse %s doesn't exist.", taskConfig.Name, taskConfig.Clickhouse)
+			return
+		}
+	}
+	return
+}

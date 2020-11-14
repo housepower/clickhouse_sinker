@@ -31,7 +31,7 @@ import (
 	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/pkg/errors"
 
-	"github.com/sundy-li/go_commons/log"
+	log "github.com/sirupsen/logrus"
 )
 
 var (
@@ -51,14 +51,18 @@ type ClickHouse struct {
 }
 
 // NewClickHouse new a clickhouse instance
-func NewClickHouse(taskCfg *config.TaskConfig) *ClickHouse {
-	cfg := config.GetConfig()
-	return &ClickHouse{taskCfg: taskCfg, chCfg: cfg.Clickhouse[taskCfg.Clickhouse]}
+func NewClickHouse(cfg *config.Config, taskName string) *ClickHouse {
+	taskCfg := cfg.Tasks[taskName]
+	chCfg := cfg.Clickhouse[taskCfg.Clickhouse]
+	return &ClickHouse{taskCfg: taskCfg, chCfg: chCfg}
 }
 
 // Init the clickhouse intance
-func (c *ClickHouse) Init() error {
-	if err := c.initSchema(); err != nil {
+func (c *ClickHouse) Init() (err error) {
+	if err = pool.InitConn(c.taskCfg.Clickhouse, c.chCfg.Host, c.chCfg.Port, c.chCfg.DB, c.chCfg.Username, c.chCfg.Password, c.chCfg.DsnParams); err != nil {
+		return
+	}
+	if err = c.initSchema(); err != nil {
 		return err
 	}
 	return nil
@@ -92,8 +96,7 @@ func (c *ClickHouse) write(batch *model.Batch) error {
 
 	stmt, err := tx.Prepare(c.prepareSQL)
 	if err != nil {
-		log.Error("%s: tx.Prepare failed with error %+v", c.taskCfg.Name, err.Error())
-
+		log.Errorf("%s: tx.Prepare failed with error %+v", c.taskCfg.Name, err.Error())
 		if shouldReconnect(err) {
 			_ = conn.ReConnect()
 			statistics.ClickhouseReconnectTotal.WithLabelValues(c.taskCfg.Name).Inc()
@@ -130,7 +133,7 @@ func shouldReconnect(err error) bool {
 	if strings.Contains(err.Error(), "connection refused") || strings.Contains(err.Error(), "bad connection") {
 		return true
 	}
-	log.Info("not match reconnect rules", err.Error())
+	log.Infof("not match reconnect rules: %v", err.Error())
 	return false
 }
 
@@ -140,30 +143,43 @@ func (c *ClickHouse) loopWrite(batch *model.Batch, callback func(batch *model.Ba
 	times := c.chCfg.RetryTimes
 	for {
 		if err = c.write(batch); err == nil {
-			if err = callback(batch); err != nil {
-				log.Criticalf("%s: committing offset to failed with error %+v", c.taskCfg.Name, err)
-				os.Exit(-1)
+			for {
+				if err = callback(batch); err == nil {
+					return
+				}
+				if std_errors.Is(err, context.Canceled) {
+					log.Infof("%s: ClickHouse.loopWrite quit due to the context has been cancelled", c.taskCfg.Name)
+					return
+				}
+				log.Errorf("%s: committing offset(try #%d) failed with error %+v", c.taskCfg.Name, c.chCfg.RetryTimes-times, err)
+				if c.chCfg.RetryTimes > 0 {
+					times--
+					if times <= 0 {
+						os.Exit(-1)
+					}
+					time.Sleep(10 * time.Second)
+				}
 			}
-			return
 		}
 		if std_errors.Is(err, context.Canceled) {
 			log.Infof("%s: ClickHouse.loopWrite quit due to the context has been cancelled", c.taskCfg.Name)
 			return
 		}
-		times--
+		log.Errorf("%s: flush batch(try #%d) failed with error %+v", c.taskCfg.Name, c.chCfg.RetryTimes-times, err)
 		statistics.FlushMsgsErrorTotal.WithLabelValues(c.taskCfg.Name).Add(float64(batch.RealSize))
-		if times <= 0 {
-			log.Criticalf("%s: flush batch(try #%d) failed with error %+v", c.taskCfg.Name, c.chCfg.RetryTimes-times, err)
-			os.Exit(-1)
-		} else {
-			log.Errorf("%s: flush batch(try #%d) failed with error %+v", c.taskCfg.Name, c.chCfg.RetryTimes-times, err)
+		if c.chCfg.RetryTimes > 0 {
+			times--
+			if times <= 0 {
+				os.Exit(-1)
+			}
+			time.Sleep(10 * time.Second)
 		}
-		time.Sleep(10 * time.Second)
 	}
 }
 
-// Close does nothing, place holder for handling close
-func (c *ClickHouse) Close() error {
+// Stop free clickhouse connections
+func (c *ClickHouse) Stop() error {
+	pool.FreeConn(c.taskCfg.Clickhouse)
 	return nil
 }
 

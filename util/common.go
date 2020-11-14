@@ -16,6 +16,12 @@ limitations under the License.
 package util
 
 import (
+	"fmt"
+	"log"
+	"net"
+	"os"
+	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -35,12 +41,12 @@ func InitGlobalTimerWheel() {
 
 // InitGlobalParsingPool initialize GlobalParsingPool
 func InitGlobalParsingPool(maxWorkers int) {
-	GlobalParsingPool = NewWorkerPool(maxWorkers, 10*maxWorkers)
+	GlobalParsingPool = NewWorkerPool(maxWorkers, 100*runtime.NumCPU())
 }
 
 // InitGlobalWritingPool initialize GlobalWritingPool
 func InitGlobalWritingPool(maxWorkers int) {
-	GlobalWritingPool = NewWorkerPool(maxWorkers, maxWorkers)
+	GlobalWritingPool = NewWorkerPool(maxWorkers, runtime.NumCPU())
 }
 
 // StringContains check if contains string in array
@@ -67,4 +73,57 @@ func GetShift(s int) (shift int) {
 	for shift = 0; (1 << shift) < s; shift++ {
 	}
 	return
+}
+
+// GetOutboundIP get preferred outbound ip of this machine
+//https://stackoverflow.com/questions/23558425/how-do-i-get-the-local-ip-address-in-go
+func GetOutboundIP() net.IP {
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer conn.Close()
+	localAddr := conn.LocalAddr().(*net.UDPAddr)
+	return localAddr.IP
+}
+
+// GetSpareTCPPort find a spare TCP port
+func GetSpareTCPPort(ip string, portBegin int) (port int) {
+LOOP:
+	for port = portBegin; ; port++ {
+		addr := fmt.Sprintf("%s:%d", ip, port)
+		ln, err := net.Listen("tcp", addr)
+		if err == nil {
+			ln.Close()
+			break LOOP
+		}
+	}
+	return
+}
+
+func EnvStringVar(value *string, key string) {
+	realKey := strings.ReplaceAll(strings.ToUpper(key), "-", "_")
+	val, found := os.LookupEnv(realKey)
+	if found {
+		*value = val
+	}
+}
+
+func EnvIntVar(value *int, key string) {
+	realKey := strings.ReplaceAll(strings.ToUpper(key), "-", "_")
+	val, found := os.LookupEnv(realKey)
+	if found {
+		valInt, err := strconv.Atoi(val)
+		if err == nil {
+			*value = valInt
+		}
+	}
+}
+
+func EnvBoolVar(value *bool, key string) {
+	realKey := strings.ReplaceAll(strings.ToUpper(key), "-", "_")
+	_, found := os.LookupEnv(realKey)
+	if found {
+		*value = true
+	}
 }

@@ -15,6 +15,7 @@ limitations under the License.
 package statistics
 
 import (
+	"context"
 	"net"
 	"testing"
 	"time"
@@ -51,7 +52,8 @@ func TestPusher(t *testing.T) {
 		t.Fatalf("pusher init failed")
 	}
 
-	go pusher.Run()
+	ctx := context.Background()
+	go pusher.Run(ctx)
 	time.Sleep(10 * time.Second)
 	pusher.Stop()
 }

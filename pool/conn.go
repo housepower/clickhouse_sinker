@@ -29,37 +29,55 @@ import (
 	"github.com/housepower/clickhouse_sinker/health"
 	"github.com/pkg/errors"
 
-	"github.com/sundy-li/go_commons/log"
+	log "github.com/sirupsen/logrus"
 	"github.com/sundy-li/go_commons/utils"
 )
 
+const (
+	BlockSize = 1 << 21 //2097152, two times of the default value
+)
+
 var (
-	lock sync.Mutex
+	lock     sync.Mutex
+	poolMaps map[string]*ClusterConnections
 )
 
 // Connection a datastructure for storing the clickhouse connection
 type Connection struct {
 	*sql.DB
-	Dsn string
+	dsn string
+}
+
+type ClusterConnections struct {
+	connections []*Connection
+	ref         int
 }
 
 // ReConnect used for restablishing connection with server
 func (c *Connection) ReConnect() error {
-	sqlDB, err := sql.Open("clickhouse", c.Dsn)
+	sqlDB, err := sql.Open("clickhouse", c.dsn)
 	if err != nil {
-		log.Info("reconnect to ", c.Dsn, err.Error())
+		log.Info("reconnect to ", c.dsn, err.Error())
 		return err
 	}
-	log.Info("reconnect success to  ", c.Dsn)
+	log.Info("reconnect success to ", c.dsn)
 	c.DB = sqlDB
 	return nil
 }
 
-var poolMaps = map[string][]*Connection{}
-
-func InitConn(name, hosts string, port int, db, username, password, dsnParams string, blockSize int) (err error) {
+func InitConn(name, hosts string, port int, db, username, password, dsnParams string) (err error) {
 	var ips, ips2, dsnArr []string
 	var sqlDB *sql.DB
+	lock.Lock()
+	if poolMaps == nil {
+		poolMaps = make(map[string]*ClusterConnections)
+	}
+	if cc, ok := poolMaps[name]; ok {
+		cc.ref++
+		lock.Unlock()
+		return
+	}
+	lock.Unlock()
 	// if contains ',', that means it's a ip list
 	if strings.Contains(hosts, ",") {
 		ips = strings.Split(strings.TrimSpace(hosts), ",")
@@ -73,9 +91,8 @@ func InitConn(name, hosts string, port int, db, username, password, dsnParams st
 		} else {
 			ip = ips2[0]
 		}
-		// Set block_size to max BufferSize of all tasks so that no batch will be split into several blocks.
 		dsn := fmt.Sprintf("tcp://%s:%d?database=%s&username=%s&password=%s&block_size=%d",
-			ip, port, db, username, password, blockSize)
+			ip, port, db, username, password, BlockSize)
 		if dsnParams != "" {
 			dsn += "&" + dsnParams
 		}
@@ -83,19 +100,44 @@ func InitConn(name, hosts string, port int, db, username, password, dsnParams st
 	}
 
 	log.Infof("clickhouse dsn of %s: %+v", name, dsnArr)
-	var cons []*Connection
+	var cc ClusterConnections
+	cc.ref = 1
 	for _, dsn := range dsnArr {
 		if sqlDB, err = sql.Open("clickhouse", dsn); err != nil {
 			err = errors.Wrapf(err, "")
 			return
 		}
 		health.Health.AddReadinessCheck(dsn, healthcheck.DatabasePingCheck(sqlDB, 10*time.Second))
-		cons = append(cons, &Connection{sqlDB, dsn})
+		cc.connections = append(cc.connections, &Connection{sqlDB, dsn})
 	}
 	lock.Lock()
-	poolMaps[name] = cons
-	lock.Unlock()
+	defer lock.Unlock()
+	if cc2, ok := poolMaps[name]; ok {
+		cc2.ref++
+		return
+	}
+	poolMaps[name] = &cc
 	return nil
+}
+
+func FreeConn(name string) {
+	lock.Lock()
+	defer lock.Unlock()
+	if cc, ok := poolMaps[name]; ok {
+		cc.ref--
+		if cc.ref <= 0 {
+			delete(poolMaps, name)
+		}
+	}
+}
+
+func GetTotalConn() (cnt int) {
+	lock.Lock()
+	defer lock.Unlock()
+	for _, cc := range poolMaps {
+		cnt += cc.ref * len(cc.connections)
+	}
+	return
 }
 
 // GetNumConn get number of connections for the given name
@@ -103,7 +145,7 @@ func GetNumConn(name string) (numConn int) {
 	lock.Lock()
 	defer lock.Unlock()
 	if ps, ok := poolMaps[name]; ok {
-		numConn = len(ps)
+		numConn = len(ps.connections)
 	}
 	return
 }
@@ -113,18 +155,18 @@ func GetConn(name string, batchNum int64) (con *Connection) {
 	lock.Lock()
 	defer lock.Unlock()
 
-	ps, ok := poolMaps[name]
+	cc, ok := poolMaps[name]
 	if !ok {
 		return
 	}
-	con = ps[batchNum%int64(len(ps))]
+	con = cc.connections[batchNum%int64(len(cc.connections))]
 	return
 }
 
 // CloseAll closed all connection and destroys the pool
 func CloseAll() {
-	for _, ps := range poolMaps {
-		for _, c := range ps {
+	for _, cc := range poolMaps {
+		for _, c := range cc.connections {
 			_ = c.Close()
 		}
 	}

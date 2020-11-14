@@ -4,7 +4,7 @@
       "db": "default",
       "host": "127.0.0.1",
       "password": "",
-      "retryTimes": 5,
+      "retryTimes": 0,
       "port": 9000,
       "username": ""
     }
