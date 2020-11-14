@@ -43,7 +43,7 @@ go get -u github.com/housepower/clickhouse_sinker/...
 ```
 make build
 ## modify the config files, set the configuration directory, then run it
-./dist/clickhouse_sinker -conf conf
+./dist/clickhouse_sinker --local-cfg-dir conf
 ```
 
 ## Examples
@@ -146,7 +146,7 @@ Controled by:
 
 ### Dynamic Config Management with Consul
 
-Currently sinker is able to register with Consul, bug not able to get config from Consul.
+Currently sinker is able to register with Consul, but not able to get config from Consul.
 Controled by:
 
 - CLI parameters: `consul-register-enable, consul-addr, consul-deregister-critical-services-after`
