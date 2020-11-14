@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -144,6 +145,7 @@ func (ncm *NacosConfManager) GetInstances() (instances []Instance, err error) {
 	for _, inst := range insts {
 		instances = append(instances, Instance{Addr: fmt.Sprintf("%s:%d", inst.Ip, inst.Port), Weight: int(inst.Weight)})
 	}
+	sort.Slice(instances, func(i, j int) bool { return (instances[i].Addr < instances[j].Addr) })
 	return
 }
 

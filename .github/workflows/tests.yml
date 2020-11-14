@@ -39,3 +39,5 @@ jobs:
     - name: systest
       run: make systest
 
+    - name: Stop docker-compose
+      run: docker-compose down

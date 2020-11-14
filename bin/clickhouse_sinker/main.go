@@ -17,6 +17,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"net/http"
@@ -37,7 +38,6 @@ import (
 	"github.com/housepower/clickhouse_sinker/statistics"
 	"github.com/housepower/clickhouse_sinker/task"
 	"github.com/housepower/clickhouse_sinker/util"
-	"github.com/k0kubun/pp"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
@@ -264,14 +264,19 @@ func (s *Sinker) applyConfig(newCfg *config.Config) (err error) {
 	if s.curCfg == nil {
 		// The first time invoking of applyConfig
 		err = s.applyFirstConfig(newCfg)
-	} else {
+	} else if !reflect.DeepEqual(newCfg, s.curCfg) {
 		err = s.applyAnotherConfig(newCfg)
 	}
 	return
 }
 
 func (s *Sinker) applyFirstConfig(newCfg *config.Config) (err error) {
-	log.Infof("going to apply the first config: %+v", pp.Sprint(newCfg))
+	var bsNewCfg []byte
+	if bsNewCfg, err = json.Marshal(newCfg); err != nil {
+		err = errors.Wrapf(err, "")
+		return
+	}
+	log.Infof("going to apply the first config: %+v", string(bsNewCfg))
 	if newCfg.Statistics.Enable {
 		s.pusher = statistics.NewPusher(newCfg.Statistics.PushGateWayAddrs,
 			newCfg.Statistics.PushInterval)
@@ -311,12 +316,13 @@ func (s *Sinker) applyFirstConfig(newCfg *config.Config) (err error) {
 }
 
 func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
-	// 1. Quit if the two configs are the same.
-	if reflect.DeepEqual(newCfg, s.curCfg) {
+	var bsNewCfg []byte
+	if bsNewCfg, err = json.Marshal(newCfg); err != nil {
+		err = errors.Wrapf(err, "")
 		return
 	}
-	log.Infof("going to apply a different config: %+v", pp.Sprint(newCfg))
-	//2. Found all tasks need to stop.
+	log.Infof("going to apply a different config: %+v", string(bsNewCfg))
+	//1. Found all tasks need to stop.
 	// Each such task matches at least one of the following conditions:
 	// - task not in new assignment
 	// - task config differ
@@ -352,7 +358,7 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 			}
 		}
 	}
-	// 3. Stop all tasks in parallel found at the step 2.
+	// 2. Stop all tasks in parallel found at the step 2.
 	for _, taskName := range tasksToStop {
 		if task, ok := s.tasks[taskName]; ok {
 			task.NotifyStop()
@@ -366,7 +372,7 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 			log.Warnf("Failed to stop task %s. It's disappeared.", taskName)
 		}
 	}
-	// 4. Initailize all tasks which is new or its config differ.
+	// 3. Initailize all tasks which is new or its config differ.
 	var newTasks []*task.Service
 	if taskNames, ok := newCfg.Assignment[selfAddr]; ok {
 		for _, taskName := range taskNames {
@@ -380,7 +386,7 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 			}
 		}
 	}
-	// 5. Resize goroutine pools.
+	// 4. Resize goroutine pools.
 	concurrentParsers := len(s.tasks) * 10
 	if concurrentParsers > runtime.NumCPU()/2 {
 		concurrentParsers = runtime.NumCPU() / 2
@@ -389,7 +395,7 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 	totalConn := pool.GetTotalConn()
 	util.GlobalWritingPool.Resize(totalConn)
 
-	// 6. Handle pusher config
+	// 5. Handle pusher config
 	if !reflect.DeepEqual(newCfg.Statistics, s.curCfg.Statistics) {
 		if s.pusher != nil {
 			s.pusher.Stop()
@@ -405,12 +411,12 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 		}
 	}
 
-	// 7. Start new tasks. We don't do it at step 4 in order to avoid goroutine leak due to errors raised by later steps.
+	// 6. Start new tasks. We don't do it at step 4 in order to avoid goroutine leak due to errors raised by later steps.
 	for _, t := range newTasks {
 		go t.Run(s.ctx)
 	}
 
-	// 8. Record the new config.
+	// 7. Record the new config.
 	s.curCfg = newCfg
 	return
 }
