@@ -25,6 +25,7 @@ import (
 	"os"
 	"reflect"
 	"runtime"
+	"strings"
 	"time"
 
 	_ "github.com/ClickHouse/clickhouse-go"
@@ -44,46 +45,99 @@ import (
 	"github.com/sundy-li/go_commons/app"
 )
 
+type CmdOptions struct {
+	ShowVer                              bool
+	HTTPPort                             int
+	PushGatewayAddrs                     string
+	PushInterval                         int
+	LocalCfgDir                          string
+	ConsulRegister                       bool
+	ConsulAddr                           string
+	ConsulDeregisterCriticalServiceAfter string
+	NacosRegister                        bool
+	NacosAddr                            string
+	NacosNamespaceID                     string
+	NacosGroup                           string
+	NacosUsername                        string
+	NacosPassword                        string
+}
+
 var (
-	v        = flag.Bool("v", false, "show build version")
-	cfgDir   = flag.String("conf", "", "config dir")
-	httpPort = flag.Int("http-port", 2112, "http listen port")
-
-	consulRegister = flag.Bool("consul-register-enable", false,
-		"register current instance in consul")
-	consulAddr = flag.String("consul-addr", "http://127.0.0.1:8500",
-		"consul api interface address")
-	consulDeregisterCriticalServiceAfter = flag.String("consul-deregister-critical-services-after", "30m",
-		"configure service check DeregisterCriticalServiceAfter")
-
-	nacosRegister = flag.Bool("nacos-register-enable", false,
-		"register current instance in nacos")
-	nacosAddr = flag.String("nacos-addr", "127.0.0.1:8848",
-		"nacos server addresses, separated with comma")
-	nacosNamespaceID = flag.String("nacos-namespace-id", "",
-		`nacos namespace ID. Neither DEFAULT_NAMESPACE_ID("public") nor namespace name work!`)
-	nacosGroup = flag.String("nacos-group", "DEFAULT_GROUP",
-		`nacos group name. Empty string doesn't work!`)
-	nacosUsername = flag.String("nacos-username", "username",
-		"nacos username")
-	nacosPassword = flag.String("nacos-password", "password",
-		"nacos password")
-
+	cmdOps      CmdOptions
+	selfIP      string
+	selfAddr    string
 	httpMetrics = promhttp.Handler()
 	runner      *Sinker
-	ip          string
-	selfAddr    string
 )
 
-func init() {
+func initCmdOptions() {
+	// 1. Set options to default value.
+	cmdOps = CmdOptions{
+		ShowVer:                              false,
+		HTTPPort:                             2112,
+		PushGatewayAddrs:                     "",
+		PushInterval:                         10,
+		LocalCfgDir:                          "conf",
+		ConsulRegister:                       false,
+		ConsulAddr:                           "http://127.0.0.1:8500",
+		ConsulDeregisterCriticalServiceAfter: "30m",
+		NacosRegister:                        false,
+		NacosAddr:                            "127.0.0.1:8848",
+		NacosNamespaceID:                     "",
+		NacosGroup:                           "DEFAULT_GROUP",
+		NacosUsername:                        "nacos",
+		NacosPassword:                        "nacos",
+	}
+
+	// 2. Replace options with the corresponding env variable if present.
+	util.EnvBoolVar(&cmdOps.ShowVer, "v")
+	util.EnvIntVar(&cmdOps.HTTPPort, "http-port")
+	util.EnvStringVar(&cmdOps.PushGatewayAddrs, "push-gateway-addrs")
+	util.EnvIntVar(&cmdOps.PushInterval, "push-interval")
+	util.EnvStringVar(&cmdOps.LocalCfgDir, "local-cfg-dir")
+
+	util.EnvBoolVar(&cmdOps.ConsulRegister, "consul-register-enable")
+	util.EnvStringVar(&cmdOps.ConsulAddr, "consul-addr")
+	util.EnvStringVar(&cmdOps.ConsulDeregisterCriticalServiceAfter, "consul-deregister-critical-services-after")
+
+	util.EnvBoolVar(&cmdOps.NacosRegister, "nacos-register-enable")
+	util.EnvStringVar(&cmdOps.NacosAddr, "nacos-addr")
+	util.EnvStringVar(&cmdOps.NacosNamespaceID, "nacos-namespace-id")
+	util.EnvStringVar(&cmdOps.NacosGroup, "nacos-group")
+	util.EnvStringVar(&cmdOps.NacosUsername, "nacos-username")
+	util.EnvStringVar(&cmdOps.NacosPassword, "nacos-password")
+
+	// 3. Replace options with the corresponding CLI parameter if present.
+	flag.BoolVar(&cmdOps.ShowVer, "v", cmdOps.ShowVer, "show build version and quit")
+	flag.IntVar(&cmdOps.HTTPPort, "http-port", cmdOps.HTTPPort, "http listen port")
+	flag.StringVar(&cmdOps.PushGatewayAddrs, "push-gateway-addrs", cmdOps.PushGatewayAddrs, "prometheus push gatway address")
+	flag.IntVar(&cmdOps.PushInterval, "push-interval", cmdOps.PushInterval, "push interval in seconds")
+	flag.StringVar(&cmdOps.LocalCfgDir, "local-cfg-dir", cmdOps.LocalCfgDir, "local config dir")
+
+	flag.BoolVar(&cmdOps.ConsulRegister, "consul-register-enable", cmdOps.ConsulRegister, "register current instance in consul")
+	flag.StringVar(&cmdOps.ConsulAddr, "consul-addr", cmdOps.ConsulAddr, "consul api interface address")
+	flag.StringVar(&cmdOps.ConsulDeregisterCriticalServiceAfter, "consul-deregister-critical-services-after", cmdOps.ConsulDeregisterCriticalServiceAfter,
+		"configure service check DeregisterCriticalServiceAfter")
+
+	flag.BoolVar(&cmdOps.NacosRegister, "nacos-register-enable", cmdOps.NacosRegister, "register current instance in nacos")
+	flag.StringVar(&cmdOps.NacosAddr, "nacos-addr", cmdOps.NacosAddr, "nacos server addresses, separated with comma")
+	flag.StringVar(&cmdOps.NacosNamespaceID, "nacos-namespace-id", cmdOps.NacosNamespaceID,
+		`nacos namespace ID. Neither DEFAULT_NAMESPACE_ID("public") nor namespace name work!`)
+	flag.StringVar(&cmdOps.NacosGroup, "nacos-group", cmdOps.NacosGroup, `nacos group name. Empty string doesn't work!`)
+	flag.StringVar(&cmdOps.NacosUsername, "nacos-username", cmdOps.NacosUsername, "nacos username")
+	flag.StringVar(&cmdOps.NacosPassword, "nacos-password", cmdOps.NacosPassword, "nacos password")
 	flag.Parse()
-	if *v {
+}
+
+func init() {
+	initCmdOptions()
+	if cmdOps.ShowVer {
 		config.PrintSinkerInfo()
 		os.Exit(0)
 	}
-	ip = util.GetOutboundIP().String()
-	*httpPort = util.GetSpareTCPPort(ip, *httpPort)
-	selfAddr = fmt.Sprintf("%s:%d", ip, *httpPort)
+	selfIP = util.GetOutboundIP().String()
+	cmdOps.HTTPPort = util.GetSpareTCPPort(selfIP, cmdOps.HTTPPort)
+	selfAddr = fmt.Sprintf("%s:%d", selfIP, cmdOps.HTTPPort)
 }
 
 // GenTask generate a task via config
@@ -110,25 +164,25 @@ func main() {
 	app.Run("clickhouse_sinker", func() error {
 		var rcm config.RemoteConfManager
 		var properties map[string]interface{}
-		if *consulRegister {
+		if cmdOps.ConsulRegister {
 			rcm = &config.ConsulConfManager{}
 			properties = make(map[string]interface{})
-			properties["consulAddr"] = *consulAddr
-			properties["deregisterCriticalServiceAfter"] = *consulDeregisterCriticalServiceAfter
-		} else if *nacosRegister {
+			properties["consulAddr"] = cmdOps.ConsulAddr
+			properties["deregisterCriticalServiceAfter"] = cmdOps.ConsulDeregisterCriticalServiceAfter
+		} else if cmdOps.NacosRegister {
 			rcm = &config.NacosConfManager{}
 			properties = make(map[string]interface{})
-			properties["serverAddrs"] = *nacosAddr
-			properties["username"] = *nacosUsername
-			properties["password"] = *nacosPassword
-			properties["namespaceId"] = *nacosNamespaceID
-			properties["group"] = *nacosGroup
+			properties["serverAddrs"] = cmdOps.NacosAddr
+			properties["username"] = cmdOps.NacosUsername
+			properties["password"] = cmdOps.NacosPassword
+			properties["namespaceId"] = cmdOps.NacosNamespaceID
+			properties["group"] = cmdOps.NacosGroup
 		}
 		if rcm != nil {
 			if err := rcm.Init(properties); err != nil {
 				log.Fatalf("%+v", err)
 			}
-			if err := rcm.Register(ip, *httpPort); err != nil {
+			if err := rcm.Register(selfIP, cmdOps.HTTPPort); err != nil {
 				log.Fatalf("%+v", err)
 			}
 		}
@@ -199,8 +253,16 @@ func (s *Sinker) Init() (err error) {
 func (s *Sinker) Run() {
 	var err error
 	var newCfg *config.Config
+	if cmdOps.PushGatewayAddrs != "" {
+		addrs := strings.Split(cmdOps.PushGatewayAddrs, ",")
+		s.pusher = statistics.NewPusher(addrs, cmdOps.PushInterval)
+		if err = s.pusher.Init(); err != nil {
+			return
+		}
+		go s.pusher.Run(s.ctx)
+	}
 	if s.rcm == nil {
-		if newCfg, err = config.ParseLocalConfig(*cfgDir, selfAddr); err != nil {
+		if newCfg, err = config.ParseLocalConfig(cmdOps.LocalCfgDir, selfAddr); err != nil {
 			log.Fatalf("%+v", err)
 			return
 		}
@@ -243,7 +305,7 @@ func (s *Sinker) Close() {
 		s.pusher.Stop()
 	}
 	if s.rcm != nil {
-		_ = s.rcm.Deregister(ip, *httpPort)
+		_ = s.rcm.Deregister(selfIP, cmdOps.HTTPPort)
 	}
 }
 
@@ -277,13 +339,6 @@ func (s *Sinker) applyFirstConfig(newCfg *config.Config) (err error) {
 		return
 	}
 	log.Infof("going to apply the first config: %+v", string(bsNewCfg))
-	if newCfg.Statistics.Enable {
-		s.pusher = statistics.NewPusher(newCfg.Statistics.PushGateWayAddrs,
-			newCfg.Statistics.PushInterval)
-		if err = s.pusher.Init(); err != nil {
-			return
-		}
-	}
 
 	util.InitGlobalTimerWheel()
 	concurrentParsers := 10
@@ -305,9 +360,6 @@ func (s *Sinker) applyFirstConfig(newCfg *config.Config) (err error) {
 	totalConn := pool.GetTotalConn()
 	util.InitGlobalWritingPool(totalConn)
 
-	if s.pusher != nil {
-		go s.pusher.Run()
-	}
 	for _, t := range s.tasks {
 		go t.Run(s.ctx)
 	}
@@ -395,28 +447,12 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 	totalConn := pool.GetTotalConn()
 	util.GlobalWritingPool.Resize(totalConn)
 
-	// 5. Handle pusher config
-	if !reflect.DeepEqual(newCfg.Statistics, s.curCfg.Statistics) {
-		if s.pusher != nil {
-			s.pusher.Stop()
-			s.pusher = nil
-		}
-		if newCfg.Statistics.Enable {
-			s.pusher = statistics.NewPusher(newCfg.Statistics.PushGateWayAddrs,
-				newCfg.Statistics.PushInterval)
-			if err = s.pusher.Init(); err != nil {
-				return
-			}
-			go s.pusher.Run()
-		}
-	}
-
-	// 6. Start new tasks. We don't do it at step 4 in order to avoid goroutine leak due to errors raised by later steps.
+	// 5. Start new tasks. We don't do it at step 4 in order to avoid goroutine leak due to errors raised by later steps.
 	for _, t := range newTasks {
 		go t.Run(s.ctx)
 	}
 
-	// 7. Record the new config.
+	// 6. Record the new config.
 	s.curCfg = newCfg
 	return
 }

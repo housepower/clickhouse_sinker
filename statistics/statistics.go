@@ -15,6 +15,7 @@ limitations under the License.
 package statistics
 
 import (
+	"context"
 	"math/rand"
 	"net"
 	"time"
@@ -179,7 +180,8 @@ type Pusher struct {
 	pusher       *push.Pusher
 	inUseAddr    int
 	instance     string
-	stopped      chan struct{}
+	ctx          context.Context
+	cancel       context.CancelFunc
 }
 
 func NewPusher(addrs []string, interval int) *Pusher {
@@ -187,7 +189,6 @@ func NewPusher(addrs []string, interval int) *Pusher {
 		pgwAddrs:     addrs,
 		pushInterval: interval,
 		inUseAddr:    -1,
-		stopped:      make(chan struct{}),
 	}
 }
 
@@ -204,7 +205,8 @@ func (p *Pusher) Init() error {
 	return nil
 }
 
-func (p *Pusher) Run() {
+func (p *Pusher) Run(ctx context.Context) {
+	p.ctx, p.cancel = context.WithCancel(ctx)
 	ticker := time.NewTicker(time.Second * time.Duration(p.pushInterval))
 FOR:
 	for {
@@ -216,15 +218,15 @@ FOR:
 				log.Infof("pushing metrics failed. %v", err)
 				p.reconnect()
 			}
-		case <-p.stopped:
-			ticker.Stop()
+		case <-ctx.Done():
+			log.Warnf("metric pusher quit due to context has been canceled")
 			break FOR
 		}
 	}
 }
 
 func (p *Pusher) Stop() {
-	close(p.stopped)
+	p.cancel()
 }
 
 func (p *Pusher) reconnect() {

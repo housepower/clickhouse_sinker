@@ -55,16 +55,8 @@ type Instance struct {
 type Config struct {
 	Kafka      map[string]*KafkaConfig
 	Clickhouse map[string]*ClickHouseConfig
-
-	Tasks map[string]*TaskConfig
-
-	Statistics struct {
-		Enable           bool
-		PushGateWayAddrs []string
-		PushInterval     int
-	}
-
-	Common struct {
+	Tasks      map[string]*TaskConfig
+	Common     struct {
 		FlushInterval    int
 		BufferSize       int
 		MinBufferSize    int
@@ -74,7 +66,6 @@ type Config struct {
 		LayoutDateTime64 string
 		LogLevel         string
 	}
-
 	Assignment map[string][]string
 }
 
@@ -244,16 +235,6 @@ func (cfg *Config) Normallize() (err error) {
 	}
 	if err = cfg.normallizeTasks(); err != nil {
 		return
-	}
-	pgwAddrs, found := os.LookupEnv("METRICS_PUSH_GATEWAY_ADDR")
-	if found {
-		cfg.Statistics.Enable = true
-		cfg.Statistics.PushGateWayAddrs = strings.Split(pgwAddrs, ",")
-	}
-	if cfg.Statistics.Enable {
-		if cfg.Statistics.PushInterval <= 0 {
-			cfg.Statistics.PushInterval = 10
-		}
 	}
 	for _, chConfig := range cfg.Clickhouse {
 		if chConfig.RetryTimes < 0 {
