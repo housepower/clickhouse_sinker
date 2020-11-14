@@ -40,7 +40,7 @@ sudo docker cp send.sh kafka:/tmp/
 sudo docker exec kafka   sh /tmp/send.sh
 
 ## start clickhouse_sinker to consume
-timeout 30 ./dist/clickhouse_sinker -conf docker/conf
+timeout 30 ./dist/clickhouse_sinker --local-cfg-dir docker/conf
 
 ## check result
 count=`curl "localhost:8123" -d 'select count() from test1'`
