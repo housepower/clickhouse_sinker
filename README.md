@@ -26,7 +26,11 @@ clickhouse_sinker is a sinker program that transfer kafka message into [ClickHou
 
 ### By binary files (suggested)
 
-Download the binary files from [release](https://github.com/housepower/clickhouse_sinker/releases), choose the executable binary file according to your env, modify the `conf` files, then run `./clickhouse_sinker --local-cfg-dir conf `
+Download the binary files from [release](https://github.com/housepower/clickhouse_sinker/releases), choose the executable binary file according to your env, modify the `conf` files, then run `./clickhouse_sinker --local-cfg-dir conf`
+
+### By container image
+
+Download the binary files from [release](https://quay.io/repository/housepower/clickhouse_sinker), modify the `conf` files, then run `docker run --volume conf:/etc/clickhouse_sinker quay.io/housepower/clickhouse_sinker`
 
 ### By source
 

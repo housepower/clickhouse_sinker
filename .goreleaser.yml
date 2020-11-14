@@ -7,12 +7,31 @@ before:
     # you may remove this if you don't need go generate
     - go generate ./...
 builds:
-  - env:
+  - id: clickhouse_sinker
+    env:
       - CGO_ENABLED=0
     goos:
       - linux
-    main: bin/main.go
-    binary: dist/clickhouse_sinker
+    main: cmd/clickhouse_sinker/main.go
+    binary: clickhouse_sinker
+  - id: nacos_publish_config
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    main: cmd/nacos_publish_config/main.go
+    binary: nacos_publish_config
+dockers:
+  -
+    binaries:
+    - clickhouse_sinker
+    - nacos_publish_config
+    goos: linux
+    goarch: amd64
+    dockerfile: Dockerfile_goreleaser
+    image_templates:
+      - quay.io/housepower/clickhouse_sinker:latest
+      - quay.io/housepower/clickhouse_sinker:{{ .Tag }}
 archives:
   - replacements:
       darwin: Darwin

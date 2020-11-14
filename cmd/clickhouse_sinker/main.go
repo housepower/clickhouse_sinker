@@ -77,7 +77,7 @@ func initCmdOptions() {
 		HTTPPort:                             2112,
 		PushGatewayAddrs:                     "",
 		PushInterval:                         10,
-		LocalCfgDir:                          "conf",
+		LocalCfgDir:                          "/etc/clickhouse_sinker",
 		ConsulRegister:                       false,
 		ConsulAddr:                           "http://127.0.0.1:8500",
 		ConsulDeregisterCriticalServiceAfter: "30m",
