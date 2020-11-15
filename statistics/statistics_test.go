@@ -19,6 +19,8 @@ import (
 	"net"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestPusher_IsExternalIP(t *testing.T) {
@@ -27,19 +29,13 @@ func TestPusher_IsExternalIP(t *testing.T) {
 	pusher := NewPusher(addrs, interval)
 
 	external := pusher.IsExternalIP(net.ParseIP("192.168.154.134"))
-	if external != false {
-		t.Errorf("192.168.154.134 should not be external ip")
-	}
+	require.Equal(t, false, external, "192.168.154.134 should not be external ip")
 
 	external = pusher.IsExternalIP(net.ParseIP("127.0.0.1"))
-	if external != false {
-		t.Errorf("127.0.0.1 should not be external ip")
-	}
+	require.Equal(t, false, external, "127.0.0.1 should not be external ip")
 
 	external = pusher.IsExternalIP(net.ParseIP("43.230.88.7"))
-	if external != true {
-		t.Errorf("43.230.88.7 should be external ip")
-	}
+	require.Equal(t, true, external, "43.230.88.7 should be external ip")
 }
 
 func TestPusher(t *testing.T) {
@@ -48,9 +44,7 @@ func TestPusher(t *testing.T) {
 	pusher := NewPusher(addrs, interval)
 
 	err := pusher.Init()
-	if err != nil {
-		t.Fatalf("pusher init failed")
-	}
+	require.Nilf(t, err, "pusher init failed")
 
 	ctx := context.Background()
 	go pusher.Run(ctx)

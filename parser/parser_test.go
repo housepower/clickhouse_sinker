@@ -20,7 +20,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 	"github.com/valyala/fastjson"
 )
@@ -121,13 +121,13 @@ func TestGjsonExtend(t *testing.T) {
 	arr := metric.GetArray("mp.a", "int").([]int64)
 	expected := []int64{1, 2, 3}
 	for i := range arr {
-		assert.Equal(t, arr[i], expected[i])
+		require.Equal(t, arr[i], expected[i])
 	}
 
 	metric, _ = parser.Parse(jsonSample2)
 	arr2 := metric.GetArray("str_array", "string").([]string)
 	exp2 := []string{"tag3", "tag5"}
-	assert.Equal(t, exp2, arr2)
+	require.Equal(t, exp2, arr2)
 }
 
 func TestFastJson(t *testing.T) {
@@ -138,17 +138,17 @@ func TestFastJson(t *testing.T) {
 
 	ts1 := metric.GetDateTime("time", false)
 	exp1, _ := time.Parse("2006-01-02 15:04:05", "2006-01-02 15:04:05")
-	assert.Equal(t, exp1, ts1)
+	require.Equal(t, exp1, ts1)
 
 	ts2 := metric.GetDateTime64("timestamp", false)
 	exp2, _ := time.Parse(time.RFC3339, "2006-01-02T15:04:05.123+08:00")
-	assert.Equal(t, exp2, ts2)
+	require.Equal(t, exp2, ts2)
 
 	arr := metric.GetArray("str_array", "string").([]string)
 	exp3 := []string{"tag3", "tag5"}
-	assert.Equal(t, exp3, arr)
+	require.Equal(t, exp3, arr)
 
 	arr2 := metric.GetArray("int_array", "int").([]int)
 	exp4 := []int{123, 456}
-	assert.Equal(t, exp4, arr2)
+	require.Equal(t, exp4, arr2)
 }

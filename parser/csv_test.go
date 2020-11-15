@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestParseCsv(t *testing.T) {
@@ -53,7 +53,7 @@ func TestParseCsv(t *testing.T) {
 	for _, c := range testCases {
 		metric, _ := csvParser.Parse([]byte(c.msg))
 		csvMetric, ok := metric.(*CsvMetric)
-		assert.Equal(t, ok, true)
-		assert.Equal(t, c.values, csvMetric.values)
+		require.Equal(t, ok, true)
+		require.Equal(t, c.values, csvMetric.values)
 	}
 }
