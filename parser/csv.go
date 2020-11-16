@@ -33,7 +33,7 @@ type CsvParser struct {
 	tsLayout  []string
 }
 
-// Parse extract comma separated values from the data
+// Parse extract a list of comma-separated values from the data
 func (p *CsvParser) Parse(bs []byte) (metric model.Metric, err error) {
 	r := csv.NewReader(bytes.NewReader(bs))
 	r.Comma = ','

@@ -161,20 +161,20 @@ TODO. Currently sinker is able to parse local config files at startup, but not a
 
 ## Prometheus Metrics
 
-All metrics are in `statistics.go`.
+All metrics are defined in `statistics.go`. You can create Grafana dashboard for clickhouse_sinker by importing the template `clickhouse_sinker-dashboard.json`.
 
 * [x] Pull with prometheus
 
 Metrics are exposed at `http://ip:port/metrics`. IP is the outbound IP of this machine. Port is from CLI `--http-port` or env `HTTP_PORT`.
 
-Sinker registers with Nacos if CLI `--consul-register-enable` or env `CONSUL_REGISTER_ENABLE` is present. However Prometheus is unable to obtain dynamic service list from nacos server. (https://github.com/alibaba/nacos/issues/1032)
+Sinker registers with Nacos if CLI `--consul-register-enable` or env `CONSUL_REGISTER_ENABLE` is present. However Prometheus is [unable](https://github.com/alibaba/nacos/issues/1032) to obtain dynamic service list from nacos server.
 
 * [x] Push to promethues
 
-If CLI `--push-gateway-addrs` or env `PUSH_GATEWAY_ADDRS` (a list of urls joined with comma) is present, metrics are pushed to the given one of given URLs regualarly.
+If CLI `--push-gateway-addrs` or env `PUSH_GATEWAY_ADDRS` (a list of comma-separated urls) is present, metrics are pushed to the given one of given URLs regualarly.
 
 
-## Custom metric parser
+## Custom message parser
 
 - You just need to implement the parser interface on your own
 

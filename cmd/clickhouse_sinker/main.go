@@ -120,7 +120,7 @@ func initCmdOptions() {
 		"configure service check DeregisterCriticalServiceAfter")
 
 	flag.BoolVar(&cmdOps.NacosRegister, "nacos-register-enable", cmdOps.NacosRegister, "register current instance in nacos")
-	flag.StringVar(&cmdOps.NacosAddr, "nacos-addr", cmdOps.NacosAddr, "nacos server addresses, separated with comma")
+	flag.StringVar(&cmdOps.NacosAddr, "nacos-addr", cmdOps.NacosAddr, "a list of comma-separated nacos server addresses")
 	flag.StringVar(&cmdOps.NacosNamespaceID, "nacos-namespace-id", cmdOps.NacosNamespaceID,
 		`nacos namespace ID. Neither DEFAULT_NAMESPACE_ID("public") nor namespace name work!`)
 	flag.StringVar(&cmdOps.NacosGroup, "nacos-group", cmdOps.NacosGroup, `nacos group name. Empty string doesn't work!`)

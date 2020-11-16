@@ -33,7 +33,7 @@ import (
 
 var (
 	nacosAddr = flag.String("nacos-addr", "127.0.0.1:8848",
-		"nacos server addresses, separated with comma")
+		"a list of comma-separated nacos server addresses")
 	nacosUsername = flag.String("nacos-username", "username",
 		"nacos username")
 	nacosPassword = flag.String("nacos-password", "password",
@@ -44,7 +44,7 @@ var (
 		`nacos group name. Empty string doesn't work!`)
 
 	localCfgDir  = flag.String("local-cfg-dir", "/etc/clickhouse_sinker", "local config dir")
-	instances    = flag.String("instances", "", "list of ip:port[@weight] joined with comma")
+	instances    = flag.String("instances", "", "a list of comma-separated ip:port[@weight]")
 	testRegister = flag.Bool("test-register", false, "whether run TestRegister")
 )
 
