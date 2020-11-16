@@ -262,10 +262,16 @@ func (s *Sinker) Run() {
 		go s.pusher.Run(s.ctx)
 	}
 	if s.rcm == nil {
-		if newCfg, err = config.ParseLocalConfig(cmdOps.LocalCfgDir, selfAddr); err != nil {
+		if newCfg, err = config.ParseLocalConfig(cmdOps.LocalCfgDir); err != nil {
 			log.Fatalf("%+v", err)
 			return
 		}
+		if err = newCfg.Normallize(); err != nil {
+			log.Fatalf("%+v", err)
+			return
+		}
+		// Assign all tasks to myself.
+		newCfg.AssignTasks([]config.Instance{{Addr: selfAddr, Weight: 1}})
 		if err = s.applyConfig(newCfg); err != nil {
 			log.Fatalf("%+v", err)
 			return
@@ -278,6 +284,10 @@ func (s *Sinker) Run() {
 				return
 			case <-time.After(5 * time.Second):
 				if newCfg, err = s.rcm.GetConfig(); err != nil {
+					log.Fatalf("%+v", err)
+					return
+				}
+				if err = newCfg.Normallize(); err != nil {
 					log.Fatalf("%+v", err)
 					return
 				}
@@ -310,13 +320,6 @@ func (s *Sinker) Close() {
 }
 
 func (s *Sinker) applyConfig(newCfg *config.Config) (err error) {
-	if newCfg == nil {
-		err = errors.Errorf("applyConfig got a nil config")
-		return
-	}
-	if err = newCfg.Normallize(); err != nil {
-		return
-	}
 	var lvl log.Level
 	if lvl, err = log.ParseLevel(newCfg.Common.LogLevel); err != nil {
 		err = errors.Wrapf(err, "")

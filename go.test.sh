@@ -62,7 +62,7 @@ curl "localhost:8123" -d 'TRUNCATE TABLE test1'
 curl "localhost:8123" -d 'TRUNCATE TABLE test_auto_schema'
 
 ## publish clickhouse_sinker config
-./dist/nacos_publish_config --nacos-addr 127.0.0.1:8848 --nacos-username nacos --nacos-password nacos --sinker-conf docker/conf
+./dist/nacos_publish_config --nacos-addr 127.0.0.1:8848 --nacos-username nacos --nacos-password nacos --local-cfg-dir docker/conf
 
 ## start clickhouse_sinker to consume
 timeout 30 ./dist/clickhouse_sinker --nacos-register-enable --nacos-addr 127.0.0.1:8848 --nacos-username nacos --nacos-password nacos

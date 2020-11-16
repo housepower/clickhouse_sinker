@@ -157,7 +157,7 @@ Controled by:
 - env variables: `CONSUL_REGISTER_ENABLE, CONSUL_ADDR, CONSUL_DEREGISTER_CRITICAL_SERVICES_AFTER`
 
 ### Dynamic Config Management with Local Files
-TODO. Currently sinker is able to parse local config files at startup, bug not able to detect file changes.
+TODO. Currently sinker is able to parse local config files at startup, but not able to detect file changes.
 
 ## Prometheus Metrics
 

@@ -65,8 +65,9 @@ type Config struct {
 		LayoutDateTime   string
 		LayoutDateTime64 string
 		LogLevel         string
+		Replicas         int //on how many sinker instances a task runs
 	}
-	Assignment map[string][]string
+	Assignment map[string][]string //map instance_name to a list of task_name
 }
 
 // KafkaConfig configuration parameters
@@ -143,6 +144,7 @@ type TaskConfig struct {
 	LayoutDate       string `json:"layoutDate,omitempty"`
 	LayoutDateTime   string `json:"layoutDateTime,omitempty"`
 	LayoutDateTime64 string `json:"layoutDateTime64,omitempty"`
+	Replicas         int    //on how many sinker instances this task runs
 }
 
 const (
@@ -153,9 +155,10 @@ const (
 	defaultLayoutDate       = "2006-01-02"
 	defaultLayoutDateTime   = time.RFC3339
 	defaultLayoutDateTime64 = time.RFC3339
+	defaultTaskReplicas     = 1
 )
 
-func ParseLocalConfig(cfgPath, selfAddr string) (cfg *Config, err error) {
+func ParseLocalConfig(cfgPath string) (cfg *Config, err error) {
 	var f = "config.json"
 	f = filepath.Join(cfgPath, f)
 	var s string
@@ -189,16 +192,30 @@ func ParseLocalConfig(cfgPath, selfAddr string) (cfg *Config, err error) {
 			cfg.Tasks[taskConfig.Name] = taskConfig
 		}
 	}
-
-	//assign all tasks to myself
-	var taskNames []string
-	for taskName := range cfg.Tasks {
-		taskNames = append(taskNames, taskName)
-	}
-	sort.Strings(taskNames)
-	cfg.Assignment = make(map[string][]string)
-	cfg.Assignment[selfAddr] = taskNames
 	return
+}
+
+func (cfg *Config) AssignTasks(instances []Instance) {
+	cfg.Assignment = make(map[string][]string)
+	assignment := make(map[string]map[string]int)
+	hr := util.NewHashRing(nil)
+	for _, inst := range instances {
+		hr.Add(inst.Addr, inst.Weight)
+		cfg.Assignment[inst.Addr] = make([]string, 0)
+		assignment[inst.Addr] = make(map[string]int)
+	}
+	for _, taskConfig := range cfg.Tasks {
+		for i := 0; i < taskConfig.Replicas; i++ {
+			instAddr := hr.Get(taskConfig.Name)
+			assignment[instAddr][taskConfig.Name] = 1
+		}
+	}
+	for _, inst := range instances {
+		for taskName := range assignment[inst.Addr] {
+			cfg.Assignment[inst.Addr] = append(cfg.Assignment[inst.Addr], taskName)
+		}
+		sort.Strings(cfg.Assignment[inst.Addr])
+	}
 }
 
 // normallize and validate configuration
@@ -232,6 +249,9 @@ func (cfg *Config) Normallize() (err error) {
 	case "panic", "fatal", "error", "warn", "warning", "info", "debug", "trace":
 	default:
 		cfg.Common.LogLevel = "info"
+	}
+	if cfg.Common.Replicas <= 0 {
+		cfg.Common.Replicas = defaultTaskReplicas
 	}
 	if err = cfg.normallizeTasks(); err != nil {
 		return
@@ -288,6 +308,9 @@ func (cfg *Config) normallizeTasks() (err error) {
 		}
 		if taskConfig.LayoutDateTime64 == "" {
 			taskConfig.LayoutDateTime64 = cfg.Common.LayoutDateTime64
+		}
+		if taskConfig.Replicas <= 0 {
+			taskConfig.Replicas = cfg.Common.Replicas
 		}
 		for i := range taskConfig.Dims {
 			if taskConfig.Dims[i].SourceName == "" {

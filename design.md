@@ -49,30 +49,28 @@ type Config struct {
 	Clickhouse map[string]*ClickHouseConfig
 	Tasks []*TaskConfig
 	Common struct {
-		FlushInterval     int
-		BufferSize        int
-		MinBufferSize     int
-		MsgSizeHint       int
-		ConcurrentParsers int
-		LayoutDate        string
-		LayoutDateTime    string
-		LayoutDateTime64  string
-		LogLevel          string
+		...
+		Replicas          int //on how many sinker instances a task runs
 	}
-    Assigns map[string][]string  //map instance_name to a list of task_name
+	Assigns map[string][]string //map instance_name to a list of task_name
 }
+type TaskConfig struct {
+	...
+	Replicas         int    //on how many sinker instances this task runs
+}
+
 ```
 
 Each instance can run multiple tasks.
 Each task can be assigned to multiple instances. Each task declares how many instances it needs.
 
-## The coordinator
+## The coordinator(outside this project)
 
-- The coordinator ([ckman](https://github.com/housepower/ckman), another project) provides API and/or webui to add/delete/modify tasks. 
-- The coordinator watches (do `service discovery`) instance startup/disappear events, and assign tasks to instances (do `publish config`).
+- The coordinator provides API and/or webui to add/delete/modify tasks. 
+- The coordinator watches (do `service discovery`) instance startup/disappear events, and assign tasks to instances (do `publish config`). Refers to `cmd/nacos_publish_config/main.go` to assign tasks (from local config) via consistent-hash to instances(from CLI).
 
-## The schedule platform
-The schedule platform(or maybe manually, outside my concern) start some clickhouse_sinker instances and start another one if a instance fail.
+## The schedule platform(outside this project)
+The schedule platform start some clickhouse_sinker instances and start another one if a instance fail.
 
 ## clickhouse_sinker
 

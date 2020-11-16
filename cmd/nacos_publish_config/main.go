@@ -43,12 +43,9 @@ var (
 	nacosGroup = flag.String("nacos-group", "DEFAULT_GROUP",
 		`nacos group name. Empty string doesn't work!`)
 
-	sinkerIP     = flag.String("sinker-ip", "", "sinker IP")
-	sinkerPort   = flag.Int("sinker-port", 2112, "sinker port")
-	sinkerCfgDir = flag.String("sinker-conf", "conf", "assign this config to the given sinker")
+	localCfgDir  = flag.String("local-cfg-dir", "/etc/clickhouse_sinker", "local config dir")
+	instances    = flag.String("instances", "", "list of ip:port[@weight] joined with comma")
 	testRegister = flag.Bool("test-register", false, "whether run TestRegister")
-
-	sinkerAddr string
 )
 
 // Empty is not valid namespaceID
@@ -65,10 +62,33 @@ func getProperties() map[string]interface{} {
 func PublishSinkerConfig() {
 	var err error
 	var cfg *config.Config
-	if cfg, err = config.ParseLocalConfig(*sinkerCfgDir, sinkerAddr); err != nil {
+	if cfg, err = config.ParseLocalConfig(*localCfgDir); err != nil {
 		log.Fatalf("%+v", err)
 	}
-	_, _ = pp.Println(cfg)
+	if err = cfg.Normallize(); err != nil {
+		log.Fatalf("%+v", err)
+		return
+	}
+
+	var insts []config.Instance
+	if *instances == "" {
+		sinkerAddr := fmt.Sprintf("%s:%d", util.GetOutboundIP().String(), 2112)
+		insts = []config.Instance{{Addr: sinkerAddr, Weight: 1}}
+	} else {
+		for _, instInfo := range strings.Split(*instances, ",") {
+			var inst config.Instance
+			fields := strings.Split(instInfo, "@")
+			inst.Addr = fields[0]
+			if len(fields) >= 2 {
+				if inst.Weight, err = strconv.Atoi(fields[1]); err != nil {
+					log.Fatalf("%+v", err)
+				}
+			}
+			insts = append(insts, inst)
+		}
+	}
+	cfg.AssignTasks(insts)
+	_, _ = pp.Println("going to publish following config: ", cfg)
 
 	ncm := config.NacosConfManager{}
 	properties := getProperties()
@@ -167,11 +187,10 @@ func TestRegister() {
 }
 
 func main() {
+	log.SetFormatter(&log.TextFormatter{
+		FullTimestamp: true,
+	})
 	flag.Parse()
-	if *sinkerIP == "" {
-		*sinkerIP = util.GetOutboundIP().String()
-	}
-	sinkerAddr = fmt.Sprintf("%s:%d", *sinkerIP, *sinkerPort)
 	if *testRegister {
 		TestRegister()
 	}
