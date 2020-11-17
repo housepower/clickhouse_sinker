@@ -5,13 +5,14 @@
 
 clickhouse_sinker is a sinker program that transfer kafka message into [ClickHouse](https://clickhouse.yandex/).
 
+Refers to [design](./design.md) for how it works.
+
 ## Features
 
 - Uses Native ClickHouse client-server TCP protocol, with higher performance than HTTP.
 - Easy to use and deploy, you don't need write any hard code, just care about the configuration file
-- Support multiple parsers: csv, fastjson, gjson.
+- Support multiple parsers: fastjson(recommended), gjson, csv.
 - Support multiple Kafka client: sarama, kafka-go.
-- Custom parser support.
 - Support multiple sinker tasks, each runs on parallel.
 - Support multiply kafka and ClickHouse clusters.
 - Bulk insert (by config `bufferSize` and `flushInterval`).
@@ -22,15 +23,29 @@ clickhouse_sinker is a sinker program that transfer kafka message into [ClickHou
 - At least once delivery guarantee.
 - Dynamic config management with Nacos.
 
+## Supported data types
+
+- [x] UInt8, UInt16, UInt32, UInt64, Int8, Int16, Int32, Int64
+- [x] Float32, Float64
+- [x] String
+- [x] FixedString
+- [x] Date, DateTime, DateTime64 (custom layout parser)
+- [x] Array(UInt8, UInt16, UInt32, UInt64, Int8, Int16, Int32, Int64)
+- [x] Array(Float32, Float64)
+- [x] Array(String)
+- [x] Array(FixedString)
+- [x] Nullable
+- [x] [ElasticDateTime](https://www.elastic.co/guide/en/elasticsearch/reference/current/date.html) => Int64 (2019-12-16T12:10:30Z => 1576498230)
+
 ## Install && Run
 
-### By binary files (suggested)
+### By binary files (recommended)
 
 Download the binary files from [release](https://github.com/housepower/clickhouse_sinker/releases), choose the executable binary file according to your env, modify the `conf` files, then run `./clickhouse_sinker --local-cfg-dir conf`
 
 ### By container image
 
-Download the binary files from [release](https://quay.io/repository/housepower/clickhouse_sinker), modify the `conf` files, then run `docker run --volume conf:/etc/clickhouse_sinker quay.io/housepower/clickhouse_sinker`
+Modify the `conf` files, then run `docker run --volume conf:/etc/clickhouse_sinker quay.io/housepower/clickhouse_sinker`
 
 ### By source
 
@@ -50,28 +65,10 @@ make build
 ./dist/clickhouse_sinker --local-cfg-dir conf
 ```
 
-## Examples
-
-- look at the [integration test](https://github.com/housepower/clickhouse_sinker/blob/master/go.test.sh).
-- there is a simple [tutorial in Chinese](https://note.youdao.com/ynoteshare1/index.html?id=c4b4a84a08e2312da6c6d733a5074c7a&type=note) which created by user @taiyang-li.
-
-## Supported data types
-
-- [x] UInt8, UInt16, UInt32, UInt64, Int8, Int16, Int32, Int64
-- [x] Float32, Float64
-- [x] String
-- [x] FixedString
-- [x] Date, DateTime, DateTime64 (Custom Layout parser)
-- [x] Array(UInt8, UInt16, UInt32, UInt64, Int8, Int16, Int32, Int64)
-- [x] Array(Float32, Float64)
-- [x] Array(String)
-- [x] Array(FixedString)
-- [x] Nullable
-- [x] [ElasticDateTime](https://www.elastic.co/guide/en/elasticsearch/reference/current/date.html) => Int64 (2019-12-16T12:10:30Z => 1576498230)
-
 ## Configuration
 
-See config [example](./conf/config.json)
+Refers to how [integration test](./go.test.sh) use the [example config](./conf/config.json).
+Also refers to [code](./config/config.go) for all config items.
 
 ### Authentication with Kafka
 
@@ -79,7 +76,7 @@ clickhouse_sinker support following three authentication mechanism:
 
 * [x] No authentication
 
-An example clickhouse_sinker config:
+An example kafka config:
 
 ```
     "kfk1": {
@@ -90,7 +87,7 @@ An example clickhouse_sinker config:
 
 * [x] SASL/PLAIN
 
-An example clickhouse_sinker config:
+An example kafka config:
 ```
     "kfk2": {
       "brokers": "127.0.0.1:9093",
@@ -98,6 +95,7 @@ An example clickhouse_sinker config:
         "enable": true,
         "password": "username",
         "username": "password"
+      },
       "Version": "0.10.2.1"
     }
 ```
@@ -113,7 +111,7 @@ $ sudo yum install -y krb5-libs
 2. Supply a valid /etc/krb5.conf file for each client. Usually this can be the same krb5.conf file used by the Kerberos Distribution Center (KDC).
 
 
-An example clickhouse_sinker config:
+An example kafka config:
 
 ```
     "kfk3": {
@@ -141,22 +139,25 @@ sasl.mechanism：GSSAPI
 sasl.jaas.config：com.sun.security.auth.module.Krb5LoginModule required useKeyTab=true storeKey=true debug=true keyTab=\"/home/keytab/zhangtao.keytab\" principal=\"zhangtao/localhost@ALANWANG.COM\";
 ```
 
-### Dynamic Config Management with Nacos
+## Configuration Management
 
+### Nacos
+
+Sinker is able to register with Nacos, get and apply config changes.
 Controled by:
 
 - CLI parameters: `nacos-register-enable, nacos-addr, nacos-namespace-id, nacos-group, nacos-username, nacos-password`
 - env variables: `NACOS_REGISTER_ENABLE, NACOS_ADDR, NACOS_NAMESPACE_ID, NACOS_GROUP, NACOS_USERNAME, NACOS_PASSWORD`
 
-### Dynamic Config Management with Consul
+### Consul
 
-Currently sinker is able to register with Consul, but not able to get config from Consul.
+Currently sinker is able to register with Consul, but not able to get config.
 Controled by:
 
 - CLI parameters: `consul-register-enable, consul-addr, consul-deregister-critical-services-after`
 - env variables: `CONSUL_REGISTER_ENABLE, CONSUL_ADDR, CONSUL_DEREGISTER_CRITICAL_SERVICES_AFTER`
 
-### Dynamic Config Management with Local Files
+### Local Files
 TODO. Currently sinker is able to parse local config files at startup, but not able to detect file changes.
 
 ## Prometheus Metrics
@@ -171,30 +172,46 @@ Sinker registers with Nacos if CLI `--consul-register-enable` or env `CONSUL_REG
 
 * [x] Push to promethues
 
-If CLI `--push-gateway-addrs` or env `PUSH_GATEWAY_ADDRS` (a list of comma-separated urls) is present, metrics are pushed to the given one of given URLs regualarly.
+If CLI `--push-gateway-addrs` or env `PUSH_GATEWAY_ADDRS` (a list of comma-separated urls) is present, metrics are pushed to one of given URLs regualarly.
 
 
-## Custom message parser
+## Extending
 
-- You just need to implement the parser interface on your own
+There are several abstract interfaces which you can implement to support more message format, message queue and config management mechanism.
 
 ```
 type Parser interface {
 	Parse(bs []byte) model.Metric
 }
+
+type Inputer interface {
+	Init(cfg *config.Config, taskName string, putFn func(msg model.InputMessage)) error
+	Run(ctx context.Context)
+	Stop() error
+	CommitMessages(ctx context.Context, message *model.InputMessage) error
+}
+
+// RemoteConfManager can be implemented by many backends: Nacos, Consul, etcd, ZooKeeper...
+type RemoteConfManager interface {
+	Init(properties map[string]interface{}) error
+	// Register this instance, and keep-alive via heartbeat.
+	Register(ip string, port int) error
+	Deregister(ip string, port int) error
+	// GetInstances fetchs healthy instances.
+	// Mature service-discovery solutions(Nacos, Consul etc.) have client side cache
+	// so that frequent invoking of GetInstances() and GetGlobalConfig() don't harm.
+	GetInstances() (instances []Instance, err error)
+	// GetConfig fetchs the config. The manager shall not reference the returned Config object after call.
+	GetConfig() (conf *Config, err error)
+	// PublishConfig publishs the config. The manager shall not reference the passed Config object after call.
+	PublishConfig(conf *Config) (err error)
+}
+
 ```
 
-See [json parser](./parser/json.go)
+## Why not [`Kafka Engine`](https://clickhouse.tech/docs/en/engines/table-engines/integrations/kafka/) built in ClickHouse?
 
-# Debugging
-
-```bash
-echo '{"date": "2019-07-11T12:10:30Z", "level": "info", "message": "msg4"}' | kafkacat -b 127.0.0.1:9093 -P -t logstash
-
-clickhouse-client -q 'select * from default.logstash'
-2019-12-16	info	msg4
-2019-07-11	info	msg4
-2015-05-11	info	msg4
-2019-07-11	info	msg4
-
-```
+- My experience indicates `Kafka Engine` is complicated, buggy and hard to debug.
+- `Kafka Engine` runs inside the db process, lowers the database stability. On the other side, [Vertica](https://www.vertica.com/)'s official kafka importer is separated with the database server.
+- `Kafka Engine` doesn't support custom sharding policy.
+- Neither `Kafka Engine` nor clickhouse_sinker support exactly-once.
