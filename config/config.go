@@ -89,7 +89,6 @@ type KafkaConfig struct {
 			DisablePAFXFAST    bool
 		}
 	}
-	Version string
 }
 
 // ClickHouseConfig configuration parameters

@@ -81,18 +81,14 @@ func (k *KafkaSarama) Init(cfg *config.Config, taskName string, putFn func(msg m
 	k.stopped = make(chan struct{})
 	k.putFn = putFn
 	config := sarama.NewConfig()
-	if kfkCfg.Version != "" {
-		version, err := sarama.ParseKafkaVersion(kfkCfg.Version)
-		if err != nil {
-			err = errors.Wrap(err, "")
-			return err
-		}
-		config.Version = version
-	}
+	config.Version = sarama.V0_11_0_0
 	// sarama.Logger = log.New(os.Stdout, "[sarama] ", log.LstdFlags)
 	// check for authentication
 	if kfkCfg.Sasl.Enable {
 		config.Net.SASL.Enable = true
+		if config.Version.IsAtLeast(sarama.V1_0_0_0) {
+			config.Net.SASL.Version = sarama.SASLHandshakeV1
+		}
 		if kfkCfg.Sasl.Username != "" {
 			config.Net.SASL.Mechanism = sarama.SASLTypePlaintext
 			config.Net.SASL.User = kfkCfg.Sasl.Username

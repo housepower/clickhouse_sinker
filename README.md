@@ -80,8 +80,7 @@ An example kafka config:
 
 ```
     "kfk1": {
-      "brokers": "127.0.0.1:9092",
-      "Version": "0.10.2.1"
+      "brokers": "127.0.0.1:9092"
     }
 ```
 
@@ -95,23 +94,13 @@ An example kafka config:
         "enable": true,
         "password": "username",
         "username": "password"
-      },
-      "Version": "0.10.2.1"
+      }
     }
 ```
 
 * [x] SASL/GSSAPI(Kerberos)
 
-You need to configuring a Kerberos Client on the host on which the clickhouse_sinker run. Refers to [Kafka Security](https://kafka.apache.org/documentation/#security).
-
-1. Install the krb5-libs package on all of the client machine.
-```
-$ sudo yum install -y krb5-libs
-```
-2. Supply a valid /etc/krb5.conf file for each client. Usually this can be the same krb5.conf file used by the Kerberos Distribution Center (KDC).
-
 An example kafka config:
-
 ```
     "kfk3": {
       "brokers": "127.0.0.1:9094",
@@ -125,8 +114,7 @@ An example kafka config:
           "username": "zhangtao/localhost",
           "realm": "ALANWANG.COM"
         }
-      },
-      "Version": "0.10.2.1"
+      }
     }
 ```
 
@@ -138,7 +126,10 @@ sasl.mechanism：GSSAPI
 sasl.jaas.config：com.sun.security.auth.module.Krb5LoginModule required useKeyTab=true storeKey=true debug=true keyTab=\"/home/keytab/zhangtao.keytab\" principal=\"zhangtao/localhost@ALANWANG.COM\";
 ```
 
-Note: Please ensure [`kafka-console-consumer.sh`](https://docs.cloudera.com/runtime/7.2.1/kafka-managing/topics/kafka-manage-cli-consumer.html) Kerberos keytab authentication work STRICTLY FOLLOW [this article](https://stackoverflow.com/questions/48744660/kafka-console-consumer-with-kerberos-authentication/49140414#49140414), then test `clickhouse_sinker` Kerberos authentication on the SAME machine which `kafka-console-consumer.sh` runs.
+Notes:
+- Please ensure [`kafka-console-consumer.sh`](https://docs.cloudera.com/runtime/7.2.1/kafka-managing/topics/kafka-manage-cli-consumer.html) Kerberos keytab authentication work STRICTLY FOLLOW [this article](https://stackoverflow.com/questions/48744660/kafka-console-consumer-with-kerberos-authentication/49140414#49140414), then test `clickhouse_sinker` Kerberos authentication on the SAME machine which `kafka-console-consumer.sh` runs.
+- Kafka-go doesn't support Kerberos authentication. Here's the [issue](https://github.com/segmentio/kafka-go/issues/539).
+- I tested sarama Kerberos authentication against Kafka [2.11-2.2.1](https://archive.apache.org/dist/kafka/2.2.1/kafka_2.11-2.2.1.tgz). Not sure other Kafka versions work.
 
 ## Configuration Management
 
