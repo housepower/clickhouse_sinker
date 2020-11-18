@@ -275,10 +275,22 @@ func (cfg *Config) Normallize() (err error) {
 
 func (cfg *Config) normallizeTasks() (err error) {
 	for taskName, taskConfig := range cfg.Tasks {
+		if _, ok := cfg.Kafka[taskConfig.Kafka]; !ok {
+			err = errors.Errorf("task %s config is invalid, kafka %s doesn't exist.", taskConfig.Name, taskConfig.Kafka)
+			return
+		}
+		if _, ok := cfg.Clickhouse[taskConfig.Clickhouse]; !ok {
+			err = errors.Errorf("task %s config is invalid, clickhouse %s doesn't exist.", taskConfig.Name, taskConfig.Clickhouse)
+			return
+		}
 		if taskConfig.Name != taskName {
 			taskConfig.Name = taskName
 		}
-		if taskConfig.KafkaClient == "" {
+		kfkCfg := cfg.Kafka[taskConfig.Kafka]
+		if kfkCfg.Sasl.Enable && kfkCfg.Sasl.Username == "" {
+			//kafka-go doesn't support SASL/GSSAPI(Kerberos). https://github.com/segmentio/kafka-go/issues/539
+			taskConfig.KafkaClient = "sarama"
+		} else if taskConfig.KafkaClient == "" {
 			taskConfig.KafkaClient = "kafka-go"
 		}
 		if taskConfig.Parser == "" {
@@ -316,14 +328,6 @@ func (cfg *Config) normallizeTasks() (err error) {
 			if taskConfig.Dims[i].SourceName == "" {
 				taskConfig.Dims[i].SourceName = util.GetSourceName(taskConfig.Dims[i].Name)
 			}
-		}
-		if _, ok := cfg.Kafka[taskConfig.Kafka]; !ok {
-			err = errors.Errorf("task %s config is invalid, kafka %s doesn't exist.", taskConfig.Name, taskConfig.Kafka)
-			return
-		}
-		if _, ok := cfg.Clickhouse[taskConfig.Clickhouse]; !ok {
-			err = errors.Errorf("task %s config is invalid, clickhouse %s doesn't exist.", taskConfig.Name, taskConfig.Clickhouse)
-			return
 		}
 	}
 	return
