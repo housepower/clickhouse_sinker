@@ -11,8 +11,6 @@ So if you setup ClickHouse properly(ReplacingMergeTree ORDER BY (__kafak_topic, 
 
 It's hard for clickhouse_sinker to guarantee exactly-once semantic without ReplacingMergeTree. Kafka consumer group load-balance cause duplicated messages if one consumer quit suddenly.
 
-Recently clickhouse_sinker has been reconstructed and achieved very big preformance improvement. There's no design document right now. @sundy-li and I may add some later.
-
 The flow is:
 
 - Fetch message via kafka-go or samara, which starts internally an goroutine for each partition.
