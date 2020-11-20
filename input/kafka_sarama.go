@@ -75,13 +75,16 @@ func (h MyConsumerGroupHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, c
 }
 
 // Init Initialise the kafka instance with configuration
-func (k *KafkaSarama) Init(cfg *config.Config, taskName string, putFn func(msg model.InputMessage)) error {
+func (k *KafkaSarama) Init(cfg *config.Config, taskName string, putFn func(msg model.InputMessage)) (err error) {
 	k.taskCfg = cfg.Tasks[taskName]
 	kfkCfg := cfg.Kafka[k.taskCfg.Kafka]
 	k.stopped = make(chan struct{})
 	k.putFn = putFn
 	config := sarama.NewConfig()
-	config.Version = sarama.V0_11_0_0
+	if config.Version, err = sarama.ParseKafkaVersion(kfkCfg.Version); err != nil {
+		err = errors.Wrapf(err, "")
+		return
+	}
 	// sarama.Logger = log.New(os.Stdout, "[sarama] ", log.LstdFlags)
 	// check for authentication
 	if kfkCfg.Sasl.Enable {

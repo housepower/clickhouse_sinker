@@ -80,7 +80,8 @@ An example kafka config:
 
 ```
     "kfk1": {
-      "brokers": "127.0.0.1:9092"
+      "brokers": "127.0.0.1:9092",
+      "version": "2.2.1"
     }
 ```
 
@@ -94,7 +95,8 @@ An example kafka config:
         "enable": true,
         "password": "username",
         "username": "password"
-      }
+      },
+      "version": "2.2.1"
     }
 ```
 
@@ -114,7 +116,8 @@ An example kafka config:
           "username": "zhangtao/localhost",
           "realm": "ALANWANG.COM"
         }
-      }
+      },
+      "version": "2.2.1"
     }
 ```
 
@@ -126,10 +129,7 @@ sasl.mechanism：GSSAPI
 sasl.jaas.config：com.sun.security.auth.module.Krb5LoginModule required useKeyTab=true storeKey=true debug=true keyTab=\"/home/keytab/zhangtao.keytab\" principal=\"zhangtao/localhost@ALANWANG.COM\";
 ```
 
-Notes:
-- Please ensure [`kafka-console-consumer.sh`](https://docs.cloudera.com/runtime/7.2.1/kafka-managing/topics/kafka-manage-cli-consumer.html) Kerberos keytab authentication work STRICTLY FOLLOW [this article](https://stackoverflow.com/questions/48744660/kafka-console-consumer-with-kerberos-authentication/49140414#49140414), then test `clickhouse_sinker` Kerberos authentication on the SAME machine which `kafka-console-consumer.sh` runs.
-- Kafka-go doesn't support Kerberos authentication. Here's the [issue](https://github.com/segmentio/kafka-go/issues/539).
-- I tested sarama Kerberos authentication against Kafka [2.11-2.2.1](https://archive.apache.org/dist/kafka/2.2.1/kafka_2.11-2.2.1.tgz). Not sure other Kafka versions work.
+Kerberos setup is complex. Please ensure [`kafka-console-consumer.sh`](https://docs.cloudera.com/runtime/7.2.1/kafka-managing/topics/kafka-manage-cli-consumer.html) Kerberos keytab authentication work STRICTLY FOLLOW [this article](https://stackoverflow.com/questions/48744660/kafka-console-consumer-with-kerberos-authentication/49140414#49140414), then test `clickhouse_sinker` Kerberos authentication on the SAME machine which `kafka-console-consumer.sh` runs. I tested sarama Kerberos authentication against Kafka [2.2.1](https://archive.apache.org/dist/kafka/2.2.1/kafka_2.11-2.2.1.tgz). Not sure other Kafka versions work.
 
 ## Configuration Management
 
@@ -207,3 +207,19 @@ type RemoteConfManager interface {
 - `Kafka Engine` runs inside the db process, lowers the database stability. On the other side, [Vertica](https://www.vertica.com/)'s official kafka importer is separated with the database server.
 - `Kafka Engine` doesn't support custom sharding policy.
 - Neither `Kafka Engine` nor clickhouse_sinker support exactly-once.
+
+
+## Kafka Compatibility
+Kafka broker [exposes versions of various APIs it supports since 0.10.0.0](https://kafka.apache.org/protocol#api_versions).
+
+### Kafka-go
+- Kafka-go [negotiate it's protocol Version](https://github.com/segmentio/kafka-go/blob/c66d8ca149e7f1a7905b47a60962745ceb08a6a9/conn.go#L209).
+- Kafka-go [doesn't support Kerberos authentication](https://github.com/segmentio/kafka-go/issues/539).
+
+### Sarama
+- Sarama guarantees compatibility [with Kafka 2.4 through 2.6](https://github.com/Shopify/sarama/blob/master/README.md#compatibility-and-api-stability).
+- Sarama [has tied it's protocol usage to the Version field in Config](https://github.com/Shopify/sarama/issues/1732).
+
+### Conclusion
+- Both Kafka-go and sarama are not as mature as Java Clients. You need to try both if clickhouse_sinker fails to connect with Kafka.
+- Our experience is sarama can't work well with new kafka server if set its `Config.Version` to "0.11.0.0". So we suggest `KafkaConfig.Version` in clickhouse_sinker config matchs the Kafka server.
