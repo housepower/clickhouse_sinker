@@ -132,11 +132,22 @@ sasl.jaas.config：com.sun.security.auth.module.Krb5LoginModule required useKeyT
 
 Kerberos setup is complex. Please ensure [`kafka-console-consumer.sh`](https://docs.cloudera.com/runtime/7.2.1/kafka-managing/topics/kafka-manage-cli-consumer.html) Kerberos keytab authentication work STRICTLY FOLLOW [this article](https://stackoverflow.com/questions/48744660/kafka-console-consumer-with-kerberos-authentication/49140414#49140414), then test `clickhouse_sinker` Kerberos authentication on the SAME machine which `kafka-console-consumer.sh` runs. I tested sarama Kerberos authentication against Kafka [2.2.1](https://archive.apache.org/dist/kafka/2.2.1/kafka_2.11-2.2.1.tgz). Not sure other Kafka versions work.
 
+### Sharding Policy
+
+Every message is routed to a determined ClickHouse node.
+
+By default, the node number is caculated by `(kafka_offset/roundup(batch_size))%clickhouse_nodes`, where `roundup()` round upward an unsigned integer to the the nearest 2^n.
+
+This above expression can be customized with `shardingKey` and `shardingPolicy`. `shardingKey` value is a column name. `shardingPolicy` value could be:
+
+- `stripe,<size>`. This requires `shardingKey` be a numeric-like (bool, int, float, date etc.) column. The expression is `(uint64(shardingKey)/stripe_size)%clickhouse_nodes`.
+- `hash`. This requires `shardingKey` be a string-like column. The hash function used internally is [xxHash64](https://github.com/cespare/xxhash). The expression is `xxhash64(string(shardingKey))%clickhouse_nodes`.
+
 ## Configuration Management
 
 ### Nacos
 
-Sinker is able to register with Nacos, get and apply config changes.
+Sinker is able to register with Nacos, get and apply config changes dynamically without restart the whole process.
 Controled by:
 
 - CLI parameters: `nacos-register-enable, nacos-addr, nacos-namespace-id, nacos-group, nacos-username, nacos-password`
@@ -144,14 +155,15 @@ Controled by:
 
 ### Consul
 
-Currently sinker is able to register with Consul, but not able to get config.
+Currently sinker is able to register with Consul, but unable to get config.
 Controled by:
 
 - CLI parameters: `consul-register-enable, consul-addr, consul-deregister-critical-services-after`
 - env variables: `CONSUL_REGISTER_ENABLE, CONSUL_ADDR, CONSUL_DEREGISTER_CRITICAL_SERVICES_AFTER`
 
 ### Local Files
-TODO. Currently sinker is able to parse local config files at startup, but not able to detect file changes.
+
+Currently sinker is able to parse local config files at startup, but unable to detect file changes.
 
 ## Prometheus Metrics
 
