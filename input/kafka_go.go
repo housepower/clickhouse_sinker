@@ -23,6 +23,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/segmentio/kafka-go"
+	"github.com/segmentio/kafka-go/sasl/plain"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/housepower/clickhouse_sinker/config"
@@ -51,14 +52,11 @@ func (k *KafkaGo) Init(cfg *config.Config, taskName string, putFn func(msg model
 	kfkCfg := cfg.Kafka[k.taskCfg.Kafka]
 	k.stopped = make(chan struct{})
 	k.putFn = putFn
-	if kfkCfg.Sasl.Enable && kfkCfg.Sasl.Username == "" {
-		return errors.Errorf("kafka-go doesn't support SASL/GSSAPI(Kerberos)")
-	}
 	offset := kafka.LastOffset
 	if k.taskCfg.Earliest {
 		offset = kafka.FirstOffset
 	}
-	k.r = kafka.NewReader(kafka.ReaderConfig{
+	readerCfg := &kafka.ReaderConfig{
 		Brokers:        strings.Split(kfkCfg.Brokers, ","),
 		GroupID:        k.taskCfg.ConsumerGroup,
 		Topic:          k.taskCfg.Topic,
@@ -67,7 +65,20 @@ func (k *KafkaGo) Init(cfg *config.Config, taskName string, putFn func(msg model
 		MaxBytes:       k.taskCfg.BufferSize * k.taskCfg.MsgSizeHint,
 		MaxWait:        time.Duration(k.taskCfg.FlushInterval) * time.Second,
 		CommitInterval: time.Second, // flushes commits to Kafka every second
-	})
+	}
+	if kfkCfg.Sasl.Enable {
+		if kfkCfg.Sasl.Username != "" {
+			readerCfg.Dialer = &kafka.Dialer{
+				SASLMechanism: plain.Mechanism{
+					Username: kfkCfg.Sasl.Username,
+					Password: kfkCfg.Sasl.Password,
+				},
+			}
+		} else {
+			return errors.Errorf("kafka-go doesn't support SASL/GSSAPI(Kerberos)")
+		}
+	}
+	k.r = kafka.NewReader(*readerCfg)
 	return nil
 }
 
