@@ -50,7 +50,7 @@ func (ring *Ring) PutElem(msgRow model.MsgRow) {
 		ring.ringCeilingOff = msgOffset + 1
 	}
 
-	if ring.service.sharder != nil {
+	if ring.service.sharder != nil && msgRow.Row != nil {
 		if msgRow.Shard, err = ring.service.sharder.Calc(msgRow.Row); err != nil {
 			log.Fatalf("%s: got error %+v", ring.service.taskCfg.Name, err)
 		}

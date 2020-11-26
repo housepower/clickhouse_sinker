@@ -27,6 +27,7 @@ import (
 	"github.com/housepower/clickhouse_sinker/config"
 	"github.com/housepower/clickhouse_sinker/model"
 	"github.com/housepower/clickhouse_sinker/statistics"
+	"github.com/housepower/clickhouse_sinker/util"
 )
 
 var _ Inputer = (*KafkaSarama)(nil)
@@ -85,7 +86,13 @@ func (k *KafkaSarama) Init(cfg *config.Config, taskName string, putFn func(msg m
 		err = errors.Wrapf(err, "")
 		return
 	}
-	// sarama.Logger = log.New(os.Stdout, "[sarama] ", log.LstdFlags)
+	sarama.Logger = log.StandardLogger()
+	if kfkCfg.TLS.Enable {
+		config.Net.TLS.Enable = true
+		if config.Net.TLS.Config, err = util.NewTLSConfig(kfkCfg.TLS.CaCertFiles, kfkCfg.TLS.ClientCertFile, kfkCfg.TLS.ClientKeyFile, kfkCfg.TLS.InsecureSkipVerify); err != nil {
+			return
+		}
+	}
 	// check for authentication
 	if kfkCfg.Sasl.Enable {
 		config.Net.SASL.Enable = true

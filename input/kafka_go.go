@@ -17,6 +17,7 @@ package input
 
 import (
 	"context"
+	"crypto/tls"
 	"io"
 	"strings"
 	"time"
@@ -29,6 +30,7 @@ import (
 	"github.com/housepower/clickhouse_sinker/config"
 	"github.com/housepower/clickhouse_sinker/model"
 	"github.com/housepower/clickhouse_sinker/statistics"
+	"github.com/housepower/clickhouse_sinker/util"
 )
 
 var _ Inputer = (*KafkaGo)(nil)
@@ -47,7 +49,7 @@ func NewKafkaGo() *KafkaGo {
 }
 
 // Init Initialise the kafka instance with configuration
-func (k *KafkaGo) Init(cfg *config.Config, taskName string, putFn func(msg model.InputMessage)) error {
+func (k *KafkaGo) Init(cfg *config.Config, taskName string, putFn func(msg model.InputMessage)) (err error) {
 	k.taskCfg = cfg.Tasks[taskName]
 	kfkCfg := cfg.Kafka[k.taskCfg.Kafka]
 	k.stopped = make(chan struct{})
@@ -65,18 +67,34 @@ func (k *KafkaGo) Init(cfg *config.Config, taskName string, putFn func(msg model
 		MaxBytes:       k.taskCfg.BufferSize * k.taskCfg.MsgSizeHint,
 		MaxWait:        time.Duration(k.taskCfg.FlushInterval) * time.Second,
 		CommitInterval: time.Second, // flushes commits to Kafka every second
+		Logger:         log.StandardLogger(),
+	}
+	var dialer *kafka.Dialer
+	if kfkCfg.TLS.Enable {
+		var tlsConfig *tls.Config
+		if tlsConfig, err = util.NewTLSConfig(kfkCfg.TLS.CaCertFiles, kfkCfg.TLS.ClientCertFile, kfkCfg.TLS.ClientKeyFile, kfkCfg.TLS.InsecureSkipVerify); err != nil {
+			return
+		}
+		dialer = &kafka.Dialer{
+			DualStack: true,
+			TLS:       tlsConfig,
+		}
 	}
 	if kfkCfg.Sasl.Enable {
 		if kfkCfg.Sasl.Username != "" {
-			readerCfg.Dialer = &kafka.Dialer{
-				SASLMechanism: plain.Mechanism{
-					Username: kfkCfg.Sasl.Username,
-					Password: kfkCfg.Sasl.Password,
-				},
+			if dialer == nil {
+				dialer = &kafka.Dialer{DualStack: true}
+			}
+			dialer.SASLMechanism = plain.Mechanism{
+				Username: kfkCfg.Sasl.Username,
+				Password: kfkCfg.Sasl.Password,
 			}
 		} else {
 			return errors.Errorf("kafka-go doesn't support SASL/GSSAPI(Kerberos)")
 		}
+	}
+	if dialer != nil {
+		readerCfg.Dialer = dialer
 	}
 	k.r = kafka.NewReader(*readerCfg)
 	return nil

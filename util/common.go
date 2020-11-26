@@ -16,7 +16,10 @@ limitations under the License.
 package util
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net"
 	"os"
@@ -26,6 +29,7 @@ import (
 	"time"
 
 	"github.com/fagongzi/goetty"
+	"github.com/pkg/errors"
 )
 
 var (
@@ -99,6 +103,37 @@ LOOP:
 		}
 	}
 	return
+}
+
+// Refers to:
+// https://medium.com/processone/using-tls-authentication-for-your-go-kafka-client-3c5841f2a625
+// https://github.com/denji/golang-tls
+// https://www.baeldung.com/java-keystore-truststore-difference
+func NewTLSConfig(caCertFiles, clientCertFile, clientKeyFile string, insecureSkipVerify bool) (*tls.Config, error) {
+	tlsConfig := tls.Config{}
+	// Load client cert
+	if clientCertFile != "" && clientKeyFile != "" {
+		cert, err := tls.LoadX509KeyPair(clientCertFile, clientKeyFile)
+		if err != nil {
+			err = errors.Wrapf(err, "")
+			return &tlsConfig, err
+		}
+		tlsConfig.Certificates = []tls.Certificate{cert}
+	}
+
+	// Load CA cert
+	caCertPool := x509.NewCertPool()
+	for _, caCertFile := range strings.Split(caCertFiles, ",") {
+		caCert, err := ioutil.ReadFile(caCertFile)
+		if err != nil {
+			err = errors.Wrapf(err, "")
+			return &tlsConfig, err
+		}
+		caCertPool.AppendCertsFromPEM(caCert)
+	}
+	tlsConfig.RootCAs = caCertPool
+	tlsConfig.InsecureSkipVerify = insecureSkipVerify
+	return &tlsConfig, nil
 }
 
 func EnvStringVar(value *string, key string) {

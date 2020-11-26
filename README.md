@@ -9,16 +9,17 @@ Refers to [design](./design.md) for how it works.
 
 ## Features
 
-- Uses Native ClickHouse client-server TCP protocol, with higher performance than HTTP.
+- Uses native ClickHouse client-server TCP protocol, with higher performance than HTTP.
 - Easy to use and deploy, you don't need write any hard code, just care about the configuration file
 - Support multiple parsers: fastjson(recommended), gjson, csv.
 - Support multiple Kafka client: kafka-go(recommended), sarama.
+- Support multiple Kafka security mechanisms: SSL, SASL/PLAIN, SASL/GSSAPI and combinations of them.
 - Support multiple sinker tasks, each runs on parallel.
 - Support multiply kafka and ClickHouse clusters.
 - Bulk insert (by config `bufferSize` and `flushInterval`).
 - Parse messages concurrently.
 - Write batches concurrently.
-- Every batch is sharded to a determined clickhouse node. Exit if loop write failed.
+- Every batch is sharded to a determined clickhouse node. Exit if loop write fail.
 - Custom sharding policy (by config `shardingKey` and `shardingPolicy`).
 - At least once delivery guarantee.
 - Dynamic config management with Nacos.
@@ -70,9 +71,54 @@ make build
 Refers to how [integration test](./go.test.sh) use the [example config](./conf/config.json).
 Also refers to [code](./config/config.go) for all config items.
 
-### Authentication with Kafka
+### Kafka Encryption
 
-clickhouse_sinker support following three authentication mechanism:
+clickhouse_sinker supports following encryption mechanisms:
+
+- No encryption
+
+An example kafka config:
+
+```
+    "kfk1": {
+      "brokers": "192.168.31.64:9092",
+      "version": "2.2.1"
+    }
+```
+
+- Encryption using SSL
+
+An example kafka config:
+```
+    "kfk2": {
+      "brokers": "192.168.31.64:9093",
+      "tls": {
+        "enable": true,
+        "@caCertFiles": "Required. It's the CA certificate with which Kafka brokers certs be signed. This cert is added to kafka.client.truststore.jks which kafka-console-consumer.sh uses",
+        "caCertFiles": "/etc/security/ca-cert",
+        "@insecureSkipVerify": "Whether disable broker FQDN verification. Set it to `true` if kafka-console-consumer.sh uses `ssl.endpoint.identification.algorithm=`.",
+        "insecureSkipVerify": true
+      }
+    }
+```
+
+FYI. `kafka-console-consumer.sh` works as the following setup:
+
+```
+$ cat config/client_SSL.properties 
+security.protocol=SSL
+ssl.truststore.location=/etc/security/kafka.client.truststore.jks 
+ssl.truststore.password=123456
+ssl.endpoint.identification.algorithm=
+
+$ bin/kafka-console-consumer.sh --bootstrap-server 192.168.31.64:9094 --topic sunshine --group test-consumer-group --from-beginning --consumer.config config/client_SSL.properties
+```
+
+Please follow [`Kafka SSL setup`](https://kafka.apache.org/documentation/#security_ssl). Use `-keyalg RSA` when you create the broker keystore, otherwise there will be no cipher suites in common between the keystore and those Golang supports. See [this](https://github.com/Shopify/sarama/issues/643#issuecomment-216839760) for reference.
+
+### Kafka Authentication
+
+clickhouse_sinker support following following authentication mechanisms:
 
 - No authentication
 
@@ -80,7 +126,8 @@ An example kafka config:
 
 ```
     "kfk1": {
-      "brokers": "127.0.0.1:9092",
+      "brokers": "192.168.31.64:9092",
+      "@version": "Required if you use sarama. It's the the Kafka server version.",
       "version": "2.2.1"
     }
 ```
@@ -90,7 +137,7 @@ An example kafka config:
 An example kafka config:
 ```
     "kfk2": {
-      "brokers": "127.0.0.1:9093",
+      "brokers": "192.168.31.64:9093",
       "sasl": {
         "enable": true,
         "password": "username",
@@ -105,29 +152,33 @@ An example kafka config:
 An example kafka config:
 ```
     "kfk3": {
-      "brokers": "127.0.0.1:9094",
+      "brokers": "192.168.31.64:9094",
       "sasl": {
         "enable": true,
         "gssapi": {
+          "@authtype": "1 - Username and password, 2 - Keytab",
           "authtype": 2,
-          "keytabpath": "/home/keytab/zhangtao.keytab",
+          "keytabpath": "/etc/security/mmmtest.keytab",
           "kerberosconfigpath": "/etc/krb5.conf",
           "servicename": "kafka",
-          "username": "zhangtao/localhost",
+          "@username": "`principal` consists of `username` `@` `realm`",
+          "username": "mmm",
           "realm": "ALANWANG.COM"
         }
-      },
-      "version": "2.2.1"
+      }
     }
 ```
 
-FYI. The same config looks like the following in Java code:
+FYI. `kafka-console-consumer.sh` works as the following setup:
 
 ```
-security.protocol：SASL_PLAINTEXT
-sasl.kerberos.service.name：kafka
-sasl.mechanism：GSSAPI
-sasl.jaas.config：com.sun.security.auth.module.Krb5LoginModule required useKeyTab=true storeKey=true debug=true keyTab=\"/home/keytab/zhangtao.keytab\" principal=\"zhangtao/localhost@ALANWANG.COM\";
+$ cat config/client_SASL_PLAINTEXT.properties
+security.protocol=SASL_PLAINTEXT
+sasl.kerberos.service.name=kafka
+sasl.mechanism=GSSAPI
+sasl.jaas.config=com.sun.security.auth.module.Krb5LoginModule required useKeyTab=true storeKey=true debug=true keyTab="/etc/security/mmmtest.keytab" principal="mmm@ALANWANG.COM";
+
+$ bin/kafka-console-consumer.sh --bootstrap-server 192.168.31.64:9094 --topic sunshine --group test-consumer-group --from-beginning --consumer.config config/client_SASL_PLAINTEXT.properties
 ```
 
 Kerberos setup is complex. Please ensure [`kafka-console-consumer.sh`](https://docs.cloudera.com/runtime/7.2.1/kafka-managing/topics/kafka-manage-cli-consumer.html) Kerberos keytab authentication work STRICTLY FOLLOW [this article](https://stackoverflow.com/questions/48744660/kafka-console-consumer-with-kerberos-authentication/49140414#49140414), then test `clickhouse_sinker` Kerberos authentication on the SAME machine which `kafka-console-consumer.sh` runs. I tested sarama Kerberos authentication against Kafka [2.2.1](https://archive.apache.org/dist/kafka/2.2.1/kafka_2.11-2.2.1.tgz). Not sure other Kafka versions work.
@@ -229,7 +280,7 @@ Kafka broker [exposes versions of various APIs it supports since 0.10.0.0](https
 ### Kafka-go
 
 - Kafka-go [negotiate it's protocol Version](https://github.com/segmentio/kafka-go/blob/c66d8ca149e7f1a7905b47a60962745ceb08a6a9/conn.go#L209).
-- Kafka-go [doesn't support Kerberos authentication](https://github.com/segmentio/kafka-go/issues/539).
+- Kafka-go [doesn't support Kerberos authentication](https://github.com/segmentio/kafka-go/issues/237).
 
 ### Sarama
 

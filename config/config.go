@@ -73,6 +73,13 @@ type Config struct {
 // KafkaConfig configuration parameters
 type KafkaConfig struct {
 	Brokers string
+	TLS     struct {
+		Enable             bool
+		CaCertFiles        string // Required. It's the CA certificate with which Kafka brokers certs be signed.
+		ClientCertFile     string // Required if Kafka brokers require client authentication.
+		ClientKeyFile      string // Required if and only if ClientCertFile is present.
+		InsecureSkipVerify bool   // Whether disable broker FQDN verification.
+	}
 	//simplified sarama.Config.Net.SASL to only support SASL/PLAIN and SASL/GSSAPI(Kerberos)
 	Sasl struct {
 		Enable   bool
@@ -255,6 +262,11 @@ func (cfg *Config) Normallize() (err error) {
 	}
 	if err = cfg.normallizeTasks(); err != nil {
 		return
+	}
+	for _, kfkConfig := range cfg.Kafka {
+		if kfkConfig.Version == "" {
+			kfkConfig.Version = "2.2.1"
+		}
 	}
 	for _, chConfig := range cfg.Clickhouse {
 		if chConfig.RetryTimes < 0 {
