@@ -92,7 +92,7 @@ func initCmdOptions() {
 	// 2. Replace options with the corresponding env variable if present.
 	util.EnvBoolVar(&cmdOps.ShowVer, "v")
 	util.EnvIntVar(&cmdOps.HTTPPort, "http-port")
-	util.EnvStringVar(&cmdOps.PushGatewayAddrs, "push-gateway-addrs")
+	util.EnvStringVar(&cmdOps.PushGatewayAddrs, "metric-push-gateway-addrs")
 	util.EnvIntVar(&cmdOps.PushInterval, "push-interval")
 	util.EnvStringVar(&cmdOps.LocalCfgDir, "local-cfg-dir")
 
@@ -110,7 +110,7 @@ func initCmdOptions() {
 	// 3. Replace options with the corresponding CLI parameter if present.
 	flag.BoolVar(&cmdOps.ShowVer, "v", cmdOps.ShowVer, "show build version and quit")
 	flag.IntVar(&cmdOps.HTTPPort, "http-port", cmdOps.HTTPPort, "http listen port")
-	flag.StringVar(&cmdOps.PushGatewayAddrs, "push-gateway-addrs", cmdOps.PushGatewayAddrs, "prometheus push gatway address")
+	flag.StringVar(&cmdOps.PushGatewayAddrs, "metric-push-gateway-addrs", cmdOps.PushGatewayAddrs, "a list of comma-separated prometheus push gatway address")
 	flag.IntVar(&cmdOps.PushInterval, "push-interval", cmdOps.PushInterval, "push interval in seconds")
 	flag.StringVar(&cmdOps.LocalCfgDir, "local-cfg-dir", cmdOps.LocalCfgDir, "local config dir")
 

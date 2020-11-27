@@ -228,7 +228,7 @@ Sinker registers with Nacos if CLI `--consul-register-enable` or env `CONSUL_REG
 
 - Push to promethues
 
-If CLI `--push-gateway-addrs` or env `PUSH_GATEWAY_ADDRS` (a list of comma-separated urls) is present, metrics are pushed to one of given URLs regualarly.
+If CLI `--metric-push-gateway-addrs` or env `METRIC_PUSH_GATEWAY_ADDRS` (a list of comma-separated urls) is present, metrics are pushed to one of given URLs regualarly.
 
 
 ## Extending
