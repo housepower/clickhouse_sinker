@@ -25,9 +25,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/heptiolabs/healthcheck"
 	"github.com/housepower/clickhouse_sinker/health"
 	"github.com/pkg/errors"
+	"github.com/troian/healthcheck"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/sundy-li/go_commons/utils"
@@ -107,7 +107,6 @@ func InitConn(name, hosts string, port int, db, username, password, dsnParams st
 			err = errors.Wrapf(err, "")
 			return
 		}
-		health.Health.AddReadinessCheck(dsn, healthcheck.DatabasePingCheck(sqlDB, 10*time.Second))
 		cc.connections = append(cc.connections, &Connection{sqlDB, dsn})
 	}
 	lock.Lock()
@@ -115,6 +114,9 @@ func InitConn(name, hosts string, port int, db, username, password, dsnParams st
 	if cc2, ok := poolMaps[name]; ok {
 		cc2.ref++
 		return
+	}
+	for _, conn := range cc.connections {
+		health.Health.AddReadinessCheck(conn.dsn, healthcheck.DatabasePingCheck(conn.DB, 30*time.Second))
 	}
 	poolMaps[name] = &cc
 	return nil
@@ -127,6 +129,9 @@ func FreeConn(name string) {
 		cc.ref--
 		if cc.ref <= 0 {
 			delete(poolMaps, name)
+		}
+		for _, conn := range cc.connections {
+			health.Health.RemoveReadinessCheck(conn.dsn)
 		}
 	}
 }

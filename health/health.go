@@ -1,5 +1,5 @@
 package health
 
-import "github.com/heptiolabs/healthcheck"
+import "github.com/troian/healthcheck"
 
 var Health = healthcheck.NewHandler()
