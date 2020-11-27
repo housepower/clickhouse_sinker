@@ -80,7 +80,7 @@ LOOP:
 				if err := bs.fnCommit(j, off); err != nil {
 					return err
 				}
-				statistics.ConsumeOffsets.WithLabelValues(bs.taskCfg.Name, strconv.Itoa(j), bs.taskCfg.Topic).Set(float64(off))
+				statistics.ConsumeOffsets.WithLabelValues(bs.taskCfg.Name, bs.taskCfg.Topic, strconv.Itoa(j)).Set(float64(off))
 			}
 		}
 		eNext := e.Next()
