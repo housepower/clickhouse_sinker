@@ -213,14 +213,16 @@ func (c *ClickHouse) initSchema() (err error) {
 	}
 	//根据 Dms 生成prepare的sql语句
 	c.Dms = make([]string, 0, len(c.Dims))
+	quotedDms := make([]string, 0, len(c.Dims))
 	for _, d := range c.Dims {
 		c.Dms = append(c.Dms, d.Name)
+		quotedDms = append(quotedDms, fmt.Sprintf("`%s`", d.Name))
 	}
 	var params = make([]string, len(c.Dims))
 	for i := range params {
 		params[i] = "?"
 	}
-	c.prepareSQL = "INSERT INTO " + c.chCfg.DB + "." + c.taskCfg.TableName + " (" + strings.Join(c.Dms, ",") + ") " +
+	c.prepareSQL = "INSERT INTO " + c.chCfg.DB + "." + c.taskCfg.TableName + " (" + strings.Join(quotedDms, ",") + ") " +
 		"VALUES (" + strings.Join(params, ",") + ")"
 
 	log.Infof("%s: Prepare sql=> %s", c.taskCfg.Name, c.prepareSQL)

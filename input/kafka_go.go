@@ -67,7 +67,7 @@ func (k *KafkaGo) Init(cfg *config.Config, taskName string, putFn func(msg model
 		MaxBytes:       k.taskCfg.BufferSize * k.taskCfg.MsgSizeHint,
 		MaxWait:        time.Duration(k.taskCfg.FlushInterval) * time.Second,
 		CommitInterval: time.Second, // flushes commits to Kafka every second
-		Logger:         log.StandardLogger(),
+		ErrorLogger:    log.StandardLogger(), //kafka-go INFO log is too verbose
 	}
 	var dialer *kafka.Dialer
 	if kfkCfg.TLS.Enable {

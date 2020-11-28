@@ -15,7 +15,7 @@ COPY --from=builder /app/dist/nacos_publish_config /usr/local/bin/nacos_publish_
 # Customize behavior with following env variables:
 # - V
 # - HTTP_PORT
-# - PUSH_GATEWAY_ADDRS
+# - METRIC_PUSH_GATEWAY_ADDRS
 # - PUSH_INTERVAL
 # - LOCAL_CFG_DIR
 # - CONSUL_REGISTER_ENABLE

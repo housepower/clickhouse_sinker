@@ -66,9 +66,6 @@ func StringContains(arr []string, str string) bool {
 // GetSourceName returns the field name in message for the given ClickHouse column
 func GetSourceName(name string) (sourcename string) {
 	sourcename = strings.Replace(name, ".", "\\.", -1)
-	if strings.HasPrefix(sourcename, "_") && !strings.HasPrefix(sourcename, "__") {
-		sourcename = "@" + sourcename[1:]
-	}
 	return
 }
 
