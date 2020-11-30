@@ -70,7 +70,6 @@ func (c *ClickHouse) Init() (err error) {
 
 // Send a batch to clickhouse
 func (c *ClickHouse) Send(batch *model.Batch, callback func(batch *model.Batch) error) {
-	// TODO workerpool parallel
 	statistics.WritingPoolBacklog.WithLabelValues(c.taskCfg.Name).Inc()
 	_ = util.GlobalWritingPool.Submit(func() {
 		c.loopWrite(batch, callback)
