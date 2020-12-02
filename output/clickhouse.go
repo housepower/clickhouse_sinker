@@ -59,7 +59,7 @@ func NewClickHouse(cfg *config.Config, taskName string) *ClickHouse {
 
 // Init the clickhouse intance
 func (c *ClickHouse) Init() (err error) {
-	if err = pool.InitConn(c.taskCfg.Clickhouse, c.chCfg.Host, c.chCfg.Port, c.chCfg.DB, c.chCfg.Username, c.chCfg.Password, c.chCfg.DsnParams); err != nil {
+	if err = pool.InitConn(c.taskCfg.Clickhouse, c.chCfg.Hosts, c.chCfg.Port, c.chCfg.DB, c.chCfg.Username, c.chCfg.Password, c.chCfg.DsnParams); err != nil {
 		return
 	}
 	if err = c.initSchema(); err != nil {

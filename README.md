@@ -19,8 +19,9 @@ Refers to [design](./design.md) for how it works.
 - Bulk insert (by config `bufferSize` and `flushInterval`).
 - Parse messages concurrently.
 - Write batches concurrently.
-- Every batch is sharded to a determined clickhouse node. Exit if loop write fail.
+- Every batch is routed to a determined clickhouse shard. Exit if loop write fail.
 - Custom sharding policy (by config `shardingKey` and `shardingPolicy`).
+- Tolerate replica single-point-failure.
 - At least once delivery guarantee.
 - Dynamic config management with Nacos.
 
@@ -185,14 +186,14 @@ Kerberos setup is complex. Please ensure [`kafka-console-consumer.sh`](https://d
 
 ### Sharding Policy
 
-Every message is routed to a determined ClickHouse node.
+Every message is routed to a determined ClickHouse shard.
 
-By default, the node number is caculated by `(kafka_offset/roundup(batch_size))%clickhouse_nodes`, where `roundup()` round upward an unsigned integer to the the nearest 2^n.
+By default, the node number is caculated by `(kafka_offset/roundup(batch_size))%clickhouse_shards`, where `roundup()` round upward an unsigned integer to the the nearest 2^n.
 
 This above expression can be customized with `shardingKey` and `shardingPolicy`. `shardingKey` value is a column name. `shardingPolicy` value could be:
 
-- `stripe,<size>`. This requires `shardingKey` be a numeric-like (bool, int, float, date etc.) column. The expression is `(uint64(shardingKey)/stripe_size)%clickhouse_nodes`.
-- `hash`. This requires `shardingKey` be a string-like column. The hash function used internally is [xxHash64](https://github.com/cespare/xxhash). The expression is `xxhash64(string(shardingKey))%clickhouse_nodes`.
+- `stripe,<size>`. This requires `shardingKey` be a numeric-like (bool, int, float, date etc.) column. The expression is `(uint64(shardingKey)/stripe_size)%clickhouse_shards`.
+- `hash`. This requires `shardingKey` be a string-like column. The hash function used internally is [xxHash64](https://github.com/cespare/xxhash). The expression is `xxhash64(string(shardingKey))%clickhouse_shards`.
 
 ## Configuration Management
 

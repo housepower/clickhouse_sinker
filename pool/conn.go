@@ -65,8 +65,7 @@ func (c *Connection) ReConnect() error {
 	return nil
 }
 
-func InitConn(name, hosts string, port int, db, username, password, dsnParams string) (err error) {
-	var ips, ips2, dsnArr []string
+func InitConn(name string, hosts [][]string, port int, db, username, password, dsnParams string) (err error) {
 	var sqlDB *sql.DB
 	lock.Lock()
 	if poolMaps == nil {
@@ -78,37 +77,37 @@ func InitConn(name, hosts string, port int, db, username, password, dsnParams st
 		return
 	}
 	lock.Unlock()
-	// if contains ',', that means it's a ip list
-	if strings.Contains(hosts, ",") {
-		ips = strings.Split(strings.TrimSpace(hosts), ",")
-	} else {
-		ips = []string{hosts}
-	}
-	for _, ip := range ips {
-		if ips2, err = utils.GetIp4Byname(ip); err != nil {
-			// fallback to ip
-			err = nil
-		} else {
-			ip = ips2[0]
+
+	var cc ClusterConnections
+	cc.ref = 1
+	// Each shard has a *sql.DB which connects to all replicas inside the shard.
+	// "alt_hosts" tolerates replica single-point-failure.
+	for _, replicas := range hosts {
+		numReplicas := len(replicas)
+		replicaAddrs := make([]string, numReplicas)
+		for i, ip := range replicas {
+			if ips2, err := utils.GetIp4Byname(ip); err == nil {
+				ip = ips2[0]
+			}
+			replicaAddrs[i] = fmt.Sprintf("%s:%d", ip, port)
 		}
-		dsn := fmt.Sprintf("tcp://%s:%d?database=%s&username=%s&password=%s&block_size=%d",
-			ip, port, db, username, password, BlockSize)
+		dsn := fmt.Sprintf("tcp://%s?database=%s&username=%s&password=%s&block_size=%d",
+			replicaAddrs[0], db, username, password, BlockSize)
+		if numReplicas > 1 {
+			dsn += "&connection_open_strategy=in_order&alt_hosts=" + strings.Join(replicaAddrs[1:numReplicas], ",")
+		}
 		if dsnParams != "" {
 			dsn += "&" + dsnParams
 		}
-		dsnArr = append(dsnArr, dsn)
-	}
-
-	log.Infof("clickhouse dsn of %s: %+v", name, dsnArr)
-	var cc ClusterConnections
-	cc.ref = 1
-	for _, dsn := range dsnArr {
 		if sqlDB, err = sql.Open("clickhouse", dsn); err != nil {
 			err = errors.Wrapf(err, "")
 			return
 		}
+		sqlDB.SetMaxIdleConns(1)
+		sqlDB.SetConnMaxIdleTime(10 * time.Second)
 		cc.connections = append(cc.connections, &Connection{sqlDB, dsn})
 	}
+
 	lock.Lock()
 	defer lock.Unlock()
 	if cc2, ok := poolMaps[name]; ok {
@@ -116,7 +115,10 @@ func InitConn(name, hosts string, port int, db, username, password, dsnParams st
 		return
 	}
 	for _, conn := range cc.connections {
-		health.Health.AddReadinessCheck(conn.dsn, healthcheck.DatabasePingCheck(conn.DB, 30*time.Second))
+		if err = health.Health.AddReadinessCheck(conn.dsn, healthcheck.DatabasePingCheck(conn.DB, 30*time.Second)); err != nil {
+			err = errors.Wrapf(err, "")
+			log.Errorf("got error: %+v", err)
+		}
 	}
 	poolMaps[name] = &cc
 	return nil
@@ -131,7 +133,10 @@ func FreeConn(name string) {
 			delete(poolMaps, name)
 		}
 		for _, conn := range cc.connections {
-			health.Health.RemoveReadinessCheck(conn.dsn)
+			if err := health.Health.RemoveReadinessCheck(conn.dsn); err != nil {
+				err = errors.Wrapf(err, "")
+				log.Errorf("got error: %+v", err)
+			}
 		}
 	}
 }

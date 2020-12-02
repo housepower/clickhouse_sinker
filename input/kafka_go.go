@@ -66,7 +66,7 @@ func (k *KafkaGo) Init(cfg *config.Config, taskName string, putFn func(msg model
 		MinBytes:       k.taskCfg.MinBufferSize * k.taskCfg.MsgSizeHint,
 		MaxBytes:       k.taskCfg.BufferSize * k.taskCfg.MsgSizeHint,
 		MaxWait:        time.Duration(k.taskCfg.FlushInterval) * time.Second,
-		CommitInterval: time.Second, // flushes commits to Kafka every second
+		CommitInterval: time.Second,          // flushes commits to Kafka every second
 		ErrorLogger:    log.StandardLogger(), //kafka-go INFO log is too verbose
 	}
 	var dialer *kafka.Dialer

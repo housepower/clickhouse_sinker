@@ -2,7 +2,11 @@
   "clickhouse": {
     "ch1": {
       "db": "default",
-      "host": "127.0.0.1",
+      "hosts": [
+        [
+          "127.0.0.1"
+        ]
+      ],
       "password": "",
       "retryTimes": 0,
       "port": 9000,
