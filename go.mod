@@ -36,6 +36,7 @@ require (
 	github.com/tidwall/match v1.0.0 // indirect
 	github.com/troian/healthcheck v0.1.4-0.20200127040058-c373fb6a0dc1
 	github.com/valyala/fastjson v1.4.1
+	github.com/xdg/scram v0.0.0-20180814205039-7eeb5667e42c
 	golang.org/x/sync v0.0.0-20200625203802-6e8e738ad208 // indirect
 	golang.org/x/sys v0.0.0-20200917061948-648f2a039071 // indirect
 	golang.org/x/time v0.0.0-20200630173020-3af7569d3a1e

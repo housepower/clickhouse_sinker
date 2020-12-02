@@ -13,7 +13,7 @@ Refers to [design](./design.md) for how it works.
 - Easy to use and deploy, you don't need write any hard code, just care about the configuration file
 - Support multiple parsers: fastjson(recommended), gjson, csv.
 - Support multiple Kafka client: kafka-go(recommended), sarama.
-- Support multiple Kafka security mechanisms: SSL, SASL/PLAIN, SASL/GSSAPI and combinations of them.
+- Support multiple Kafka security mechanisms: SSL, SASL/PLAIN, SASL/SCRAM, SASL/GSSAPI and combinations of them.
 - Support multiple sinker tasks, each runs on parallel.
 - Support multiply kafka and ClickHouse clusters.
 - Bulk insert (by config `bufferSize` and `flushInterval`).
@@ -83,6 +83,7 @@ An example kafka config:
 ```
     "kfk1": {
       "brokers": "192.168.31.64:9092",
+      "@version": "Required if you use sarama. It's the the Kafka server version.",
       "version": "2.2.1"
     }
 ```
@@ -93,6 +94,7 @@ An example kafka config:
 ```
     "kfk2": {
       "brokers": "192.168.31.64:9093",
+      "version": "2.2.1",
       "tls": {
         "enable": true,
         "@caCertFiles": "Required. It's the CA certificate with which Kafka brokers certs be signed. This cert is added to kafka.client.truststore.jks which kafka-console-consumer.sh uses",
@@ -106,13 +108,13 @@ An example kafka config:
 FYI. `kafka-console-consumer.sh` works as the following setup:
 
 ```
-$ cat config/client_SSL.properties 
+$ cat config/SSL_NOAUTH_client.properties 
 security.protocol=SSL
 ssl.truststore.location=/etc/security/kafka.client.truststore.jks 
 ssl.truststore.password=123456
 ssl.endpoint.identification.algorithm=
 
-$ bin/kafka-console-consumer.sh --bootstrap-server 192.168.31.64:9094 --topic sunshine --group test-consumer-group --from-beginning --consumer.config config/client_SSL.properties
+$ bin/kafka-console-consumer.sh --bootstrap-server 192.168.31.64:9094 --topic sunshine --group test-consumer-group --from-beginning --consumer.config config/SSL_NOAUTH_client.properties
 ```
 
 Please follow [`Kafka SSL setup`](https://kafka.apache.org/documentation/#security_ssl). Use `-keyalg RSA` when you create the broker keystore, otherwise there will be no cipher suites in common between the keystore and those Golang supports. See [this](https://github.com/Shopify/sarama/issues/643#issuecomment-216839760) for reference.
@@ -137,25 +139,73 @@ An example kafka config:
 
 An example kafka config:
 ```
-    "kfk2": {
-      "brokers": "192.168.31.64:9093",
+    "kfk3": {
+      "brokers": "192.168.31.64:9094",
+      "version": "2.2.1",
       "sasl": {
         "enable": true,
-        "password": "username",
-        "username": "password"
-      },
-      "version": "2.2.1"
+        "mechanism": "PLAIN",
+        "username": "alice",
+        "password": "alice-secret"
+      }
     }
+```
+
+FYI. Java clients work with the following setup:
+
+```
+$ cat config/PLAINTEXT_PLAIN_client.properties
+security.protocol=SASL_PLAINTEXT
+sasl.kerberos.service.name=kafka
+sasl.mechanism=PLAIN
+sasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required username="alice" password="alice-secret";
+
+$ bin/kafka-console-producer.sh --broker-list 192.168.31.64:9094 --topic sunshine --producer.config config/PLAINTEXT_PLAIN_client.properties
+
+$ bin/kafka-console-consumer.sh --bootstrap-server 192.168.31.64:9094 --topic sunshine --group test-consumer-group --from-beginning --consumer.config config/PLAINTEXT_PLAIN_client.properties
+```
+
+- SASL/SCRAM
+
+An example kafka config:
+```
+    "kfk4": {
+      "brokers": "192.168.31.64:9094",
+      "version": "2.2.1",
+      "sasl": {
+        "enable": true,
+        "@mechanism": "SCRAM-SHA-256 or SCRAM-SHA-512",
+        "mechanism": "SCRAM-SHA-256",
+        "username": "alice",
+        "password": "alice-secret"
+      }
+    }
+```
+
+FYI. Java clients work with the following setup:
+
+```
+$ cat config/PLAINTEXT_SCRAM_client.properties
+security.protocol=SASL_PLAINTEXT
+sasl.kerberos.service.name=kafka
+sasl.mechanism=SCRAM-SHA-256
+sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required username="alice" password="alice-secret";
+
+$ bin/kafka-console-producer.sh --broker-list 192.168.31.64:9094 --topic sunshine --producer.config config/PLAINTEXT_SCRAM_client.properties
+
+$ bin/kafka-console-consumer.sh --bootstrap-server 192.168.31.64:9094 --topic sunshine --group test-consumer-group --from-beginning --consumer.config config/PLAINTEXT_SCRAM_client.properties
 ```
 
 - SASL/GSSAPI(Kerberos)
 
 An example kafka config:
 ```
-    "kfk3": {
+    "kfk5": {
       "brokers": "192.168.31.64:9094",
+      "version": "2.2.1",
       "sasl": {
         "enable": true,
+        "mechanism": "GSSAPI",
         "gssapi": {
           "@authtype": "1 - Username and password, 2 - Keytab",
           "authtype": 2,
@@ -170,16 +220,18 @@ An example kafka config:
     }
 ```
 
-FYI. `kafka-console-consumer.sh` works as the following setup:
+FYI. Java clients work with the following setup:
 
 ```
-$ cat config/client_SASL_PLAINTEXT.properties
+$ cat config/PLAINTEXT_GSSAPI_client.properties
 security.protocol=SASL_PLAINTEXT
 sasl.kerberos.service.name=kafka
 sasl.mechanism=GSSAPI
 sasl.jaas.config=com.sun.security.auth.module.Krb5LoginModule required useKeyTab=true storeKey=true debug=true keyTab="/etc/security/mmmtest.keytab" principal="mmm@ALANWANG.COM";
 
-$ bin/kafka-console-consumer.sh --bootstrap-server 192.168.31.64:9094 --topic sunshine --group test-consumer-group --from-beginning --consumer.config config/client_SASL_PLAINTEXT.properties
+$ bin/kafka-console-producer.sh --broker-list 192.168.31.64:9094 --topic sunshine --producer.config config/PLAINTEXT_GSSAPI_client.properties
+
+$ bin/kafka-console-consumer.sh --bootstrap-server 192.168.31.64:9094 --topic sunshine --group test-consumer-group --from-beginning --consumer.config config/PLAINTEXT_GSSAPI_client.properties
 ```
 
 Kerberos setup is complex. Please ensure [`kafka-console-consumer.sh`](https://docs.cloudera.com/runtime/7.2.1/kafka-managing/topics/kafka-manage-cli-consumer.html) Kerberos keytab authentication work STRICTLY FOLLOW [this article](https://stackoverflow.com/questions/48744660/kafka-console-consumer-with-kerberos-authentication/49140414#49140414), then test `clickhouse_sinker` Kerberos authentication on the SAME machine which `kafka-console-consumer.sh` runs. I tested sarama Kerberos authentication against Kafka [2.2.1](https://archive.apache.org/dist/kafka/2.2.1/kafka_2.11-2.2.1.tgz). Not sure other Kafka versions work.

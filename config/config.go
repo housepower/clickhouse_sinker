@@ -73,6 +73,7 @@ type Config struct {
 // KafkaConfig configuration parameters
 type KafkaConfig struct {
 	Brokers string
+	Version string
 	TLS     struct {
 		Enable             bool
 		CaCertFiles        string // Required. It's the CA certificate with which Kafka brokers certs be signed.
@@ -82,8 +83,16 @@ type KafkaConfig struct {
 	}
 	//simplified sarama.Config.Net.SASL to only support SASL/PLAIN and SASL/GSSAPI(Kerberos)
 	Sasl struct {
-		Enable   bool
+		// Whether or not to use SASL authentication when connecting to the broker
+		// (defaults to false).
+		Enable bool
+		// Mechanism is the name of the enabled SASL mechanism.
+		// Possible values: PLAIN, SCRAM-SHA-256, SCRAM-SHA-512, GSSAPI (defaults to PLAIN)
+		Mechanism string
+		// Username is the authentication identity (authcid) to present for
+		// SASL/PLAIN or SASL/SCRAM authentication
 		Username string
+		// Password for SASL/PLAIN or SASL/SCRAM authentication
 		Password string
 		GSSAPI   struct {
 			AuthType           int //1. KRB5_USER_AUTH, 2. KRB5_KEYTAB_AUTH
@@ -96,7 +105,6 @@ type KafkaConfig struct {
 			DisablePAFXFAST    bool
 		}
 	}
-	Version string
 }
 
 // ClickHouseConfig configuration parameters
@@ -263,9 +271,18 @@ func (cfg *Config) Normallize() (err error) {
 	if err = cfg.normallizeTasks(); err != nil {
 		return
 	}
-	for _, kfkConfig := range cfg.Kafka {
+	for kfkName, kfkConfig := range cfg.Kafka {
 		if kfkConfig.Version == "" {
 			kfkConfig.Version = "2.2.1"
+		}
+		if kfkConfig.Sasl.Enable {
+			kfkConfig.Sasl.Mechanism = strings.ToUpper(kfkConfig.Sasl.Mechanism)
+			switch kfkConfig.Sasl.Mechanism {
+			case "PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512", "GSSAPI":
+			default:
+				err = errors.Errorf("kafka %s mechanism %s is unsupported", kfkName, kfkConfig.Sasl.Mechanism)
+				return
+			}
 		}
 	}
 	for _, chConfig := range cfg.Clickhouse {
@@ -277,7 +294,7 @@ func (cfg *Config) Normallize() (err error) {
 		sort.Strings(taskNames)
 		for _, taskName := range taskNames {
 			if _, ok := cfg.Tasks[taskName]; !ok {
-				err = errors.Errorf("Instance %s assignment is Invalid, task %s doesn't exit", instAddr, taskName)
+				err = errors.Errorf("instance %s assignment is invalid, task %s doesn't exit", instAddr, taskName)
 				return
 			}
 		}

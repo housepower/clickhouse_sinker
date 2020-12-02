@@ -17,12 +17,16 @@ package input
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/sha512"
+	"hash"
 	"strings"
 	"time"
 
 	"github.com/Shopify/sarama"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
+	"github.com/xdg/scram"
 
 	"github.com/housepower/clickhouse_sinker/config"
 	"github.com/housepower/clickhouse_sinker/model"
@@ -98,14 +102,17 @@ func (k *KafkaSarama) Init(cfg *config.Config, taskName string, putFn func(msg m
 		if config.Version.IsAtLeast(sarama.V1_0_0_0) {
 			config.Net.SASL.Version = sarama.SASLHandshakeV1
 		}
-		if kfkCfg.Sasl.Username != "" {
-			config.Net.SASL.Mechanism = sarama.SASLTypePlaintext
-			config.Net.SASL.User = kfkCfg.Sasl.Username
-			config.Net.SASL.Password = kfkCfg.Sasl.Password
-		} else {
-			config.Net.SASL.Mechanism = sarama.SASLTypeGSSAPI
-			config.Net.SASL.GSSAPI = kfkCfg.Sasl.GSSAPI
+		config.Net.SASL.Mechanism = (sarama.SASLMechanism)(kfkCfg.Sasl.Mechanism)
+		switch config.Net.SASL.Mechanism {
+		case "SCRAM-SHA-256":
+			config.Net.SASL.SCRAMClientGeneratorFunc = func() sarama.SCRAMClient { return &XDGSCRAMClient{HashGeneratorFcn: SHA256} }
+		case "SCRAM-SHA-512":
+			config.Net.SASL.SCRAMClientGeneratorFunc = func() sarama.SCRAMClient { return &XDGSCRAMClient{HashGeneratorFcn: SHA256} }
+		default:
 		}
+		config.Net.SASL.User = kfkCfg.Sasl.Username
+		config.Net.SASL.Password = kfkCfg.Sasl.Password
+		config.Net.SASL.GSSAPI = kfkCfg.Sasl.GSSAPI
 	}
 	if k.taskCfg.Earliest {
 		config.Consumer.Offsets.Initial = sarama.OffsetOldest
@@ -158,4 +165,33 @@ func (k *KafkaSarama) Stop() error {
 // Description of this kafka consumer, which topic it reads from
 func (k *KafkaSarama) Description() string {
 	return "kafka consumer of topic " + k.taskCfg.Topic
+}
+
+// Predefined SCRAMClientGeneratorFunc, copied from https://github.com/Shopify/sarama/blob/master/examples/sasl_scram_client/scram_client.go
+
+var SHA256 scram.HashGeneratorFcn = func() hash.Hash { return sha256.New() }
+var SHA512 scram.HashGeneratorFcn = func() hash.Hash { return sha512.New() }
+
+type XDGSCRAMClient struct {
+	*scram.Client
+	*scram.ClientConversation
+	scram.HashGeneratorFcn
+}
+
+func (x *XDGSCRAMClient) Begin(userName, password, authzID string) (err error) {
+	x.Client, err = x.HashGeneratorFcn.NewClient(userName, password, authzID)
+	if err != nil {
+		return err
+	}
+	x.ClientConversation = x.Client.NewConversation()
+	return nil
+}
+
+func (x *XDGSCRAMClient) Step(challenge string) (response string, err error) {
+	response, err = x.ClientConversation.Step(challenge)
+	return
+}
+
+func (x *XDGSCRAMClient) Done() bool {
+	return x.ClientConversation.Done()
 }

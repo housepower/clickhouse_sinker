@@ -25,6 +25,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/segmentio/kafka-go"
 	"github.com/segmentio/kafka-go/sasl/plain"
+	"github.com/segmentio/kafka-go/sasl/scram"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/housepower/clickhouse_sinker/config"
@@ -81,16 +82,27 @@ func (k *KafkaGo) Init(cfg *config.Config, taskName string, putFn func(msg model
 		}
 	}
 	if kfkCfg.Sasl.Enable {
-		if kfkCfg.Sasl.Username != "" {
-			if dialer == nil {
-				dialer = &kafka.Dialer{DualStack: true}
-			}
+		if dialer == nil {
+			dialer = &kafka.Dialer{DualStack: true}
+		}
+		switch kfkCfg.Sasl.Mechanism {
+		case "PLAIN":
 			dialer.SASLMechanism = plain.Mechanism{
 				Username: kfkCfg.Sasl.Username,
 				Password: kfkCfg.Sasl.Password,
 			}
-		} else {
-			return errors.Errorf("kafka-go doesn't support SASL/GSSAPI(Kerberos)")
+		case "SCRAM-SHA-256":
+			if dialer.SASLMechanism, err = scram.Mechanism(scram.SHA256, kfkCfg.Sasl.Username, kfkCfg.Sasl.Password); err != nil {
+				err = errors.Wrapf(err, "")
+				return
+			}
+		case "SCRAM-SHA-512":
+			if dialer.SASLMechanism, err = scram.Mechanism(scram.SHA512, kfkCfg.Sasl.Username, kfkCfg.Sasl.Password); err != nil {
+				err = errors.Wrapf(err, "")
+				return
+			}
+		default:
+			return errors.Errorf("kafka-go doesn't support SASL/%s authentication", kfkCfg.Sasl.Mechanism)
 		}
 	}
 	if dialer != nil {
