@@ -50,7 +50,11 @@ func InitGlobalParsingPool(maxWorkers int) {
 
 // InitGlobalWritingPool initialize GlobalWritingPool
 func InitGlobalWritingPool(maxWorkers int) {
-	GlobalWritingPool = NewWorkerPool(maxWorkers, runtime.NumCPU()/4)
+	queueSize := runtime.NumCPU() / 4
+	if queueSize < 3 {
+		queueSize = 3
+	}
+	GlobalWritingPool = NewWorkerPool(maxWorkers, queueSize)
 }
 
 // StringContains check if contains string in array

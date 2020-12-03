@@ -15,7 +15,7 @@ Refers to [design](./design.md) for how it works.
 - Support multiple Kafka client: kafka-go(recommended), sarama.
 - Support multiple Kafka security mechanisms: SSL, SASL/PLAIN, SASL/SCRAM, SASL/GSSAPI and combinations of them.
 - Support multiple sinker tasks, each runs on parallel.
-- Support multiply kafka and ClickHouse clusters.
+- Support multiple kafka and ClickHouse clusters.
 - Bulk insert (by config `bufferSize` and `flushInterval`).
 - Parse messages concurrently.
 - Write batches concurrently.

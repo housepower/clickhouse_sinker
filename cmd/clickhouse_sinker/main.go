@@ -413,7 +413,7 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 			}
 		}
 	}
-	// 2. Stop all tasks in parallel found at the step 2.
+	// 2. Stop all tasks in parallel found at previous step.
 	for _, taskName := range tasksToStop {
 		if task, ok := s.tasks[taskName]; ok {
 			task.NotifyStop()
@@ -427,7 +427,7 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 			log.Warnf("Failed to stop task %s. It's disappeared.", taskName)
 		}
 	}
-	// 3. Initailize all tasks which is new or its config differ.
+	// 3. Initailize all tasks which are new or their config differ.
 	var newTasks []*task.Service
 	if taskNames, ok := newCfg.Assignment[selfAddr]; ok {
 		for _, taskName := range taskNames {
@@ -450,7 +450,7 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 	totalConn := pool.GetTotalConn()
 	util.GlobalWritingPool.Resize(totalConn)
 
-	// 5. Start new tasks. We don't do it at step 4 in order to avoid goroutine leak due to errors raised by later steps.
+	// 5. Start new tasks. We don't do it at step 3 in order to avoid goroutine leak due to errors raised by later steps.
 	for _, t := range newTasks {
 		go t.Run(s.ctx)
 	}
