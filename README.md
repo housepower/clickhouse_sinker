@@ -15,7 +15,7 @@ Refers to [design](./design.md) for how it works.
 - Support multiple Kafka client: kafka-go(recommended), sarama.
 - Support multiple Kafka security mechanisms: SSL, SASL/PLAIN, SASL/SCRAM, SASL/GSSAPI and combinations of them.
 - Support multiple sinker tasks, each runs on parallel.
-- Support multiply kafka and ClickHouse clusters.
+- Support multiple kafka and ClickHouse clusters.
 - Bulk insert (by config `bufferSize` and `flushInterval`).
 - Parse messages concurrently.
 - Write batches concurrently.
@@ -240,7 +240,7 @@ Kerberos setup is complex. Please ensure [`kafka-console-consumer.sh`](https://d
 
 Every message is routed to a determined ClickHouse shard.
 
-By default, the node number is caculated by `(kafka_offset/roundup(batch_size))%clickhouse_shards`, where `roundup()` round upward an unsigned integer to the the nearest 2^n.
+By default, the shard number is caculated by `(kafka_offset/roundup(batch_size))%clickhouse_shards`, where `roundup()` round upward an unsigned integer to the the nearest 2^n.
 
 This above expression can be customized with `shardingKey` and `shardingPolicy`. `shardingKey` value is a column name. `shardingPolicy` value could be:
 
