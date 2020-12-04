@@ -60,6 +60,7 @@ func (c *Connection) ReConnect() error {
 		log.Info("reconnect to ", c.dsn, err.Error())
 		return err
 	}
+	setDbParams(sqlDB)
 	log.Info("reconnect success to ", c.dsn)
 	c.DB = sqlDB
 	return nil
@@ -103,8 +104,7 @@ func InitConn(name string, hosts [][]string, port int, db, username, password, d
 			err = errors.Wrapf(err, "")
 			return
 		}
-		sqlDB.SetMaxIdleConns(1)
-		sqlDB.SetConnMaxIdleTime(10 * time.Second)
+		setDbParams(sqlDB)
 		cc.connections = append(cc.connections, &Connection{sqlDB, dsn})
 	}
 
@@ -122,6 +122,11 @@ func InitConn(name string, hosts [][]string, port int, db, username, password, d
 	}
 	poolMaps[name] = &cc
 	return nil
+}
+
+func setDbParams(sqlDB *sql.DB) {
+	sqlDB.SetMaxIdleConns(1)
+	sqlDB.SetConnMaxIdleTime(10 * time.Second)
 }
 
 func FreeConn(name string) {
