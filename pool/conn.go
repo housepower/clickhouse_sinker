@@ -60,7 +60,7 @@ func (c *Connection) ReConnect() error {
 		log.Info("reconnect to ", c.dsn, err.Error())
 		return err
 	}
-	setDbParams(sqlDB)
+	setDBParams(sqlDB)
 	log.Info("reconnect success to ", c.dsn)
 	c.DB = sqlDB
 	return nil
@@ -104,7 +104,7 @@ func InitConn(name string, hosts [][]string, port int, db, username, password, d
 			err = errors.Wrapf(err, "")
 			return
 		}
-		setDbParams(sqlDB)
+		setDBParams(sqlDB)
 		cc.connections = append(cc.connections, &Connection{sqlDB, dsn})
 	}
 
@@ -124,7 +124,7 @@ func InitConn(name string, hosts [][]string, port int, db, username, password, d
 	return nil
 }
 
-func setDbParams(sqlDB *sql.DB) {
+func setDBParams(sqlDB *sql.DB) {
 	sqlDB.SetMaxIdleConns(1)
 	sqlDB.SetConnMaxIdleTime(10 * time.Second)
 }
@@ -134,13 +134,13 @@ func FreeConn(name string) {
 	defer lock.Unlock()
 	if cc, ok := poolMaps[name]; ok {
 		cc.ref--
-		if cc.ref <= 0 {
+		if cc.ref == 0 {
 			delete(poolMaps, name)
-		}
-		for _, conn := range cc.connections {
-			if err := health.Health.RemoveReadinessCheck(conn.dsn); err != nil {
-				err = errors.Wrapf(err, "")
-				log.Errorf("got error: %+v", err)
+			for _, conn := range cc.connections {
+				if err := health.Health.RemoveReadinessCheck(conn.dsn); err != nil {
+					err = errors.Wrapf(err, conn.dsn)
+					log.Errorf("got error: %+v", err)
+				}
 			}
 		}
 	}

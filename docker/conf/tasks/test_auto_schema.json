@@ -1,18 +1,15 @@
 {
-
-	"name" : "test_auto_schema",
-
+	"name": "test_auto_schema",
 	"kafka": "kfk1",
 	"topic": "topic1",
-	"consumerGroup" : "test_auto_schema",
-	"earliest" : true,
-	"parser" : "json",
-	"clickhouse" : "ch1",
-
-	"autoSchema" : true,
-	"tableName" : "test_auto_schema",
-	"excludeColumns" : ["day", "time"],
-
-	"bufferSize" : 50000
+	"consumerGroup": "test_auto_schema",
+	"earliest": true,
+	"parser": "json",
+	"clickhouse": "ch1",
+	"autoSchema": true,
+	"tableName": "test_auto_schema",
+	"excludeColumns": [
+		"day"
+	],
+	"bufferSize": 50000
 }
-

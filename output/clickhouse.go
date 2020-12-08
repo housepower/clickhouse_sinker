@@ -139,7 +139,7 @@ func shouldReconnect(err error) bool {
 // LoopWrite will dead loop to write the records
 func (c *ClickHouse) loopWrite(batch *model.Batch, callback func(batch *model.Batch) error) {
 	var err error
-	times := c.chCfg.RetryTimes
+	var times int
 	for {
 		if err = c.write(batch); err == nil {
 			for {
@@ -150,13 +150,12 @@ func (c *ClickHouse) loopWrite(batch *model.Batch, callback func(batch *model.Ba
 					log.Infof("%s: ClickHouse.loopWrite quit due to the context has been cancelled", c.taskCfg.Name)
 					return
 				}
-				log.Errorf("%s: committing offset(try #%d) failed with error %+v", c.taskCfg.Name, c.chCfg.RetryTimes-times, err)
-				if c.chCfg.RetryTimes > 0 {
-					times--
-					if times <= 0 {
-						os.Exit(-1)
-					}
+				log.Errorf("%s: committing offset(try #%d) failed with error %+v", c.taskCfg.Name, times, err)
+				times++
+				if c.chCfg.RetryTimes <= 0 || times < c.chCfg.RetryTimes {
 					time.Sleep(10 * time.Second)
+				} else {
+					os.Exit(-1)
 				}
 			}
 		}
@@ -166,12 +165,11 @@ func (c *ClickHouse) loopWrite(batch *model.Batch, callback func(batch *model.Ba
 		}
 		log.Errorf("%s: flush batch(try #%d) failed with error %+v", c.taskCfg.Name, c.chCfg.RetryTimes-times, err)
 		statistics.FlushMsgsErrorTotal.WithLabelValues(c.taskCfg.Name).Add(float64(batch.RealSize))
-		if c.chCfg.RetryTimes > 0 {
-			times--
-			if times <= 0 {
-				os.Exit(-1)
-			}
+		times++
+		if c.chCfg.RetryTimes <= 0 || times < c.chCfg.RetryTimes {
 			time.Sleep(10 * time.Second)
+		} else {
+			os.Exit(-1)
 		}
 	}
 }

@@ -38,6 +38,7 @@
     "bufferSize": 90000,
     "minBufferSize": 2000,
     "flushInterval": 5,
+    "layoutDateTime": "2006-01-02 15:04:05.999999999Z07:00",
     "logLevel": "debug"
   }
 }

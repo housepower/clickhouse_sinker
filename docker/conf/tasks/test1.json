@@ -1,25 +1,25 @@
 {
-
-	"name" : "test1",
-
+	"name": "test1",
 	"kafka": "kfk1",
 	"topic": "topic1",
-	"consumerGroup" : "test_sinker",
-	"earliest" : true,
-	"parser" : "json",
-	"clickhouse" : "ch1",
-
-	"tableName" : "test1",
-
-	"dims" : [
-		{"name" : "timestamp" , "type" : "UInt64"},
-		{"name" : "name" , "type" : "String"}
+	"consumerGroup": "test_sinker",
+	"earliest": true,
+	"parser": "json",
+	"clickhouse": "ch1",
+	"tableName": "test1",
+	"dims": [
+		{
+			"name": "time",
+			"type": "DateTime"
+		},
+		{
+			"name": "name",
+			"type": "String"
+		},
+		{
+			"name": "value",
+			"type": "Float32"
+		}
 	],
-
-	"metrics" : [
-		{"name" : "value" , "type" : "Float32"}
-	],
-
-	"bufferSize" : 50000
+	"bufferSize": 50000
 }
-

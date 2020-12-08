@@ -5,36 +5,33 @@ curl "localhost:8123" -d 'DROP TABLE IF EXISTS test1'
 curl "localhost:8123" -d 'CREATE TABLE IF NOT EXISTS test1
 (
     `day` Date DEFAULT toDate(time),
-    `time` DateTime DEFAULT toDateTime(timestamp / 1000),
-    `timestamp` UInt64,
+    `time` DateTime,
     `name` String,
     `value` Float64
 )
 ENGINE = MergeTree
 PARTITION BY day
-ORDER BY time'
+ORDER BY (time, name)'
 
 curl "localhost:8123" -d 'DROP TABLE IF EXISTS test_auto_schema'
 curl "localhost:8123" -d 'CREATE TABLE IF NOT EXISTS test_auto_schema
 (
     `day` Date DEFAULT toDate(time),
-    `time` DateTime DEFAULT toDateTime(timestamp / 1000),
-    `timestamp` UInt64,
+    `time` DateTime,
     `name` String,
     `value` Float64
 )
 ENGINE = MergeTree
 PARTITION BY day
-ORDER BY time'
-
+ORDER BY (time, name)'
 
 ## send the messages to kafka
-current_timestamp=`date +%s`000
+now=`date --rfc-3339=ns`
 for i in `seq 1 100000`;do
- echo "{\"timestamp\" : \"${current_timestamp}\", \"name\" : \"sundy-li\", \"value\" : \"$i\" }"
+    echo "{\"time\" : \"${now}\", \"name\" : \"name$i\", \"value\" : \"$i\" }"
 done > a.json
+echo "generated a.json"
 echo "cat /tmp/a.json | kafka-console-producer --topic topic1 --broker-list localhost:9092" > send.sh
-
 sudo docker cp a.json kafka:/tmp/
 sudo docker cp send.sh kafka:/tmp/
 sudo docker exec kafka   sh /tmp/send.sh
@@ -53,9 +50,8 @@ echo "Got test_auto_schema count => $count"
 
 
 ## reset kafka consumer-group offsets
-echo "kafka-consumer-groups  --bootstrap-server localhost:9093 --execute --reset-offsets --group test_sinker --all-topics --to-earliest; kafka-consumer-groups  --bootstrap-server localhost:9093 --execute --reset-offsets --group test_auto_schema --all-topics --to-earliest" > reset-offsets.sh
-sudo docker cp reset-offsets.sh kafka:/tmp/
-sudo docker exec kafka   sh /tmp/reset-offsets.sh
+sudo docker exec kafka kafka-consumer-groups --bootstrap-server localhost:9093 --execute --reset-offsets --group test_sinker --all-topics --to-earliest
+sudo docker exec kafka kafka-consumer-groups --bootstrap-server localhost:9093 --execute --reset-offsets --group test_auto_schema --all-topics --to-earliest
 
 ## truncate tables
 curl "localhost:8123" -d 'TRUNCATE TABLE test1'
