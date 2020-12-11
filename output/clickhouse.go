@@ -17,6 +17,7 @@ package output
 
 import (
 	"context"
+	"database/sql"
 	std_errors "errors"
 	"fmt"
 	"os"
@@ -79,60 +80,54 @@ func (c *ClickHouse) Send(batch *model.Batch, callback func(batch *model.Batch) 
 
 // Write kvs to clickhouse
 func (c *ClickHouse) write(batch *model.Batch) error {
+	var numErr int
+	var err, tmpErr error
+	var stmt *sql.Stmt
+	var tx *sql.Tx
 	if len(*batch.Rows) == 0 {
 		return nil
 	}
 
 	conn := pool.GetConn(c.taskCfg.Clickhouse, batch.BatchIdx)
-	tx, err := conn.Begin()
-	if err != nil {
-		if shouldReconnect(err) {
-			_ = conn.ReConnect()
-			statistics.ClickhouseReconnectTotal.WithLabelValues(c.taskCfg.Name).Inc()
-		}
-		return err
+	if tx, err = conn.Begin(); err != nil {
+		goto ERR
 	}
-
-	stmt, err := tx.Prepare(c.prepareSQL)
-	if err != nil {
-		log.Errorf("%s: tx.Prepare failed with error %+v", c.taskCfg.Name, err.Error())
-		if shouldReconnect(err) {
-			_ = conn.ReConnect()
-			statistics.ClickhouseReconnectTotal.WithLabelValues(c.taskCfg.Name).Inc()
-		}
-		return err
+	if stmt, err = tx.Prepare(c.prepareSQL); err != nil {
+		goto ERR
 	}
-
 	defer stmt.Close()
-	var numErr int
 	for _, row := range *batch.Rows {
-		if _, err = stmt.Exec(*row...); err != nil {
-			err = errors.Wrap(err, "")
+		if _, tmpErr = stmt.Exec(*row...); tmpErr != nil {
 			numErr++
+			err = tmpErr
 		}
 	}
 	if err != nil {
 		log.Errorf("%s: stmt.Exec failed %d times with errors %+v", c.taskCfg.Name, numErr, err)
-		return err
+		goto ERR
 	}
 
 	if err = tx.Commit(); err != nil {
-		err = errors.Wrap(err, "")
-		if shouldReconnect(err) {
-			_ = conn.ReConnect()
-			statistics.ClickhouseReconnectTotal.WithLabelValues(c.taskCfg.Name).Inc()
-		}
-		return err
+		goto ERR
 	}
 	statistics.FlushMsgsTotal.WithLabelValues(c.taskCfg.Name).Add(float64(batch.RealSize))
+	return err
+ERR:
+	if shouldReconnect(err) {
+		_ = conn.ReConnect()
+		statistics.ClickhouseReconnectTotal.WithLabelValues(c.taskCfg.Name).Inc()
+	}
 	return err
 }
 
 func shouldReconnect(err error) bool {
+	if err == nil {
+		return false
+	}
 	if strings.Contains(err.Error(), "connection refused") || strings.Contains(err.Error(), "bad connection") {
 		return true
 	}
-	log.Infof("not match reconnect rules: %v", err.Error())
+	log.Infof("permanent error: %v", err.Error())
 	return false
 }
 
@@ -166,7 +161,7 @@ func (c *ClickHouse) loopWrite(batch *model.Batch, callback func(batch *model.Ba
 		log.Errorf("%s: flush batch(try #%d) failed with error %+v", c.taskCfg.Name, c.chCfg.RetryTimes-times, err)
 		statistics.FlushMsgsErrorTotal.WithLabelValues(c.taskCfg.Name).Add(float64(batch.RealSize))
 		times++
-		if c.chCfg.RetryTimes <= 0 || times < c.chCfg.RetryTimes {
+		if shouldReconnect(err) && (c.chCfg.RetryTimes <= 0 || times < c.chCfg.RetryTimes) {
 			time.Sleep(10 * time.Second)
 		} else {
 			os.Exit(-1)
@@ -183,8 +178,9 @@ func (c *ClickHouse) Stop() error {
 func (c *ClickHouse) initSchema() (err error) {
 	if c.taskCfg.AutoSchema {
 		conn := pool.GetConn(c.taskCfg.Clickhouse, 0)
-		rs, err := conn.Query(fmt.Sprintf(selectSQLTemplate, c.chCfg.DB, c.taskCfg.TableName))
-		if err != nil {
+		var rs *sql.Rows
+		if rs, err = conn.Query(fmt.Sprintf(selectSQLTemplate, c.chCfg.DB, c.taskCfg.TableName)); err != nil {
+			err = errors.Wrapf(err, "")
 			return err
 		}
 		defer rs.Close()
@@ -192,7 +188,10 @@ func (c *ClickHouse) initSchema() (err error) {
 		c.Dims = make([]*model.ColumnWithType, 0, 10)
 		var name, typ, defaultKind string
 		for rs.Next() {
-			_ = rs.Scan(&name, &typ, &defaultKind)
+			if err = rs.Scan(&name, &typ, &defaultKind); err != nil {
+				err = errors.Wrapf(err, "")
+				return err
+			}
 			typ = lowCardinalityRegexp.ReplaceAllString(typ, "$1")
 			if !util.StringContains(c.taskCfg.ExcludeColumns, name) && defaultKind != "MATERIALIZED" {
 				c.Dims = append(c.Dims, &model.ColumnWithType{Name: name, Type: typ, SourceName: util.GetSourceName(name)})
