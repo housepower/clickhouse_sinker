@@ -1,0 +1,84 @@
+{
+  "clickhouse": {
+    "ch1": {
+      "db": "default",
+      "hosts": [
+        [
+          "127.0.0.1"
+        ]
+      ],
+      "password": "",
+      "retryTimes": 0,
+      "port": 9000,
+      "username": ""
+    }
+  },
+  "kafka": {
+    "kfk1": {
+      "brokers": "127.0.0.1:9093",
+      "version": "2.2.1",
+      "sasl": {
+        "enable": false,
+        "password": "",
+        "username": "",
+        "gssapi": {
+          "authtype": 0,
+          "keytabpath": "",
+          "kerberosconfigpath": "",
+          "servicename": "",
+          "username": "",
+          "password": "",
+          "realm": "",
+          "disablepafxfast": false
+        }
+      }
+    }
+  },
+  "common": {
+    "bufferSize": 90000,
+    "minBufferSize": 2000,
+    "flushInterval": 5,
+    "layoutDateTime": "2006-01-02 15:04:05.999999999Z07:00",
+    "logLevel": "debug"
+  },
+  "tasks": {
+    "test1": {
+      "kafka": "kfk1",
+      "topic": "topic1",
+      "consumerGroup": "test_sinker",
+      "earliest": true,
+      "parser": "json",
+      "clickhouse": "ch1",
+      "tableName": "test1",
+      "dims": [
+        {
+          "name": "time",
+          "type": "DateTime"
+        },
+        {
+          "name": "name",
+          "type": "String"
+        },
+        {
+          "name": "value",
+          "type": "Float32"
+        }
+      ],
+      "bufferSize": 50000
+    },
+    "test_auto_schema": {
+      "kafka": "kfk1",
+      "topic": "topic1",
+      "consumerGroup": "test_auto_schema",
+      "earliest": true,
+      "parser": "json",
+      "clickhouse": "ch1",
+      "autoSchema": true,
+      "tableName": "test_auto_schema",
+      "excludeColumns": [
+        "day"
+      ],
+      "bufferSize": 50000
+    }
+  }
+}

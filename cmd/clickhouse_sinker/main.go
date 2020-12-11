@@ -51,6 +51,7 @@ type CmdOptions struct {
 	PushGatewayAddrs                     string
 	PushInterval                         int
 	LocalCfgDir                          string
+	LocalCfgFile                         string
 	ConsulRegister                       bool
 	ConsulAddr                           string
 	ConsulDeregisterCriticalServiceAfter string
@@ -78,6 +79,7 @@ func initCmdOptions() {
 		PushGatewayAddrs:                     "",
 		PushInterval:                         10,
 		LocalCfgDir:                          "/etc/clickhouse_sinker",
+		LocalCfgFile:                         "/etc/clickhouse_sinker.json",
 		ConsulRegister:                       false,
 		ConsulAddr:                           "http://127.0.0.1:8500",
 		ConsulDeregisterCriticalServiceAfter: "30m",
@@ -112,7 +114,8 @@ func initCmdOptions() {
 	flag.IntVar(&cmdOps.HTTPPort, "http-port", cmdOps.HTTPPort, "http listen port")
 	flag.StringVar(&cmdOps.PushGatewayAddrs, "metric-push-gateway-addrs", cmdOps.PushGatewayAddrs, "a list of comma-separated prometheus push gatway address")
 	flag.IntVar(&cmdOps.PushInterval, "push-interval", cmdOps.PushInterval, "push interval in seconds")
-	flag.StringVar(&cmdOps.LocalCfgDir, "local-cfg-dir", cmdOps.LocalCfgDir, "local config dir")
+	flag.StringVar(&cmdOps.LocalCfgDir, "local-cfg-dir", cmdOps.LocalCfgDir, "local config dir. requires a file named `config.json`, and some task json files under `tasks` folder")
+	flag.StringVar(&cmdOps.LocalCfgFile, "local-cfg-file", cmdOps.LocalCfgFile, "local config file")
 
 	flag.BoolVar(&cmdOps.ConsulRegister, "consul-register-enable", cmdOps.ConsulRegister, "register current instance in consul")
 	flag.StringVar(&cmdOps.ConsulAddr, "consul-addr", cmdOps.ConsulAddr, "consul api interface address")
@@ -262,8 +265,18 @@ func (s *Sinker) Run() {
 		go s.pusher.Run(s.ctx)
 	}
 	if s.rcm == nil {
-		if newCfg, err = config.ParseLocalConfig(cmdOps.LocalCfgDir); err != nil {
-			log.Fatalf("%+v", err)
+		if _, err = os.Stat(cmdOps.LocalCfgFile); err == nil {
+			if newCfg, err = config.ParseLocalCfgFile(cmdOps.LocalCfgFile); err != nil {
+				log.Fatalf("%+v", err)
+				return
+			}
+		} else if _, err = os.Stat(cmdOps.LocalCfgFile); err == nil {
+			if newCfg, err = config.ParseLocalCfgDir(cmdOps.LocalCfgDir); err != nil {
+				log.Fatalf("%+v", err)
+				return
+			}
+		} else {
+			log.Fatalf("expect --local-cfg-file or --local-cfg-dir")
 			return
 		}
 		if err = newCfg.Normallize(); err != nil {

@@ -18,6 +18,7 @@ COPY --from=builder /app/dist/nacos_publish_config /usr/local/bin/nacos_publish_
 # - METRIC_PUSH_GATEWAY_ADDRS
 # - PUSH_INTERVAL
 # - LOCAL_CFG_DIR
+# - LOCAL_CFG_FILE
 # - CONSUL_REGISTER_ENABLE
 # - CONSUL_ADDR
 # - CONSUL_DEREGISTER_CRITICAL_SERVICES_AFTER

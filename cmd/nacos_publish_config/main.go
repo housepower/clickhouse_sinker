@@ -18,6 +18,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"os"
 	"reflect"
 	"runtime"
 	"strconv"
@@ -44,6 +45,7 @@ var (
 		`nacos group name. Empty string doesn't work!`)
 
 	localCfgDir  = flag.String("local-cfg-dir", "/etc/clickhouse_sinker", "local config dir")
+	localCfgFile = flag.String("local-cfg-file", "/etc/clickhouse_sinker.json", "local config file")
 	instances    = flag.String("instances", "", "a list of comma-separated ip:port[@weight]")
 	testRegister = flag.Bool("test-register", false, "whether run TestRegister")
 )
@@ -62,9 +64,21 @@ func getProperties() map[string]interface{} {
 func PublishSinkerConfig() {
 	var err error
 	var cfg *config.Config
-	if cfg, err = config.ParseLocalConfig(*localCfgDir); err != nil {
-		log.Fatalf("%+v", err)
+	if _, err = os.Stat(*localCfgFile); err == nil {
+		if cfg, err = config.ParseLocalCfgFile(*localCfgFile); err != nil {
+			log.Fatalf("%+v", err)
+			return
+		}
+	} else if _, err = os.Stat(*localCfgDir); err == nil {
+		if cfg, err = config.ParseLocalCfgDir(*localCfgDir); err != nil {
+			log.Fatalf("%+v", err)
+			return
+		}
+	} else {
+		log.Fatalf("expect --local-cfg-file or --local-cfg-dir")
+		return
 	}
+
 	if err = cfg.Normallize(); err != nil {
 		log.Fatalf("%+v", err)
 		return

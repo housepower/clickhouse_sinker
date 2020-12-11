@@ -173,7 +173,7 @@ const (
 	defaultTaskReplicas     = 1
 )
 
-func ParseLocalConfig(cfgPath string) (cfg *Config, err error) {
+func ParseLocalCfgDir(cfgPath string) (cfg *Config, err error) {
 	var f = "config.json"
 	f = filepath.Join(cfgPath, f)
 	var s string
@@ -206,6 +206,21 @@ func ParseLocalConfig(cfgPath string) (cfg *Config, err error) {
 			}
 			cfg.Tasks[taskConfig.Name] = taskConfig
 		}
+	}
+	return
+}
+
+func ParseLocalCfgFile(cfgPath string) (cfg *Config, err error) {
+	cfg = &Config{}
+	var b []byte
+	b, err = ioutil.ReadFile(cfgPath)
+	if err != nil {
+		err = errors.Wrapf(err, "")
+		return
+	}
+	if err = json.Unmarshal(b, cfg); err != nil {
+		err = errors.Wrapf(err, "")
+		return
 	}
 	return
 }

@@ -43,7 +43,7 @@ Refers to [design](./design.md) for how it works.
 
 ### By binary files (recommended)
 
-Download the binary files from [release](https://github.com/housepower/clickhouse_sinker/releases), choose the executable binary file according to your env, modify the `conf` files, then run `./clickhouse_sinker --local-cfg-dir conf`
+Download the binary files from [release](https://github.com/housepower/clickhouse_sinker/releases), choose the executable binary file according to your env, modify the `conf` files, then run `./clickhouse_sinker --local-cfg-dir conf`. If you prefer a single config file, you can merge the `conf` files into one, and pass its path to `--local-cfg-file`.
 
 ### By container image
 
@@ -69,7 +69,7 @@ make build
 
 ## Configuration
 
-Refers to how [integration test](./go.test.sh) use the [example config](./conf/config.json).
+Refers to how [integration test](./go.test.sh) use the [example config](./docker/config.json).
 Also refers to [code](./config/config.go) for all config items.
 
 ### Kafka Encryption
@@ -249,6 +249,11 @@ This above expression can be customized with `shardingKey` and `shardingPolicy`.
 
 ## Configuration Management
 
+The precedence of config items:
+
+- CLI parameters > env variables
+- Nacos > Consul > Local Config File > Local Config Dir
+
 ### Nacos
 
 Sinker is able to register with Nacos, get and apply config changes dynamically without restart the whole process.
@@ -268,6 +273,10 @@ Controled by:
 ### Local Files
 
 Currently sinker is able to parse local config files at startup, but unable to detect file changes.
+Controled by:
+
+- CLI parameters: `local-cfg-file, local-cfg-dir`
+- env variables: `LOCAL_CFG_FILE, LOCAL_CFG_DIR`
 
 ## Prometheus Metrics
 
