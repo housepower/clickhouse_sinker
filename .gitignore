@@ -1,6 +1,9 @@
 tmp
 sh
 .vscode
+node_modules/
+package-lock.json
+
 .DS_Store
 *.log
 .idea
