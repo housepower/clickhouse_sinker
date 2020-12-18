@@ -124,9 +124,10 @@ func InitConn(name string, hosts [][]string, port int, db, username, password, d
 	return nil
 }
 
+// TODO, pool this
 func setDBParams(sqlDB *sql.DB) {
 	sqlDB.SetMaxIdleConns(1)
-	sqlDB.SetConnMaxIdleTime(10 * time.Second)
+	sqlDB.SetConnMaxLifetime(120 * time.Second)
 }
 
 func FreeConn(name string) {
