@@ -64,7 +64,7 @@ Each task can be assigned to multiple instances. Each task declares how many ins
 
 ## The coordinator(outside this project)
 
-- The coordinator provides API and/or webui to add/delete/modify tasks. 
+- The coordinator provides API and/or webui to add/delete/modify tasks.
 - The coordinator watches (do `service discovery`) instance startup/disappear events, and assign tasks to instances (do `publish config`). Refers to `cmd/nacos_publish_config/main.go` to assign tasks (from local config) via consistent-hash to instances(from CLI).
 
 ## The schedule platform(outside this project)
