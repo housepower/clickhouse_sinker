@@ -1,0 +1,43 @@
+{
+    "clickhouse": {
+        "default": {
+            "db": "default",
+            "hosts": [
+                [
+                    "127.0.0.1"
+                ]
+            ],
+            "port": 9000
+        }
+    },
+    "kafka": {
+        "default": {
+            "brokers": "146.196.79.232:9094",
+            "version": "2.2.1"
+        }
+    },
+    "common": {
+        "bufferSize": 90000,
+        "minBufferSize": 1,
+        "msgSizeHint": 1000,
+        "flushInterval": 5,
+        "logLevel": "debug"
+    },
+    "tasks": {
+        "logstash": {
+            "name": "logstash",
+            "kafkaClient": "kafka-go",
+            "kafka": "default",
+            "topic": "logstash",
+            "consumerGroup": "logstash_sinker",
+            "parser": "json",
+            "clickhouse": "default",
+            "tableName": "logstash",
+            "autoSchema": true,
+            "@desc_of_exclude_columns": "this columns will be excluded by insert SQL ",
+            "excludeColumns": [
+                "day"
+            ]
+        }
+    }
+}
