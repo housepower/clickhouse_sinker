@@ -26,11 +26,11 @@ import (
 	"time"
 
 	"github.com/housepower/clickhouse_sinker/health"
+	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/pkg/errors"
 	"github.com/troian/healthcheck"
 
 	log "github.com/sirupsen/logrus"
-	"github.com/sundy-li/go_commons/utils"
 )
 
 const (
@@ -87,7 +87,7 @@ func InitConn(name string, hosts [][]string, port int, db, username, password, d
 		numReplicas := len(replicas)
 		replicaAddrs := make([]string, numReplicas)
 		for i, ip := range replicas {
-			if ips2, err := utils.GetIp4Byname(ip); err == nil {
+			if ips2, err := util.GetIP4Byname(ip); err == nil {
 				ip = ips2[0]
 			}
 			replicaAddrs[i] = fmt.Sprintf("%s:%d", ip, port)

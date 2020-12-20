@@ -25,9 +25,8 @@ import (
 	"time"
 
 	"github.com/housepower/clickhouse_sinker/util"
-	"github.com/pkg/errors"
 
-	"github.com/sundy-li/go_commons/utils"
+	"github.com/pkg/errors"
 )
 
 // RemoteConfManager can be implemented by many backends: Nacos, Consul, etcd, ZooKeeper...
@@ -177,7 +176,7 @@ func ParseLocalCfgDir(cfgPath string) (cfg *Config, err error) {
 	var f = "config.json"
 	f = filepath.Join(cfgPath, f)
 	var s string
-	if s, err = utils.ExtendFile(f); err != nil {
+	if s, err = util.ExtendFile(f); err != nil {
 		err = errors.Wrapf(err, "")
 		return
 	}
@@ -195,7 +194,7 @@ func ParseLocalCfgDir(cfgPath string) (cfg *Config, err error) {
 	cfg.Tasks = make(map[string]*TaskConfig)
 	for _, f := range files {
 		if strings.HasSuffix(f.Name(), ".json") {
-			if s, err = utils.ExtendFile(filepath.Join(cfgPath, "tasks", f.Name())); err != nil {
+			if s, err = util.ExtendFile(filepath.Join(cfgPath, "tasks", f.Name())); err != nil {
 				err = errors.Wrapf(err, "")
 				return
 			}

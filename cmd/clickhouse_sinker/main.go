@@ -28,8 +28,6 @@ import (
 	"strings"
 	"time"
 
-	_ "github.com/ClickHouse/clickhouse-go"
-	"github.com/google/gops/agent"
 	"github.com/housepower/clickhouse_sinker/config"
 	"github.com/housepower/clickhouse_sinker/health"
 	"github.com/housepower/clickhouse_sinker/input"
@@ -39,10 +37,12 @@ import (
 	"github.com/housepower/clickhouse_sinker/statistics"
 	"github.com/housepower/clickhouse_sinker/task"
 	"github.com/housepower/clickhouse_sinker/util"
+
+	_ "github.com/ClickHouse/clickhouse-go"
+	"github.com/google/gops/agent"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
-	"github.com/sundy-li/go_commons/app"
 )
 
 type CmdOptions struct {
@@ -164,7 +164,7 @@ func main() {
 		log.Fatalf("%+v", err)
 	}
 
-	app.Run("clickhouse_sinker", func() error {
+	util.Run("clickhouse_sinker", func() error {
 		var rcm config.RemoteConfManager
 		var properties map[string]interface{}
 		if cmdOps.ConsulRegister {

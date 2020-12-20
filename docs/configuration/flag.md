@@ -10,8 +10,6 @@ Usage of ./dist/clickhouse_sinker:
         configure service check DeregisterCriticalServiceAfter (default "30m")
   -consul-register-enable
         register current instance in consul
-  -cpunum int
-        Indicate the number of CPU (default 1)
   -http-port int
         http listen port (default 2112)
   -local-cfg-dir config.json
