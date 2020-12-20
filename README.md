@@ -5,4 +5,6 @@
 
 clickhouse_sinker is a sinker program that transfer kafka message into [ClickHouse](https://clickhouse.yandex/).
 
-Refers to [docs](http://github.com/housepower/clickhouse_sinker/dev/introduction.html#features) to see how it works.
+[Get Started](https://housepower.github.io/clickhouse_sinker/)
+
+Refers to [docs](https://housepower.github.io/clickhouse_sinker/dev/introduction.html#features) to see how it works.
