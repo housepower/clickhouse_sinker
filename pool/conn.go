@@ -87,7 +87,7 @@ func InitConn(name string, hosts [][]string, port int, db, username, password, d
 		numReplicas := len(replicas)
 		replicaAddrs := make([]string, numReplicas)
 		for i, ip := range replicas {
-			if ips2, err := util.GetIp4Byname(ip); err == nil {
+			if ips2, err := util.GetIP4Byname(ip); err == nil {
 				ip = ips2[0]
 			}
 			replicaAddrs[i] = fmt.Sprintf("%s:%d", ip, port)

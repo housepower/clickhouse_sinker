@@ -1,14 +1,29 @@
+/*Copyright [2019] housepower
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+   http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package util
 
 import (
 	"encoding/json"
-	"errors"
-	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/pkg/errors"
 )
 
 const extendTag = "@extend:"
@@ -18,7 +33,7 @@ func ExtendFile(filePath string) (string, error) {
 	if err != nil {
 		return "", err
 	} else if fi.IsDir() {
-		return "", errors.New(filePath + " is not a file.")
+		return "", errors.New("error in ExtendFile, " + filePath + " is not a file")
 	}
 	var b []byte
 	b, err = ioutil.ReadFile(filePath)
@@ -50,9 +65,9 @@ func ExtendFileContent(dir string, content []byte) (string, error) {
 		}
 		sb, err2 := ExtendFile(p)
 		if err2 != nil {
-			err = fmt.Errorf("替换json配置[%s]失败：%s\n", match, err2.Error())
+			err = errors.Wrapf(err2, "replace json config [%s]failed", match)
 		}
-		return string(sb)
+		return sb
 	})
 	return ret, err
 }
