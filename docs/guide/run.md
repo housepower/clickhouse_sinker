@@ -18,7 +18,7 @@ Note: we shall enable we have `clickhouse-server` and `kafka` envs, before runni
 
   `./clickhouse_sinker --local-cfg-file config_single.json`.
 
-> Read more detail descriptions of config in [here](docs/configuration.md)
+> Read more detail descriptions of config in [here](docs/config.md)
 
 ## Example
 
