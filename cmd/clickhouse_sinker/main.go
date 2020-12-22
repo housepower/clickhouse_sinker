@@ -270,7 +270,7 @@ func (s *Sinker) Run() {
 				log.Fatalf("%+v", err)
 				return
 			}
-		} else if _, err = os.Stat(cmdOps.LocalCfgFile); err == nil {
+		} else if _, err = os.Stat(cmdOps.LocalCfgDir); err == nil {
 			if newCfg, err = config.ParseLocalCfgDir(cmdOps.LocalCfgDir); err != nil {
 				log.Fatalf("%+v", err)
 				return
