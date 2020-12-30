@@ -368,9 +368,13 @@ func (s *Sinker) applyFirstConfig(newCfg *config.Config) (err error) {
 			s.tasks[taskName] = t
 		}
 		concurrentParsers = len(taskNames) * 10
+	}
+	if runtime.NumCPU() >= 2 {
 		if concurrentParsers > runtime.NumCPU()/2 {
 			concurrentParsers = runtime.NumCPU() / 2
 		}
+	} else {
+		concurrentParsers = 1
 	}
 	util.InitGlobalParsingPool(concurrentParsers)
 	totalConn := pool.GetTotalConn()
@@ -456,8 +460,12 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 	}
 	// 4. Resize goroutine pools.
 	concurrentParsers := len(s.tasks) * 10
-	if concurrentParsers > runtime.NumCPU()/2 {
-		concurrentParsers = runtime.NumCPU() / 2
+	if runtime.NumCPU() >= 2 {
+		if concurrentParsers > runtime.NumCPU()/2 {
+			concurrentParsers = runtime.NumCPU() / 2
+		}
+	} else {
+		concurrentParsers = 1
 	}
 	util.GlobalParsingPool.Resize(concurrentParsers)
 	totalConn := pool.GetTotalConn()
