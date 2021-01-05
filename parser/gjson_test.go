@@ -7,7 +7,7 @@ import (
 )
 
 func TestGjsonInt(t *testing.T) {
-	pp := NewParserPool("gjson_extend", nil, "", DefaultTSLayout)
+	pp := NewParserPool("gjson", nil, "", DefaultTSLayout)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
@@ -17,18 +17,18 @@ func TestGjsonInt(t *testing.T) {
 	require.Equal(t, result, expected)
 }
 func TestGjsonIntNullableFalse(t *testing.T) {
-	pp := NewParserPool("gjson_extend", nil, "", DefaultTSLayout)
+	pp := NewParserPool("gjson", nil, "", DefaultTSLayout)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
 
-	var expected int = 0
-	result := metric.GetInt("its_not_exist", false).(int)
+	var expected int64 = 0
+	result := metric.GetInt("its_not_exist", false).(int64)
 	require.Equal(t, expected, result)
 }
 
 func TestGjsonIntNullableTrue(t *testing.T) {
-	pp := NewParserPool("gjson_extend", nil, "", DefaultTSLayout)
+	pp := NewParserPool("gjson", nil, "", DefaultTSLayout)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
@@ -37,21 +37,8 @@ func TestGjsonIntNullableTrue(t *testing.T) {
 	require.Nil(t, result, "err should be nothing")
 }
 
-func TestGjsonArrayInt(t *testing.T) {
-	pp := NewParserPool("gjson_extend", nil, "", DefaultTSLayout)
-	parser := pp.Get()
-	defer pp.Put(parser)
-	metric, _ := parser.Parse(jsonSample)
-
-	arr := metric.GetArray("mp.a", "int").([]int64)
-	expected := []int64{1, 2, 3}
-	for i := range arr {
-		require.Equal(t, arr[i], expected[i])
-	}
-}
-
 func TestGjsonStr(t *testing.T) {
-	pp := NewParserPool("gjson_extend", nil, "", DefaultTSLayout)
+	pp := NewParserPool("gjson", nil, "", DefaultTSLayout)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
@@ -61,7 +48,7 @@ func TestGjsonStr(t *testing.T) {
 	require.Equal(t, result, expected)
 }
 func TestGjsonStrNullableFalse(t *testing.T) {
-	pp := NewParserPool("gjson_extend", nil, "", DefaultTSLayout)
+	pp := NewParserPool("gjson", nil, "", DefaultTSLayout)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
@@ -71,7 +58,7 @@ func TestGjsonStrNullableFalse(t *testing.T) {
 	require.Equal(t, result, expected)
 }
 func TestGjsonStrNullableTrue(t *testing.T) {
-	pp := NewParserPool("gjson_extend", nil, "", DefaultTSLayout)
+	pp := NewParserPool("gjson", nil, "", DefaultTSLayout)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
@@ -80,21 +67,8 @@ func TestGjsonStrNullableTrue(t *testing.T) {
 	require.Nil(t, result, "err should be nothing")
 }
 
-func TestGjsonArrayString(t *testing.T) {
-	pp := NewParserPool("gjson_extend", nil, "", DefaultTSLayout)
-	parser := pp.Get()
-	defer pp.Put(parser)
-	metric, _ := parser.Parse(jsonSample)
-
-	arr := metric.GetArray("mps.a", "string").([]string)
-	expected := []string{"aa", "bb", "cc"}
-	for i := range arr {
-		require.Equal(t, arr[i], expected[i])
-	}
-}
-
 func TestGjsonFloat(t *testing.T) {
-	pp := NewParserPool("gjson_extend", nil, "", DefaultTSLayout)
+	pp := NewParserPool("gjson", nil, "", DefaultTSLayout)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
@@ -105,17 +79,17 @@ func TestGjsonFloat(t *testing.T) {
 }
 
 func TestGjsonFloatNullableFalse(t *testing.T) {
-	pp := NewParserPool("gjson_extend", nil, "", DefaultTSLayout)
+	pp := NewParserPool("gjson", nil, "", DefaultTSLayout)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
 
-	var expected int = 0
-	result := metric.GetFloat("percent_not_exist", false).(int)
+	var expected float64 = 0
+	result := metric.GetFloat("percent_not_exist", false).(float64)
 	require.Equal(t, result, expected)
 }
 func TestGjsonFloatNullableTrue(t *testing.T) {
-	pp := NewParserPool("gjson_extend", nil, "", DefaultTSLayout)
+	pp := NewParserPool("gjson", nil, "", DefaultTSLayout)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
@@ -124,21 +98,39 @@ func TestGjsonFloatNullableTrue(t *testing.T) {
 	require.Nil(t, result, "err should be nothing")
 }
 
-func TestGjsonArrayFloat(t *testing.T) {
-	pp := NewParserPool("gjson_extend", nil, "", DefaultTSLayout)
+func TestGjsonArray(t *testing.T) {
+	pp := NewParserPool("gjson", nil, "", DefaultTSLayout)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
 
-	arr := metric.GetArray("mp.f", "float").([]float64)
-	expected := []float64{1.11, 2.22, 3.33}
-	for i := range arr {
-		require.Equal(t, arr[i], expected[i])
-	}
+	actI := metric.GetArray("mp.i", "int").([]int64)
+	expI := []int64{1, 2, 3}
+	require.Equal(t, actI, expI)
+
+	actF := metric.GetArray("mp.f", "float").([]float64)
+	expF := []float64{1.1, 2.2, 3.3}
+	require.Equal(t, expF, actF)
+
+	actS := metric.GetArray("mp.s", "string").([]string)
+	expS := []string{"aa", "bb", "cc"}
+	require.Equal(t, expS, actS)
+
+	actIE := metric.GetArray("mp.e", "int").([]int64)
+	expIE := []int64{}
+	require.Equal(t, expIE, actIE)
+
+	actFE := metric.GetArray("mp.e", "float").([]float64)
+	expFE := []float64{}
+	require.Equal(t, expFE, actFE)
+
+	actSE := metric.GetArray("mp.e", "string").([]string)
+	expSE := []string{}
+	require.Equal(t, expSE, actSE)
 }
 
 func TestGjsonElasticDateTime(t *testing.T) {
-	pp := NewParserPool("gjson_extend", nil, "", DefaultTSLayout)
+	pp := NewParserPool("gjson", nil, "", DefaultTSLayout)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
@@ -151,7 +143,7 @@ func TestGjsonElasticDateTime(t *testing.T) {
 }
 
 func TestGjsonElasticDateTimeNullableFalse(t *testing.T) {
-	pp := NewParserPool("gjson_extend", nil, "", DefaultTSLayout)
+	pp := NewParserPool("gjson", nil, "", DefaultTSLayout)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
@@ -162,7 +154,7 @@ func TestGjsonElasticDateTimeNullableFalse(t *testing.T) {
 }
 
 func TestGjsonElasticDateTimeNullableTrue(t *testing.T) {
-	pp := NewParserPool("gjson_extend", nil, "", DefaultTSLayout)
+	pp := NewParserPool("gjson", nil, "", DefaultTSLayout)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)

@@ -90,7 +90,6 @@ func (c *GjsonExtendMetric) Get(key string) interface{} {
 }
 
 func (c *GjsonExtendMetric) GetString(key string, nullable bool) interface{} {
-	//判断object
 	val := c.mp[key]
 
 	if nullable && val == nil {

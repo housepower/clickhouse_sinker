@@ -69,26 +69,35 @@ func (c *FastjsonMetric) GetInt(key string, nullable bool) interface{} {
 	if nullable && !c.value.Exists(key) {
 		return nil
 	}
-	return int64(c.value.GetInt(key))
+	return c.value.GetInt64(key)
 }
 
 func (c *FastjsonMetric) GetArray(key string, t string) interface{} {
 	array := c.value.GetArray(key)
 	if array == nil {
-		return nil
+		switch t {
+		case "int":
+			return []int64{}
+		case "float":
+			return []float64{}
+		case "string":
+			return []string{}
+		default:
+			return nil
+		}
 	}
 	switch t {
+	case "int":
+		results := make([]int64, 0, len(array))
+		for _, e := range array {
+			v, _ := e.Int64()
+			results = append(results, v)
+		}
+		return results
 	case "float":
 		results := make([]float64, 0, len(array))
 		for _, e := range array {
 			v, _ := e.Float64()
-			results = append(results, v)
-		}
-		return results
-	case "int":
-		results := make([]int, 0, len(array))
-		for _, e := range array {
-			v, _ := e.Int()
 			results = append(results, v)
 		}
 		return results
