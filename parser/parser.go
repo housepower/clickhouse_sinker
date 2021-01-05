@@ -64,9 +64,6 @@ func (pp *Pool) Get() Parser {
 			return &FastjsonParser{tsLayout: pp.tsLayout}
 		case "csv":
 			return &CsvParser{pp.csvFormat, pp.delimiter, pp.tsLayout}
-		//extend gjson that could extract the map
-		case "gjson_extend":
-			return &GjsonExtendParser{pp.tsLayout}
 		default:
 			return &FastjsonParser{tsLayout: pp.tsLayout}
 		}
