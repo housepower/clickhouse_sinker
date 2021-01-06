@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"encoding/csv"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/housepower/clickhouse_sinker/model"
@@ -26,7 +27,7 @@ import (
 
 var _ Parser = (*CsvParser)(nil)
 
-// CsvParser implementation to parse input from a CSV format
+// CsvParser implementation to parse input from a CSV format per RFC 4180
 type CsvParser struct {
 	title     []string
 	delimiter string
@@ -36,7 +37,7 @@ type CsvParser struct {
 // Parse extract a list of comma-separated values from the data
 func (p *CsvParser) Parse(bs []byte) (metric model.Metric, err error) {
 	r := csv.NewReader(bytes.NewReader(bs))
-	r.Comma = ','
+	r.FieldsPerRecord = len(p.title)
 	if len(p.delimiter) > 0 {
 		r.Comma = rune(p.delimiter[0])
 	}
@@ -87,7 +88,7 @@ func (c *CsvMetric) GetFloat(key string, nullable bool) interface{} {
 			return n
 		}
 	}
-	return 0
+	return float64(0)
 }
 
 // GetInt returns int
@@ -99,12 +100,54 @@ func (c *CsvMetric) GetInt(key string, nullable bool) interface{} {
 			return n
 		}
 	}
-	return 0
+	return int64(0)
 }
 
-// GetArray is Empty implemented for CsvMetric
+// GetArray parse an CSV encoded array
 func (c *CsvMetric) GetArray(key string, t string) interface{} {
-	return []interface{}{}
+	var err error
+	var array []string
+	var r *csv.Reader
+	val := c.GetString(key, false).(string)
+	valLen := len(val)
+	if val == "" || val[0] != '[' || val[valLen-1] != ']' {
+		goto QUIT
+	}
+	r = csv.NewReader(strings.NewReader(val[1 : valLen-1]))
+	if array, err = r.Read(); err != nil {
+		goto QUIT
+	}
+	switch t {
+	case "int":
+		results := make([]int64, 0, len(array))
+		for _, e := range array {
+			v, _ := strconv.ParseInt(e, 10, 64)
+			results = append(results, v)
+		}
+		return results
+	case "float":
+		results := make([]float64, 0, len(array))
+		for _, e := range array {
+			v, _ := strconv.ParseFloat(e, 64)
+			results = append(results, v)
+		}
+		return results
+	case "string":
+		return array
+	default:
+		panic("not supported array type " + t)
+	}
+QUIT:
+	switch t {
+	case "int":
+		return []int64{}
+	case "float":
+		return []float64{}
+	case "string":
+		return []string{}
+	default:
+		return nil
+	}
 }
 
 func (c *CsvMetric) GetDate(key string, nullable bool) interface{} {

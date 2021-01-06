@@ -44,6 +44,9 @@ var jsonSample = []byte(`{
 	"array_empty": []
 }`)
 
+var csvSampleSchema = []string{"its", "percent", "channel", "time1", "time2", "time3", "array_int", "array_float", "array_string", "array_empty"}
+var csvSample = []byte(`1536813227,"0.11","escaped_""ws",2019-12-16,2019-12-16T12:10:30Z,2019-12-16T12:10:30.123Z,"[1,2,3]","[1.1,2.2,3.3]","[aa,bb,cc]","[]"`)
+
 func BenchmarkUnmarshalljson(b *testing.B) {
 	mp := map[string]interface{}{}
 	for i := 0; i < b.N; i++ {
