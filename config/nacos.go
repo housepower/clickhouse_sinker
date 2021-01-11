@@ -2,33 +2,23 @@ package config
 
 import (
 	"encoding/json"
-	"fmt"
 	"path/filepath"
-	"runtime"
-	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/nacos-group/nacos-sdk-go/clients"
 	"github.com/nacos-group/nacos-sdk-go/clients/config_client"
-	"github.com/nacos-group/nacos-sdk-go/clients/naming_client"
 	"github.com/nacos-group/nacos-sdk-go/common/constant"
-	"github.com/nacos-group/nacos-sdk-go/model"
 	"github.com/nacos-group/nacos-sdk-go/vo"
 	"github.com/pkg/errors"
 )
 
 var _ RemoteConfManager = (*NacosConfManager)(nil)
 
-const (
-	ServiceName = "clickhouse_sinker"
-	DataID      = "clickhouse_sinker.json"
-)
-
 type NacosConfManager struct {
 	configClient config_client.IConfigClient
-	namingClient naming_client.INamingClient
 	group        string
+	dataID       string
 }
 
 func (ncm *NacosConfManager) Init(properties map[string]interface{}) (err error) {
@@ -85,74 +75,17 @@ func (ncm *NacosConfManager) Init(properties map[string]interface{}) (err error)
 		return
 	}
 
-	ncm.namingClient, err = clients.CreateNamingClient(map[string]interface{}{
-		"serverConfigs": sc,
-		"clientConfig":  cc,
-	})
-	if err != nil {
-		err = errors.Wrapf(err, "")
-		return
-	}
-
 	ncm.group = group
-	return
-}
-
-func (ncm *NacosConfManager) Register(ip string, port int) (err error) {
-	_, err = ncm.namingClient.RegisterInstance(vo.RegisterInstanceParam{
-		Ip:          ip,
-		Port:        uint64(port),
-		ServiceName: ServiceName,
-		Weight:      float64(runtime.NumCPU()),
-		GroupName:   ncm.group,
-		Enable:      true,
-		Healthy:     true,
-		Ephemeral:   true,
-	})
-	if err != nil {
-		err = errors.Wrapf(err, "")
+	if _, ok = properties["dataId"]; ok {
+		ncm.dataID = properties["dataId"].(string)
 	}
-	return
-}
-
-func (ncm *NacosConfManager) Deregister(ip string, port int) (err error) {
-	_, err = ncm.namingClient.DeregisterInstance(
-		vo.DeregisterInstanceParam{
-			Ip:          ip,
-			Port:        uint64(port),
-			ServiceName: ServiceName,
-			GroupName:   ncm.group,
-			Ephemeral:   true,
-		})
-	if err != nil {
-		err = errors.Wrapf(err, "")
-	}
-	return
-}
-
-func (ncm *NacosConfManager) GetInstances() (instances []Instance, err error) {
-	var insts []model.Instance
-	insts, err = ncm.namingClient.SelectInstances(vo.SelectInstancesParam{
-		ServiceName: ServiceName,
-		GroupName:   ncm.group,
-		HealthyOnly: true,
-	})
-	//SelectInstances throws errors if "do not have useful host, ignore it", "instance list is empty!"
-	if err != nil {
-		err = errors.Wrapf(err, "")
-		return
-	}
-	for _, inst := range insts {
-		instances = append(instances, Instance{Addr: fmt.Sprintf("%s:%d", inst.Ip, inst.Port), Weight: int(inst.Weight)})
-	}
-	sort.Slice(instances, func(i, j int) bool { return (instances[i].Addr < instances[j].Addr) })
 	return
 }
 
 func (ncm *NacosConfManager) GetConfig() (conf *Config, err error) {
 	var content string
 	content, err = ncm.configClient.GetConfig(vo.ConfigParam{
-		DataId: DataID,
+		DataId: ncm.dataID,
 		Group:  ncm.group,
 	})
 	if err != nil {
@@ -162,6 +95,10 @@ func (ncm *NacosConfManager) GetConfig() (conf *Config, err error) {
 	conf = &Config{}
 	if err = json.Unmarshal([]byte(content), conf); err != nil {
 		err = errors.Wrapf(err, "")
+		return
+	}
+	if ncm.dataID != conf.Task.Name {
+		err = errors.Errorf("DataId %s doesn't match with config: %s", ncm.dataID, content)
 		return
 	}
 	return
@@ -175,7 +112,7 @@ func (ncm *NacosConfManager) PublishConfig(conf *Config) (err error) {
 	}
 	content := string(bs)
 	_, err = ncm.configClient.PublishConfig(vo.ConfigParam{
-		DataId:  DataID,
+		DataId:  conf.Task.Name,
 		Group:   ncm.group,
 		Content: content,
 	})
@@ -183,5 +120,6 @@ func (ncm *NacosConfManager) PublishConfig(conf *Config) (err error) {
 		err = errors.Wrapf(err, "")
 		return
 	}
+	ncm.dataID = conf.Task.Name
 	return
 }

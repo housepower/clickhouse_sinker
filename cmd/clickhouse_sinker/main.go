@@ -46,21 +46,17 @@ import (
 )
 
 type CmdOptions struct {
-	ShowVer                              bool
-	HTTPPort                             int
-	PushGatewayAddrs                     string
-	PushInterval                         int
-	LocalCfgDir                          string
-	LocalCfgFile                         string
-	ConsulRegister                       bool
-	ConsulAddr                           string
-	ConsulDeregisterCriticalServiceAfter string
-	NacosRegister                        bool
-	NacosAddr                            string
-	NacosNamespaceID                     string
-	NacosGroup                           string
-	NacosUsername                        string
-	NacosPassword                        string
+	ShowVer          bool
+	HTTPPort         int
+	PushGatewayAddrs string
+	PushInterval     int
+	LocalCfgFile     string
+	NacosAddr        string
+	NacosNamespaceID string
+	NacosGroup       string
+	NacosUsername    string
+	NacosPassword    string
+	NacosDataID      string
 }
 
 var (
@@ -74,21 +70,17 @@ var (
 func initCmdOptions() {
 	// 1. Set options to default value.
 	cmdOps = CmdOptions{
-		ShowVer:                              false,
-		HTTPPort:                             2112,
-		PushGatewayAddrs:                     "",
-		PushInterval:                         10,
-		LocalCfgDir:                          "/etc/clickhouse_sinker",
-		LocalCfgFile:                         "/etc/clickhouse_sinker.json",
-		ConsulRegister:                       false,
-		ConsulAddr:                           "http://127.0.0.1:8500",
-		ConsulDeregisterCriticalServiceAfter: "30m",
-		NacosRegister:                        false,
-		NacosAddr:                            "127.0.0.1:8848",
-		NacosNamespaceID:                     "",
-		NacosGroup:                           "DEFAULT_GROUP",
-		NacosUsername:                        "nacos",
-		NacosPassword:                        "nacos",
+		ShowVer:          false,
+		HTTPPort:         2112,
+		PushGatewayAddrs: "",
+		PushInterval:     10,
+		LocalCfgFile:     "/etc/clickhouse_sinker.json",
+		NacosAddr:        "127.0.0.1:8848",
+		NacosNamespaceID: "",
+		NacosGroup:       "DEFAULT_GROUP",
+		NacosUsername:    "nacos",
+		NacosPassword:    "nacos",
+		NacosDataID:      "",
 	}
 
 	// 2. Replace options with the corresponding env variable if present.
@@ -96,39 +88,28 @@ func initCmdOptions() {
 	util.EnvIntVar(&cmdOps.HTTPPort, "http-port")
 	util.EnvStringVar(&cmdOps.PushGatewayAddrs, "metric-push-gateway-addrs")
 	util.EnvIntVar(&cmdOps.PushInterval, "push-interval")
-	util.EnvStringVar(&cmdOps.LocalCfgDir, "local-cfg-dir")
 
-	util.EnvBoolVar(&cmdOps.ConsulRegister, "consul-register-enable")
-	util.EnvStringVar(&cmdOps.ConsulAddr, "consul-addr")
-	util.EnvStringVar(&cmdOps.ConsulDeregisterCriticalServiceAfter, "consul-deregister-critical-services-after")
-
-	util.EnvBoolVar(&cmdOps.NacosRegister, "nacos-register-enable")
 	util.EnvStringVar(&cmdOps.NacosAddr, "nacos-addr")
-	util.EnvStringVar(&cmdOps.NacosNamespaceID, "nacos-namespace-id")
-	util.EnvStringVar(&cmdOps.NacosGroup, "nacos-group")
 	util.EnvStringVar(&cmdOps.NacosUsername, "nacos-username")
 	util.EnvStringVar(&cmdOps.NacosPassword, "nacos-password")
+	util.EnvStringVar(&cmdOps.NacosNamespaceID, "nacos-namespace-id")
+	util.EnvStringVar(&cmdOps.NacosGroup, "nacos-group")
+	util.EnvStringVar(&cmdOps.NacosDataID, "nacos-dataid")
 
 	// 3. Replace options with the corresponding CLI parameter if present.
 	flag.BoolVar(&cmdOps.ShowVer, "v", cmdOps.ShowVer, "show build version and quit")
 	flag.IntVar(&cmdOps.HTTPPort, "http-port", cmdOps.HTTPPort, "http listen port")
 	flag.StringVar(&cmdOps.PushGatewayAddrs, "metric-push-gateway-addrs", cmdOps.PushGatewayAddrs, "a list of comma-separated prometheus push gatway address")
 	flag.IntVar(&cmdOps.PushInterval, "push-interval", cmdOps.PushInterval, "push interval in seconds")
-	flag.StringVar(&cmdOps.LocalCfgDir, "local-cfg-dir", cmdOps.LocalCfgDir, "local config dir. requires a file named `config.json`, and some task json files under `tasks` folder")
 	flag.StringVar(&cmdOps.LocalCfgFile, "local-cfg-file", cmdOps.LocalCfgFile, "local config file")
 
-	flag.BoolVar(&cmdOps.ConsulRegister, "consul-register-enable", cmdOps.ConsulRegister, "register current instance in consul")
-	flag.StringVar(&cmdOps.ConsulAddr, "consul-addr", cmdOps.ConsulAddr, "consul api interface address")
-	flag.StringVar(&cmdOps.ConsulDeregisterCriticalServiceAfter, "consul-deregister-critical-services-after", cmdOps.ConsulDeregisterCriticalServiceAfter,
-		"configure service check DeregisterCriticalServiceAfter")
-
-	flag.BoolVar(&cmdOps.NacosRegister, "nacos-register-enable", cmdOps.NacosRegister, "register current instance in nacos")
 	flag.StringVar(&cmdOps.NacosAddr, "nacos-addr", cmdOps.NacosAddr, "a list of comma-separated nacos server addresses")
+	flag.StringVar(&cmdOps.NacosUsername, "nacos-username", cmdOps.NacosUsername, "nacos username")
+	flag.StringVar(&cmdOps.NacosPassword, "nacos-password", cmdOps.NacosPassword, "nacos password")
 	flag.StringVar(&cmdOps.NacosNamespaceID, "nacos-namespace-id", cmdOps.NacosNamespaceID,
 		`nacos namespace ID. Neither DEFAULT_NAMESPACE_ID("public") nor namespace name work!`)
 	flag.StringVar(&cmdOps.NacosGroup, "nacos-group", cmdOps.NacosGroup, `nacos group name. Empty string doesn't work!`)
-	flag.StringVar(&cmdOps.NacosUsername, "nacos-username", cmdOps.NacosUsername, "nacos username")
-	flag.StringVar(&cmdOps.NacosPassword, "nacos-password", cmdOps.NacosPassword, "nacos password")
+	flag.StringVar(&cmdOps.NacosDataID, "nacos-dataid", cmdOps.NacosDataID, "nacos dataid")
 	flag.Parse()
 }
 
@@ -144,15 +125,12 @@ func init() {
 }
 
 // GenTask generate a task via config
-func GenTask(cfg *config.Config, taskName string) (taskImpl *task.Service) {
-	taskCfg := cfg.Tasks[taskName]
-	ck := output.NewClickHouse(cfg, taskName)
+func GenTask(cfg *config.Config) (taskImpl *task.Service) {
+	taskCfg := &cfg.Task
+	ck := output.NewClickHouse(cfg)
 	pp := parser.NewParserPool(taskCfg.Parser, taskCfg.CsvFormat, taskCfg.Delimiter, []string{taskCfg.LayoutDate, taskCfg.LayoutDateTime, taskCfg.LayoutDateTime64})
-	var inputer input.Inputer
-	if taskCfg.Kafka != "" {
-		inputer = input.NewInputer(taskCfg.KafkaClient)
-	}
-	taskImpl = task.NewTaskService(inputer, ck, pp, cfg, taskName)
+	inputer := input.NewInputer(taskCfg.KafkaClient)
+	taskImpl = task.NewTaskService(inputer, ck, pp, cfg)
 	return
 }
 
@@ -167,12 +145,7 @@ func main() {
 	util.Run("clickhouse_sinker", func() error {
 		var rcm config.RemoteConfManager
 		var properties map[string]interface{}
-		if cmdOps.ConsulRegister {
-			rcm = &config.ConsulConfManager{}
-			properties = make(map[string]interface{})
-			properties["consulAddr"] = cmdOps.ConsulAddr
-			properties["deregisterCriticalServiceAfter"] = cmdOps.ConsulDeregisterCriticalServiceAfter
-		} else if cmdOps.NacosRegister {
+		if cmdOps.NacosDataID != "" {
 			rcm = &config.NacosConfManager{}
 			properties = make(map[string]interface{})
 			properties["serverAddrs"] = cmdOps.NacosAddr
@@ -180,12 +153,10 @@ func main() {
 			properties["password"] = cmdOps.NacosPassword
 			properties["namespaceId"] = cmdOps.NacosNamespaceID
 			properties["group"] = cmdOps.NacosGroup
+			properties["dataId"] = cmdOps.NacosDataID
 		}
 		if rcm != nil {
 			if err := rcm.Init(properties); err != nil {
-				log.Fatalf("%+v", err)
-			}
-			if err := rcm.Register(selfIP, cmdOps.HTTPPort); err != nil {
 				log.Fatalf("%+v", err)
 			}
 		}
@@ -233,7 +204,7 @@ func main() {
 type Sinker struct {
 	curCfg *config.Config
 	pusher *statistics.Pusher
-	tasks  map[string]*task.Service
+	task   *task.Service
 	rcm    config.RemoteConfManager
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -247,12 +218,11 @@ func NewSinker(rcm config.RemoteConfManager) *Sinker {
 	return s
 }
 
-// Init initializes the list of tasks
 func (s *Sinker) Init() (err error) {
 	return
 }
 
-// Run rull all tasks in different go routines
+// Run rull task in different go routines
 func (s *Sinker) Run() {
 	var err error
 	var newCfg *config.Config
@@ -270,11 +240,6 @@ func (s *Sinker) Run() {
 				log.Fatalf("%+v", err)
 				return
 			}
-		} else if _, err = os.Stat(cmdOps.LocalCfgDir); err == nil {
-			if newCfg, err = config.ParseLocalCfgDir(cmdOps.LocalCfgDir); err != nil {
-				log.Fatalf("%+v", err)
-				return
-			}
 		} else {
 			log.Fatalf("expect --local-cfg-file or --local-cfg-dir")
 			return
@@ -283,8 +248,6 @@ func (s *Sinker) Run() {
 			log.Fatalf("%+v", err)
 			return
 		}
-		// Assign all tasks to myself.
-		newCfg.AssignTasks([]config.Instance{{Addr: selfAddr, Weight: 1}})
 		if err = s.applyConfig(newCfg); err != nil {
 			log.Fatalf("%+v", err)
 			return
@@ -313,12 +276,10 @@ func (s *Sinker) Run() {
 	}
 }
 
-// Close shutdown tasks
+// Close shutdown task
 func (s *Sinker) Close() {
 	s.cancel()
-	for _, task := range s.tasks {
-		task.Stop()
-	}
+	s.task.Stop()
 
 	util.GlobalParsingPool.StopWait()
 	util.GlobalWritingPool.StopWait()
@@ -327,14 +288,11 @@ func (s *Sinker) Close() {
 	if s.pusher != nil {
 		s.pusher.Stop()
 	}
-	if s.rcm != nil {
-		_ = s.rcm.Deregister(selfIP, cmdOps.HTTPPort)
-	}
 }
 
 func (s *Sinker) applyConfig(newCfg *config.Config) (err error) {
 	var lvl log.Level
-	if lvl, err = log.ParseLevel(newCfg.Common.LogLevel); err != nil {
+	if lvl, err = log.ParseLevel(newCfg.LogLevel); err != nil {
 		err = errors.Wrapf(err, "")
 		return
 	}
@@ -357,18 +315,12 @@ func (s *Sinker) applyFirstConfig(newCfg *config.Config) (err error) {
 	log.Infof("going to apply the first config: %+v", string(bsNewCfg))
 
 	util.InitGlobalTimerWheel()
-	concurrentParsers := 10
-	s.tasks = make(map[string]*task.Service)
-	if taskNames, ok := newCfg.Assignment[selfAddr]; ok {
-		for _, taskName := range taskNames {
-			t := GenTask(newCfg, taskName)
-			if err = t.Init(); err != nil {
-				return
-			}
-			s.tasks[taskName] = t
-		}
-		concurrentParsers = len(taskNames) * 10
+	t := GenTask(newCfg)
+	if err = t.Init(); err != nil {
+		return
 	}
+	s.task = t
+	concurrentParsers := 10
 	if runtime.NumCPU() >= 2 {
 		if concurrentParsers > runtime.NumCPU()/2 {
 			concurrentParsers = runtime.NumCPU() / 2
@@ -380,9 +332,7 @@ func (s *Sinker) applyFirstConfig(newCfg *config.Config) (err error) {
 	totalConn := pool.GetTotalConn()
 	util.InitGlobalWritingPool(totalConn)
 
-	for _, t := range s.tasks {
-		go t.Run(s.ctx)
-	}
+	go s.task.Run(s.ctx)
 	s.curCfg = newCfg
 	return
 }
@@ -394,89 +344,33 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 		return
 	}
 	log.Infof("going to apply a different config: %+v", string(bsNewCfg))
-	//1. Found all tasks need to stop.
-	// Each such task matches at least one of the following conditions:
-	// - task not in new assignment
-	// - task config differ
-	// - task clickhouse config differ
-	// - task kafka config differ
-	var tasksToStop []string
-	if taskNames, ok := s.curCfg.Assignment[selfAddr]; ok {
-		for _, taskName := range taskNames {
-			var needStop bool
-			curTaskCfg := s.curCfg.Tasks[taskName]
-			if newTaskCfg, ok2 := newCfg.Tasks[taskName]; ok2 {
-				if !reflect.DeepEqual(newTaskCfg, curTaskCfg) {
-					needStop = true
-				} else {
-					chName := curTaskCfg.Clickhouse
-					curChCfg := s.curCfg.Clickhouse[chName]
-					newChCfg := newCfg.Clickhouse[chName]
-					if !reflect.DeepEqual(newChCfg, curChCfg) {
-						needStop = true
-					}
-					kfkName := curTaskCfg.Kafka
-					curKfkCfg := s.curCfg.Kafka[kfkName]
-					newKfkCfg := newCfg.Kafka[kfkName]
-					if !reflect.DeepEqual(newKfkCfg, curKfkCfg) {
-						needStop = true
-					}
-				}
-			} else {
-				needStop = true
-			}
-			if needStop {
-				tasksToStop = append(tasksToStop, taskName)
-			}
-		}
-	}
-	// 2. Stop all tasks in parallel found at previous step.
-	for _, taskName := range tasksToStop {
-		if task, ok := s.tasks[taskName]; ok {
-			task.NotifyStop()
-		}
-	}
-	for _, taskName := range tasksToStop {
-		if task, ok := s.tasks[taskName]; ok {
-			task.Stop()
-			delete(s.tasks, taskName)
-		} else {
-			log.Warnf("Failed to stop task %s. It's disappeared.", taskName)
-		}
-	}
-	// 3. Initailize all tasks which are new or their config differ.
-	var newTasks []*task.Service
-	if taskNames, ok := newCfg.Assignment[selfAddr]; ok {
-		for _, taskName := range taskNames {
-			if _, ok2 := s.tasks[taskName]; !ok2 {
-				t := GenTask(newCfg, taskName)
-				if err = t.Init(); err != nil {
-					return
-				}
-				s.tasks[taskName] = t
-				newTasks = append(newTasks, t)
-			}
-		}
-	}
-	// 4. Resize goroutine pools.
-	concurrentParsers := len(s.tasks) * 10
-	if runtime.NumCPU() >= 2 {
-		if concurrentParsers > runtime.NumCPU()/2 {
-			concurrentParsers = runtime.NumCPU() / 2
-		}
-	} else {
-		concurrentParsers = 1
-	}
-	util.GlobalParsingPool.Resize(concurrentParsers)
-	totalConn := pool.GetTotalConn()
-	util.GlobalWritingPool.Resize(totalConn)
 
-	// 5. Start new tasks. We don't do it at step 3 in order to avoid goroutine leak due to errors raised by later steps.
-	for _, t := range newTasks {
+	if !reflect.DeepEqual(newCfg.Kafka, s.curCfg.Kafka) || !reflect.DeepEqual(newCfg.Clickhouse, s.curCfg.Clickhouse) || !reflect.DeepEqual(newCfg.Task, s.curCfg.Task) {
+		// 1. Stop task
+		s.task.Stop()
+
+		// 2. Generate, initialize and start task
+		t := GenTask(newCfg)
+		if err = t.Init(); err != nil {
+			return
+		}
 		go t.Run(s.ctx)
-	}
+		s.task = t
 
-	// 6. Record the new config.
+		// 3. Resize goroutine pools.
+		concurrentParsers := 10
+		if runtime.NumCPU() >= 2 {
+			if concurrentParsers > runtime.NumCPU()/2 {
+				concurrentParsers = runtime.NumCPU() / 2
+			}
+		} else {
+			concurrentParsers = 1
+		}
+		util.GlobalParsingPool.Resize(concurrentParsers)
+		totalConn := pool.GetTotalConn()
+		util.GlobalWritingPool.Resize(totalConn)
+	}
+	// Record the new config
 	s.curCfg = newCfg
 	return
 }

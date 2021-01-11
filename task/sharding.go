@@ -112,14 +112,15 @@ type Sharder struct {
 
 func NewSharder(service *Service) (sh *Sharder, err error) {
 	var policy *ShardingPolicy
-	ckNum := pool.GetNumConn(service.taskCfg.Clickhouse)
-	if policy, err = NewShardingPolicy(service.taskCfg.ShardingKey, service.taskCfg.ShardingPolicy, service.clickhouse.Dms, ckNum); err != nil {
+	ckNum := pool.GetTotalConn()
+	taskCfg := &service.cfg.Task
+	if policy, err = NewShardingPolicy(taskCfg.ShardingKey, taskCfg.ShardingPolicy, service.clickhouse.Dms, ckNum); err != nil {
 		return
 	}
 	sh = &Sharder{
 		service:  service,
 		policy:   policy,
-		batchSys: model.NewBatchSys(service.taskCfg, service.fnCommit),
+		batchSys: model.NewBatchSys(taskCfg, service.fnCommit),
 		ckNum:    ckNum,
 		msgBuf:   make([]*model.Rows, ckNum),
 		offsets:  make([]int64, 0),
@@ -139,6 +140,7 @@ func (sh *Sharder) PutElems(partition int, ringBuf []model.MsgRow, begOff, endOf
 	defer sh.mux.Unlock()
 	var gaps []OffsetRange
 	var parseErrs int
+	taskCfg := &sh.service.cfg.Task
 	gapBegOff := int64(-1)
 	for i := begOff; i < endOff; i++ {
 		msgRow := &ringBuf[i&(ringCap-1)]
@@ -172,7 +174,7 @@ func (sh *Sharder) PutElems(partition int, ringBuf []model.MsgRow, begOff, endOf
 	}
 	if msgCnt > 0 {
 		sh.offsets[partition] = endOff - 1
-		statistics.ShardMsgs.WithLabelValues(sh.service.taskCfg.Name).Add(float64(msgCnt))
+		statistics.ShardMsgs.WithLabelValues(taskCfg.Name).Add(float64(msgCnt))
 	}
 	var maxBatchSize int
 	for i := 0; i < sh.ckNum; i++ {
@@ -182,9 +184,9 @@ func (sh *Sharder) PutElems(partition int, ringBuf []model.MsgRow, begOff, endOf
 		}
 	}
 	log.Debugf("%s: sharded a batch for topic %v patittion %d, offset %d, messages %d, gaps: %+v, parse errors: %d",
-		sh.service.taskCfg.Name, sh.service.taskCfg.Topic, partition, endOff-1,
+		taskCfg.Name, taskCfg.Topic, partition, endOff-1,
 		msgCnt, gaps, parseErrs)
-	if maxBatchSize >= sh.service.taskCfg.BufferSize {
+	if maxBatchSize >= taskCfg.BufferSize {
 		sh.doFlush(nil)
 	}
 	return
@@ -201,6 +203,7 @@ func (sh *Sharder) doFlush(_ interface{}) {
 	var err error
 	var msgCnt int
 	var batches []*model.Batch
+	taskCfg := &sh.service.cfg.Task
 	for i, rows := range sh.msgBuf {
 		realSize := len(*rows)
 		if realSize > 0 {
@@ -215,20 +218,20 @@ func (sh *Sharder) doFlush(_ interface{}) {
 		}
 	}
 	if msgCnt > 0 {
-		log.Debugf("%s: going to flush batch group for topic %v, offsets %+v, messages %d", sh.service.taskCfg.Name, sh.service.taskCfg.Name, sh.offsets, msgCnt)
+		log.Debugf("%s: going to flush batch group for topic %v, offsets %+v, messages %d", taskCfg.Name, taskCfg.Name, sh.offsets, msgCnt)
 		sh.batchSys.CreateBatchGroupMulti(batches, sh.offsets)
 		sh.offsets = sh.offsets[:0]
 		// ALL batches in a group shall be populated before sending any one to next stage.
 		for _, batch := range batches {
 			sh.service.batchChan <- batch
 		}
-		statistics.ShardMsgs.WithLabelValues(sh.service.taskCfg.Name).Sub(float64(msgCnt))
+		statistics.ShardMsgs.WithLabelValues(taskCfg.Name).Sub(float64(msgCnt))
 	}
 
 	// reschedule the delayed ForceFlush
 	sh.tid.Stop()
-	if sh.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(sh.service.taskCfg.FlushInterval)*time.Second, sh.ForceFlush, nil); err != nil {
+	if sh.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(taskCfg.FlushInterval)*time.Second, sh.ForceFlush, nil); err != nil {
 		err = errors.Wrap(err, "")
-		log.Fatalf("%s: got error %+v", sh.service.taskCfg.Name, err)
+		log.Fatalf("%s: got error %+v", taskCfg.Name, err)
 	}
 }

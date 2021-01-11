@@ -6,7 +6,7 @@ Download the binary files from [release](https://github.com/housepower/clickhous
 
 ## By container image
 
-`docker run --volume conf:/etc/clickhouse_sinker quay.io/housepower/clickhouse_sinker`
+`docker pull quay.io/housepower/clickhouse_sinker`
 
 ## By source
 
