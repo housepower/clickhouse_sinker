@@ -17,18 +17,12 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"os"
 	"reflect"
-	"runtime"
-	"strconv"
-	"strings"
 	"time"
 
 	_ "github.com/ClickHouse/clickhouse-go"
 	"github.com/housepower/clickhouse_sinker/config"
-	"github.com/housepower/clickhouse_sinker/util"
-	"github.com/k0kubun/pp"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -43,11 +37,10 @@ var (
 		`nacos namespace ID. Neither DEFAULT_NAMESPACE_ID("public") nor namespace name work!`)
 	nacosGroup = flag.String("nacos-group", "DEFAULT_GROUP",
 		`nacos group name. Empty string doesn't work!`)
+	nacosDataID = flag.String("nacos-dataid", "",
+		`nacos data id, the task name`)
 
-	localCfgDir  = flag.String("local-cfg-dir", "/etc/clickhouse_sinker", "local config dir")
 	localCfgFile = flag.String("local-cfg-file", "/etc/clickhouse_sinker.json", "local config file")
-	instances    = flag.String("instances", "", "a list of comma-separated ip:port[@weight]")
-	testRegister = flag.Bool("test-register", false, "whether run TestRegister")
 )
 
 // Empty is not valid namespaceID
@@ -58,6 +51,7 @@ func getProperties() map[string]interface{} {
 	properties["password"] = *nacosPassword
 	properties["namespaceId"] = *nacosNamespaceID
 	properties["group"] = *nacosGroup
+	properties["dataId"] = *nacosDataID
 	return properties
 }
 
@@ -69,13 +63,8 @@ func PublishSinkerConfig() {
 			log.Fatalf("%+v", err)
 			return
 		}
-	} else if _, err = os.Stat(*localCfgDir); err == nil {
-		if cfg, err = config.ParseLocalCfgDir(*localCfgDir); err != nil {
-			log.Fatalf("%+v", err)
-			return
-		}
 	} else {
-		log.Fatalf("expect --local-cfg-file or --local-cfg-dir")
+		log.Fatalf("expect --local-cfg-file")
 		return
 	}
 
@@ -83,26 +72,6 @@ func PublishSinkerConfig() {
 		log.Fatalf("%+v", err)
 		return
 	}
-
-	var insts []config.Instance
-	if *instances == "" {
-		sinkerAddr := fmt.Sprintf("%s:%d", util.GetOutboundIP().String(), 2112)
-		insts = []config.Instance{{Addr: sinkerAddr, Weight: 1}}
-	} else {
-		for _, instInfo := range strings.Split(*instances, ",") {
-			var inst config.Instance
-			fields := strings.Split(instInfo, "@")
-			inst.Addr = fields[0]
-			if len(fields) >= 2 {
-				if inst.Weight, err = strconv.Atoi(fields[1]); err != nil {
-					log.Fatalf("%+v", err)
-				}
-			}
-			insts = append(insts, inst)
-		}
-	}
-	cfg.AssignTasks(insts)
-	_, _ = pp.Println("going to publish following config: ", cfg)
 
 	ncm := config.NacosConfManager{}
 	properties := getProperties()
@@ -125,88 +94,10 @@ func PublishSinkerConfig() {
 	}
 }
 
-func TestRegister() {
-	var err error
-	ncm := config.NacosConfManager{}
-	properties := getProperties()
-	if err = ncm.Init(properties); err != nil {
-		log.Fatalf("%+v", err)
-	}
-
-	var insts []config.Instance
-	log.Infof("nacos try to deregister all existing instances")
-	if insts, err = ncm.GetInstances(); err == nil {
-		for _, inst := range insts {
-			fields := strings.Split(inst.Addr, ":")
-			ip := fields[0]
-			var port int
-			if port, err = strconv.Atoi(fields[1]); err != nil {
-				log.Fatalf("failed to parse address %+v", inst.Addr)
-			}
-			log.Infof("nacos try to deregister %s:%d", ip, port)
-			if err = ncm.Deregister(ip, port); err != nil {
-				log.Warnf("ncm.Deregister(%s, %d) failed. %+v", ip, port, err)
-			}
-		}
-	} else {
-		log.Warnf("ncm.GetInstances failed. %+v", err)
-	}
-
-	ip := "127.0.0.1"
-	port := 22
-	//naming_client.NamingClient.SelectInstances() throws errors if "do not have useful host, ignore it", "instance list is empty!"
-	//So there shall be at leas one alive instance during the test.
-	log.Infof("nacos register %s:%d", ip, port)
-	if err = ncm.Register(ip, port); err != nil {
-		log.Fatalf("%+v", err)
-	}
-	log.Infof("nacos register %s:%d", ip, port+1)
-	if err = ncm.Register(ip, port+1); err != nil {
-		log.Fatalf("%+v", err)
-	}
-
-	expInsts := []config.Instance{
-		{Addr: fmt.Sprintf("%s:%d", ip, port), Weight: runtime.NumCPU()},
-		{Addr: fmt.Sprintf("%s:%d", ip, port+1), Weight: runtime.NumCPU()},
-	}
-	//naming_client.HostReactor.asyncUpdateService() updates cache every 10s.
-	//So we need sleep a while to ensure at leas one update occurred.
-	time.Sleep(10 * time.Second)
-	if insts, err = ncm.GetInstances(); err != nil {
-		log.Fatalf("%+v", err)
-	}
-	if !reflect.DeepEqual(expInsts, insts) {
-		log.Fatalf("got different instances: %+v", insts)
-	}
-
-	log.Infof("nacos deregister %s:%d", ip, port)
-	if err = ncm.Deregister(ip, port); err != nil {
-		log.Fatalf("%+v", err)
-	}
-	expInsts = []config.Instance{
-		{Addr: fmt.Sprintf("%s:%d", ip, port+1), Weight: runtime.NumCPU()},
-	}
-	time.Sleep(10 * time.Second)
-	if insts, err = ncm.GetInstances(); err != nil {
-		log.Fatalf("%+v", err)
-	}
-	if !reflect.DeepEqual(expInsts, insts) {
-		log.Fatalf("got different instances: %+v", insts)
-	}
-
-	if err = ncm.Deregister(ip, port); err != nil {
-		log.Fatalf("%+v", err)
-	}
-	//naming_client.NamingClient.SelectInstances() throws errors "instance list is empty!"
-}
-
 func main() {
 	log.SetFormatter(&log.TextFormatter{
 		FullTimestamp: true,
 	})
 	flag.Parse()
-	if *testRegister {
-		TestRegister()
-	}
 	PublishSinkerConfig()
 }

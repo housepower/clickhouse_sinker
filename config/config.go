@@ -18,9 +18,6 @@ package config
 import (
 	"encoding/json"
 	"io/ioutil"
-	"os"
-	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -32,41 +29,18 @@ import (
 // RemoteConfManager can be implemented by many backends: Nacos, Consul, etcd, ZooKeeper...
 type RemoteConfManager interface {
 	Init(properties map[string]interface{}) error
-	// Register this instance, and keep-alive via heartbeat.
-	Register(ip string, port int) error
-	Deregister(ip string, port int) error
-	// GetInstances fetchs healthy instances.
-	// Mature service-discovery solutions(Nacos, Consul etc.) have client side cache
-	// so that frequent invoking of GetInstances() and GetGlobalConfig() don't harm.
-	GetInstances() (instances []Instance, err error)
 	// GetConfig fetchs the config. The manager shall not reference the returned Config object after call.
 	GetConfig() (conf *Config, err error)
-	// PublishConfig publishs the config. The manager shall not reference the passed Config object after call.
+	// PublishConfig publishs the config.
 	PublishConfig(conf *Config) (err error)
-}
-
-type Instance struct {
-	Addr   string
-	Weight int
 }
 
 // Config struct used for different configurations use
 type Config struct {
-	Kafka      map[string]*KafkaConfig
-	Clickhouse map[string]*ClickHouseConfig
-	Tasks      map[string]*TaskConfig
-	Common     struct {
-		FlushInterval    int
-		BufferSize       int
-		MinBufferSize    int
-		MsgSizeHint      int
-		LayoutDate       string
-		LayoutDateTime   string
-		LayoutDateTime64 string
-		LogLevel         string
-		Replicas         int //on how many sinker instances a task runs
-	}
-	Assignment map[string][]string //map instance_name to a list of task_name
+	Kafka      KafkaConfig
+	Clickhouse ClickHouseConfig
+	Task       TaskConfig
+	LogLevel   string
 }
 
 // KafkaConfig configuration parameters
@@ -123,7 +97,6 @@ type TaskConfig struct {
 	Name string
 
 	KafkaClient   string
-	Kafka         string
 	Topic         string
 	ConsumerGroup string
 
@@ -134,8 +107,7 @@ type TaskConfig struct {
 	CsvFormat []string
 	Delimiter string
 
-	Clickhouse string
-	TableName  string
+	TableName string
 
 	// AutoSchema will auto fetch the schema from clickhouse
 	AutoSchema     bool
@@ -158,7 +130,6 @@ type TaskConfig struct {
 	LayoutDate       string `json:"layoutDate,omitempty"`
 	LayoutDateTime   string `json:"layoutDateTime,omitempty"`
 	LayoutDateTime64 string `json:"layoutDateTime64,omitempty"`
-	Replicas         int    //on how many sinker instances this task runs
 }
 
 const (
@@ -169,45 +140,8 @@ const (
 	defaultLayoutDate       = "2006-01-02"
 	defaultLayoutDateTime   = time.RFC3339
 	defaultLayoutDateTime64 = time.RFC3339
-	defaultTaskReplicas     = 1
+	defaultLogLevel         = "info"
 )
-
-func ParseLocalCfgDir(cfgPath string) (cfg *Config, err error) {
-	var f = "config.json"
-	f = filepath.Join(cfgPath, f)
-	var s string
-	if s, err = util.ExtendFile(f); err != nil {
-		err = errors.Wrapf(err, "")
-		return
-	}
-	cfg = &Config{}
-	if err = json.Unmarshal([]byte(s), cfg); err != nil {
-		err = errors.Wrapf(err, "")
-		return
-	}
-
-	var files []os.FileInfo
-	if files, err = ioutil.ReadDir(filepath.Join(cfgPath, "tasks")); err != nil {
-		err = errors.Wrapf(err, "")
-		return
-	}
-	cfg.Tasks = make(map[string]*TaskConfig)
-	for _, f := range files {
-		if strings.HasSuffix(f.Name(), ".json") {
-			if s, err = util.ExtendFile(filepath.Join(cfgPath, "tasks", f.Name())); err != nil {
-				err = errors.Wrapf(err, "")
-				return
-			}
-			taskConfig := &TaskConfig{}
-			if err = json.Unmarshal([]byte(s), taskConfig); err != nil {
-				err = errors.Wrapf(err, "")
-				return
-			}
-			cfg.Tasks[taskConfig.Name] = taskConfig
-		}
-	}
-	return
-}
 
 func ParseLocalCfgFile(cfgPath string) (cfg *Config, err error) {
 	cfg = &Config{}
@@ -224,154 +158,69 @@ func ParseLocalCfgFile(cfgPath string) (cfg *Config, err error) {
 	return
 }
 
-func (cfg *Config) AssignTasks(instances []Instance) {
-	cfg.Assignment = make(map[string][]string)
-	assignment := make(map[string]map[string]int)
-	hr := util.NewHashRing(nil)
-	for _, inst := range instances {
-		hr.Add(inst.Addr, inst.Weight)
-		cfg.Assignment[inst.Addr] = make([]string, 0)
-		assignment[inst.Addr] = make(map[string]int)
-	}
-	for _, taskConfig := range cfg.Tasks {
-		for i := 0; i < taskConfig.Replicas; i++ {
-			instAddr := hr.Get(taskConfig.Name)
-			assignment[instAddr][taskConfig.Name] = 1
-		}
-	}
-	for _, inst := range instances {
-		for taskName := range assignment[inst.Addr] {
-			cfg.Assignment[inst.Addr] = append(cfg.Assignment[inst.Addr], taskName)
-		}
-		sort.Strings(cfg.Assignment[inst.Addr])
-	}
-}
-
 // normallize and validate configuration
 func (cfg *Config) Normallize() (err error) {
-	if cfg.Common.FlushInterval <= 0 {
-		cfg.Common.FlushInterval = defaultFlushInterval
+	if cfg.Kafka.Version == "" {
+		cfg.Kafka.Version = "2.2.1"
 	}
-	if cfg.Common.BufferSize <= 0 {
-		cfg.Common.BufferSize = defaultBufferSize
+	if cfg.Kafka.Sasl.Enable {
+		cfg.Kafka.Sasl.Mechanism = strings.ToUpper(cfg.Kafka.Sasl.Mechanism)
+		switch cfg.Kafka.Sasl.Mechanism {
+		case "PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512", "GSSAPI":
+		default:
+			err = errors.Errorf("kafka SASL mechanism %s is unsupported", cfg.Kafka.Sasl.Mechanism)
+			return
+		}
+	}
+	if cfg.Clickhouse.RetryTimes < 0 {
+		cfg.Clickhouse.RetryTimes = 0
+	}
+
+	if cfg.Kafka.Sasl.Enable && cfg.Kafka.Sasl.Username == "" {
+		//kafka-go doesn't support SASL/GSSAPI(Kerberos). https://github.com/segmentio/kafka-go/issues/539
+		cfg.Task.KafkaClient = "sarama"
+	} else if cfg.Task.KafkaClient == "" {
+		cfg.Task.KafkaClient = "kafka-go"
+	}
+	if cfg.Task.Parser == "" {
+		cfg.Task.Parser = "fastjson"
+	}
+
+	for i := range cfg.Task.Dims {
+		if cfg.Task.Dims[i].SourceName == "" {
+			cfg.Task.Dims[i].SourceName = util.GetSourceName(cfg.Task.Dims[i].Name)
+		}
+	}
+
+	if cfg.Task.FlushInterval <= 0 {
+		cfg.Task.FlushInterval = defaultFlushInterval
+	}
+	if cfg.Task.BufferSize <= 0 {
+		cfg.Task.BufferSize = defaultBufferSize
 	} else {
-		cfg.Common.BufferSize = 1 << util.GetShift(cfg.Common.BufferSize)
+		cfg.Task.BufferSize = 1 << util.GetShift(cfg.Task.BufferSize)
 	}
-	if cfg.Common.MinBufferSize <= 0 {
-		cfg.Common.MinBufferSize = defaultMinBufferSize
+	if cfg.Task.MinBufferSize <= 0 {
+		cfg.Task.MinBufferSize = defaultMinBufferSize
 	} else {
-		cfg.Common.MinBufferSize = 1 << util.GetShift(cfg.Common.MinBufferSize)
+		cfg.Task.MinBufferSize = 1 << util.GetShift(cfg.Task.MinBufferSize)
 	}
-	if cfg.Common.MsgSizeHint <= 0 {
-		cfg.Common.MsgSizeHint = defaultMsgSizeHint
+	if cfg.Task.MsgSizeHint <= 0 {
+		cfg.Task.MsgSizeHint = defaultMsgSizeHint
 	}
-	if cfg.Common.LayoutDate == "" {
-		cfg.Common.LayoutDate = defaultLayoutDate
+	if cfg.Task.LayoutDate == "" {
+		cfg.Task.LayoutDate = defaultLayoutDate
 	}
-	if cfg.Common.LayoutDateTime == "" {
-		cfg.Common.LayoutDateTime = defaultLayoutDateTime
+	if cfg.Task.LayoutDateTime == "" {
+		cfg.Task.LayoutDateTime = defaultLayoutDateTime
 	}
-	if cfg.Common.LayoutDateTime64 == "" {
-		cfg.Common.LayoutDateTime64 = defaultLayoutDateTime64
+	if cfg.Task.LayoutDateTime64 == "" {
+		cfg.Task.LayoutDateTime64 = defaultLayoutDateTime64
 	}
-	switch strings.ToLower(cfg.Common.LogLevel) {
+	switch strings.ToLower(cfg.LogLevel) {
 	case "panic", "fatal", "error", "warn", "warning", "info", "debug", "trace":
 	default:
-		cfg.Common.LogLevel = "info"
-	}
-	if cfg.Common.Replicas <= 0 {
-		cfg.Common.Replicas = defaultTaskReplicas
-	}
-	if err = cfg.normallizeTasks(); err != nil {
-		return
-	}
-	for kfkName, kfkConfig := range cfg.Kafka {
-		if kfkConfig.Version == "" {
-			kfkConfig.Version = "2.2.1"
-		}
-		if kfkConfig.Sasl.Enable {
-			kfkConfig.Sasl.Mechanism = strings.ToUpper(kfkConfig.Sasl.Mechanism)
-			switch kfkConfig.Sasl.Mechanism {
-			case "PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512", "GSSAPI":
-			default:
-				err = errors.Errorf("kafka %s mechanism %s is unsupported", kfkName, kfkConfig.Sasl.Mechanism)
-				return
-			}
-		}
-	}
-	for _, chConfig := range cfg.Clickhouse {
-		if chConfig.RetryTimes < 0 {
-			chConfig.RetryTimes = 0
-		}
-	}
-	for instAddr, taskNames := range cfg.Assignment {
-		sort.Strings(taskNames)
-		for _, taskName := range taskNames {
-			if _, ok := cfg.Tasks[taskName]; !ok {
-				err = errors.Errorf("instance %s assignment is invalid, task %s doesn't exit", instAddr, taskName)
-				return
-			}
-		}
-	}
-	return
-}
-
-func (cfg *Config) normallizeTasks() (err error) {
-	for taskName, taskConfig := range cfg.Tasks {
-		if _, ok := cfg.Kafka[taskConfig.Kafka]; !ok {
-			err = errors.Errorf("task %s config is invalid, kafka %s doesn't exist.", taskConfig.Name, taskConfig.Kafka)
-			return
-		}
-		if _, ok := cfg.Clickhouse[taskConfig.Clickhouse]; !ok {
-			err = errors.Errorf("task %s config is invalid, clickhouse %s doesn't exist.", taskConfig.Name, taskConfig.Clickhouse)
-			return
-		}
-		if taskConfig.Name != taskName {
-			taskConfig.Name = taskName
-		}
-		kfkCfg := cfg.Kafka[taskConfig.Kafka]
-		if kfkCfg.Sasl.Enable && kfkCfg.Sasl.Username == "" {
-			//kafka-go doesn't support SASL/GSSAPI(Kerberos). https://github.com/segmentio/kafka-go/issues/539
-			taskConfig.KafkaClient = "sarama"
-		} else if taskConfig.KafkaClient == "" {
-			taskConfig.KafkaClient = "kafka-go"
-		}
-		if taskConfig.Parser == "" {
-			taskConfig.Parser = "fastjson"
-		}
-		if taskConfig.FlushInterval <= 0 {
-			taskConfig.FlushInterval = cfg.Common.FlushInterval
-		}
-		if taskConfig.BufferSize <= 0 {
-			taskConfig.BufferSize = cfg.Common.BufferSize
-		} else {
-			taskConfig.BufferSize = 1 << util.GetShift(taskConfig.BufferSize)
-		}
-		if taskConfig.MinBufferSize <= 0 {
-			taskConfig.MinBufferSize = cfg.Common.MinBufferSize
-		} else {
-			taskConfig.MinBufferSize = 1 << util.GetShift(taskConfig.BufferSize)
-		}
-		if taskConfig.MsgSizeHint <= 0 {
-			taskConfig.MsgSizeHint = cfg.Common.MsgSizeHint
-		}
-		if taskConfig.LayoutDate == "" {
-			taskConfig.LayoutDate = cfg.Common.LayoutDate
-		}
-		if taskConfig.LayoutDateTime == "" {
-			taskConfig.LayoutDateTime = cfg.Common.LayoutDateTime
-		}
-		if taskConfig.LayoutDateTime64 == "" {
-			taskConfig.LayoutDateTime64 = cfg.Common.LayoutDateTime64
-		}
-		if taskConfig.Replicas <= 0 {
-			taskConfig.Replicas = cfg.Common.Replicas
-		}
-		for i := range taskConfig.Dims {
-			if taskConfig.Dims[i].SourceName == "" {
-				taskConfig.Dims[i].SourceName = util.GetSourceName(taskConfig.Dims[i].Name)
-			}
-		}
+		cfg.LogLevel = defaultLogLevel
 	}
 	return
 }

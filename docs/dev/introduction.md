@@ -233,7 +233,7 @@ The precedence of config items:
 Sinker is able to register with Nacos, get and apply config changes dynamically without restart the whole process.
 Controled by:
 
-- CLI parameters: `nacos-register-enable, nacos-addr, nacos-namespace-id, nacos-group, nacos-username, nacos-password`
+- CLI parameters: `nacos-cfg-enable, nacos-addr, nacos-namespace-id, nacos-group, nacos-username, nacos-password`
 - env variables: `NACOS_REGISTER_ENABLE, NACOS_ADDR, NACOS_NAMESPACE_ID, NACOS_GROUP, NACOS_USERNAME, NACOS_PASSWORD`
 
 ### Consul
@@ -241,7 +241,7 @@ Controled by:
 Currently sinker is able to register with Consul, but unable to get config.
 Controled by:
 
-- CLI parameters: `consul-register-enable, consul-addr, consul-deregister-critical-services-after`
+- CLI parameters: `consul-cfg-enable, consul-addr, consul-deregister-critical-services-after`
 - env variables: `CONSUL_REGISTER_ENABLE, CONSUL_ADDR, CONSUL_DEREGISTER_CRITICAL_SERVICES_AFTER`
 
 ### Local Files
@@ -260,7 +260,7 @@ All metrics are defined in `statistics.go`. You can create Grafana dashboard for
 
 Metrics are exposed at `http://ip:port/metrics`. IP is the outbound IP of this machine. Port is from CLI `--http-port` or env `HTTP_PORT`.
 
-Sinker registers with Nacos if CLI `--consul-register-enable` or env `CONSUL_REGISTER_ENABLE` is present. However Prometheus is [unable](https://github.com/alibaba/nacos/issues/1032) to obtain dynamic service list from nacos server.
+Sinker registers with Nacos if CLI `--consul-cfg-enable` or env `CONSUL_REGISTER_ENABLE` is present. However Prometheus is [unable](https://github.com/alibaba/nacos/issues/1032) to obtain dynamic service list from nacos server.
 
 - Push to promethues
 

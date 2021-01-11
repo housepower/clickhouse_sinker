@@ -32,6 +32,7 @@ type Ring struct {
 
 func (ring *Ring) PutElem(msgRow model.MsgRow) {
 	var err error
+	taskCfg := &ring.service.cfg.Task
 	msgOffset := msgRow.Msg.Offset
 	ring.mux.Lock()
 	defer ring.mux.Unlock()
@@ -43,7 +44,7 @@ func (ring *Ring) PutElem(msgRow model.MsgRow) {
 		ring.idleCnt = 0
 		ring.isIdle = false
 		ring.ringBuf = make([]model.MsgRow, ring.ringCap)
-		log.Infof("%s: topic %s partition %d quit idle", ring.service.taskCfg.Name, ring.service.taskCfg.Topic, ring.partition)
+		log.Infof("%s: topic %s partition %d quit idle", taskCfg.Name, taskCfg.Topic, ring.partition)
 	}
 	// assert(msgOffset < ring.ringGroundOff + ring.ringCap)
 	if msgOffset >= ring.ringCeilingOff {
@@ -52,10 +53,10 @@ func (ring *Ring) PutElem(msgRow model.MsgRow) {
 
 	if ring.service.sharder != nil && msgRow.Row != nil {
 		if msgRow.Shard, err = ring.service.sharder.Calc(msgRow.Row); err != nil {
-			log.Fatalf("%s: got error %+v", ring.service.taskCfg.Name, err)
+			log.Fatalf("%s: got error %+v", taskCfg.Name, err)
 		}
 	}
-	statistics.RingMsgs.WithLabelValues(ring.service.taskCfg.Name).Inc()
+	statistics.RingMsgs.WithLabelValues(taskCfg.Name).Inc()
 	ring.ringBuf[msgOffset&(ring.ringCap-1)] = msgRow
 	for ; ring.ringFilledOffset < ring.ringCeilingOff && ring.ringBuf[ring.ringFilledOffset&(ring.ringCap-1)].Msg != nil; ring.ringFilledOffset++ {
 	}
@@ -63,9 +64,9 @@ func (ring *Ring) PutElem(msgRow model.MsgRow) {
 		ring.genBatchOrShard(ring.ringFilledOffset)
 		// reschedule the delayed ForceBatchOrShard
 		ring.tid.Stop()
-		if ring.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(ring.service.taskCfg.FlushInterval)*time.Second, ring.ForceBatchOrShard, nil); err != nil {
+		if ring.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(taskCfg.FlushInterval)*time.Second, ring.ForceBatchOrShard, nil); err != nil {
 			err = errors.Wrap(err, "")
-			log.Fatalf("%s: got error %+v", ring.service.taskCfg.Name, err)
+			log.Fatalf("%s: got error %+v", taskCfg.Name, err)
 		}
 	}
 }
@@ -77,9 +78,10 @@ type OffsetRange struct {
 
 func (ring *Ring) ForceBatchOrShard(arg interface{}) {
 	var newMsg *model.InputMessage
+	taskCfg := &ring.service.cfg.Task
 	select {
 	case <-ring.service.ctx.Done():
-		log.Errorf("%s: Ring.ForceBatchOrShard quit due to the context has been canceled", ring.service.taskCfg.Name)
+		log.Errorf("%s: Ring.ForceBatchOrShard quit due to the context has been canceled", taskCfg.Name)
 		return
 	default:
 	}
@@ -88,7 +90,7 @@ func (ring *Ring) ForceBatchOrShard(arg interface{}) {
 	defer ring.mux.Unlock()
 	if arg != nil {
 		newMsg = arg.(*model.InputMessage)
-		log.Warnf("%s: Ring.ForceBatchOrShard partition %d message range [%d, %d)", ring.service.taskCfg.Name, newMsg.Partition, ring.ringGroundOff, newMsg.Offset)
+		log.Warnf("%s: Ring.ForceBatchOrShard partition %d message range [%d, %d)", taskCfg.Name, newMsg.Partition, ring.ringGroundOff, newMsg.Offset)
 	}
 	if !ring.isIdle {
 		if newMsg == nil {
@@ -101,11 +103,11 @@ func (ring *Ring) ForceBatchOrShard(arg interface{}) {
 					ring.idleCnt = 0
 					ring.isIdle = true
 					ring.ringBuf = nil
-					log.Infof("%s: topic %s partition %d enter idle", ring.service.taskCfg.Name, ring.service.taskCfg.Topic, ring.partition)
+					log.Infof("%s: topic %s partition %d enter idle", taskCfg.Name, taskCfg.Topic, ring.partition)
 				}
 			}
 		} else {
-			statistics.RingForceBatchAllTotal.WithLabelValues(ring.service.taskCfg.Name).Inc()
+			statistics.RingForceBatchAllTotal.WithLabelValues(taskCfg.Name).Inc()
 		LOOP:
 			for {
 				ring.genBatchOrShard(ring.ringCeilingOff)
@@ -123,9 +125,9 @@ func (ring *Ring) ForceBatchOrShard(arg interface{}) {
 	// reschedule the delayed ForceBatchOrShard
 	ring.tid.Stop()
 	var err error
-	if ring.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(ring.service.taskCfg.FlushInterval)*time.Second, ring.ForceBatchOrShard, nil); err != nil {
+	if ring.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(taskCfg.FlushInterval)*time.Second, ring.ForceBatchOrShard, nil); err != nil {
 		err = errors.Wrap(err, "")
-		log.Fatalf("%s: got error %+v", ring.service.taskCfg.Name, err)
+		log.Fatalf("%s: got error %+v", taskCfg.Name, err)
 	}
 }
 
@@ -134,6 +136,7 @@ func (ring *Ring) genBatchOrShard(expNewGroundOff int64) {
 	if expNewGroundOff <= ring.ringGroundOff {
 		return
 	}
+	taskCfg := &ring.service.cfg.Task
 	var gaps []OffsetRange
 	var msgCnt, parseErrs int
 	endOff := (ring.ringGroundOff | int64(1<<ring.batchSizeShift-1)) + 1
@@ -145,7 +148,7 @@ func (ring *Ring) genBatchOrShard(expNewGroundOff int64) {
 	}
 	if ring.service.sharder != nil {
 		msgCnt = ring.service.sharder.PutElems(ring.partition, ring.ringBuf, ring.ringGroundOff, endOff, ring.ringCap)
-		statistics.RingMsgs.WithLabelValues(ring.service.taskCfg.Name).Sub(float64(msgCnt))
+		statistics.RingMsgs.WithLabelValues(taskCfg.Name).Sub(float64(msgCnt))
 	} else {
 		gapBegOff := int64(-1)
 		batch := model.NewBatch()
@@ -177,19 +180,19 @@ func (ring *Ring) genBatchOrShard(expNewGroundOff int64) {
 
 		if batch.RealSize > 0 {
 			log.Debugf("%s: going to flush a batch for topic %v patittion %d, offset %d, messages %d, gaps: %+v, parse errors: %d",
-				ring.service.taskCfg.Name, ring.service.taskCfg.Topic, ring.partition, endOff-1,
+				taskCfg.Name, taskCfg.Topic, ring.partition, endOff-1,
 				batch.RealSize, gaps, parseErrs)
 
 			batch.BatchIdx = (endOff - 1) >> ring.batchSizeShift
 			ring.batchSys.CreateBatchGroupSingle(batch, ring.partition, endOff-1)
 			ring.service.batchChan <- batch
 			if gaps == nil {
-				statistics.RingNormalBatchsTotal.WithLabelValues(ring.service.taskCfg.Name).Inc()
+				statistics.RingNormalBatchsTotal.WithLabelValues(taskCfg.Name).Inc()
 			} else {
-				statistics.RingForceBatchAllGapTotal.WithLabelValues(ring.service.taskCfg.Name).Inc()
+				statistics.RingForceBatchAllGapTotal.WithLabelValues(taskCfg.Name).Inc()
 			}
 		}
-		statistics.RingMsgs.WithLabelValues(ring.service.taskCfg.Name).Sub(float64(batch.RealSize))
+		statistics.RingMsgs.WithLabelValues(taskCfg.Name).Sub(float64(batch.RealSize))
 	}
 
 	ring.ringGroundOff = endOff

@@ -38,7 +38,7 @@ var _ Inputer = (*KafkaGo)(nil)
 
 // KafkaGo implements input.Inputer
 type KafkaGo struct {
-	taskCfg *config.TaskConfig
+	cfg     *config.Config
 	r       *kafka.Reader
 	stopped chan struct{}
 	putFn   func(msg model.InputMessage)
@@ -51,22 +51,22 @@ func NewKafkaGo() *KafkaGo {
 
 // Init Initialise the kafka instance with configuration
 func (k *KafkaGo) Init(cfg *config.Config, taskName string, putFn func(msg model.InputMessage)) (err error) {
-	k.taskCfg = cfg.Tasks[taskName]
-	kfkCfg := cfg.Kafka[k.taskCfg.Kafka]
+	k.cfg = cfg
+	kfkCfg := &cfg.Kafka
 	k.stopped = make(chan struct{})
 	k.putFn = putFn
 	offset := kafka.LastOffset
-	if k.taskCfg.Earliest {
+	if k.cfg.Task.Earliest {
 		offset = kafka.FirstOffset
 	}
 	readerCfg := &kafka.ReaderConfig{
 		Brokers:        strings.Split(kfkCfg.Brokers, ","),
-		GroupID:        k.taskCfg.ConsumerGroup,
-		Topic:          k.taskCfg.Topic,
+		GroupID:        k.cfg.Task.ConsumerGroup,
+		Topic:          k.cfg.Task.Topic,
 		StartOffset:    offset,
-		MinBytes:       k.taskCfg.MinBufferSize * k.taskCfg.MsgSizeHint,
-		MaxBytes:       k.taskCfg.BufferSize * k.taskCfg.MsgSizeHint,
-		MaxWait:        time.Duration(k.taskCfg.FlushInterval) * time.Second,
+		MinBytes:       k.cfg.Task.MinBufferSize * k.cfg.Task.MsgSizeHint,
+		MaxBytes:       k.cfg.Task.BufferSize * k.cfg.Task.MsgSizeHint,
+		MaxWait:        time.Duration(k.cfg.Task.FlushInterval) * time.Second,
 		CommitInterval: time.Second,          // flushes commits to Kafka every second
 		ErrorLogger:    log.StandardLogger(), //kafka-go INFO log is too verbose
 	}
@@ -120,15 +120,15 @@ LOOP_KAFKA_GO:
 		var msg kafka.Message
 		if msg, err = k.r.FetchMessage(ctx); err != nil {
 			if errors.Is(err, context.Canceled) {
-				log.Infof("%s: Kafka.Run quit due to context has been canceled", k.taskCfg.Name)
+				log.Infof("%s: Kafka.Run quit due to context has been canceled", k.cfg.Task.Name)
 				break LOOP_KAFKA_GO
 			} else if errors.Is(err, io.EOF) {
-				log.Infof("%s: Kafka.Run quit due to reader has been closed", k.taskCfg.Name)
+				log.Infof("%s: Kafka.Run quit due to reader has been closed", k.cfg.Task.Name)
 				break LOOP_KAFKA_GO
 			} else {
-				statistics.ConsumeMsgsErrorTotal.WithLabelValues(k.taskCfg.Name).Inc()
+				statistics.ConsumeMsgsErrorTotal.WithLabelValues(k.cfg.Task.Name).Inc()
 				err = errors.Wrap(err, "")
-				log.Errorf("%s: Kafka.Run got error %+v", k.taskCfg.Name, err)
+				log.Errorf("%s: Kafka.Run got error %+v", k.cfg.Task.Name, err)
 				continue
 			}
 		}
@@ -165,5 +165,5 @@ func (k *KafkaGo) Stop() error {
 
 // Description of this kafka consumer, which topic it reads from
 func (k *KafkaGo) Description() string {
-	return "kafka consumer of topic " + k.taskCfg.Topic
+	return "kafka consumer of topic " + k.cfg.Task.Topic
 }

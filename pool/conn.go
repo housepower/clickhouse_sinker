@@ -38,19 +38,14 @@ const (
 )
 
 var (
-	lock     sync.Mutex
-	poolMaps map[string]*ClusterConnections
+	lock        sync.Mutex
+	connections []*Connection
 )
 
 // Connection a datastructure for storing the clickhouse connection
 type Connection struct {
 	*sql.DB
 	dsn string
-}
-
-type ClusterConnections struct {
-	connections []*Connection
-	ref         int
 }
 
 // ReConnect used for restablishing connection with server
@@ -66,21 +61,10 @@ func (c *Connection) ReConnect() error {
 	return nil
 }
 
-func InitConn(name string, hosts [][]string, port int, db, username, password, dsnParams string) (err error) {
+func InitConn(hosts [][]string, port int, db, username, password, dsnParams string) (err error) {
 	var sqlDB *sql.DB
 	lock.Lock()
-	if poolMaps == nil {
-		poolMaps = make(map[string]*ClusterConnections)
-	}
-	if cc, ok := poolMaps[name]; ok {
-		cc.ref++
-		lock.Unlock()
-		return
-	}
-	lock.Unlock()
-
-	var cc ClusterConnections
-	cc.ref = 1
+	defer lock.Unlock()
 	// Each shard has a *sql.DB which connects to all replicas inside the shard.
 	// "alt_hosts" tolerates replica single-point-failure.
 	for _, replicas := range hosts {
@@ -105,23 +89,13 @@ func InitConn(name string, hosts [][]string, port int, db, username, password, d
 			return
 		}
 		setDBParams(sqlDB)
-		cc.connections = append(cc.connections, &Connection{sqlDB, dsn})
-	}
-
-	lock.Lock()
-	defer lock.Unlock()
-	if cc2, ok := poolMaps[name]; ok {
-		cc2.ref++
-		return
-	}
-	for _, conn := range cc.connections {
-		if err = health.Health.AddReadinessCheck(conn.dsn, healthcheck.DatabasePingCheck(conn.DB, 30*time.Second)); err != nil {
+		if err = health.Health.AddReadinessCheck(dsn, healthcheck.DatabasePingCheck(sqlDB, 30*time.Second)); err != nil {
 			err = errors.Wrapf(err, "")
-			log.Errorf("got error: %+v", err)
+			return
 		}
+		connections = append(connections, &Connection{sqlDB, dsn})
 	}
-	poolMaps[name] = &cc
-	return nil
+	return
 }
 
 // TODO, pool this
@@ -130,60 +104,34 @@ func setDBParams(sqlDB *sql.DB) {
 	sqlDB.SetConnMaxLifetime(120 * time.Second)
 }
 
-func FreeConn(name string) {
+func FreeConn() {
 	lock.Lock()
 	defer lock.Unlock()
-	if cc, ok := poolMaps[name]; ok {
-		cc.ref--
-		if cc.ref == 0 {
-			delete(poolMaps, name)
-			for _, conn := range cc.connections {
-				if err := health.Health.RemoveReadinessCheck(conn.dsn); err != nil {
-					err = errors.Wrapf(err, conn.dsn)
-					log.Errorf("got error: %+v", err)
-				}
-			}
+	for _, conn := range connections {
+		if err := health.Health.RemoveReadinessCheck(conn.dsn); err != nil {
+			err = errors.Wrapf(err, conn.dsn)
+			log.Errorf("got error: %+v", err)
 		}
+		conn.DB.Close()
 	}
+	connections = []*Connection{}
 }
 
 func GetTotalConn() (cnt int) {
 	lock.Lock()
 	defer lock.Unlock()
-	for _, cc := range poolMaps {
-		cnt += cc.ref * len(cc.connections)
-	}
-	return
-}
-
-// GetNumConn get number of connections for the given name
-func GetNumConn(name string) (numConn int) {
-	lock.Lock()
-	defer lock.Unlock()
-	if ps, ok := poolMaps[name]; ok {
-		numConn = len(ps.connections)
-	}
-	return
+	return len(connections)
 }
 
 // GetConn select a clickhouse node from the cluster based on batchNum
-func GetConn(name string, batchNum int64) (con *Connection) {
+func GetConn(batchNum int64) (con *Connection) {
 	lock.Lock()
 	defer lock.Unlock()
-
-	cc, ok := poolMaps[name]
-	if !ok {
-		return
-	}
-	con = cc.connections[batchNum%int64(len(cc.connections))]
+	con = connections[batchNum%int64(len(connections))]
 	return
 }
 
 // CloseAll closed all connection and destroys the pool
 func CloseAll() {
-	for _, cc := range poolMaps {
-		for _, c := range cc.connections {
-			_ = c.Close()
-		}
-	}
+	FreeConn()
 }

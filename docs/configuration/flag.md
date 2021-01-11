@@ -8,7 +8,7 @@ Usage of ./dist/clickhouse_sinker:
         consul api interface address (default "http://127.0.0.1:8500")
   -consul-deregister-critical-services-after string
         configure service check DeregisterCriticalServiceAfter (default "30m")
-  -consul-register-enable
+  -consul-cfg-enable
         register current instance in consul
   -http-port int
         http listen port (default 2112)
@@ -26,7 +26,7 @@ Usage of ./dist/clickhouse_sinker:
         nacos namespace ID. Neither DEFAULT_NAMESPACE_ID("public") nor namespace name work!
   -nacos-password string
         nacos password (default "nacos")
-  -nacos-register-enable
+  -nacos-cfg-enable
         register current instance in nacos
   -nacos-username string
         nacos username (default "nacos")

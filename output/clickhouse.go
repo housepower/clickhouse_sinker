@@ -45,22 +45,20 @@ type ClickHouse struct {
 	Dims []*model.ColumnWithType
 	Dms  []string
 	// Table Configs
-	taskCfg *config.TaskConfig
-	chCfg   *config.ClickHouseConfig
+	cfg *config.Config
 
 	prepareSQL string
 }
 
 // NewClickHouse new a clickhouse instance
-func NewClickHouse(cfg *config.Config, taskName string) *ClickHouse {
-	taskCfg := cfg.Tasks[taskName]
-	chCfg := cfg.Clickhouse[taskCfg.Clickhouse]
-	return &ClickHouse{taskCfg: taskCfg, chCfg: chCfg}
+func NewClickHouse(cfg *config.Config) *ClickHouse {
+	return &ClickHouse{cfg: cfg}
 }
 
 // Init the clickhouse intance
 func (c *ClickHouse) Init() (err error) {
-	if err = pool.InitConn(c.taskCfg.Clickhouse, c.chCfg.Hosts, c.chCfg.Port, c.chCfg.DB, c.chCfg.Username, c.chCfg.Password, c.chCfg.DsnParams); err != nil {
+	chCfg := &c.cfg.Clickhouse
+	if err = pool.InitConn(chCfg.Hosts, chCfg.Port, chCfg.DB, chCfg.Username, chCfg.Password, chCfg.DsnParams); err != nil {
 		return
 	}
 	if err = c.initSchema(); err != nil {
@@ -71,10 +69,10 @@ func (c *ClickHouse) Init() (err error) {
 
 // Send a batch to clickhouse
 func (c *ClickHouse) Send(batch *model.Batch, callback func(batch *model.Batch) error) {
-	statistics.WritingPoolBacklog.WithLabelValues(c.taskCfg.Name).Inc()
+	statistics.WritingPoolBacklog.WithLabelValues(c.cfg.Task.Name).Inc()
 	_ = util.GlobalWritingPool.Submit(func() {
 		c.loopWrite(batch, callback)
-		statistics.WritingPoolBacklog.WithLabelValues(c.taskCfg.Name).Dec()
+		statistics.WritingPoolBacklog.WithLabelValues(c.cfg.Task.Name).Dec()
 	})
 }
 
@@ -88,7 +86,7 @@ func (c *ClickHouse) write(batch *model.Batch) error {
 		return nil
 	}
 
-	conn := pool.GetConn(c.taskCfg.Clickhouse, batch.BatchIdx)
+	conn := pool.GetConn(batch.BatchIdx)
 	if tx, err = conn.Begin(); err != nil {
 		goto ERR
 	}
@@ -103,19 +101,19 @@ func (c *ClickHouse) write(batch *model.Batch) error {
 		}
 	}
 	if err != nil {
-		log.Errorf("%s: stmt.Exec failed %d times with errors %+v", c.taskCfg.Name, numErr, err)
+		log.Errorf("%s: stmt.Exec failed %d times with errors %+v", c.cfg.Task.Name, numErr, err)
 		goto ERR
 	}
 
 	if err = tx.Commit(); err != nil {
 		goto ERR
 	}
-	statistics.FlushMsgsTotal.WithLabelValues(c.taskCfg.Name).Add(float64(batch.RealSize))
+	statistics.FlushMsgsTotal.WithLabelValues(c.cfg.Task.Name).Add(float64(batch.RealSize))
 	return err
 ERR:
 	if shouldReconnect(err) {
 		_ = conn.ReConnect()
-		statistics.ClickhouseReconnectTotal.WithLabelValues(c.taskCfg.Name).Inc()
+		statistics.ClickhouseReconnectTotal.WithLabelValues(c.cfg.Task.Name).Inc()
 	}
 	return err
 }
@@ -142,12 +140,12 @@ func (c *ClickHouse) loopWrite(batch *model.Batch, callback func(batch *model.Ba
 					return
 				}
 				if std_errors.Is(err, context.Canceled) {
-					log.Infof("%s: ClickHouse.loopWrite quit due to the context has been cancelled", c.taskCfg.Name)
+					log.Infof("%s: ClickHouse.loopWrite quit due to the context has been cancelled", c.cfg.Task.Name)
 					return
 				}
-				log.Errorf("%s: committing offset(try #%d) failed with error %+v", c.taskCfg.Name, times, err)
+				log.Errorf("%s: committing offset(try #%d) failed with error %+v", c.cfg.Task.Name, times, err)
 				times++
-				if c.chCfg.RetryTimes <= 0 || times < c.chCfg.RetryTimes {
+				if c.cfg.Clickhouse.RetryTimes <= 0 || times < c.cfg.Clickhouse.RetryTimes {
 					time.Sleep(10 * time.Second)
 				} else {
 					os.Exit(-1)
@@ -155,13 +153,13 @@ func (c *ClickHouse) loopWrite(batch *model.Batch, callback func(batch *model.Ba
 			}
 		}
 		if std_errors.Is(err, context.Canceled) {
-			log.Infof("%s: ClickHouse.loopWrite quit due to the context has been cancelled", c.taskCfg.Name)
+			log.Infof("%s: ClickHouse.loopWrite quit due to the context has been cancelled", c.cfg.Task.Name)
 			return
 		}
-		log.Errorf("%s: flush batch(try #%d) failed with error %+v", c.taskCfg.Name, c.chCfg.RetryTimes-times, err)
-		statistics.FlushMsgsErrorTotal.WithLabelValues(c.taskCfg.Name).Add(float64(batch.RealSize))
+		log.Errorf("%s: flush batch(try #%d) failed with error %+v", c.cfg.Task.Name, c.cfg.Clickhouse.RetryTimes-times, err)
+		statistics.FlushMsgsErrorTotal.WithLabelValues(c.cfg.Task.Name).Add(float64(batch.RealSize))
 		times++
-		if shouldReconnect(err) && (c.chCfg.RetryTimes <= 0 || times < c.chCfg.RetryTimes) {
+		if shouldReconnect(err) && (c.cfg.Clickhouse.RetryTimes <= 0 || times < c.cfg.Clickhouse.RetryTimes) {
 			time.Sleep(10 * time.Second)
 		} else {
 			os.Exit(-1)
@@ -171,15 +169,15 @@ func (c *ClickHouse) loopWrite(batch *model.Batch, callback func(batch *model.Ba
 
 // Stop free clickhouse connections
 func (c *ClickHouse) Stop() error {
-	pool.FreeConn(c.taskCfg.Clickhouse)
+	pool.FreeConn()
 	return nil
 }
 
 func (c *ClickHouse) initSchema() (err error) {
-	if c.taskCfg.AutoSchema {
-		conn := pool.GetConn(c.taskCfg.Clickhouse, 0)
+	if c.cfg.Task.AutoSchema {
+		conn := pool.GetConn(0)
 		var rs *sql.Rows
-		if rs, err = conn.Query(fmt.Sprintf(selectSQLTemplate, c.chCfg.DB, c.taskCfg.TableName)); err != nil {
+		if rs, err = conn.Query(fmt.Sprintf(selectSQLTemplate, c.cfg.Clickhouse.DB, c.cfg.Task.TableName)); err != nil {
 			err = errors.Wrapf(err, "")
 			return err
 		}
@@ -193,13 +191,13 @@ func (c *ClickHouse) initSchema() (err error) {
 				return err
 			}
 			typ = lowCardinalityRegexp.ReplaceAllString(typ, "$1")
-			if !util.StringContains(c.taskCfg.ExcludeColumns, name) && defaultKind != "MATERIALIZED" {
+			if !util.StringContains(c.cfg.Task.ExcludeColumns, name) && defaultKind != "MATERIALIZED" {
 				c.Dims = append(c.Dims, &model.ColumnWithType{Name: name, Type: typ, SourceName: util.GetSourceName(name)})
 			}
 		}
 	} else {
 		c.Dims = make([]*model.ColumnWithType, 0)
-		for _, dim := range c.taskCfg.Dims {
+		for _, dim := range c.cfg.Task.Dims {
 			c.Dims = append(c.Dims, &model.ColumnWithType{
 				Name:       dim.Name,
 				Type:       dim.Type,
@@ -218,9 +216,9 @@ func (c *ClickHouse) initSchema() (err error) {
 	for i := range params {
 		params[i] = "?"
 	}
-	c.prepareSQL = "INSERT INTO " + c.chCfg.DB + "." + c.taskCfg.TableName + " (" + strings.Join(quotedDms, ",") + ") " +
+	c.prepareSQL = "INSERT INTO " + c.cfg.Clickhouse.DB + "." + c.cfg.Task.TableName + " (" + strings.Join(quotedDms, ",") + ") " +
 		"VALUES (" + strings.Join(params, ",") + ")"
 
-	log.Infof("%s: Prepare sql=> %s", c.taskCfg.Name, c.prepareSQL)
+	log.Infof("%s: Prepare sql=> %s", c.cfg.Task.Name, c.prepareSQL)
 	return nil
 }

@@ -61,7 +61,7 @@ curl "localhost:8123" -d 'TRUNCATE TABLE test_auto_schema'
 ./dist/nacos_publish_config --nacos-addr 127.0.0.1:8848 --nacos-username nacos --nacos-password nacos --local-cfg-file docker/config.json
 
 ## start clickhouse_sinker to consume
-timeout 30 ./dist/clickhouse_sinker --nacos-register-enable --nacos-addr 127.0.0.1:8848 --nacos-username nacos --nacos-password nacos
+timeout 30 ./dist/clickhouse_sinker --nacos-cfg-enable --nacos-addr 127.0.0.1:8848 --nacos-username nacos --nacos-password nacos
 
 ## check result
 count=`curl "localhost:8123" -d 'select count() from test1'`
