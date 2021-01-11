@@ -14,37 +14,30 @@ Refers to [design](./design.md) for how it works.
 - Support multiple parsers: fastjson(recommended), gjson, csv.
 - Support multiple Kafka client: kafka-go(recommended), sarama.
 - Support multiple Kafka security mechanisms: SSL, SASL/PLAIN, SASL/SCRAM, SASL/GSSAPI and combinations of them.
-- Support multiple sinker tasks, each runs on parallel.
-- Support multiple kafka and ClickHouse clusters.
 - Bulk insert (by config `bufferSize` and `flushInterval`).
 - Parse messages concurrently.
 - Write batches concurrently.
 - Every batch is routed to a determined clickhouse shard. Exit if loop write fail.
 - Custom sharding policy (by config `shardingKey` and `shardingPolicy`).
 - Tolerate replica single-point-failure.
-- At least once delivery guarantee.
-- Dynamic config management with Nacos.
+- At-least-once delivery guarantee.
+- Config management with local file or Nacos.
 
 ## Supported data types
 
 - [x] UInt8, UInt16, UInt32, UInt64, Int8, Int16, Int32, Int64
 - [x] Float32, Float64
-- [x] String
-- [x] FixedString
+- [x] String, FixedString, LowCardinality(String)
 - [x] Date, DateTime, DateTime64 (custom layout parser)
-- [x] Array(UInt8, UInt16, UInt32, UInt64, Int8, Int16, Int32, Int64)
-- [x] Array(Float32, Float64)
-- [x] Array(String)
-- [x] Array(FixedString)
-- [x] Nullable
+- [x] Array(T), where T is one of above basic types
+- [x] Nullable(T), where T is one of above basic types
 - [x] [ElasticDateTime](https://www.elastic.co/guide/en/elasticsearch/reference/current/date.html) => Int64 (2019-12-16T12:10:30Z => 1576498230)
 
 
 
 ## Configuration
 
-Refers to how [integration test](./go.test.sh) use the [example config](./docker/config.json).
-Also refers to [code](./config/config.go) for all config items.
+Refers to how [integration test](./go.test.sh) use the example config. Also refers to [code](./config/config.go) for all config items.
 
 ### Kafka Encryption
 
@@ -55,28 +48,28 @@ clickhouse_sinker supports following encryption mechanisms:
 An example kafka config:
 
 ```
-    "kfk1": {
-      "brokers": "192.168.31.64:9092",
-      "@version": "Required if you use sarama. It's the the Kafka server version.",
-      "version": "2.2.1"
-    }
+  "kafka": {
+    "brokers": "192.168.31.64:9092",
+    "@version": "Required if you use sarama. It's the the Kafka server version.",
+    "version": "2.2.1"
+  }
 ```
 
 - Encryption using SSL
 
 An example kafka config:
 ```
-    "kfk2": {
-      "brokers": "192.168.31.64:9093",
-      "version": "2.2.1",
-      "tls": {
-        "enable": true,
-        "@caCertFiles": "Required. It's the CA certificate with which Kafka brokers certs be signed. This cert is added to kafka.client.truststore.jks which kafka-console-consumer.sh uses",
-        "caCertFiles": "/etc/security/ca-cert",
-        "@insecureSkipVerify": "Whether disable broker FQDN verification. Set it to `true` if kafka-console-consumer.sh uses `ssl.endpoint.identification.algorithm=`.",
-        "insecureSkipVerify": true
-      }
+  "kafka": {
+    "brokers": "192.168.31.64:9093",
+    "version": "2.2.1",
+    "tls": {
+      "enable": true,
+      "@caCertFiles": "Required. It's the CA certificate with which Kafka brokers certs be signed. This cert is added to kafka.client.truststore.jks which kafka-console-consumer.sh uses",
+      "caCertFiles": "/etc/security/ca-cert",
+      "@insecureSkipVerify": "Whether disable broker FQDN verification. Set it to `true` if kafka-console-consumer.sh uses `ssl.endpoint.identification.algorithm=`.",
+      "insecureSkipVerify": true
     }
+  }
 ```
 
 FYI. `kafka-console-consumer.sh` works as the following setup:
@@ -102,110 +95,110 @@ clickhouse_sinker support following following authentication mechanisms:
 An example kafka config:
 
 ```
-    "kfk1": {
-      "brokers": "192.168.31.64:9092",
-      "@version": "Required if you use sarama. It's the the Kafka server version.",
-      "version": "2.2.1"
-    }
+  "kafka": {
+    "brokers": "192.168.31.64:9092",
+    "@version": "Required if you use sarama. It's the the Kafka server version.",
+    "version": "2.2.1"
+  }
 ```
 
 - SASL/PLAIN
 
 An example kafka config:
 ```
-    "kfk3": {
-      "brokers": "192.168.31.64:9094",
-      "version": "2.2.1",
-      "sasl": {
-        "enable": true,
-        "mechanism": "PLAIN",
-        "username": "alice",
-        "password": "alice-secret"
-      }
+  "kafka": {
+    "brokers": "192.168.31.64:9094",
+    "version": "2.2.1",
+    "sasl": {
+      "enable": true,
+      "mechanism": "PLAIN",
+      "username": "alice",
+      "password": "alice-secret"
     }
+  }
 ```
 
 FYI. Java clients work with the following setup:
 
 ```
-$ cat config/PLAINTEXT_PLAIN_client.properties
+$ cat config/client_PLAINTEXT_PLAIN.properties
 security.protocol=SASL_PLAINTEXT
 sasl.kerberos.service.name=kafka
 sasl.mechanism=PLAIN
 sasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required username="alice" password="alice-secret";
 
-$ bin/kafka-console-producer.sh --broker-list 192.168.31.64:9094 --topic sunshine --producer.config config/PLAINTEXT_PLAIN_client.properties
+$ bin/kafka-console-producer.sh --broker-list 192.168.31.64:9094 --topic sunshine --producer.config config/client_PLAINTEXT_PLAIN.properties
 
-$ bin/kafka-console-consumer.sh --bootstrap-server 192.168.31.64:9094 --topic sunshine --group test-consumer-group --from-beginning --consumer.config config/PLAINTEXT_PLAIN_client.properties
+$ bin/kafka-console-consumer.sh --bootstrap-server 192.168.31.64:9094 --topic sunshine --group test-consumer-group --from-beginning --consumer.config config/client_PLAINTEXT_PLAIN.properties
 ```
 
 - SASL/SCRAM
 
 An example kafka config:
 ```
-    "kfk4": {
-      "brokers": "192.168.31.64:9094",
-      "version": "2.2.1",
-      "sasl": {
-        "enable": true,
-        "@mechanism": "SCRAM-SHA-256 or SCRAM-SHA-512",
-        "mechanism": "SCRAM-SHA-256",
-        "username": "alice",
-        "password": "alice-secret"
-      }
+  "kafka": {
+    "brokers": "192.168.31.64:9094",
+    "version": "2.2.1",
+    "sasl": {
+      "enable": true,
+      "@mechanism": "SCRAM-SHA-256 or SCRAM-SHA-512",
+      "mechanism": "SCRAM-SHA-256",
+      "username": "alice",
+      "password": "alice-secret"
     }
+  }
 ```
 
 FYI. Java clients work with the following setup:
 
 ```
-$ cat config/PLAINTEXT_SCRAM_client.properties
+$ cat config/client_PLAINTEXT_SCRAM.properties
 security.protocol=SASL_PLAINTEXT
 sasl.kerberos.service.name=kafka
 sasl.mechanism=SCRAM-SHA-256
 sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required username="alice" password="alice-secret";
 
-$ bin/kafka-console-producer.sh --broker-list 192.168.31.64:9094 --topic sunshine --producer.config config/PLAINTEXT_SCRAM_client.properties
+$ bin/kafka-console-producer.sh --broker-list 192.168.31.64:9094 --topic sunshine --producer.config config/client_PLAINTEXT_SCRAM.properties
 
-$ bin/kafka-console-consumer.sh --bootstrap-server 192.168.31.64:9094 --topic sunshine --group test-consumer-group --from-beginning --consumer.config config/PLAINTEXT_SCRAM_client.properties
+$ bin/kafka-console-consumer.sh --bootstrap-server 192.168.31.64:9094 --topic sunshine --group test-consumer-group --from-beginning --consumer.config config/client_PLAINTEXT_SCRAM.properties
 ```
 
 - SASL/GSSAPI(Kerberos)
 
 An example kafka config:
 ```
-    "kfk5": {
-      "brokers": "192.168.31.64:9094",
-      "version": "2.2.1",
-      "sasl": {
-        "enable": true,
-        "mechanism": "GSSAPI",
-        "gssapi": {
-          "@authtype": "1 - Username and password, 2 - Keytab",
-          "authtype": 2,
-          "keytabpath": "/etc/security/mmmtest.keytab",
-          "kerberosconfigpath": "/etc/krb5.conf",
-          "servicename": "kafka",
-          "@username": "`principal` consists of `username` `@` `realm`",
-          "username": "mmm",
-          "realm": "ALANWANG.COM"
-        }
+  "kafka": {
+    "brokers": "192.168.31.64:9094",
+    "version": "2.2.1",
+    "sasl": {
+      "enable": true,
+      "mechanism": "GSSAPI",
+      "gssapi": {
+        "@authtype": "1 - Username and password, 2 - Keytab",
+        "authtype": 2,
+        "keytabpath": "/etc/security/mmmtest.keytab",
+        "kerberosconfigpath": "/etc/krb5.conf",
+        "servicename": "kafka",
+        "@username": "`principal` consists of `username` `@` `realm`",
+        "username": "mmm",
+        "realm": "ALANWANG.COM"
       }
     }
+  }
 ```
 
 FYI. Java clients work with the following setup:
 
 ```
-$ cat config/PLAINTEXT_GSSAPI_client.properties
+$ cat config/client_PLAINTEXT_GSSAPI.properties
 security.protocol=SASL_PLAINTEXT
 sasl.kerberos.service.name=kafka
 sasl.mechanism=GSSAPI
 sasl.jaas.config=com.sun.security.auth.module.Krb5LoginModule required useKeyTab=true storeKey=true debug=true keyTab="/etc/security/mmmtest.keytab" principal="mmm@ALANWANG.COM";
 
-$ bin/kafka-console-producer.sh --broker-list 192.168.31.64:9094 --topic sunshine --producer.config config/PLAINTEXT_GSSAPI_client.properties
+$ bin/kafka-console-producer.sh --broker-list 192.168.31.64:9094 --topic sunshine --producer.config config/client_PLAINTEXT_GSSAPI.properties
 
-$ bin/kafka-console-consumer.sh --bootstrap-server 192.168.31.64:9094 --topic sunshine --group test-consumer-group --from-beginning --consumer.config config/PLAINTEXT_GSSAPI_client.properties
+$ bin/kafka-console-consumer.sh --bootstrap-server 192.168.31.64:9094 --topic sunshine --group test-consumer-group --from-beginning --consumer.config config/client_PLAINTEXT_GSSAPI.properties
 ```
 
 Kerberos setup is complex. Please ensure [`kafka-console-consumer.sh`](https://docs.cloudera.com/runtime/7.2.1/kafka-managing/topics/kafka-manage-cli-consumer.html) Kerberos keytab authentication work STRICTLY FOLLOW [this article](https://stackoverflow.com/questions/48744660/kafka-console-consumer-with-kerberos-authentication/49140414#49140414), then test `clickhouse_sinker` Kerberos authentication on the SAME machine which `kafka-console-consumer.sh` runs. I tested sarama Kerberos authentication against Kafka [2.2.1](https://archive.apache.org/dist/kafka/2.2.1/kafka_2.11-2.2.1.tgz). Not sure other Kafka versions work.
@@ -226,31 +219,23 @@ This above expression can be customized with `shardingKey` and `shardingPolicy`.
 The precedence of config items:
 
 - CLI parameters > env variables
-- Nacos > Consul > Local Config File > Local Config Dir
+- Nacos > Local Config File
 
 ### Nacos
 
 Sinker is able to register with Nacos, get and apply config changes dynamically without restart the whole process.
 Controled by:
 
-- CLI parameters: `nacos-cfg-enable, nacos-addr, nacos-namespace-id, nacos-group, nacos-username, nacos-password`
-- env variables: `NACOS_REGISTER_ENABLE, NACOS_ADDR, NACOS_NAMESPACE_ID, NACOS_GROUP, NACOS_USERNAME, NACOS_PASSWORD`
-
-### Consul
-
-Currently sinker is able to register with Consul, but unable to get config.
-Controled by:
-
-- CLI parameters: `consul-cfg-enable, consul-addr, consul-deregister-critical-services-after`
-- env variables: `CONSUL_REGISTER_ENABLE, CONSUL_ADDR, CONSUL_DEREGISTER_CRITICAL_SERVICES_AFTER`
+- CLI parameters: `nacos-addr, nacos-username, nacos-password, nacos-namespace-id, nacos-group, nacos-dataid`
+- env variables: `NACOS_ADDR, NACOS_USERNAME, NACOS_PASSWORD, NACOS_NAMESPACE_ID, NACOS_GROUP, NACOS_DATAID`
 
 ### Local Files
 
 Currently sinker is able to parse local config files at startup, but unable to detect file changes.
 Controled by:
 
-- CLI parameters: `local-cfg-file, local-cfg-dir`
-- env variables: `LOCAL_CFG_FILE, LOCAL_CFG_DIR`
+- CLI parameters: `local-cfg-file`
+- env variables: `LOCAL_CFG_FILE`
 
 ## Prometheus Metrics
 
@@ -286,14 +271,6 @@ type Inputer interface {
 // RemoteConfManager can be implemented by many backends: Nacos, Consul, etcd, ZooKeeper...
 type RemoteConfManager interface {
 	Init(properties map[string]interface{}) error
-	// Register this instance, and keep-alive via heartbeat.
-	Register(ip string, port int) error
-	Deregister(ip string, port int) error
-	// GetInstances fetchs healthy instances.
-	// Mature service-discovery solutions(Nacos, Consul etc.) have client side cache
-	// so that frequent invoking of GetInstances() and GetGlobalConfig() don't harm.
-	GetInstances() (instances []Instance, err error)
-	// GetConfig fetchs the config. The manager shall not reference the returned Config object after call.
 	GetConfig() (conf *Config, err error)
 	// PublishConfig publishs the config. The manager shall not reference the passed Config object after call.
 	PublishConfig(conf *Config) (err error)

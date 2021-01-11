@@ -2,96 +2,54 @@
 
 ## Requirements
 
-Note: we shall enable we have `clickhouse-server` and `kafka` envs, before running clickhouse_sinker.
+Note: Ensure `clickhouse-server` and `kafka` work before running clickhouse_sinker.
 
 ## Configs
 
-> There are two ways to pass the local config, multiple files and single file.
+> There are two ways to get config: a local single config, or Nacos.
 
-- For multiple files:
+- For local file:
 
-  `./clickhouse_sinker --local-cfg-dir conf`
+  `clickhouse_sinker --local-cfg-file docker/test_auto_schema.json`
 
-  `conf` is the configuration directorys, and it'll read `conf/config.json` as main config and all tasks files in `conf/tasks/*.json` as task configs
+- For Nacos:
 
-- For single file:
-
-  `./clickhouse_sinker --local-cfg-file config_single.json`.
+  `clickhouse_sinker --nacos-addr 127.0.0.1:8848 --nacos-username nacos --nacos-password nacos --nacos-dataid test_auto_schema`
 
 > Read more detail descriptions of config in [here](docs/config.md)
 
 ## Example
 
-* Let's use single file to test `clickhouse_sinker`
+Let's follow up a piece of the systest script.
 
-  - let's touch config.json
-  `touch config.json`
+* Prepare
 
-  - put sample config into the config file
-
+  - let's checkout `clickhouse_sinker`
   ```
-  {
-    "clickhouse": {
-      "default": {
-        "db": "default",
-        "hosts": [
-          [
-            "127.0.0.1"
-          ]
-        ],
-        "port": 9000
-      }
-    },
-    "kafka": {
-      "default": {
-        "brokers": "127.0.0.1:9092",
-        "version": "2.2.1"
-      }
-    },
-    "common": {
-      "bufferSize": 90000,
-      "minBufferSize": 1,
-      "msgSizeHint": 1000,
-      "flushInterval": 5,
-      "logLevel": "debug"
-    },
-    "tasks": {
-        "logstash": {
-              "name" : "logstash",
-              "kafkaClient": "kafka-go",
-              "kafka": "default",
-              "topic": "logstash",
-              "consumerGroup" : "logstash_sinker",
-              "parser" : "json",
-              "clickhouse" : "default",
-              "tableName" : "logstash",
+  $ git clone https://github.com/housepower/clickhouse_sinker.git
+  $ cd clickhouse_sinker
+  ```
 
-              "autoSchema" : true,
-              "@desc_of_exclude_columns" : "this columns will be excluded by insert SQL ",
-              "excludeColumns" : ["day"]
-        }
-    }
-  }
+  - let's start standalone clickhouse-server and kafka in container:
+  ```
+  $ docker-compose up -d
   ```
 
 * Create a simple table in Clickhouse
 
-  > It's not the duty for clickhouse_sinker to auto create table, so we should maually do that.
+  > It's not the duty for clickhouse_sinker to auto create table, so we should do that manually.
 
   ```
-  CREATE TABLE logstash
+  CREATE TABLE IF NOT EXISTS test_auto_schema
   (
-      `time` DateTime,
       `day` Date DEFAULT toDate(time),
-      `request_uri` String,
-      `age` UInt8
+      `time` DateTime,
+      `name` String,
+      `value` Float64
   )
-  ENGINE = Memory
-
-  Ok.
-
-  0 rows in set. Elapsed: 0.014 sec.
-
+  ENGINE = MergeTree
+  PARTITION BY day
+  ORDER BY (time, name);
   ```
 
 * Enable topic is created in kafka
@@ -99,9 +57,9 @@ Note: we shall enable we have `clickhouse-server` and `kafka` envs, before runni
   > I use [kaf](https://github.com/birdayz/kaf) tool to create topics.
 
   ```
-  kaf topic create logstash -p 1 -r 1
+  kaf topic create topic1 -p 1 -r 1
   ✅ Created topic!
-        Topic Name:            logstash
+        Topic Name:            topic1
         Partitions:            1
         Replication Factor:    1
         Cleanup Policy:        delete
@@ -111,28 +69,21 @@ Note: we shall enable we have `clickhouse-server` and `kafka` envs, before runni
 * Run clickhouse_sinker
 
   ```
-  ./clickhouse_sinker --local-cfg-file config.json
+  clickhouse_sinker --local-cfg-file docker/test_auto_schema.json
   ```
 
 
 * Send messages to the topic
 
   ```
-  echo '{"time" : "2020-12-18T03:38:39.000Z", "age" : 33 }' | kaf -b '127.0.0.1:9092' produce logstash
-  echo '{"time" : "2020-12-18T03:38:39.000Z", "age" : 33 }' | kaf -b '127.0.0.1:9092' produce logstash
-  echo '{"time" : "2020-12-18T03:38:39.000Z", "age" : 33 }' | kaf -b '127.0.0.1:9092' produce logstash
+  echo '{"time" : "2020-12-18T03:38:39.000Z", "name" : "name1", "value" : 1}' | kaf -b '127.0.0.1:9092' produce topic1
+  echo '{"time" : "2020-12-18T03:38:39.000Z", "name" : "name2", "value" : 2}' | kaf -b '127.0.0.1:9092' produce topic1
+  echo '{"time" : "2020-12-18T03:38:39.000Z", "name" : "name3", "value" : 3}' | kaf -b '127.0.0.1:9092' produce topic1
   ```
 
   - Check the data in clickhouse
   ```
-  SELECT *
-  FROM logstash
-
-  ┌────────────────time─┬────────day─┬─request_uri─┬─age─┐
-  │ 2020-12-18 11:38:39 │ 2020-12-18 │             │  33 │
-  │ 2020-12-18 11:38:39 │ 2020-12-18 │             │  33 │
-  │ 2020-12-18 11:38:39 │ 2020-12-18 │             │  33 │
-  └─────────────────────┴────────────┴─────────────┴─────┘
+  SELECT count() FROM test_auto_schema;
 
   3 rows in set. Elapsed: 0.016 sec.
 

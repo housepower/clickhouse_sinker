@@ -1,34 +1,19 @@
 {
   "clickhouse": {
-    "db": "default",
     "hosts": [
       [
         "127.0.0.1"
       ]
     ],
-    "password": "",
-    "retryTimes": 0,
     "port": 9000,
-    "username": ""
+    "db": "default",
+    "username": "",
+    "password": "",
+    "retryTimes": 0
   },
   "kafka": {
     "brokers": "127.0.0.1:9093",
-    "version": "2.2.1",
-    "sasl": {
-      "enable": false,
-      "password": "",
-      "username": "",
-      "gssapi": {
-        "authtype": 0,
-        "keytabpath": "",
-        "kerberosconfigpath": "",
-        "servicename": "",
-        "username": "",
-        "password": "",
-        "realm": "",
-        "disablepafxfast": false
-      }
-    }
+    "version": "2.2.1"
   },
   "task": {
     "name": "test_auto_schema",
