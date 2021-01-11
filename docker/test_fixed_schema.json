@@ -1,0 +1,57 @@
+{
+  "clickhouse": {
+    "db": "default",
+    "hosts": [
+      [
+        "127.0.0.1"
+      ]
+    ],
+    "password": "",
+    "retryTimes": 0,
+    "port": 9000,
+    "username": ""
+  },
+  "kafka": {
+    "brokers": "127.0.0.1:9093",
+    "version": "2.2.1",
+    "sasl": {
+      "enable": false,
+      "password": "",
+      "username": "",
+      "gssapi": {
+        "authtype": 0,
+        "keytabpath": "",
+        "kerberosconfigpath": "",
+        "servicename": "",
+        "username": "",
+        "password": "",
+        "realm": "",
+        "disablepafxfast": false
+      }
+    }
+  },
+  "task": {
+    "name": "test_fixed_schema",
+    "topic": "topic1",
+    "consumerGroup": "test_fixed_schema",
+    "earliest": true,
+    "parser": "json",
+    "tableName": "test_fixed_schema",
+    "dims": [
+      {
+        "name": "time",
+        "type": "DateTime"
+      },
+      {
+        "name": "name",
+        "type": "String"
+      },
+      {
+        "name": "value",
+        "type": "Float32"
+      }
+    ],
+    "bufferSize": 50000
+  },
+  "logLevel": "debug"
+}
