@@ -220,9 +220,7 @@ func (service *Service) flush(batch *model.Batch) (err error) {
 	if (len(*batch.Rows)) == 0 {
 		return batch.Commit()
 	}
-	service.clickhouse.Send(batch, func(batch *model.Batch) error {
-		return batch.Commit()
-	})
+	service.clickhouse.Send(batch)
 	return nil
 }
 

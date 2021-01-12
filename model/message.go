@@ -129,6 +129,7 @@ func (b *Batch) Size() int {
 	return len(*b.Rows)
 }
 
+// Commit is not retry-able!
 func (b *Batch) Commit() error {
 	for _, row := range *b.Rows {
 		PutRow(row)

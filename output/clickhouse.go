@@ -20,6 +20,7 @@ import (
 	"database/sql"
 	std_errors "errors"
 	"fmt"
+	"io"
 	"os"
 	"regexp"
 	"strings"
@@ -68,10 +69,10 @@ func (c *ClickHouse) Init() (err error) {
 }
 
 // Send a batch to clickhouse
-func (c *ClickHouse) Send(batch *model.Batch, callback func(batch *model.Batch) error) {
+func (c *ClickHouse) Send(batch *model.Batch) {
 	statistics.WritingPoolBacklog.WithLabelValues(c.cfg.Task.Name).Inc()
 	_ = util.GlobalWritingPool.Submit(func() {
-		c.loopWrite(batch, callback)
+		c.loopWrite(batch)
 		statistics.WritingPoolBacklog.WithLabelValues(c.cfg.Task.Name).Dec()
 	})
 }
@@ -130,27 +131,22 @@ func shouldReconnect(err error) bool {
 }
 
 // LoopWrite will dead loop to write the records
-func (c *ClickHouse) loopWrite(batch *model.Batch, callback func(batch *model.Batch) error) {
+func (c *ClickHouse) loopWrite(batch *model.Batch) {
 	var err error
 	var times int
 	for {
 		if err = c.write(batch); err == nil {
-			for {
-				if err = callback(batch); err == nil {
-					return
-				}
-				if std_errors.Is(err, context.Canceled) {
-					log.Infof("%s: ClickHouse.loopWrite quit due to the context has been cancelled", c.cfg.Task.Name)
-					return
-				}
-				log.Errorf("%s: committing offset(try #%d) failed with error %+v", c.cfg.Task.Name, times, err)
-				times++
-				if c.cfg.Clickhouse.RetryTimes <= 0 || times < c.cfg.Clickhouse.RetryTimes {
-					time.Sleep(10 * time.Second)
-				} else {
-					os.Exit(-1)
-				}
+			if err = batch.Commit(); err == nil {
+				return
 			}
+			// TODO: kafka_go and sarama commit give different error when context is cancceled.
+			// How to unify them?
+			if std_errors.Is(err, context.Canceled) || std_errors.Is(err, io.ErrClosedPipe) {
+				log.Infof("%s: ClickHouse.loopWrite quit due to the context has been cancelled", c.cfg.Task.Name)
+				return
+			}
+			log.Errorf("%s: committing offset failed with permanent error %+v", c.cfg.Task.Name, err)
+			os.Exit(-1)
 		}
 		if std_errors.Is(err, context.Canceled) {
 			log.Infof("%s: ClickHouse.loopWrite quit due to the context has been cancelled", c.cfg.Task.Name)
