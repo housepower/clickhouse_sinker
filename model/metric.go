@@ -15,6 +15,8 @@ limitations under the License.
 
 package model
 
+import "sync"
+
 // Metric interface for metric collection
 type Metric interface {
 	Get(key string) interface{}
@@ -26,6 +28,7 @@ type Metric interface {
 	GetDateTime(key string, nullable bool) interface{}
 	GetDateTime64(key string, nullable bool) interface{}
 	GetElasticDateTime(key string, nullable bool) interface{}
+	GetNewKeys(knownKeys *sync.Map, newKeys *sync.Map) bool
 }
 
 // DimMetrics

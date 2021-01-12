@@ -16,10 +16,13 @@ limitations under the License.
 package parser
 
 import (
+	"fmt"
+	"sync"
 	"time"
 
 	"github.com/housepower/clickhouse_sinker/model"
 	"github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
 	"github.com/valyala/fastjson"
 )
 
@@ -163,4 +166,34 @@ func (c *FastjsonMetric) GetElasticDateTime(key string, nullable bool) interface
 	t, _ := time.Parse(time.RFC3339, val.(string))
 
 	return t.Unix()
+}
+
+func (c *FastjsonMetric) GetNewKeys(knownKeys *sync.Map, newKeys *sync.Map) (foundNew bool) {
+	var obj *fastjson.Object
+	var err error
+	if obj, err = c.value.Object(); err != nil {
+		return
+	}
+	obj.Visit(func(key []byte, v *fastjson.Value) {
+		strKey := string(key)
+		if _, loaded := knownKeys.LoadOrStore(strKey, nil); !loaded {
+			v := c.value.Get(strKey)
+			if v == nil {
+				panic(fmt.Sprintf("BUG: fastjson.Object.Visit got an unexpected key: %s", strKey))
+			}
+			if _, err = v.Int64(); err == nil {
+				newKeys.Store(strKey, "int")
+				foundNew = true
+			} else if _, err = v.Float64(); err == nil {
+				newKeys.Store(strKey, "float")
+				foundNew = true
+			} else if _, err = v.StringBytes(); err == nil {
+				newKeys.Store(strKey, "string")
+				foundNew = true
+			} else {
+				log.Warnf("FastjsonMetric.GetNewKeys found a kv not be int/float/string, key: %s, value: %s", strKey, v.String())
+			}
+		}
+	})
+	return
 }

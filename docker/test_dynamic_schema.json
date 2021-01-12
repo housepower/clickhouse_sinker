@@ -1,0 +1,37 @@
+{
+  "clickhouse": {
+    "hosts": [
+      [
+        "127.0.0.1"
+      ]
+    ],
+    "port": 9000,
+    "db": "default",
+    "username": "",
+    "password": "",
+    "retryTimes": 0
+  },
+  "kafka": {
+    "brokers": "127.0.0.1:9093",
+    "version": "2.2.1"
+  },
+  "task": {
+    "name": "test_dynamic_schema",
+    "topic": "topic1",
+    "consumerGroup": "test_dynamic_schema",
+    "earliest": true,
+    "parser": "json",
+    "autoSchema": true,
+    "tableName": "test_dynamic_schema",
+    "excludeColumns": [
+      "day"
+    ],
+    "dynamicSchema": {
+      "enable": true,
+      "cluster": "",
+      "distTableName": ""
+    },
+    "bufferSize": 50000
+  },
+  "logLevel": "debug"
+}
