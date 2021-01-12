@@ -3,8 +3,7 @@
 ```
 ./clickhouse_sinker -h
 
-Usage of ./dist/clickhouse_sinker:
-Usage of dist/clickhouse_sinker:
+Usage of ./clickhouse_sinker:
   -http-port int
         http listen port (default 2112)
   -local-cfg-file string

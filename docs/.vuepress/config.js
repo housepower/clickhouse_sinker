@@ -55,18 +55,21 @@ module.exports = {
               children: [
                 ["flag", "Flag"],
                 ["config", "Config"],
-                ["task", "Task"],
               ]
             }
           ],
 
           "/dev/": [
-            ["introduction", "Introduction"],
-            ["design", "Design"],
+            {
+              title: "Development",
+              children: [
+                ["introduction", "Introduction"],
+                ["design", "Design"],
+              ]
+            }
           ],
         },
       }
-
     },
   },
 };

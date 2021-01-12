@@ -11,7 +11,7 @@ jobs:
       - uses: actions/checkout@v2
       - uses: actions/setup-node@v1
         with:
-          node-version: "14.x"
+          node-version: "15.x"
       - run: "[[ -z $(git show HEAD -- docs) ]] || npm install"
       - run: "[[ -z $(git show HEAD -- docs) ]] || npm run docs:build"
       - run: "[[ -z $(git show HEAD -- docs) ]] || dev/deploy_gh_pages.sh"
