@@ -117,6 +117,13 @@ type TaskConfig struct {
 		Type       string
 		SourceName string
 	} `json:"dims"`
+	// DynamicSchema will add columns present in message to clickhouse. Requires AutoSchema be true.
+	DynamicSchema struct {
+		Enable        bool
+		Cluster       string
+		DistTableName string
+		MaxDims       int // the upper limit of dynamic columns number, <=0 means math.MaxInt16. protecting dirty data attack
+	}
 
 	// ShardingKey is the column name to which sharding against
 	ShardingKey string `json:"shardingKey,omitempty"`

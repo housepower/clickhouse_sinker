@@ -15,7 +15,10 @@ limitations under the License.
 
 package parser
 
-import "time"
+import (
+	"sync"
+	"time"
+)
 
 type DummyMetric struct {
 }
@@ -59,4 +62,8 @@ func (c *DummyMetric) GetDateTime64(key string) (t time.Time) {
 
 func (c *DummyMetric) GetElasticDateTime(key string) int64 {
 	return 0
+}
+
+func (c *DummyMetric) GetNewKeys(knownKeys *sync.Map, newKeys *sync.Map) bool {
+	return false
 }

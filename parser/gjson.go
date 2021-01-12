@@ -16,6 +16,7 @@ limitations under the License.
 package parser
 
 import (
+	"sync"
 	"time"
 
 	"github.com/tidwall/gjson"
@@ -147,4 +148,8 @@ func (c *GjsonMetric) GetElasticDateTime(key string, nullable bool) interface{} 
 
 	t, _ := time.Parse(time.RFC3339, r.String())
 	return t.Unix()
+}
+
+func (c *GjsonMetric) GetNewKeys(knownKeys *sync.Map, newKeys *sync.Map) bool {
+	return false
 }

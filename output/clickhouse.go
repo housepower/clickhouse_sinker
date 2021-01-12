@@ -21,9 +21,11 @@ import (
 	std_errors "errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/housepower/clickhouse_sinker/config"
@@ -217,4 +219,66 @@ func (c *ClickHouse) initSchema() (err error) {
 
 	log.Infof("%s: Prepare sql=> %s", c.cfg.Task.Name, c.prepareSQL)
 	return nil
+}
+
+func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
+	var sqls []string
+	var onCluster string
+	taskCfg := &c.cfg.Task
+	chCfg := &c.cfg.Clickhouse
+	if taskCfg.DynamicSchema.Cluster != "" {
+		onCluster = fmt.Sprintf("ON CLUSTER %s", taskCfg.DynamicSchema.Cluster)
+	}
+	maxDims := math.MaxInt16
+	if taskCfg.DynamicSchema.MaxDims > 0 {
+		maxDims = taskCfg.DynamicSchema.MaxDims
+	}
+	newKeysQuota := maxDims - len(c.Dims)
+	if newKeysQuota <= 0 {
+		log.Warnf("number of columns reaches upper limit %d", maxDims)
+		return
+	}
+	var i int
+	newKeys.Range(func(key, value interface{}) bool {
+		i++
+		if i > newKeysQuota {
+			log.Warnf("number of columns reaches upper limit %d", maxDims)
+			return false
+		}
+		strKey := key.(string)
+		strVal := value.(string)
+		switch strVal {
+		case "int":
+			strVal = "Nullable(Int64)"
+		case "float":
+			strVal = "Nullable(Float64)"
+		case "string":
+			strVal = "Nullable(String)"
+		default:
+			err = errors.Errorf("%s: BUG: unsupported column type %s", taskCfg.Name, strVal)
+			return false
+		}
+		sql := fmt.Sprintf("ALTER TABLE %s.%s %s ADD COLUMN IF NOT EXISTS %s %s", chCfg.DB, taskCfg.TableName, onCluster, strKey, strVal)
+		sqls = append(sqls, sql)
+		return true
+	})
+	if err != nil {
+		return
+	}
+	if taskCfg.DynamicSchema.DistTableName != "" {
+		sqls = append(sqls, fmt.Sprintf("DROP TABLE IF EXISTS %s.%s %s", chCfg.DB, taskCfg.DynamicSchema.DistTableName, onCluster))
+		sqls = append(sqls, fmt.Sprintf("CREATE TABLE %s.%s %s AS %s ENGINE = Distributed(%s, %s, %s);",
+			chCfg.DB, taskCfg.DynamicSchema.DistTableName, onCluster, taskCfg.TableName,
+			taskCfg.DynamicSchema.Cluster, chCfg.DB, taskCfg.TableName))
+	}
+
+	conn := pool.GetConn(0)
+	for _, sql := range sqls {
+		log.Infof("%s: executing sql=> %s", taskCfg.Name, sql)
+		if _, err = conn.Exec(sql); err != nil {
+			err = errors.Wrapf(err, sql)
+			return err
+		}
+	}
+	return
 }

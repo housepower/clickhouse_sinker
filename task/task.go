@@ -18,12 +18,16 @@ package task
 import (
 	"context"
 	"fmt"
+	"math"
+	"os"
 	"runtime"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	"github.com/fagongzi/goetty"
 	"github.com/housepower/clickhouse_sinker/config"
 	"github.com/housepower/clickhouse_sinker/input"
 	"github.com/housepower/clickhouse_sinker/model"
@@ -41,6 +45,7 @@ import (
 type Service struct {
 	sync.Mutex
 
+	parentCtx  context.Context
 	ctx        context.Context
 	cancel     context.CancelFunc
 	started    bool
@@ -50,6 +55,11 @@ type Service struct {
 	pp         *parser.Pool
 	cfg        *config.Config
 	dims       []*model.ColumnWithType
+
+	knownKeys  sync.Map
+	newKeys    sync.Map
+	cntNewKeys int32 // size of newKeys
+	tid        goetty.Timeout
 
 	rings     []*Ring
 	sharder   *Sharder
@@ -84,13 +94,37 @@ func (service *Service) Init() (err error) {
 	service.limiter2 = rate.NewLimiter(rate.Every(10*time.Second), 1)
 	service.limiter3 = rate.NewLimiter(rate.Every(10*time.Second), 1)
 
+	service.rings = make([]*Ring, 0)
 	if service.cfg.Task.ShardingKey != "" {
 		if service.sharder, err = NewSharder(service); err != nil {
 			return
 		}
 	}
 
-	err = service.inputer.Init(service.cfg, service.cfg.Task.Name, service.put)
+	if err = service.inputer.Init(service.cfg, service.cfg.Task.Name, service.put); err != nil {
+		return
+	}
+
+	taskCfg := &service.cfg.Task
+	if taskCfg.DynamicSchema.Enable {
+		maxDims := math.MaxInt16
+		if service.cfg.Task.DynamicSchema.MaxDims > 0 {
+			maxDims = taskCfg.DynamicSchema.MaxDims
+		}
+		if maxDims <= len(service.dims) {
+			service.cfg.Task.DynamicSchema.Enable = false
+			log.Warnf("%s: disabled DynamicSchema since the number of columns reaches upper limit %d", taskCfg.Name, maxDims)
+		} else {
+			for _, dim := range service.dims {
+				service.knownKeys.Store(dim.SourceName, nil)
+			}
+			for _, dim := range taskCfg.ExcludeColumns {
+				service.knownKeys.Store(dim, nil)
+			}
+			service.newKeys = sync.Map{}
+			atomic.StoreInt32(&service.cntNewKeys, 0)
+		}
+	}
 	return
 }
 
@@ -98,6 +132,7 @@ func (service *Service) Init() (err error) {
 func (service *Service) Run(ctx context.Context) {
 	var err error
 	service.started = true
+	service.parentCtx = ctx
 	service.ctx, service.cancel = context.WithCancel(ctx)
 	log.Infof("%s: task started", service.cfg.Task.Name)
 	go service.inputer.Run(service.ctx)
@@ -129,7 +164,8 @@ func (service *Service) fnCommit(partition int, offset int64) error {
 }
 
 func (service *Service) put(msg model.InputMessage) {
-	statistics.ConsumeMsgsTotal.WithLabelValues(service.cfg.Task.Name).Inc()
+	taskCfg := &service.cfg.Task
+	statistics.ConsumeMsgsTotal.WithLabelValues(taskCfg.Name).Inc()
 	// ensure ring for this message exist
 	service.Lock()
 	var ring *Ring
@@ -143,7 +179,7 @@ func (service *Service) put(msg model.InputMessage) {
 
 	var err error
 	if ring == nil {
-		batchSizeShift := util.GetShift(service.cfg.Task.BufferSize)
+		batchSizeShift := util.GetShift(taskCfg.BufferSize)
 		ringCap := int64(1 << (batchSizeShift + 1))
 		ring := &Ring{
 			ringBuf:          make([]model.MsgRow, ringCap),
@@ -155,13 +191,13 @@ func (service *Service) put(msg model.InputMessage) {
 			idleCnt:          0,
 			isIdle:           false,
 			partition:        msg.Partition,
-			batchSys:         model.NewBatchSys(&service.cfg.Task, service.fnCommit),
+			batchSys:         model.NewBatchSys(taskCfg, service.fnCommit),
 			service:          service,
 		}
 		// schedule a delayed ForceBatchOrShard
-		if ring.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(service.cfg.Task.FlushInterval)*time.Second, ring.ForceBatchOrShard, nil); err != nil {
+		if ring.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(taskCfg.FlushInterval)*time.Second, ring.ForceBatchOrShard, nil); err != nil {
 			err = errors.Wrap(err, "")
-			log.Fatalf("%s: got error %+v", service.cfg.Task.Name, err)
+			log.Fatalf("%s: got error %+v", taskCfg.Name, err)
 		}
 		service.rings[msg.Partition] = ring
 		service.Unlock()
@@ -172,18 +208,18 @@ func (service *Service) put(msg model.InputMessage) {
 		ringGroundOff, ringFilledOffset = ring.ringGroundOff, ring.ringFilledOffset
 		ring.mux.Unlock()
 		if msg.Offset < ringFilledOffset {
-			statistics.RingMsgsOffTooSmallErrorTotal.WithLabelValues(service.cfg.Task.Name).Inc()
+			statistics.RingMsgsOffTooSmallErrorTotal.WithLabelValues(taskCfg.Name).Inc()
 			if service.limiter2.Allow() {
 				log.Warnf("%s: got a message(topic %v, partition %d, offset %v) left to %v",
-					service.cfg.Task.Name, msg.Topic, msg.Partition, msg.Offset, ringFilledOffset)
+					taskCfg.Name, msg.Topic, msg.Partition, msg.Offset, ringFilledOffset)
 			}
 			return
 		}
-		if msg.Offset >= ringGroundOff+ring.ringCap {
+		if msg.Offset >= ringGroundOff+ring.ringCap && atomic.LoadInt32(&service.cntNewKeys) == 0 {
 			statistics.RingMsgsOffTooLargeErrorTotal.WithLabelValues(service.cfg.Task.Name).Inc()
 			if service.limiter3.Allow() {
 				log.Warnf("%s: got a message(topic %v, partition %d, offset %v) right to the range [%v, %v)",
-					service.cfg.Task.Name, msg.Topic, msg.Partition, msg.Offset, ring.ringGroundOff, ring.ringGroundOff+ring.ringCap)
+					taskCfg.Name, msg.Topic, msg.Partition, msg.Offset, ring.ringGroundOff, ring.ringGroundOff+ring.ringCap)
 			}
 			time.Sleep(1 * time.Second)
 			ring.ForceBatchOrShard(&msg)
@@ -191,13 +227,13 @@ func (service *Service) put(msg model.InputMessage) {
 	}
 
 	// submit message to a goroutine pool
-	statistics.ParsingPoolBacklog.WithLabelValues(service.cfg.Task.Name).Inc()
+	statistics.ParsingPoolBacklog.WithLabelValues(taskCfg.Name).Inc()
 	_ = util.GlobalParsingPool.Submit(func() {
 		var row *model.Row
 		p := service.pp.Get()
 		metric, err := p.Parse(msg.Value)
 		if err != nil {
-			statistics.ParseMsgsErrorTotal.WithLabelValues(service.cfg.Task.Name).Inc()
+			statistics.ParseMsgsErrorTotal.WithLabelValues(taskCfg.Name).Inc()
 			if service.limiter1.Allow() {
 				log.Errorf("%s: failed to parse message(topic %v, partition %d, offset %v) %+v, string(value) <<<%+v>>>, got error %+v",
 					service.cfg.Task.Name, msg.Topic, msg.Partition, msg.Offset, msg, string(msg.Value), err)
@@ -205,14 +241,37 @@ func (service *Service) put(msg model.InputMessage) {
 		} else {
 			row = model.MetricToRow(metric, msg, service.dims)
 		}
-
 		service.pp.Put(p)
-		var ring *Ring
-		service.Lock()
-		ring = service.rings[msg.Partition]
-		service.Unlock()
-		ring.PutElem(model.MsgRow{Msg: &msg, Row: row})
-		statistics.ParsingPoolBacklog.WithLabelValues(service.cfg.Task.Name).Dec()
+
+		if taskCfg.DynamicSchema.Enable {
+			found := metric.GetNewKeys(&service.knownKeys, &service.newKeys)
+			if found {
+				cntNewKeys := atomic.AddInt32(&service.cntNewKeys, 1)
+				if cntNewKeys == 1 {
+					// The first message which contains new keys triggers flushing
+					// all messages and scheduling a delayed func to apply schema change.
+					for _, ring := range service.rings {
+						if ring != nil {
+							ring.ForceBatchOrShard(nil)
+						}
+					}
+					if service.sharder != nil {
+						service.sharder.ForceFlush(nil)
+					}
+					if service.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(taskCfg.FlushInterval)*time.Second, service.changeSchema, nil); err != nil {
+						log.Fatalf("got error %+v", err)
+						os.Exit(-1)
+					}
+				}
+			}
+		}
+		if atomic.LoadInt32(&service.cntNewKeys) == 0 {
+			var ring *Ring
+			service.Lock()
+			ring = service.rings[msg.Partition]
+			service.Unlock()
+			ring.PutElem(model.MsgRow{Msg: &msg, Row: row})
+		}
 	})
 }
 
@@ -224,10 +283,21 @@ func (service *Service) flush(batch *model.Batch) (err error) {
 	return nil
 }
 
-// NotifyStop notify task to stop, This is non-blocking.
-func (service *Service) NotifyStop() {
-	log.Infof("%s: notified to stop", service.cfg.Task.Name)
-	service.cancel()
+func (service *Service) changeSchema(arg interface{}) {
+	var err error
+	taskCfg := &service.cfg.Task
+	// change schema
+	if err = service.clickhouse.ChangeSchema(&service.newKeys); err != nil {
+		log.Fatalf("%s: clickhouse.ChangeSchema failed with error: %+v", taskCfg.Name, err)
+		os.Exit(-1)
+	}
+	// restart myself
+	service.Stop()
+	if err = service.Init(); err != nil {
+		log.Fatalf("%s: init failed with error: %+v", taskCfg.Name, err)
+		os.Exit(-1)
+	}
+	go service.Run(service.parentCtx)
 }
 
 // Stop stop kafka and clickhouse client. This is blocking.
@@ -250,6 +320,7 @@ func (service *Service) Stop() {
 			ring.tid.Stop()
 		}
 	}
+	service.tid.Stop()
 	log.Infof("%s: stopped internal timers", service.cfg.Task.Name)
 
 	if service.started {
