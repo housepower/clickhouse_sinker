@@ -1,6 +1,5 @@
-# basic configs
+# Config Items
 > Here we use json with comments for documentation
-
 
 ```
 {
@@ -26,12 +25,32 @@
   "kafka": {
     "brokers": "127.0.0.1:9093",
 
-    // somethings about sasl
+    // SSL
+    "tls": {
+      "enable": false,
+      // Required. It's the CA certificate with which Kafka brokers certs be signed.
+      "caCertFiles": "/etc/security/ca-cert",
+      // Required if Kafka brokers require client authentication.
+      clientCertFile: "",
+      // Required if and only if ClientCertFile is present.
+      clientKeyFile: "",
+      // Whether disable broker FQDN verification. Set it to `true` if kafka-console-consumer.sh uses `ssl.endpoint.identification.algorithm=`.
+      "insecureSkipVerify": true
+    }
+
+    // SASL
     "sasl": {
       "enable": false,
-      "password": "",
+      // Mechanism is the name of the enabled SASL mechanism.
+      // Possible values: PLAIN, SCRAM-SHA-256, SCRAM-SHA-512, GSSAPI (defaults to PLAIN)
+      "mechanism": "PLAIN",
+      // Username is the authentication identity (authcid) to present for
+      // SASL/PLAIN or SASL/SCRAM authentication
       "username": "",
+      // Password for SASL/PLAIN or SASL/SCRAM authentication
+      "password": "",
       "gssapi": {
+        // authtype - 1. KRB5_USER_AUTH, 2. KRB5_KEYTAB_AUTH
         "authtype": 0,
         "keytabpath": "",
         "kerberosconfigpath": "",
@@ -76,6 +95,11 @@
     "autoSchema" : true,
     // "this columns will be excluded by insert SQL "
     "excludeColumns": []
+
+    // shardingKey is the column name to which sharding against
+    "shardingKey": "",
+    // shardingPolicy is `stripe,<interval>`(requires ShardingKey be numerical) or `hash`(requires ShardingKey be string)
+    "shardingPolicy": "",
 
     // batch size to insert into clickhouse
     "bufferSize": 90000,

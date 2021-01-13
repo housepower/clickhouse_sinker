@@ -37,7 +37,7 @@ Refers to [design](./design.md) for how it works.
 
 ## Configuration
 
-Refers to how [integration test](./go.test.sh) use the example config. Also refers to [code](./config/config.go) for all config items.
+Refers to how [integration test](https://github.com/housepower/clickhouse_sinker/blob/master/go.test.sh) use the example config. Also refers to [code](https://github.com/housepower/clickhouse_sinker/blob/master/config/config.go) for all config items.
 
 ### Kafka Encryption
 
@@ -75,13 +75,13 @@ An example kafka config:
 FYI. `kafka-console-consumer.sh` works as the following setup:
 
 ```
-$ cat config/SSL_NOAUTH_client.properties
+$ cat config/client_SSL_NOAUTH.properties
 security.protocol=SSL
 ssl.truststore.location=/etc/security/kafka.client.truststore.jks
 ssl.truststore.password=123456
 ssl.endpoint.identification.algorithm=
 
-$ bin/kafka-console-consumer.sh --bootstrap-server 192.168.31.64:9094 --topic sunshine --group test-consumer-group --from-beginning --consumer.config config/SSL_NOAUTH_client.properties
+$ bin/kafka-console-consumer.sh --bootstrap-server 192.168.31.64:9094 --topic sunshine --group test-consumer-group --from-beginning --consumer.config config/client_SSL_NOAUTH.properties
 ```
 
 Please follow [`Kafka SSL setup`](https://kafka.apache.org/documentation/#security_ssl). Use `-keyalg RSA` when you create the broker keystore, otherwise there will be no cipher suites in common between the keystore and those Golang supports. See [this](https://github.com/Shopify/sarama/issues/643#issuecomment-216839760) for reference.
