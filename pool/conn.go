@@ -98,10 +98,12 @@ func InitConn(hosts [][]string, port int, db, username, password, dsnParams stri
 	return
 }
 
-// TODO, pool this
+// TODO: ClickHouse creates a thread for each TCP/HTTP connection.
+// If the number of sinkers is close to clickhouse max_concurrent_queries(default 100), user queries could be blocked or refused.
 func setDBParams(sqlDB *sql.DB) {
-	sqlDB.SetMaxIdleConns(1)
-	sqlDB.SetConnMaxLifetime(120 * time.Second)
+	sqlDB.SetMaxOpenConns(1)
+	sqlDB.SetMaxIdleConns(0)
+	sqlDB.SetConnMaxIdleTime(10 * time.Second)
 }
 
 func FreeConn() {
