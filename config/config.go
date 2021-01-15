@@ -167,6 +167,10 @@ func ParseLocalCfgFile(cfgPath string) (cfg *Config, err error) {
 
 // normallize and validate configuration
 func (cfg *Config) Normallize() (err error) {
+	if len(cfg.Clickhouse.Hosts) == 0 || cfg.Kafka.Brokers == "" || cfg.Task.Name == "" {
+		err = errors.Errorf("invalid configuration")
+		return
+	}
 	if cfg.Kafka.Version == "" {
 		cfg.Kafka.Version = "2.2.1"
 	}
