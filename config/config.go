@@ -48,11 +48,16 @@ type KafkaConfig struct {
 	Brokers string
 	Version string
 	TLS     struct {
-		Enable             bool
-		CaCertFiles        string // Required. It's the CA certificate with which Kafka brokers certs be signed.
-		ClientCertFile     string // Required if Kafka brokers require client authentication.
-		ClientKeyFile      string // Required if and only if ClientCertFile is present.
-		InsecureSkipVerify bool   // Whether disable broker FQDN verification.
+		Enable         bool
+		CaCertFiles    string // Required. It's the CA cert.pem with which Kafka brokers certs be signed.
+		ClientCertFile string // Required for client authentication. It's client cert.pem.
+		ClientKeyFile  string // Required if and only if ClientCertFile is present. It's client key.pem.
+
+		TrustStoreLocation string //JKS format of CA certificate, used to extract CA cert.pem.
+		TrustStorePassword string
+		KeystoreLocation   string //JKS format of client certificate and key, used to extrace client cert.pem and key.pem.
+		KeystorePassword   string
+		EndpIdentAlgo      string
 	}
 	//simplified sarama.Config.Net.SASL to only support SASL/PLAIN and SASL/GSSAPI(Kerberos)
 	Sasl struct {
