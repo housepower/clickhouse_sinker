@@ -265,12 +265,11 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 	if err != nil {
 		return
 	}
-	if taskCfg.DynamicSchema.DistTableName != "" {
-		sqls = append(sqls, fmt.Sprintf("DROP TABLE IF EXISTS %s.%s %s", chCfg.DB, taskCfg.DynamicSchema.DistTableName, onCluster))
-		sqls = append(sqls, fmt.Sprintf("CREATE TABLE %s.%s %s AS %s ENGINE = Distributed(%s, %s, %s);",
-			chCfg.DB, taskCfg.DynamicSchema.DistTableName, onCluster, taskCfg.TableName,
-			taskCfg.DynamicSchema.Cluster, chCfg.DB, taskCfg.TableName))
-	}
+	distTableName := taskCfg.DynamicSchema.DistTblPrefix + taskCfg.TableName
+	sqls = append(sqls, fmt.Sprintf("DROP TABLE IF EXISTS %s.%s %s", chCfg.DB, distTableName, onCluster))
+	sqls = append(sqls, fmt.Sprintf("CREATE TABLE %s.%s %s AS %s ENGINE = Distributed(%s, %s, %s);",
+		chCfg.DB, distTableName, onCluster, taskCfg.TableName,
+		taskCfg.DynamicSchema.Cluster, chCfg.DB, taskCfg.TableName))
 
 	conn := pool.GetConn(0)
 	for _, sql := range sqls {

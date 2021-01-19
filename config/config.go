@@ -121,7 +121,7 @@ type TaskConfig struct {
 	DynamicSchema struct {
 		Enable        bool
 		Cluster       string
-		DistTableName string
+		DistTblPrefix string
 		MaxDims       int // the upper limit of dynamic columns number, <=0 means math.MaxInt16. protecting dirty data attack
 	}
 
@@ -147,6 +147,7 @@ const (
 	defaultLayoutDate       = "2006-01-02"
 	defaultLayoutDateTime   = time.RFC3339
 	defaultLayoutDateTime64 = time.RFC3339
+	defaultDistTblPrefix    = "dist_"
 	defaultLogLevel         = "info"
 )
 
@@ -227,6 +228,9 @@ func (cfg *Config) Normallize() (err error) {
 	}
 	if cfg.Task.LayoutDateTime64 == "" {
 		cfg.Task.LayoutDateTime64 = defaultLayoutDateTime64
+	}
+	if cfg.Task.DynamicSchema.Enable && cfg.Task.DynamicSchema.DistTblPrefix == "" {
+		cfg.Task.DynamicSchema.DistTblPrefix = defaultDistTblPrefix
 	}
 	switch strings.ToLower(cfg.LogLevel) {
 	case "panic", "fatal", "error", "warn", "warning", "info", "debug", "trace":

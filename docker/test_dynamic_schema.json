@@ -29,7 +29,7 @@
     "dynamicSchema": {
       "enable": true,
       "cluster": "",
-      "distTableName": ""
+      "distTblPrefix": "dist_"
     },
     "bufferSize": 50000
   },
