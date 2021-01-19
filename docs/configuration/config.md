@@ -34,8 +34,6 @@
       clientCertFile: "",
       // Required if and only if ClientCertFile is present.
       clientKeyFile: "",
-      // Whether disable broker FQDN verification. Set it to `true` if kafka-console-consumer.sh uses `ssl.endpoint.identification.algorithm=`.
-      "insecureSkipVerify": true
     }
 
     // SASL

@@ -16,17 +16,21 @@ limitations under the License.
 package util
 
 import (
+	"bytes"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"net"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 
 	"github.com/fagongzi/goetty"
 	"github.com/pkg/errors"
@@ -162,4 +166,50 @@ func EnvBoolVar(value *bool, key string) {
 	if found {
 		*value = true
 	}
+}
+
+// JksToPem converts JKS to PEM
+// Refers to:
+// https://serverfault.com/questions/715827/how-to-generate-key-and-crt-file-from-jks-file-for-httpd-apache-server
+func JksToPem(jksPath, jksPassword string, overwrite bool) (certPemPath, keyPemPath string, err error) {
+	dir, fn := filepath.Split(jksPath)
+	certPemPath = filepath.Join(dir, fn+".cert.pem")
+	keyPemPath = filepath.Join(dir, fn+".key.pem")
+	pkcs12Path := filepath.Join(dir, fn+".p12")
+	if overwrite {
+		for _, fp := range []string{certPemPath, keyPemPath, pkcs12Path} {
+			if err = os.RemoveAll(fp); err != nil {
+				err = errors.Wrapf(err, "")
+				return
+			}
+		}
+	} else {
+		for _, fp := range []string{certPemPath, keyPemPath, pkcs12Path} {
+			if _, err = os.Stat(fp); err == nil {
+				return
+			}
+		}
+	}
+	cmds := [][]string{
+		{"keytool", "-importkeystore", "-srckeystore", jksPath, "-destkeystore", pkcs12Path, "-deststoretype", "PKCS12"},
+		{"openssl", "pkcs12", "-in", pkcs12Path, "-nokeys", "-out", certPemPath, "-passin", "env:password"},
+		{"openssl", "pkcs12", "-in", pkcs12Path, "-nodes", "-nocerts", "-out", keyPemPath, "-passin", "env:password"},
+	}
+	for _, cmd := range cmds {
+		log.Infof(strings.Join(cmd, " "))
+		exe := exec.Command(cmd[0], cmd[1:]...)
+		if cmd[0] == "keytool" {
+			exe.Stdin = bytes.NewReader([]byte(jksPassword + "\n" + jksPassword + "\n" + jksPassword))
+		} else if cmd[0] == "openssl" {
+			exe.Env = []string{fmt.Sprintf("password=%s", jksPassword)}
+		}
+		var out []byte
+		out, err = exe.CombinedOutput()
+		log.Infof(string(out))
+		if err != nil {
+			err = errors.Wrapf(err, "")
+			return
+		}
+	}
+	return
 }

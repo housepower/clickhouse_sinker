@@ -70,10 +70,20 @@ func (k *KafkaGo) Init(cfg *config.Config, taskName string, putFn func(msg model
 		CommitInterval: time.Second,          // flushes commits to Kafka every second
 		ErrorLogger:    log.StandardLogger(), //kafka-go INFO log is too verbose
 	}
+	if kfkCfg.TLS.CaCertFiles == "" && kfkCfg.TLS.TrustStoreLocation != "" {
+		if kfkCfg.TLS.CaCertFiles, _, err = util.JksToPem(kfkCfg.TLS.TrustStoreLocation, kfkCfg.TLS.TrustStorePassword, false); err != nil {
+			return
+		}
+	}
+	if kfkCfg.TLS.ClientKeyFile == "" && kfkCfg.TLS.KeystoreLocation != "" {
+		if kfkCfg.TLS.ClientCertFile, kfkCfg.TLS.ClientKeyFile, err = util.JksToPem(kfkCfg.TLS.KeystoreLocation, kfkCfg.TLS.KeystorePassword, false); err != nil {
+			return
+		}
+	}
 	var dialer *kafka.Dialer
 	if kfkCfg.TLS.Enable {
 		var tlsConfig *tls.Config
-		if tlsConfig, err = util.NewTLSConfig(kfkCfg.TLS.CaCertFiles, kfkCfg.TLS.ClientCertFile, kfkCfg.TLS.ClientKeyFile, kfkCfg.TLS.InsecureSkipVerify); err != nil {
+		if tlsConfig, err = util.NewTLSConfig(kfkCfg.TLS.CaCertFiles, kfkCfg.TLS.ClientCertFile, kfkCfg.TLS.ClientKeyFile, kfkCfg.TLS.EndpIdentAlgo == ""); err != nil {
 			return
 		}
 		dialer = &kafka.Dialer{

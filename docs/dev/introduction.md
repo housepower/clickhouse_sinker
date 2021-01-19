@@ -64,10 +64,27 @@ An example kafka config:
     "version": "2.2.1",
     "tls": {
       "enable": true,
+      "@trustStoreLocation": "ssl.truststore.location which kafka-console-consumer.sh uses",
+      "trustStoreLocation": "/etc/security/kafka.client.truststore.jks",
+      "@trustStorePassword": "ssl.truststore.password which kafka-console-consumer.sh uses",
+      "trustStorePassword": "123456",
+      "@endpIdentAlgo": "ssl.endpoint.identification.algorithm which kafka-console-consumer.sh uses",
+      "endpIdentAlgo": ""
+    }
+  }
+```
+
+Or if you have extracted certificates from JKS, use the following config:
+```
+  "kafka": {
+    "brokers": "192.168.31.64:9093",
+    "version": "2.2.1",
+    "tls": {
+      "enable": true,
       "@caCertFiles": "Required. It's the CA certificate with which Kafka brokers certs be signed. This cert is added to kafka.client.truststore.jks which kafka-console-consumer.sh uses",
       "caCertFiles": "/etc/security/ca-cert",
-      "@insecureSkipVerify": "Whether disable broker FQDN verification. Set it to `true` if kafka-console-consumer.sh uses `ssl.endpoint.identification.algorithm=`.",
-      "insecureSkipVerify": true
+      "@endpIdentAlgo": "ssl.endpoint.identification.algorithm which kafka-console-consumer.sh uses",
+      "endpIdentAlgo": ""
     }
   }
 ```
