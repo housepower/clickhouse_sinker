@@ -8,7 +8,7 @@ import (
 )
 
 func TestFastjsonInt(t *testing.T) {
-	pp := NewParserPool("fastjson", nil, "", DefaultTSLayout)
+	pp := NewParserPool("fastjson", nil, "", TSLayout)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
@@ -27,7 +27,7 @@ func TestFastjsonInt(t *testing.T) {
 }
 
 func TestFastjsonFloat(t *testing.T) {
-	pp := NewParserPool("fastjson", nil, "", DefaultTSLayout)
+	pp := NewParserPool("fastjson", nil, "", TSLayout)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
@@ -46,7 +46,7 @@ func TestFastjsonFloat(t *testing.T) {
 }
 
 func TestFastjsonString(t *testing.T) {
-	pp := NewParserPool("fastjson", nil, "", DefaultTSLayout)
+	pp := NewParserPool("fastjson", nil, "", TSLayout)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
@@ -65,13 +65,13 @@ func TestFastjsonString(t *testing.T) {
 }
 
 func TestFastjsonDate(t *testing.T) {
-	pp := NewParserPool("fastjson", nil, "", DefaultTSLayout)
+	pp := NewParserPool("fastjson", nil, "", TSLayout)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
 
 	var exp, act time.Time
-	exp = time.Date(2019, 12, 16, 0, 0, 0, 0, time.UTC)
+	exp = time.Date(2019, 12, 16, 0, 0, 0, 0, time.Local)
 	act = metric.GetDate("time1", false).(time.Time)
 	require.Equal(t, exp, act)
 
@@ -84,7 +84,7 @@ func TestFastjsonDate(t *testing.T) {
 }
 
 func TestFastjsonDateTime(t *testing.T) {
-	pp := NewParserPool("fastjson", nil, "", DefaultTSLayout)
+	pp := NewParserPool("fastjson", nil, "", TSLayout)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
@@ -103,7 +103,7 @@ func TestFastjsonDateTime(t *testing.T) {
 }
 
 func TestFastjsonDateTime64(t *testing.T) {
-	pp := NewParserPool("fastjson", nil, "", DefaultTSLayout)
+	pp := NewParserPool("fastjson", nil, "", TSLayout)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
@@ -122,7 +122,7 @@ func TestFastjsonDateTime64(t *testing.T) {
 }
 
 func TestFastjsonElasticDateTime(t *testing.T) {
-	pp := NewParserPool("fastjson", nil, "", DefaultTSLayout)
+	pp := NewParserPool("fastjson", nil, "", TSLayout)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
@@ -143,7 +143,7 @@ func TestFastjsonElasticDateTime(t *testing.T) {
 }
 
 func TestFastjsonArray(t *testing.T) {
-	pp := NewParserPool("fastjson", nil, "", DefaultTSLayout)
+	pp := NewParserPool("fastjson", nil, "", TSLayout)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)

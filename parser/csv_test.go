@@ -22,7 +22,7 @@ import (
 )
 
 func TestCsvInt(t *testing.T) {
-	pp := NewParserPool("csv", csvSampleSchema, "", DefaultTSLayout)
+	pp := NewParserPool("csv", csvSampleSchema, "", TSLayout)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, err := parser.Parse(csvSample)
@@ -42,7 +42,7 @@ func TestCsvInt(t *testing.T) {
 }
 
 func TestCsvFloat(t *testing.T) {
-	pp := NewParserPool("csv", csvSampleSchema, "", DefaultTSLayout)
+	pp := NewParserPool("csv", csvSampleSchema, "", TSLayout)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, err := parser.Parse(csvSample)
@@ -62,7 +62,7 @@ func TestCsvFloat(t *testing.T) {
 }
 
 func TestCsvString(t *testing.T) {
-	pp := NewParserPool("csv", csvSampleSchema, "", DefaultTSLayout)
+	pp := NewParserPool("csv", csvSampleSchema, "", TSLayout)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, err := parser.Parse(csvSample)
@@ -82,14 +82,14 @@ func TestCsvString(t *testing.T) {
 }
 
 func TestCsvDate(t *testing.T) {
-	pp := NewParserPool("csv", csvSampleSchema, "", DefaultTSLayout)
+	pp := NewParserPool("csv", csvSampleSchema, "", TSLayout)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, err := parser.Parse(csvSample)
 	require.Nil(t, err)
 
 	var exp, act time.Time
-	exp = time.Date(2019, 12, 16, 0, 0, 0, 0, time.UTC)
+	exp = time.Date(2019, 12, 16, 0, 0, 0, 0, time.Local)
 	act = metric.GetDate("time1", false).(time.Time)
 	require.Equal(t, exp, act)
 
@@ -102,7 +102,7 @@ func TestCsvDate(t *testing.T) {
 }
 
 func TestCsvDateTime(t *testing.T) {
-	pp := NewParserPool("csv", csvSampleSchema, "", DefaultTSLayout)
+	pp := NewParserPool("csv", csvSampleSchema, "", TSLayout)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, err := parser.Parse(csvSample)
@@ -122,7 +122,7 @@ func TestCsvDateTime(t *testing.T) {
 }
 
 func TestCsvDateTime64(t *testing.T) {
-	pp := NewParserPool("csv", csvSampleSchema, "", DefaultTSLayout)
+	pp := NewParserPool("csv", csvSampleSchema, "", TSLayout)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, err := parser.Parse(csvSample)
@@ -142,7 +142,7 @@ func TestCsvDateTime64(t *testing.T) {
 }
 
 func TestCsvElasticDateTime(t *testing.T) {
-	pp := NewParserPool("csv", csvSampleSchema, "", DefaultTSLayout)
+	pp := NewParserPool("csv", csvSampleSchema, "", TSLayout)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, err := parser.Parse(csvSample)
@@ -164,7 +164,7 @@ func TestCsvElasticDateTime(t *testing.T) {
 }
 
 func TestCsvArray(t *testing.T) {
-	pp := NewParserPool("csv", csvSampleSchema, "", DefaultTSLayout)
+	pp := NewParserPool("csv", csvSampleSchema, "", TSLayout)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, err := parser.Parse(csvSample)

@@ -128,7 +128,7 @@ func init() {
 func GenTask(cfg *config.Config) (taskImpl *task.Service) {
 	taskCfg := &cfg.Task
 	ck := output.NewClickHouse(cfg)
-	pp := parser.NewParserPool(taskCfg.Parser, taskCfg.CsvFormat, taskCfg.Delimiter, []string{taskCfg.LayoutDate, taskCfg.LayoutDateTime, taskCfg.LayoutDateTime64})
+	pp := parser.NewParserPool(taskCfg.Parser, taskCfg.CsvFormat, taskCfg.Delimiter, []string{taskCfg.LayoutDate, taskCfg.LayoutDateTime, taskCfg.LayoutDateTime64, taskCfg.TimeZone})
 	inputer := input.NewInputer(taskCfg.KafkaClient)
 	taskImpl = task.NewTaskService(inputer, ck, pp, cfg)
 	return

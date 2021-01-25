@@ -8,7 +8,7 @@ import (
 )
 
 func TestGjsonInt(t *testing.T) {
-	pp := NewParserPool("gjson", nil, "", DefaultTSLayout)
+	pp := NewParserPool("gjson", nil, "", TSLayout)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
@@ -27,7 +27,7 @@ func TestGjsonInt(t *testing.T) {
 }
 
 func TestGjsonFloat(t *testing.T) {
-	pp := NewParserPool("gjson", nil, "", DefaultTSLayout)
+	pp := NewParserPool("gjson", nil, "", TSLayout)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
@@ -46,7 +46,7 @@ func TestGjsonFloat(t *testing.T) {
 }
 
 func TestGjsonString(t *testing.T) {
-	pp := NewParserPool("gjson", nil, "", DefaultTSLayout)
+	pp := NewParserPool("gjson", nil, "", TSLayout)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
@@ -65,13 +65,13 @@ func TestGjsonString(t *testing.T) {
 }
 
 func TestGjsonDate(t *testing.T) {
-	pp := NewParserPool("gjson", nil, "", DefaultTSLayout)
+	pp := NewParserPool("gjson", nil, "", TSLayout)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
 
 	var exp, act time.Time
-	exp = time.Date(2019, 12, 16, 0, 0, 0, 0, time.UTC)
+	exp = time.Date(2019, 12, 16, 0, 0, 0, 0, time.Local)
 	act = metric.GetDate("time1", false).(time.Time)
 	require.Equal(t, exp, act)
 
@@ -84,7 +84,7 @@ func TestGjsonDate(t *testing.T) {
 }
 
 func TestGjsonDateTime(t *testing.T) {
-	pp := NewParserPool("gjson", nil, "", DefaultTSLayout)
+	pp := NewParserPool("gjson", nil, "", TSLayout)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
@@ -103,7 +103,7 @@ func TestGjsonDateTime(t *testing.T) {
 }
 
 func TestGjsonDateTime64(t *testing.T) {
-	pp := NewParserPool("gjson", nil, "", DefaultTSLayout)
+	pp := NewParserPool("gjson", nil, "", TSLayout)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
@@ -122,7 +122,7 @@ func TestGjsonDateTime64(t *testing.T) {
 }
 
 func TestGjsonElasticDateTime(t *testing.T) {
-	pp := NewParserPool("gjson", nil, "", DefaultTSLayout)
+	pp := NewParserPool("gjson", nil, "", TSLayout)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
@@ -143,7 +143,7 @@ func TestGjsonElasticDateTime(t *testing.T) {
 }
 
 func TestGjsonArray(t *testing.T) {
-	pp := NewParserPool("gjson", nil, "", DefaultTSLayout)
+	pp := NewParserPool("gjson", nil, "", TSLayout)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)

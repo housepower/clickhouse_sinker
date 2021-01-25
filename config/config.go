@@ -142,16 +142,18 @@ type TaskConfig struct {
 	LayoutDate       string `json:"layoutDate,omitempty"`
 	LayoutDateTime   string `json:"layoutDateTime,omitempty"`
 	LayoutDateTime64 string `json:"layoutDateTime64,omitempty"`
+	TimeZone         string `json:"timezone"`
 }
 
 const (
 	defaultFlushInterval    = 3
 	defaultBufferSize       = 1 << 20 //1048576
-	defaultMinBufferSize    = 1 << 13 //   8196
+	defaultMinBufferSize    = 1 << 14 //  16384
 	defaultMsgSizeHint      = 1000
 	defaultLayoutDate       = "2006-01-02"
 	defaultLayoutDateTime   = time.RFC3339
-	defaultLayoutDateTime64 = time.RFC3339
+	defaultLayoutDateTime64 = time.RFC3339Nano
+	defaultTimeZone         = "Local"
 	defaultDistTblPrefix    = "dist_"
 	defaultLogLevel         = "info"
 )
@@ -233,6 +235,9 @@ func (cfg *Config) Normallize() (err error) {
 	}
 	if cfg.Task.LayoutDateTime64 == "" {
 		cfg.Task.LayoutDateTime64 = defaultLayoutDateTime64
+	}
+	if cfg.Task.TimeZone == "" {
+		cfg.Task.TimeZone = defaultTimeZone
 	}
 	if cfg.Task.DynamicSchema.Enable && cfg.Task.DynamicSchema.DistTblPrefix == "" {
 		cfg.Task.DynamicSchema.DistTblPrefix = defaultDistTblPrefix

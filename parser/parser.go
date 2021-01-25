@@ -23,8 +23,9 @@ import (
 )
 
 var (
-	DefaultTSLayout = []string{"2006-01-02", time.RFC3339Nano, time.RFC3339Nano}
-	Epoch           = time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
+	TSLayout = []string{"2006-01-02", time.RFC3339Nano, time.RFC3339Nano, "Local"}
+	TimeZone *time.Location
+	Epoch    = time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
 )
 
 // Parse is the Parser interface
@@ -37,17 +38,17 @@ type Pool struct {
 	name      string
 	csvFormat []string
 	delimiter string
-	tsLayout  []string
 	pool      sync.Pool
 }
 
 // NewParserPool create a parser pool
 func NewParserPool(name string, csvFormat []string, delimiter string, tsLayout []string) *Pool {
+	TSLayout = tsLayout
+	TimeZone, _ = time.LoadLocation(TSLayout[3])
 	return &Pool{
 		name:      name,
 		csvFormat: csvFormat,
 		delimiter: delimiter,
-		tsLayout:  tsLayout,
 	}
 }
 
@@ -59,13 +60,13 @@ func (pp *Pool) Get() Parser {
 	if v == nil {
 		switch pp.name {
 		case "gjson":
-			return &GjsonParser{pp.tsLayout}
+			return &GjsonParser{}
 		case "json", "fastjson":
-			return &FastjsonParser{tsLayout: pp.tsLayout}
+			return &FastjsonParser{}
 		case "csv":
-			return &CsvParser{pp.csvFormat, pp.delimiter, pp.tsLayout}
+			return &CsvParser{pp.csvFormat, pp.delimiter}
 		default:
-			return &FastjsonParser{tsLayout: pp.tsLayout}
+			return &FastjsonParser{}
 		}
 	}
 	return v.(Parser)

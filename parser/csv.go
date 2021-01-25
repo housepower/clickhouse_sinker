@@ -32,7 +32,6 @@ var _ Parser = (*CsvParser)(nil)
 type CsvParser struct {
 	title     []string
 	delimiter string
-	tsLayout  []string
 }
 
 // Parse extract a list of comma-separated values from the data
@@ -47,15 +46,14 @@ func (p *CsvParser) Parse(bs []byte) (metric model.Metric, err error) {
 		err = errors.Wrap(err, "")
 		return
 	}
-	metric = &CsvMetric{p.title, value, p.tsLayout}
+	metric = &CsvMetric{p.title, value}
 	return
 }
 
 // CsvMetic
 type CsvMetric struct {
-	titles   []string
-	values   []string
-	tsLayout []string
+	titles []string
+	values []string
 }
 
 // Get returns the value corresponding to a column expects called
@@ -155,19 +153,19 @@ func (c *CsvMetric) GetDate(key string, nullable bool) interface{} {
 	_ = nullable // nullable can not be supported with csv
 
 	val := c.GetString(key, false).(string)
-	t, _ := time.Parse(c.tsLayout[0], val)
+	t, _ := time.ParseInLocation(TSLayout[0], val, TimeZone)
 	return t
 }
 
 func (c *CsvMetric) GetDateTime(key string, nullable bool) interface{} {
 	val := c.GetString(key, false).(string)
-	t, _ := time.Parse(c.tsLayout[1], val)
+	t, _ := time.ParseInLocation(TSLayout[1], val, TimeZone)
 	return t
 }
 
 func (c *CsvMetric) GetDateTime64(key string, nullable bool) interface{} {
 	val := c.GetString(key, false).(string)
-	t, _ := time.Parse(c.tsLayout[2], val)
+	t, _ := time.ParseInLocation(TSLayout[2], val, TimeZone)
 	return t
 }
 
