@@ -40,6 +40,7 @@ type DimMetrics struct {
 // ColumnWithType
 type ColumnWithType struct {
 	Name       string
-	Type       string
+	Type       int
+	Nullable   bool
 	SourceName string
 }

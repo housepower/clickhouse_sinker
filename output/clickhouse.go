@@ -190,20 +190,23 @@ func (c *ClickHouse) initSchema() (err error) {
 			}
 			typ = lowCardinalityRegexp.ReplaceAllString(typ, "$1")
 			if !util.StringContains(c.cfg.Task.ExcludeColumns, name) && defaultKind != "MATERIALIZED" {
-				c.Dims = append(c.Dims, &model.ColumnWithType{Name: name, Type: typ, SourceName: util.GetSourceName(name)})
+				tp, nullable := model.WhichType(typ)
+				c.Dims = append(c.Dims, &model.ColumnWithType{Name: name, Type: tp, Nullable: nullable, SourceName: util.GetSourceName(name)})
 			}
 		}
 	} else {
 		c.Dims = make([]*model.ColumnWithType, 0)
 		for _, dim := range c.cfg.Task.Dims {
+			tp, nullable := model.WhichType(dim.Type)
 			c.Dims = append(c.Dims, &model.ColumnWithType{
 				Name:       dim.Name,
-				Type:       dim.Type,
+				Type:       tp,
+				Nullable:   nullable,
 				SourceName: dim.SourceName,
 			})
 		}
 	}
-	//根据 Dms 生成prepare的sql语句
+	// Generate SQL for INSERT
 	c.Dms = make([]string, 0, len(c.Dims))
 	quotedDms := make([]string, 0, len(c.Dims))
 	for _, d := range c.Dims {
