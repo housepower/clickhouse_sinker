@@ -62,7 +62,6 @@ type CmdOptions struct {
 var (
 	cmdOps      CmdOptions
 	selfIP      string
-	selfAddr    string
 	httpMetrics = promhttp.Handler()
 	runner      *Sinker
 )
@@ -120,8 +119,7 @@ func init() {
 		os.Exit(0)
 	}
 	selfIP = util.GetOutboundIP().String()
-	cmdOps.HTTPPort = util.GetSpareTCPPort(selfIP, cmdOps.HTTPPort)
-	selfAddr = fmt.Sprintf("%s:%d", selfIP, cmdOps.HTTPPort)
+	cmdOps.HTTPPort = util.GetSpareTCPPort(cmdOps.HTTPPort)
 }
 
 // GenTask generate a task via config
@@ -188,8 +186,8 @@ func main() {
 			mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
 			mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 
-			log.Infof("Run http server http://%s", selfAddr)
-			log.Error(http.ListenAndServe(selfAddr, mux))
+			log.Infof("Run http server http://%s:%d", selfIP, cmdOps.HTTPPort)
+			log.Error(http.ListenAndServe(fmt.Sprintf(":%d", cmdOps.HTTPPort), mux))
 		}()
 
 		runner.Run()
