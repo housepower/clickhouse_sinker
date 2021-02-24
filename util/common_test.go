@@ -1,7 +1,6 @@
 package util
 
 import (
-	"fmt"
 	"os"
 	"testing"
 
@@ -19,6 +18,6 @@ func TestJksToPem(t *testing.T) {
 		}
 		certPemPath, keyPemPath, err = JksToPem(jksPath, jksPassword, true)
 		require.Nil(t, err, "err should be nothing")
-		fmt.Printf("converted %s to %s, %s\n", jksPath, certPemPath, keyPemPath)
+		t.Logf("converted %s to %s, %s\n", jksPath, certPemPath, keyPemPath)
 	}
 }

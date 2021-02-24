@@ -5,16 +5,17 @@ import "fmt"
 var (
 	// SinkerReleaseVersion information.
 	SinkerReleaseVersion = "None"
-	SinkerBuildTS        = "None"
+	SinkerEdition        = "None"
 	SinkerGitHash        = "None"
 	SinkerGitBranch      = "None"
-	SinkerEdition        = "None"
+	SinkerBuildTS        = "None"
 )
 
-func PrintSinkerInfo() {
-	fmt.Println("Release Version:", SinkerReleaseVersion)
-	fmt.Println("Edition:", SinkerEdition)
-	fmt.Println("Git Commit Hash:", SinkerGitHash)
-	fmt.Println("Git Branch:", SinkerGitBranch)
-	fmt.Println("UTC Build Time: ", SinkerBuildTS)
+func GetSinkerInfo() string {
+	return fmt.Sprintf("Release Version: %s, Edition: %s, Git Commit Hash: %s, Git Branch: %s, Build At: %s",
+		SinkerReleaseVersion,
+		SinkerEdition,
+		SinkerGitHash,
+		SinkerGitBranch,
+		SinkerBuildTS)
 }

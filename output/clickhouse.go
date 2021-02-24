@@ -64,10 +64,7 @@ func (c *ClickHouse) Init() (err error) {
 	if err = pool.InitConn(chCfg.Hosts, chCfg.Port, chCfg.DB, chCfg.Username, chCfg.Password, chCfg.DsnParams); err != nil {
 		return
 	}
-	if err = c.initSchema(); err != nil {
-		return err
-	}
-	return nil
+	return c.initSchema()
 }
 
 // Send a batch to clickhouse

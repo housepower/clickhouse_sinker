@@ -162,8 +162,7 @@ func EnvIntVar(value *int, key string) {
 
 func EnvBoolVar(value *bool, key string) {
 	realKey := strings.ReplaceAll(strings.ToUpper(key), "-", "_")
-	_, found := os.LookupEnv(realKey)
-	if found {
+	if _, found := os.LookupEnv(realKey); found {
 		*value = true
 	}
 }

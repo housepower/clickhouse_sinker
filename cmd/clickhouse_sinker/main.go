@@ -115,7 +115,7 @@ func initCmdOptions() {
 func init() {
 	initCmdOptions()
 	if cmdOps.ShowVer {
-		config.PrintSinkerInfo()
+		log.Infoln(config.GetSinkerInfo())
 		os.Exit(0)
 	}
 	selfIP = util.GetOutboundIP().String()
