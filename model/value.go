@@ -126,10 +126,10 @@ func init() {
 	}
 	typeInfo["Date"] = TypeInfo{Type: Date, Nullable: false}
 	typeInfo["Nullable(Date)"] = TypeInfo{Type: Date, Nullable: true}
-	typeInfo["DateTime"] = TypeInfo{Type: Date, Nullable: false}
-	typeInfo["Nullable(DateTime)"] = TypeInfo{Type: Date, Nullable: true}
-	typeInfo["DateTime64"] = TypeInfo{Type: Date, Nullable: false}
-	typeInfo["Nullable(DateTime64)"] = TypeInfo{Type: Date, Nullable: true}
-	typeInfo["ElasticDateTime"] = TypeInfo{Type: Date, Nullable: false}
-	typeInfo["Nullable(ElasticDateTime)"] = TypeInfo{Type: Date, Nullable: true}
+	typeInfo["DateTime"] = TypeInfo{Type: DateTime, Nullable: false}
+	typeInfo["Nullable(DateTime)"] = TypeInfo{Type: DateTime, Nullable: true}
+	typeInfo["DateTime64"] = TypeInfo{Type: DateTime64, Nullable: false}
+	typeInfo["Nullable(DateTime64)"] = TypeInfo{Type: DateTime64, Nullable: true}
+	typeInfo["ElasticDateTime"] = TypeInfo{Type: ElasticDateTime, Nullable: false}
+	typeInfo["Nullable(ElasticDateTime)"] = TypeInfo{Type: ElasticDateTime, Nullable: true}
 }
