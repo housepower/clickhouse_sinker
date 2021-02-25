@@ -94,25 +94,41 @@
     // "this columns will be excluded by insert SQL "
     "excludeColumns": []
 
+    // (experiment feature) detect new fields and their type, and add columns to the ClickHouse table accordingly. supported types are Int64, Float64, String.
+    "dynamicSchema": {
+      // whether enable this feature, default to false
+      "enable": true,
+      // cluster the ClickHouse node belongs
+      "cluster": "test",
+      // distributed table name prefix, default to "dist_"
+      "distTblPrefix": ""
+    },
+
     // shardingKey is the column name to which sharding against
     "shardingKey": "",
     // shardingPolicy is `stripe,<interval>`(requires ShardingKey be numerical) or `hash`(requires ShardingKey be string)
     "shardingPolicy": "",
 
-    // batch size to insert into clickhouse
+    // interval of flushing the batch
+    "flushInterval": 5,
+    // batch size to insert into clickhouse. sinker will round upward it to the the nearest 2^n.
     "bufferSize": 90000,
-    // min batch size to insert into clickhouse
+    // min batch size to insert into clickhouse. sinker will round upward it to the the nearest 2^n.
     "minBufferSize": 1,
-
-    // msg bytes per message
+    // estimated avg message size. kafka-go needs this to determize receive buffer size. default to 1000.
     "msgSizeHint": 1000,
 
-    // interval flush the batch
-    "flushInterval": 5,
+    // Date format in message, default to "2006-01-02".
+    "layoutDate": "",
+    // DateTime format in message, default to "2006-01-02T15:04:05Z07:00" (aka time.RFC3339).
+    "layoutDateTime": "",
+    // DateTime64 format in message, default to "2006-01-02T15:04:05.999999999Z07:00" (aka time.RFC3339Nano).
+    "layoutDateTime64": "",
+    // In the absence of time zone information, interprets the time as in the given location. Default to "Local" (aka /etc/localtime of the machine on which sinker runs)
+    "timezone": ""
   },
 
-  // log level
+  // log level, possible value: panic, fatal, error, warn, warning, info, debug, trace
   "logLevel": "debug"
-  }
 }
 ```
