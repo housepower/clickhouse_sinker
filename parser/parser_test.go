@@ -41,7 +41,9 @@ var jsonSample = []byte(`{
 	"array_int": [1,2,3],
 	"array_float": [1.1,2.2,3.3],
 	"array_string": ["aa","bb","cc"],
-	"array_empty": []
+	"array_empty": [],
+	"bool_true": true,
+	"bool_false": false
 }`)
 
 var csvSampleSchema = []string{"its", "percent", "channel", "time1", "time2", "time3", "array_int", "array_float", "array_string", "array_empty"}

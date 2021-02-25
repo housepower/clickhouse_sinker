@@ -67,8 +67,15 @@ func (c *FastjsonMetric) GetFloat(key string, nullable bool) interface{} {
 }
 
 func (c *FastjsonMetric) GetInt(key string, nullable bool) interface{} {
-	if nullable && !c.value.Exists(key) {
-		return nil
+	v := c.value.Get(key)
+	if v == nil {
+		if nullable {
+			return nil
+		}
+		return int64(0)
+	}
+	if v.Type() == fastjson.TypeTrue {
+		return int64(1)
 	}
 	return c.value.GetInt64(key)
 }
@@ -91,7 +98,12 @@ func (c *FastjsonMetric) GetArray(key string, t string) interface{} {
 	case "int":
 		results := make([]int64, 0, len(array))
 		for _, e := range array {
-			v, _ := e.Int64()
+			var v int64
+			if e.Type() == fastjson.TypeTrue {
+				v = 1
+			} else {
+				v, _ = e.Int64()
+			}
 			results = append(results, v)
 		}
 		return results

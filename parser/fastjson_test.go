@@ -24,6 +24,14 @@ func TestFastjsonInt(t *testing.T) {
 
 	actual := metric.GetInt("its_not_exist", true)
 	require.Nil(t, actual, "err should be nothing")
+
+	exp = 0
+	act = metric.GetInt("bool_false", false).(int64)
+	require.Equal(t, exp, act)
+
+	exp = 1
+	act = metric.GetInt("bool_true", false).(int64)
+	require.Equal(t, exp, act)
 }
 
 func TestFastjsonFloat(t *testing.T) {
