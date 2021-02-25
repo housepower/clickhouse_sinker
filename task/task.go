@@ -230,6 +230,7 @@ func (service *Service) put(msg model.InputMessage) {
 	statistics.ParsingPoolBacklog.WithLabelValues(taskCfg.Name).Inc()
 	_ = util.GlobalParsingPool.Submit(func() {
 		var row *model.Row
+		var foundNewKeys bool
 		p := service.pp.Get()
 		metric, err := p.Parse(msg.Value)
 		if err != nil {
@@ -241,27 +242,28 @@ func (service *Service) put(msg model.InputMessage) {
 		} else {
 			row = model.MetricToRow(metric, msg, service.dims)
 		}
+		if taskCfg.DynamicSchema.Enable {
+			foundNewKeys = metric.GetNewKeys(&service.knownKeys, &service.newKeys)
+		}
+		// WARNNING: metric.GetXXX may depend on p. Don't call them after p been freed.
 		service.pp.Put(p)
 
-		if taskCfg.DynamicSchema.Enable {
-			found := metric.GetNewKeys(&service.knownKeys, &service.newKeys)
-			if found {
-				cntNewKeys := atomic.AddInt32(&service.cntNewKeys, 1)
-				if cntNewKeys == 1 {
-					// The first message which contains new keys triggers flushing
-					// all messages and scheduling a delayed func to apply schema change.
-					for _, ring := range service.rings {
-						if ring != nil {
-							ring.ForceBatchOrShard(nil)
-						}
+		if foundNewKeys {
+			cntNewKeys := atomic.AddInt32(&service.cntNewKeys, 1)
+			if cntNewKeys == 1 {
+				// The first message which contains new keys triggers flushing
+				// all messages and scheduling a delayed func to apply schema change.
+				for _, ring := range service.rings {
+					if ring != nil {
+						ring.ForceBatchOrShard(nil)
 					}
-					if service.sharder != nil {
-						service.sharder.ForceFlush(nil)
-					}
-					if service.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(taskCfg.FlushInterval)*time.Second, service.changeSchema, nil); err != nil {
-						log.Fatalf("got error %+v", err)
-						os.Exit(-1)
-					}
+				}
+				if service.sharder != nil {
+					service.sharder.ForceFlush(nil)
+				}
+				if service.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(taskCfg.FlushInterval)*time.Second, service.changeSchema, nil); err != nil {
+					log.Fatalf("got error %+v", err)
+					os.Exit(-1)
 				}
 			}
 		}

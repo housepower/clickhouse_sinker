@@ -1,10 +1,14 @@
 package parser
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
+	"github.com/valyala/fastjson"
 )
 
 func TestFastjsonInt(t *testing.T) {
@@ -179,4 +183,28 @@ func TestFastjsonArray(t *testing.T) {
 	actSE := metric.GetArray("array_empty", "string").([]string)
 	expSE := []string{}
 	require.Equal(t, expSE, actSE)
+
+	metric, _ = parser.Parse(jsonSample2)
+	actS = metric.GetArray("listvalue", "string").([]string)
+	expS = []string{"aaa", "bbb", "ccc"}
+	require.Equal(t, expS, actS)
+}
+
+func TestFastjsonDetectSchema(t *testing.T) {
+	pp := NewParserPool("fastjson", nil, "", TSLayout)
+	parser := pp.Get()
+	defer pp.Put(parser)
+	metric, _ := parser.Parse(jsonSample)
+
+	var nameAndTypes []string
+	c := metric.(*FastjsonMetric)
+	var obj *fastjson.Object
+	var err error
+	if obj, err = c.value.Object(); err != nil {
+		return
+	}
+	obj.Visit(func(key []byte, v *fastjson.Value) {
+		nameAndTypes = append(nameAndTypes, fmt.Sprintf("%s: %s", string(key), v.Type().String()))
+	})
+	log.Infof("detected json schema: {%s}", strings.Join(nameAndTypes, ", "))
 }

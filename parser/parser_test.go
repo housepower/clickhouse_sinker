@@ -46,6 +46,8 @@ var jsonSample = []byte(`{
 	"bool_false": false
 }`)
 
+var jsonSample2 = []byte(`{"date":"2021-01-02","ip":"192.168.0.3","floatvalue":425.633,"doublevalue":571.2464722672763,"novalue":" ","metric":"CPU_Idle_Time","service":"Web3","listvalue":["aaa","bbb","ccc"],"addint":123,"adddouble":571.2464722672763,"addstring":"add","value":123,"timestamp":"2021-01-02 21:06:00"}`)
+
 var csvSampleSchema = []string{"its", "percent", "channel", "time1", "time2", "time3", "array_int", "array_float", "array_string", "array_empty"}
 var csvSample = []byte(`1536813227,"0.11","escaped_""ws",2019-12-16,2019-12-16T12:10:30Z,2019-12-16T12:10:30.123Z,"[1,2,3]","[1.1,2.2,3.3]","[aa,bb,cc]","[]"`)
 

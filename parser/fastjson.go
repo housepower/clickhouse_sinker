@@ -16,7 +16,6 @@ limitations under the License.
 package parser
 
 import (
-	"fmt"
 	"sync"
 	"time"
 
@@ -187,10 +186,6 @@ func (c *FastjsonMetric) GetNewKeys(knownKeys *sync.Map, newKeys *sync.Map) (fou
 	obj.Visit(func(key []byte, v *fastjson.Value) {
 		strKey := string(key)
 		if _, loaded := knownKeys.LoadOrStore(strKey, nil); !loaded {
-			v := c.value.Get(strKey)
-			if v == nil {
-				panic(fmt.Sprintf("BUG: fastjson.Object.Visit got an unexpected key: %s", strKey))
-			}
 			if _, err = v.Int64(); err == nil {
 				newKeys.Store(strKey, "int")
 				foundNew = true
