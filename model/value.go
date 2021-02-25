@@ -122,7 +122,7 @@ func init() {
 		typeInfo[t] = TypeInfo{Type: FloatArray, Nullable: false}
 	}
 	for _, t := range []string{"Array(String)", "Array(FixedString)"} {
-		typeInfo[t] = TypeInfo{Type: String, Nullable: false}
+		typeInfo[t] = TypeInfo{Type: StringArray, Nullable: false}
 	}
 	typeInfo["Date"] = TypeInfo{Type: Date, Nullable: false}
 	typeInfo["Nullable(Date)"] = TypeInfo{Type: Date, Nullable: true}
