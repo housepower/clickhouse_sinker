@@ -94,7 +94,7 @@
     // "this columns will be excluded by insert SQL "
     "excludeColumns": []
 
-    // (experiment feature) detect new fields and their type, and add columns to the ClickHouse table accordingly. supported types are Int64, Float64, String.
+    // (experiment feature) detect new fields and their type, and add columns to the ClickHouse table accordingly. This feature requires parser be "fastjson", and support following ClickHouse data types: Int64, Float64, String.
     "dynamicSchema": {
       // whether enable this feature, default to false
       "enable": true,

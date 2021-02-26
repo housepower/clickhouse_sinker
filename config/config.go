@@ -239,8 +239,14 @@ func (cfg *Config) Normallize() (err error) {
 	if cfg.Task.TimeZone == "" {
 		cfg.Task.TimeZone = defaultTimeZone
 	}
-	if cfg.Task.DynamicSchema.Enable && cfg.Task.DynamicSchema.DistTblPrefix == "" {
-		cfg.Task.DynamicSchema.DistTblPrefix = defaultDistTblPrefix
+	if cfg.Task.DynamicSchema.Enable {
+		if cfg.Task.Parser != "fastjson" {
+			err = errors.Errorf("Parser %s doesn't support DynamicSchema", cfg.Task.Parser)
+			return
+		}
+		if cfg.Task.DynamicSchema.DistTblPrefix == "" {
+			cfg.Task.DynamicSchema.DistTblPrefix = defaultDistTblPrefix
+		}
 	}
 	switch strings.ToLower(cfg.LogLevel) {
 	case "panic", "fatal", "error", "warn", "warning", "info", "debug", "trace":
