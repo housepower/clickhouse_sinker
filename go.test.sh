@@ -19,6 +19,10 @@ curl "localhost:8123" -d 'CREATE TABLE test_auto_schema AS test_fixed_schema'
 curl "localhost:8123" -d 'DROP TABLE IF EXISTS test_dynamic_schema'
 curl "localhost:8123" -d 'CREATE TABLE test_dynamic_schema AS test_fixed_schema'
 
+counts=`curl "localhost:8123" -d 'SELECT count() FROM test_fixed_schema UNION ALL SELECT count() FROM test_auto_schema UNION ALL SELECT count() FROM test_dynamic_schema' 2>/dev/null | tr '\n' ','`
+echo "Got initial row counts => $counts"
+[ $counts = "0,0,0," ] || exit 1
+
 ## send the messages to kafka
 now=`date --rfc-3339=ns`
 for i in `seq 1 10000`;do
@@ -40,7 +44,7 @@ echo "generated a.json"
 echo "cat /tmp/a.json | kafka-console-producer --topic topic1 --broker-list localhost:9092" > send.sh
 sudo docker cp a.json kafka:/tmp/
 sudo docker cp send.sh kafka:/tmp/
-sudo docker exec kafka   sh /tmp/send.sh
+sudo docker exec kafka sh /tmp/send.sh
 
 ## start clickhouse_sinker to consume
 timeout 30 ./dist/clickhouse_sinker --local-cfg-file docker/test_fixed_schema.json

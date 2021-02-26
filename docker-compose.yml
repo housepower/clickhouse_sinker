@@ -31,7 +31,7 @@ services:
     security_opt:
       - label:disable
   clickhouse:
-    image: yandex/clickhouse-server:20.8
+    image: yandex/clickhouse-server:20.8.5.45
     restart: always
     ports:
       - "8123:8123"

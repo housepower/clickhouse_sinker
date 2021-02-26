@@ -201,7 +201,7 @@ func (cfg *Config) Normallize() (err error) {
 	} else if cfg.Task.KafkaClient == "" {
 		cfg.Task.KafkaClient = "kafka-go"
 	}
-	if cfg.Task.Parser == "" {
+	if cfg.Task.Parser == "" || cfg.Task.Parser == "json" {
 		cfg.Task.Parser = "fastjson"
 	}
 

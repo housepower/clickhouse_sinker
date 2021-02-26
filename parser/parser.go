@@ -61,7 +61,7 @@ func (pp *Pool) Get() Parser {
 		switch pp.name {
 		case "gjson":
 			return &GjsonParser{}
-		case "json", "fastjson":
+		case "fastjson":
 			return &FastjsonParser{}
 		case "csv":
 			return &CsvParser{pp.csvFormat, pp.delimiter}
