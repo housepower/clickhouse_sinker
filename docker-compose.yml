@@ -44,20 +44,6 @@ services:
       - "./docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d"
     security_opt:
       - label:disable
-  tabix:
-    image: spoonest/clickhouse-tabix-web-client:stable
-    restart: always
-    ports:
-      - "8080:80"
-    depends_on:
-      - clickhouse
-    environment:
-      CH_NAME: "dev"
-      CH_HOST: "http://127.0.0.1:8123"
-      CH_LOGIN: "default"
-      CH_PASSWORD: ""
-    security_opt:
-      - label:disable
   nacos:
     image: nacos/nacos-server:1.4.0
     container_name: nacos-standalone
