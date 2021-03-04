@@ -8,7 +8,7 @@ import (
 )
 
 func TestGjsonInt(t *testing.T) {
-	pp := NewParserPool("gjson", nil, "", TSLayout)
+	pp := NewParserPool("gjson", nil, "", nil)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
@@ -19,10 +19,10 @@ func TestGjsonInt(t *testing.T) {
 	require.Equal(t, exp, act)
 
 	exp = 0
-	act = metric.GetInt("its_not_exist", false).(int64)
+	act = metric.GetInt("not_exist", false).(int64)
 	require.Equal(t, exp, act)
 
-	actual := metric.GetInt("its_not_exist", true)
+	actual := metric.GetInt("not_exist", true)
 	require.Nil(t, actual, "err should be nothing")
 
 	exp = 0
@@ -35,7 +35,7 @@ func TestGjsonInt(t *testing.T) {
 }
 
 func TestGjsonFloat(t *testing.T) {
-	pp := NewParserPool("gjson", nil, "", TSLayout)
+	pp := NewParserPool("gjson", nil, "", nil)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
@@ -46,15 +46,15 @@ func TestGjsonFloat(t *testing.T) {
 	require.Equal(t, exp, act)
 
 	exp = 0.0
-	act = metric.GetFloat("percent_not_exist", false).(float64)
+	act = metric.GetFloat("not_exist", false).(float64)
 	require.Equal(t, exp, act)
 
-	actual := metric.GetFloat("percent_not_exist", true)
+	actual := metric.GetFloat("not_exist", true)
 	require.Nil(t, actual, "err should be nothing")
 }
 
 func TestGjsonString(t *testing.T) {
-	pp := NewParserPool("gjson", nil, "", TSLayout)
+	pp := NewParserPool("gjson", nil, "", nil)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
@@ -65,72 +65,104 @@ func TestGjsonString(t *testing.T) {
 	require.Equal(t, exp, act)
 
 	exp = ""
-	act = metric.GetString("channel_not_exist", false).(string)
+	act = metric.GetString("not_exist", false).(string)
 	require.Equal(t, exp, act)
 
-	actual := metric.GetString("channel_not_exist", true)
+	actual := metric.GetString("not_exist", true)
 	require.Nil(t, actual, "err should be nothing")
 }
 
 func TestGjsonDate(t *testing.T) {
-	pp := NewParserPool("gjson", nil, "", TSLayout)
+	pp := NewParserPool("gjson", nil, "", TSLayoutStd)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
 
 	var exp, act time.Time
 	exp = time.Date(2019, 12, 16, 0, 0, 0, 0, time.Local)
-	act = metric.GetDate("time1", false).(time.Time)
+	act = metric.GetDate("date1", false).(time.Time)
 	require.Equal(t, exp, act)
 
 	exp = time.Time{}
-	act = metric.GetDate("time1_not_exist", false).(time.Time)
+	act = metric.GetDate("not_exist", false).(time.Time)
 	require.Equal(t, exp, act)
 
-	actual := metric.GetDate("time1_not_exist", true)
+	actual := metric.GetDate("not_exist", true)
 	require.Nil(t, actual, "err should be nothing")
 }
 
-func TestGjsonDateTime(t *testing.T) {
-	pp := NewParserPool("gjson", nil, "", TSLayout)
+func TestGjsonDateTimeStd(t *testing.T) {
+	pp := NewParserPool("gjson", nil, "", TSLayoutStd)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
 
 	var exp, act time.Time
 	exp = time.Date(2019, 12, 16, 12, 10, 30, 0, time.UTC)
-	act = metric.GetDateTime("time2", false).(time.Time)
+	act = metric.GetDateTime("time_sec_rfc3339_1", false).(time.Time)
+	require.Equal(t, exp, act)
+
+	exp = time.Date(2019, 12, 16, 12, 10, 30, 0, time.FixedZone("CST", 8*60*60)).In(time.UTC)
+	act = metric.GetDateTime("time_sec_rfc3339_2", false).(time.Time).In(time.UTC)
 	require.Equal(t, exp, act)
 
 	exp = time.Time{}
-	act = metric.GetDateTime("time2_not_exist", false).(time.Time)
+	act = metric.GetDateTime("not_exist", false).(time.Time)
 	require.Equal(t, exp, act)
 
-	actual := metric.GetDateTime("time2_not_exist", true)
+	actual := metric.GetDateTime("not_exist", true)
 	require.Nil(t, actual, "err should be nothing")
 }
 
-func TestGjsonDateTime64(t *testing.T) {
-	pp := NewParserPool("gjson", nil, "", TSLayout)
+func TestGjsonDateTimeCh(t *testing.T) {
+	pp := NewParserPool("gjson", nil, "", TSLayoutCh)
+	parser := pp.Get()
+	defer pp.Put(parser)
+	metric, _ := parser.Parse(jsonSample)
+
+	var exp, act time.Time
+	exp = time.Date(2019, 12, 16, 12, 10, 30, 0, time.Local).In(time.UTC)
+	act = metric.GetDateTime("time_sec_clickhouse_1", false).(time.Time).In(time.UTC)
+	require.Equal(t, exp, act)
+}
+
+func TestGjsonDateTime64Std(t *testing.T) {
+	pp := NewParserPool("gjson", nil, "", TSLayoutStd)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
 
 	var exp, act time.Time
 	exp = time.Date(2019, 12, 16, 12, 10, 30, 123000000, time.UTC)
-	act = metric.GetDateTime64("time3", false).(time.Time)
+	act = metric.GetDateTime64("time_ms_rfc3339_1", false).(time.Time)
 	require.Equal(t, exp, act)
+
+	exp = time.Date(2019, 12, 16, 12, 10, 30, 123000000, time.FixedZone("CST", 8*60*60)).In(time.UTC)
+	act = metric.GetDateTime64("time_ms_rfc3339_2", false).(time.Time).In(time.UTC)
+	require.EqualValues(t, exp, act)
 
 	exp = time.Time{}
-	act = metric.GetDateTime64("time3_not_exist", false).(time.Time)
+	act = metric.GetDateTime64("not_exist", false).(time.Time)
 	require.Equal(t, exp, act)
 
-	actual := metric.GetDateTime64("time3_not_exist", true)
+	actual := metric.GetDateTime64("not_exist", true)
 	require.Nil(t, actual, "err should be nothing")
 }
 
+func TestGjsonDateTime64Ch(t *testing.T) {
+	pp := NewParserPool("gjson", nil, "", TSLayoutCh)
+	parser := pp.Get()
+	defer pp.Put(parser)
+	metric, _ := parser.Parse(jsonSample)
+
+	var exp, act time.Time
+	exp = time.Date(2019, 12, 16, 12, 10, 30, 123000000, time.Local).In(time.UTC)
+	act = metric.GetDateTime64("time_ms_clickhouse_1", false).(time.Time).In(time.UTC)
+	require.Equal(t, exp, act)
+}
+
 func TestGjsonElasticDateTime(t *testing.T) {
-	pp := NewParserPool("gjson", nil, "", TSLayout)
+	pp := NewParserPool("gjson", nil, "", TSLayoutStd)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
@@ -139,19 +171,19 @@ func TestGjsonElasticDateTime(t *testing.T) {
 	// {"date": "2019-12-16T12:10:30Z"}
 	// TZ=UTC date -d @1576498230 => Mon 16 Dec 2019 12:10:30 PM UTC
 	exp = 1576498230
-	act = metric.GetElasticDateTime("time2", false).(int64)
+	act = metric.GetElasticDateTime("time_sec_rfc3339_1", false).(int64)
 	require.Equal(t, exp, act)
 
 	exp = -62135596800
-	act = metric.GetElasticDateTime("time2_not_exist", false).(int64)
+	act = metric.GetElasticDateTime("not_exist", false).(int64)
 	require.Equal(t, exp, act)
 
-	actual := metric.GetElasticDateTime("time2_not_exist", true)
+	actual := metric.GetElasticDateTime("not_exist", true)
 	require.Nil(t, actual, "err should be nothing")
 }
 
 func TestGjsonArray(t *testing.T) {
-	pp := NewParserPool("gjson", nil, "", TSLayout)
+	pp := NewParserPool("gjson", nil, "", nil)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)

@@ -22,7 +22,7 @@ import (
 )
 
 func TestCsvInt(t *testing.T) {
-	pp := NewParserPool("csv", csvSampleSchema, "", TSLayout)
+	pp := NewParserPool("csv", csvSampleSchema, "", nil)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, err := parser.Parse(csvSample)
@@ -34,15 +34,15 @@ func TestCsvInt(t *testing.T) {
 	require.Equal(t, exp, act)
 
 	exp = 0
-	act = metric.GetInt("its_not_exist", false).(int64)
+	act = metric.GetInt("not_exist", false).(int64)
 	require.Equal(t, exp, act)
 
-	act = metric.GetInt("its_not_exist", true).(int64)
+	act = metric.GetInt("not_exist", true).(int64)
 	require.Equal(t, exp, act)
 }
 
 func TestCsvFloat(t *testing.T) {
-	pp := NewParserPool("csv", csvSampleSchema, "", TSLayout)
+	pp := NewParserPool("csv", csvSampleSchema, "", nil)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, err := parser.Parse(csvSample)
@@ -54,15 +54,15 @@ func TestCsvFloat(t *testing.T) {
 	require.Equal(t, exp, act)
 
 	exp = 0.0
-	act = metric.GetFloat("percent_not_exist", false).(float64)
+	act = metric.GetFloat("not_exist", false).(float64)
 	require.Equal(t, exp, act)
 
-	act = metric.GetFloat("percent_not_exist", true).(float64)
+	act = metric.GetFloat("not_exist", true).(float64)
 	require.Equal(t, exp, act)
 }
 
 func TestCsvString(t *testing.T) {
-	pp := NewParserPool("csv", csvSampleSchema, "", TSLayout)
+	pp := NewParserPool("csv", csvSampleSchema, "", nil)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, err := parser.Parse(csvSample)
@@ -74,15 +74,15 @@ func TestCsvString(t *testing.T) {
 	require.Equal(t, exp, act)
 
 	exp = ""
-	act = metric.GetString("channel_not_exist", false).(string)
+	act = metric.GetString("not_exist", false).(string)
 	require.Equal(t, exp, act)
 
-	act = metric.GetString("channel_not_exist", true).(string)
+	act = metric.GetString("not_exist", true).(string)
 	require.Equal(t, exp, act)
 }
 
 func TestCsvDate(t *testing.T) {
-	pp := NewParserPool("csv", csvSampleSchema, "", TSLayout)
+	pp := NewParserPool("csv", csvSampleSchema, "", TSLayoutStd)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, err := parser.Parse(csvSample)
@@ -90,19 +90,12 @@ func TestCsvDate(t *testing.T) {
 
 	var exp, act time.Time
 	exp = time.Date(2019, 12, 16, 0, 0, 0, 0, time.Local)
-	act = metric.GetDate("time1", false).(time.Time)
-	require.Equal(t, exp, act)
-
-	exp = time.Time{}
-	act = metric.GetDate("time1_not_exist", false).(time.Time)
-	require.Equal(t, exp, act)
-
-	act = metric.GetDate("time1_not_exist", true).(time.Time)
+	act = metric.GetDate("date1", false).(time.Time)
 	require.Equal(t, exp, act)
 }
 
-func TestCsvDateTime(t *testing.T) {
-	pp := NewParserPool("csv", csvSampleSchema, "", TSLayout)
+func TestCsvDateTimeStd(t *testing.T) {
+	pp := NewParserPool("csv", csvSampleSchema, "", TSLayoutStd)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, err := parser.Parse(csvSample)
@@ -110,19 +103,33 @@ func TestCsvDateTime(t *testing.T) {
 
 	var exp, act time.Time
 	exp = time.Date(2019, 12, 16, 12, 10, 30, 0, time.UTC)
-	act = metric.GetDateTime("time2", false).(time.Time)
+	act = metric.GetDateTime("time_sec_rfc3339_1", false).(time.Time)
+	require.Equal(t, exp, act)
+
+	exp = time.Date(2019, 12, 16, 12, 10, 30, 0, time.FixedZone("CST", 8*60*60)).In(time.UTC)
+	act = metric.GetDateTime("time_sec_rfc3339_2", false).(time.Time).In(time.UTC)
 	require.Equal(t, exp, act)
 
 	exp = time.Time{}
-	act = metric.GetDateTime("time2_not_exist", false).(time.Time)
-	require.Equal(t, exp, act)
-
-	act = metric.GetDateTime("time2_not_exist", true).(time.Time)
+	act = metric.GetDateTime("not_exist", false).(time.Time)
 	require.Equal(t, exp, act)
 }
 
-func TestCsvDateTime64(t *testing.T) {
-	pp := NewParserPool("csv", csvSampleSchema, "", TSLayout)
+func TestCsvDateTimeCh(t *testing.T) {
+	pp := NewParserPool("csv", csvSampleSchema, "", TSLayoutCh)
+	parser := pp.Get()
+	defer pp.Put(parser)
+	metric, err := parser.Parse(csvSample)
+	require.Nil(t, err)
+
+	var exp, act time.Time
+	exp = time.Date(2019, 12, 16, 12, 10, 30, 0, time.Local).In(time.UTC)
+	act = metric.GetDateTime("time_sec_clickhouse_1", false).(time.Time).In(time.UTC)
+	require.Equal(t, exp, act)
+}
+
+func TestCsvDateTime64Std(t *testing.T) {
+	pp := NewParserPool("csv", csvSampleSchema, "", TSLayoutStd)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, err := parser.Parse(csvSample)
@@ -130,19 +137,33 @@ func TestCsvDateTime64(t *testing.T) {
 
 	var exp, act time.Time
 	exp = time.Date(2019, 12, 16, 12, 10, 30, 123000000, time.UTC)
-	act = metric.GetDateTime64("time3", false).(time.Time)
+	act = metric.GetDateTime64("time_ms_rfc3339_1", false).(time.Time)
 	require.Equal(t, exp, act)
+
+	exp = time.Date(2019, 12, 16, 12, 10, 30, 123000000, time.FixedZone("CST", 8*60*60)).In(time.UTC)
+	act = metric.GetDateTime64("time_ms_rfc3339_2", false).(time.Time).In(time.UTC)
+	require.EqualValues(t, exp, act)
 
 	exp = time.Time{}
-	act = metric.GetDateTime64("time3_not_exist", false).(time.Time)
+	act = metric.GetDateTime64("not_exist", false).(time.Time)
 	require.Equal(t, exp, act)
+}
 
-	act = metric.GetDateTime64("time3_not_exist", true).(time.Time)
+func TestCsvDateTime64Ch(t *testing.T) {
+	pp := NewParserPool("csv", csvSampleSchema, "", TSLayoutCh)
+	parser := pp.Get()
+	defer pp.Put(parser)
+	metric, err := parser.Parse(csvSample)
+	require.Nil(t, err)
+
+	var exp, act time.Time
+	exp = time.Date(2019, 12, 16, 12, 10, 30, 123000000, time.Local).In(time.UTC)
+	act = metric.GetDateTime64("time_ms_clickhouse_1", false).(time.Time).In(time.UTC)
 	require.Equal(t, exp, act)
 }
 
 func TestCsvElasticDateTime(t *testing.T) {
-	pp := NewParserPool("csv", csvSampleSchema, "", TSLayout)
+	pp := NewParserPool("csv", csvSampleSchema, "", TSLayoutStd)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, err := parser.Parse(csvSample)
@@ -152,14 +173,14 @@ func TestCsvElasticDateTime(t *testing.T) {
 	// {"date": "2019-12-16T12:10:30Z"}
 	// TZ=UTC date -d @1576498230 => Mon 16 Dec 2019 12:10:30 PM UTC
 	exp = 1576498230
-	act = metric.GetElasticDateTime("time2", false).(int64)
+	act = metric.GetElasticDateTime("time_sec_rfc3339_1", false).(int64)
 	require.Equal(t, exp, act)
 
 	exp = -62135596800
-	act = metric.GetElasticDateTime("time2_not_exist", false).(int64)
+	act = metric.GetElasticDateTime("not_exist", false).(int64)
 	require.Equal(t, exp, act)
 
-	act = metric.GetElasticDateTime("time2_not_exist", true).(int64)
+	act = metric.GetElasticDateTime("not_exist", true).(int64)
 	require.Equal(t, exp, act)
 }
 

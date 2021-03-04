@@ -23,9 +23,11 @@ import (
 )
 
 var (
-	TSLayout = []string{"2006-01-02", time.RFC3339Nano, time.RFC3339Nano, "Local"}
-	TimeZone *time.Location
-	Epoch    = time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
+	TSLayoutCh  = []string{"2006-01-02", "2006-01-02 15:04:05", "2006-01-02 15:04:05.999999999", "Local"}
+	TSLayoutStd = []string{"2006-01-02", time.RFC3339Nano, time.RFC3339Nano, "Local"}
+	TSLayout    = []string{"2006-01-02", time.RFC3339Nano, time.RFC3339Nano, "Local"}
+	TimeZone    *time.Location
+	Epoch       = time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
 )
 
 // Parse is the Parser interface
@@ -43,7 +45,11 @@ type Pool struct {
 
 // NewParserPool create a parser pool
 func NewParserPool(name string, csvFormat []string, delimiter string, tsLayout []string) *Pool {
-	TSLayout = tsLayout
+	if tsLayout == nil {
+		TSLayout = TSLayoutStd
+	} else {
+		TSLayout = tsLayout
+	}
 	TimeZone, _ = time.LoadLocation(TSLayout[3])
 	return &Pool{
 		name:      name,
