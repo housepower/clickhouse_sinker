@@ -224,7 +224,7 @@ Kerberos setup is complex. Please ensure [`kafka-console-consumer.sh`](https://d
 
 Every message is routed to a determined ClickHouse shard.
 
-By default, the shard number is caculated by `(kafka_offset/roundup(batch_size))%clickhouse_shards`, where `roundup()` round upward an unsigned integer to the the nearest 2^n.
+By default, the shard number is caculated by `(kafka_offset/roundup(buffer_size))%clickhouse_shards`, where `roundup()` round upward an unsigned integer to the the nearest 2^n.
 
 This above expression can be customized with `shardingKey` and `shardingPolicy`. `shardingKey` value is a column name. `shardingPolicy` value could be:
 

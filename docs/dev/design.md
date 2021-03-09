@@ -16,7 +16,7 @@ The flow is:
 - Fetch message via kafka-go or samara, which starts internally an goroutine for each partition.
 - Parse messages in a global goroutine pool(pool size is customizable), fill the result to a ring according to the message's partition and offset.
 - Generate a batch if messages in a ring reach a batchSize bondary, or flush timer fire. This ensures offset/batchSize be same for all messages inside a batch.
-- Write batchs to ClickHouse in a global goroutine pool(pool size is fixed according to number of task and clickhouse shards). Batch is routed according to `(kafka_offset/roundup(batch_size))%clickhouse_shards`.
+- Write batchs to ClickHouse in a global goroutine pool(pool size is fixed according to number of task and clickhouse shards). Batch is routed according to `(kafka_offset/roundup(buffer_size))%clickhouse_shards`.
 
 ## Sharding with custom key and policy
 
