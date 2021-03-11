@@ -8,7 +8,6 @@ require (
 	github.com/cespare/xxhash v1.1.0
 	github.com/fagongzi/goetty v1.6.0
 	github.com/golang/protobuf v1.4.2 // indirect
-	github.com/google/gops v0.3.12
 	github.com/nacos-group/nacos-sdk-go v1.0.1
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.3.0

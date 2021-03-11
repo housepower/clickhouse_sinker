@@ -39,7 +39,6 @@ import (
 	"github.com/housepower/clickhouse_sinker/util"
 
 	_ "github.com/ClickHouse/clickhouse-go"
-	"github.com/google/gops/agent"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
@@ -136,9 +135,6 @@ func main() {
 	log.SetFormatter(&log.TextFormatter{
 		FullTimestamp: true,
 	})
-	if err := agent.Listen(agent.Options{}); err != nil {
-		log.Fatalf("%+v", err)
-	}
 
 	util.Run("clickhouse_sinker", func() error {
 		var rcm config.RemoteConfManager
