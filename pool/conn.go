@@ -89,7 +89,9 @@ func InitConn(hosts [][]string, port int, db, username, password, tlsKey, dsnPar
 
 		if tlsKey != "" {
 			tlsConfig := &tls.Config{}
-			clickhouse.RegisterTLSConfig(tlsKey, tlsConfig)
+			if err := clickhouse.RegisterTLSConfig(tlsKey, tlsConfig); err != nil {
+				return err
+			}
 			dsn += "&tls_config=" + tlsKey
 		}
 

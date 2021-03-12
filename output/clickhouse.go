@@ -61,7 +61,7 @@ func NewClickHouse(cfg *config.Config) *ClickHouse {
 // Init the clickhouse intance
 func (c *ClickHouse) Init() (err error) {
 	chCfg := &c.cfg.Clickhouse
-	if err = pool.InitConn(chCfg.Hosts, chCfg.Port, chCfg.DB, chCfg.Username, chCfg.Password, chCfg.TlsConfig, chCfg.DsnParams); err != nil {
+	if err = pool.InitConn(chCfg.Hosts, chCfg.Port, chCfg.DB, chCfg.Username, chCfg.Password, chCfg.TLSConfig, chCfg.DsnParams); err != nil {
 		return
 	}
 	return c.initSchema()

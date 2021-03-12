@@ -94,7 +94,7 @@ type ClickHouseConfig struct {
 	Username   string
 	Password   string
 	DsnParams  string
-	TlsConfig  string
+	TLSConfig  string
 	RetryTimes int //<=0 means retry infinitely
 }
 
