@@ -19,12 +19,14 @@ package pool
 // Clickhouse connection pool
 
 import (
+	"crypto/tls"
 	"database/sql"
 	"fmt"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/ClickHouse/clickhouse-go"
 	"github.com/housepower/clickhouse_sinker/health"
 	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/pkg/errors"
@@ -61,7 +63,7 @@ func (c *Connection) ReConnect() error {
 	return nil
 }
 
-func InitConn(hosts [][]string, port int, db, username, password, dsnParams string) (err error) {
+func InitConn(hosts [][]string, port int, db, username, password, tlsKey, dsnParams string) (err error) {
 	var sqlDB *sql.DB
 	lock.Lock()
 	defer lock.Unlock()
@@ -84,6 +86,13 @@ func InitConn(hosts [][]string, port int, db, username, password, dsnParams stri
 		if dsnParams != "" {
 			dsn += "&" + dsnParams
 		}
+
+		if tlsKey != "" {
+			tlsConfig := &tls.Config{}
+			clickhouse.RegisterTLSConfig(tlsKey, tlsConfig)
+			dsn += "&tls_config=" + tlsKey
+		}
+
 		if sqlDB, err = sql.Open("clickhouse", dsn); err != nil {
 			err = errors.Wrapf(err, "")
 			return
