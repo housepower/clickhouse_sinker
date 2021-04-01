@@ -5,6 +5,8 @@
 {
   // clickhouse configs, it's map[string]ClickHouse for multiple clickhouse
   "clickhouse": {
+    // cluster the ClickHouse node belongs
+    "cluster": "test",
     // hosts for connection, it's Array(Array(String))
     // we can put hosts with same shard into the inner array
     // it helps data deduplication for ReplicateMergeTree when driver error occurs
@@ -98,10 +100,8 @@
     "dynamicSchema": {
       // whether enable this feature, default to false
       "enable": true,
-      // cluster the ClickHouse node belongs
-      "cluster": "test",
-      // distributed table name prefix, default to "dist_"
-      "distTblPrefix": ""
+      // the upper limit of dynamic columns number, <=0 means math.MaxInt16. protecting dirty data attack
+      "maxDims": 1024
     },
 
     // shardingKey is the column name to which sharding against

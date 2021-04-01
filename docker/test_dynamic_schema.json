@@ -1,5 +1,6 @@
 {
   "clickhouse": {
+    "cluster": "",
     "hosts": [
       [
         "127.0.0.1"
@@ -27,9 +28,7 @@
       "day"
     ],
     "dynamicSchema": {
-      "enable": true,
-      "cluster": "",
-      "distTblPrefix": ""
+      "enable": true
     },
     "bufferSize": 50000
   },

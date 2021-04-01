@@ -222,12 +222,12 @@ func (c *ClickHouse) initSchema() (err error) {
 }
 
 func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
-	var sqls []string
+	var queries []string
 	var onCluster string
 	taskCfg := &c.cfg.Task
 	chCfg := &c.cfg.Clickhouse
-	if taskCfg.DynamicSchema.Cluster != "" {
-		onCluster = fmt.Sprintf("ON CLUSTER %s", taskCfg.DynamicSchema.Cluster)
+	if chCfg.Cluster != "" {
+		onCluster = fmt.Sprintf("ON CLUSTER %s", chCfg.Cluster)
 	}
 	maxDims := math.MaxInt16
 	if taskCfg.DynamicSchema.MaxDims > 0 {
@@ -258,27 +258,56 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 			err = errors.Errorf("%s: BUG: unsupported column type %s", taskCfg.Name, strVal)
 			return false
 		}
-		sql := fmt.Sprintf("ALTER TABLE %s.%s %s ADD COLUMN IF NOT EXISTS %s %s", chCfg.DB, taskCfg.TableName, onCluster, strKey, strVal)
-		sqls = append(sqls, sql)
+		query := fmt.Sprintf("ALTER TABLE %s.%s %s ADD COLUMN IF NOT EXISTS %s %s", chCfg.DB, taskCfg.TableName, onCluster, strKey, strVal)
+		queries = append(queries, query)
 		return true
 	})
 	if err != nil {
 		return
 	}
-	if taskCfg.DynamicSchema.Cluster != "" {
-		distTableName := taskCfg.DynamicSchema.DistTblPrefix + taskCfg.TableName
-		sqls = append(sqls, fmt.Sprintf("DROP TABLE IF EXISTS %s.%s %s", chCfg.DB, distTableName, onCluster))
-		sqls = append(sqls, fmt.Sprintf("CREATE TABLE %s.%s %s AS %s ENGINE = Distributed(%s, %s, %s);",
-			chCfg.DB, distTableName, onCluster, taskCfg.TableName,
-			taskCfg.DynamicSchema.Cluster, chCfg.DB, taskCfg.TableName))
+	if chCfg.Cluster != "" {
+		var distTbls []string
+		if distTbls, err = c.getDistTbls(); err != nil {
+			return
+		}
+		for _, distTbl := range distTbls {
+			queries = append(queries, fmt.Sprintf("DROP TABLE IF EXISTS %s.%s %s", chCfg.DB, distTbl, onCluster))
+			queries = append(queries, fmt.Sprintf("CREATE TABLE %s.%s %s AS %s ENGINE = Distributed(%s, %s, %s);",
+				chCfg.DB, distTbl, onCluster, taskCfg.TableName,
+				chCfg.Cluster, chCfg.DB, taskCfg.TableName))
+		}
 	}
 	conn := pool.GetConn(0)
-	for _, sql := range sqls {
-		log.Infof("%s: executing sql=> %s", taskCfg.Name, sql)
-		if _, err = conn.Exec(sql); err != nil {
-			err = errors.Wrapf(err, sql)
-			return err
+	for _, query := range queries {
+		log.Infof("%s: executing sql=> %s", taskCfg.Name, query)
+		if _, err = conn.Exec(query); err != nil {
+			err = errors.Wrapf(err, query)
+			return
 		}
+	}
+	return
+}
+
+func (c *ClickHouse) getDistTbls() (distTbls []string, err error) {
+	taskCfg := &c.cfg.Task
+	chCfg := &c.cfg.Clickhouse
+	conn := pool.GetConn(0)
+	query := fmt.Sprintf(`SELECT name FROM system.tables WHERE engine='Distributed' AND database='%s' AND match(create_table_query, 'Distributed.*\'%s\',\s*\'%s\'')`, chCfg.DB, chCfg.DB, taskCfg.TableName)
+	log.Infof("%s: executing sql=> %s", taskCfg.Name, query)
+
+	var rows *sql.Rows
+	if rows, err = conn.Query(query); err != nil {
+		err = errors.Wrapf(err, "")
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var name string
+		if err = rows.Scan(&name); err != nil {
+			err = errors.Wrapf(err, "")
+			return
+		}
+		distTbls = append(distTbls, name)
 	}
 	return
 }

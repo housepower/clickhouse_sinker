@@ -87,9 +87,10 @@ type KafkaConfig struct {
 
 // ClickHouseConfig configuration parameters
 type ClickHouseConfig struct {
-	DB    string
-	Hosts [][]string
-	Port  int
+	Cluster string
+	DB      string
+	Hosts   [][]string
+	Port    int
 
 	Username   string
 	Password   string
@@ -124,10 +125,8 @@ type TaskConfig struct {
 	} `json:"dims"`
 	// DynamicSchema will add columns present in message to clickhouse. Requires AutoSchema be true.
 	DynamicSchema struct {
-		Enable        bool
-		Cluster       string
-		DistTblPrefix string
-		MaxDims       int // the upper limit of dynamic columns number, <=0 means math.MaxInt16. protecting dirty data attack
+		Enable  bool
+		MaxDims int // the upper limit of dynamic columns number, <=0 means math.MaxInt16. protecting dirty data attack
 	}
 
 	// ShardingKey is the column name to which sharding against
@@ -154,7 +153,6 @@ const (
 	defaultLayoutDateTime   = time.RFC3339
 	defaultLayoutDateTime64 = time.RFC3339Nano
 	defaultTimeZone         = "Local"
-	defaultDistTblPrefix    = "dist_"
 	defaultLogLevel         = "info"
 )
 
@@ -243,9 +241,6 @@ func (cfg *Config) Normallize() (err error) {
 		if cfg.Task.Parser != "fastjson" {
 			err = errors.Errorf("Parser %s doesn't support DynamicSchema", cfg.Task.Parser)
 			return
-		}
-		if cfg.Task.DynamicSchema.DistTblPrefix == "" {
-			cfg.Task.DynamicSchema.DistTblPrefix = defaultDistTblPrefix
 		}
 	}
 	switch strings.ToLower(cfg.LogLevel) {
