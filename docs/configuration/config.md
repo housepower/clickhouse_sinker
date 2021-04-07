@@ -118,12 +118,6 @@
     // estimated avg message size. kafka-go needs this to determize receive buffer size. default to 1000.
     "msgSizeHint": 1000,
 
-    // Date format in message, default to "2006-01-02".
-    "layoutDate": "",
-    // DateTime format in message, default to "2006-01-02T15:04:05Z07:00" (aka time.RFC3339).
-    "layoutDateTime": "",
-    // DateTime64 format in message, default to "2006-01-02T15:04:05.999999999Z07:00" (aka time.RFC3339Nano).
-    "layoutDateTime64": "",
     // In the absence of time zone information, interprets the time as in the given location. Default to "Local" (aka /etc/localtime of the machine on which sinker runs)
     "timezone": ""
   },

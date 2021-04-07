@@ -19,7 +19,6 @@ import (
 	"encoding/json"
 	"io/ioutil"
 	"strings"
-	"time"
 
 	"github.com/housepower/clickhouse_sinker/util"
 
@@ -134,26 +133,20 @@ type TaskConfig struct {
 	// ShardingPolicy is `stripe,<interval>`(requires ShardingKey be numerical) or `hash`(requires ShardingKey be string)
 	ShardingPolicy string `json:"shardingPolicy,omitempty"`
 
-	FlushInterval    int    `json:"flushInterval,omitempty"`
-	BufferSize       int    `json:"bufferSize,omitempty"`
-	MinBufferSize    int    `json:"minBufferSize,omitempty"`
-	MsgSizeHint      int    `json:"msgSizeHint,omitempty"`
-	LayoutDate       string `json:"layoutDate,omitempty"`
-	LayoutDateTime   string `json:"layoutDateTime,omitempty"`
-	LayoutDateTime64 string `json:"layoutDateTime64,omitempty"`
-	TimeZone         string `json:"timezone"`
+	FlushInterval int    `json:"flushInterval,omitempty"`
+	BufferSize    int    `json:"bufferSize,omitempty"`
+	MinBufferSize int    `json:"minBufferSize,omitempty"`
+	MsgSizeHint   int    `json:"msgSizeHint,omitempty"`
+	TimeZone      string `json:"timezone"`
 }
 
 const (
-	defaultFlushInterval    = 3
-	defaultBufferSize       = 1 << 20 //1048576
-	defaultMinBufferSize    = 1 << 14 //  16384
-	defaultMsgSizeHint      = 1000
-	defaultLayoutDate       = "2006-01-02"
-	defaultLayoutDateTime   = time.RFC3339
-	defaultLayoutDateTime64 = time.RFC3339Nano
-	defaultTimeZone         = "Local"
-	defaultLogLevel         = "info"
+	defaultFlushInterval = 3
+	defaultBufferSize    = 1 << 20 //1048576
+	defaultMinBufferSize = 1 << 14 //  16384
+	defaultMsgSizeHint   = 1000
+	defaultTimeZone      = "Local"
+	defaultLogLevel      = "info"
 )
 
 func ParseLocalCfgFile(cfgPath string) (cfg *Config, err error) {
@@ -224,15 +217,6 @@ func (cfg *Config) Normallize() (err error) {
 	}
 	if cfg.Task.MsgSizeHint <= 0 {
 		cfg.Task.MsgSizeHint = defaultMsgSizeHint
-	}
-	if cfg.Task.LayoutDate == "" {
-		cfg.Task.LayoutDate = defaultLayoutDate
-	}
-	if cfg.Task.LayoutDateTime == "" {
-		cfg.Task.LayoutDateTime = defaultLayoutDateTime
-	}
-	if cfg.Task.LayoutDateTime64 == "" {
-		cfg.Task.LayoutDateTime64 = defaultLayoutDateTime64
 	}
 	if cfg.Task.TimeZone == "" {
 		cfg.Task.TimeZone = defaultTimeZone

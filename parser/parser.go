@@ -16,18 +16,50 @@ package parser
 
 import (
 	"encoding/json"
+	"strconv"
 	"sync"
 	"time"
 
 	"github.com/housepower/clickhouse_sinker/model"
+	"github.com/pkg/errors"
 )
 
 var (
-	TSLayoutCh  = []string{"2006-01-02", "2006-01-02 15:04:05", "2006-01-02 15:04:05.999999999", "Local"}
-	TSLayoutStd = []string{"2006-01-02", time.RFC3339Nano, time.RFC3339Nano, "Local"}
-	TSLayout    = []string{"2006-01-02", time.RFC3339Nano, time.RFC3339Nano, "Local"}
-	TimeZone    *time.Location
-	Epoch       = time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
+	Layouts = []string{
+		//DateTime
+		"2006-01-02T15:04:05.999999999Z07:00", //time.RFC3339Nano, `date --iso-8601=ns` output format
+		"2006-01-02T15:04:05Z07:00",           //time.RFC3339, `date --iso-8601=s` output format
+		"2006-01-02T15:04:05.999999999",
+		"2006-01-02T15:04:05",
+		"2006-01-02 15:04:05.999999999Z07:00", //`date --rfc-3339=ns` output format
+		"2006-01-02 15:04:05Z07:00",           //`date --rfc-3339=s` output format
+		"2006-01-02 15:04:05.999999999",
+		"2006-01-02 15:04:05",
+		"Jan 02, 2006 15:04:05.999999999Z07:00",
+		"Jan 02, 2006 15:04:05.999999999",
+		"Jan 02, 2006 15:04:05",
+		"02/01/2006 15:04:05.999999999",
+		"02/01/06 15:04:05.999999999",
+		"02/Jan/2006 15:04:05 Z07:00",
+		"02/Jan/2006 15:04:05 -0700",
+		"Mon Jan _2 15:04:05 2006",        //time.ANSIC
+		"Mon Jan _2 15:04:05 MST 2006",    //time.UnixDate
+		"Mon Jan 02 15:04:05 -0700 2006",  //time.RubyDate
+		"02 Jan 06 15:04 MST",             //time.RFC822
+		"02 Jan 06 15:04 -0700",           //time.RFC822Z
+		"Monday, 02-Jan-06 15:04:05 MST",  //time.RFC850
+		"Mon, 02 Jan 2006 15:04:05 MST",   //time.RFC1123
+		"Mon, 02 Jan 2006 15:04:05 -0700", //time.RFC1123Z
+		"Mon Jan 02 15:04:05 MST 2006",
+		"Mon 02 Jan 2006 03:04:05 PM MST", // `date` default output format
+		//Date
+		"2006-01-02",
+		"02/01/2006",
+		"02/Jan/2006",
+		"Jan 02, 2006",
+		"Mon Jan 02, 2006",
+	}
+	Epoch = time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
 )
 
 // Parse is the Parser interface
@@ -36,43 +68,48 @@ type Parser interface {
 }
 
 // Pool may be used for pooling Parsers for similarly typed JSONs.
-type Pool struct {
-	name      string
-	csvFormat []string
-	delimiter string
-	pool      sync.Pool
+type ParserPool struct {
+	name         string
+	csvFormat    []string
+	delimiter    string
+	timeZone     *time.Location
+	knownLayouts sync.Map
+	pool         sync.Pool
 }
 
-// NewParserPool create a parser pool
-func NewParserPool(name string, csvFormat []string, delimiter string, tsLayout []string) *Pool {
-	if tsLayout == nil {
-		TSLayout = TSLayoutStd
-	} else {
-		TSLayout = tsLayout
+// NewParserPool creates a parser pool
+func NewParserPool(name string, csvFormat []string, delimiter string, timezone string) (pp *ParserPool, err error) {
+	var tz *time.Location
+	if timezone == "" {
+		tz = time.Local
+	} else if tz, err = time.LoadLocation(timezone); err != nil {
+		err = errors.Wrapf(err, "")
+		return
 	}
-	TimeZone, _ = time.LoadLocation(TSLayout[3])
-	return &Pool{
+	pp = &ParserPool{
 		name:      name,
 		csvFormat: csvFormat,
 		delimiter: delimiter,
+		timeZone:  tz,
 	}
+	return
 }
 
 // Get returns a Parser from pp.
 //
 // The Parser must be Put to pp after use.
-func (pp *Pool) Get() Parser {
+func (pp *ParserPool) Get() Parser {
 	v := pp.pool.Get()
 	if v == nil {
 		switch pp.name {
 		case "gjson":
-			return &GjsonParser{}
+			return &GjsonParser{pp: pp}
 		case "fastjson":
-			return &FastjsonParser{}
+			return &FastjsonParser{pp: pp}
 		case "csv":
-			return &CsvParser{pp.csvFormat, pp.delimiter}
+			return &CsvParser{pp: pp}
 		default:
-			return &FastjsonParser{}
+			return &FastjsonParser{pp: pp}
 		}
 	}
 	return v.(Parser)
@@ -82,8 +119,30 @@ func (pp *Pool) Get() Parser {
 //
 // p and objects recursively returned from p cannot be used after p
 // is put into pp.
-func (pp *Pool) Put(p Parser) {
+func (pp *ParserPool) Put(p Parser) {
 	pp.pool.Put(p)
+}
+
+func (pp *ParserPool) ParseDateTime(key string, val string) (t time.Time, err error) {
+	var layout string
+	var lay interface{}
+	var ok bool
+	if lay, ok = pp.knownLayouts.Load(key); !ok {
+		for _, layout = range Layouts {
+			if t, err = time.ParseInLocation(layout, val, pp.timeZone); err == nil {
+				pp.knownLayouts.Store(key, layout)
+				return
+			}
+		}
+		pp.knownLayouts.Store(key, nil)
+	}
+	if lay == nil {
+		err = errors.Errorf("cannot parse time %s at field %s", strconv.Quote(val), key)
+		return
+	}
+	layout = lay.(string)
+	t, _ = time.ParseInLocation(layout, val, pp.timeZone)
+	return
 }
 
 func GetJSONShortStr(v interface{}) string {

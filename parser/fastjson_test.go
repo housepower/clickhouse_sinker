@@ -12,7 +12,7 @@ import (
 )
 
 func TestFastjsonInt(t *testing.T) {
-	pp := NewParserPool("fastjson", nil, "", nil)
+	pp, _ := NewParserPool("fastjson", nil, "", "")
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
@@ -39,7 +39,7 @@ func TestFastjsonInt(t *testing.T) {
 }
 
 func TestFastjsonFloat(t *testing.T) {
-	pp := NewParserPool("fastjson", nil, "", nil)
+	pp, _ := NewParserPool("fastjson", nil, "", "")
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
@@ -58,7 +58,7 @@ func TestFastjsonFloat(t *testing.T) {
 }
 
 func TestFastjsonString(t *testing.T) {
-	pp := NewParserPool("fastjson", nil, "", nil)
+	pp, _ := NewParserPool("fastjson", nil, "", "")
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
@@ -77,7 +77,7 @@ func TestFastjsonString(t *testing.T) {
 }
 
 func TestFastjsonDate(t *testing.T) {
-	pp := NewParserPool("fastjson", nil, "", TSLayoutStd)
+	pp, _ := NewParserPool("fastjson", nil, "", "")
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
@@ -95,8 +95,8 @@ func TestFastjsonDate(t *testing.T) {
 	require.Nil(t, actual, "err should be nothing")
 }
 
-func TestFastjsonDateTimeStd(t *testing.T) {
-	pp := NewParserPool("fastjson", nil, "", TSLayoutStd)
+func TestFastjsonDateTime(t *testing.T) {
+	pp, _ := NewParserPool("fastjson", nil, "", "")
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
@@ -110,6 +110,10 @@ func TestFastjsonDateTimeStd(t *testing.T) {
 	act = metric.GetDateTime("time_sec_rfc3339_2", false).(time.Time).In(time.UTC)
 	require.Equal(t, exp, act)
 
+	exp = time.Date(2019, 12, 16, 12, 10, 30, 0, time.Local).In(time.UTC)
+	act = metric.GetDateTime("time_sec_clickhouse_1", false).(time.Time).In(time.UTC)
+	require.Equal(t, exp, act)
+
 	exp = time.Time{}
 	act = metric.GetDateTime("not_exist", false).(time.Time)
 	require.Equal(t, exp, act)
@@ -118,20 +122,8 @@ func TestFastjsonDateTimeStd(t *testing.T) {
 	require.Nil(t, actual, "err should be nothing")
 }
 
-func TestFastjsonDateTimeCh(t *testing.T) {
-	pp := NewParserPool("fastjson", nil, "", TSLayoutCh)
-	parser := pp.Get()
-	defer pp.Put(parser)
-	metric, _ := parser.Parse(jsonSample)
-
-	var exp, act time.Time
-	exp = time.Date(2019, 12, 16, 12, 10, 30, 0, time.Local).In(time.UTC)
-	act = metric.GetDateTime("time_sec_clickhouse_1", false).(time.Time).In(time.UTC)
-	require.Equal(t, exp, act)
-}
-
-func TestFastjsonDateTime64Std(t *testing.T) {
-	pp := NewParserPool("fastjson", nil, "", TSLayoutStd)
+func TestFastjsonDateTime64(t *testing.T) {
+	pp, _ := NewParserPool("fastjson", nil, "", "")
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
@@ -145,6 +137,10 @@ func TestFastjsonDateTime64Std(t *testing.T) {
 	act = metric.GetDateTime64("time_ms_rfc3339_2", false).(time.Time).In(time.UTC)
 	require.EqualValues(t, exp, act)
 
+	exp = time.Date(2019, 12, 16, 12, 10, 30, 123000000, time.Local).In(time.UTC)
+	act = metric.GetDateTime64("time_ms_clickhouse_1", false).(time.Time).In(time.UTC)
+	require.Equal(t, exp, act)
+
 	exp = time.Time{}
 	act = metric.GetDateTime64("not_exist", false).(time.Time)
 	require.Equal(t, exp, act)
@@ -153,20 +149,8 @@ func TestFastjsonDateTime64Std(t *testing.T) {
 	require.Nil(t, actual, "err should be nothing")
 }
 
-func TestFastjsonDateTime64Ch(t *testing.T) {
-	pp := NewParserPool("fastjson", nil, "", TSLayoutCh)
-	parser := pp.Get()
-	defer pp.Put(parser)
-	metric, _ := parser.Parse(jsonSample)
-
-	var exp, act time.Time
-	exp = time.Date(2019, 12, 16, 12, 10, 30, 123000000, time.Local).In(time.UTC)
-	act = metric.GetDateTime64("time_ms_clickhouse_1", false).(time.Time).In(time.UTC)
-	require.Equal(t, exp, act)
-}
-
 func TestFastjsonElasticDateTime(t *testing.T) {
-	pp := NewParserPool("fastjson", nil, "", TSLayoutStd)
+	pp, _ := NewParserPool("fastjson", nil, "", "")
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
@@ -187,7 +171,7 @@ func TestFastjsonElasticDateTime(t *testing.T) {
 }
 
 func TestFastjsonArray(t *testing.T) {
-	pp := NewParserPool("fastjson", nil, "", nil)
+	pp, _ := NewParserPool("fastjson", nil, "", "")
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
@@ -223,7 +207,7 @@ func TestFastjsonArray(t *testing.T) {
 }
 
 func TestFastjsonDetectSchema(t *testing.T) {
-	pp := NewParserPool("fastjson", nil, "", nil)
+	pp, _ := NewParserPool("fastjson", nil, "", "")
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)

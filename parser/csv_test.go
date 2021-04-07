@@ -22,7 +22,7 @@ import (
 )
 
 func TestCsvInt(t *testing.T) {
-	pp := NewParserPool("csv", csvSampleSchema, "", nil)
+	pp, _ := NewParserPool("csv", csvSampleSchema, "", "")
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, err := parser.Parse(csvSample)
@@ -42,7 +42,7 @@ func TestCsvInt(t *testing.T) {
 }
 
 func TestCsvFloat(t *testing.T) {
-	pp := NewParserPool("csv", csvSampleSchema, "", nil)
+	pp, _ := NewParserPool("csv", csvSampleSchema, "", "")
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, err := parser.Parse(csvSample)
@@ -62,7 +62,7 @@ func TestCsvFloat(t *testing.T) {
 }
 
 func TestCsvString(t *testing.T) {
-	pp := NewParserPool("csv", csvSampleSchema, "", nil)
+	pp, _ := NewParserPool("csv", csvSampleSchema, "", "")
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, err := parser.Parse(csvSample)
@@ -82,7 +82,7 @@ func TestCsvString(t *testing.T) {
 }
 
 func TestCsvDate(t *testing.T) {
-	pp := NewParserPool("csv", csvSampleSchema, "", TSLayoutStd)
+	pp, _ := NewParserPool("csv", csvSampleSchema, "", "")
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, err := parser.Parse(csvSample)
@@ -94,8 +94,8 @@ func TestCsvDate(t *testing.T) {
 	require.Equal(t, exp, act)
 }
 
-func TestCsvDateTimeStd(t *testing.T) {
-	pp := NewParserPool("csv", csvSampleSchema, "", TSLayoutStd)
+func TestCsvDateTime(t *testing.T) {
+	pp, _ := NewParserPool("csv", csvSampleSchema, "", "")
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, err := parser.Parse(csvSample)
@@ -110,26 +110,17 @@ func TestCsvDateTimeStd(t *testing.T) {
 	act = metric.GetDateTime("time_sec_rfc3339_2", false).(time.Time).In(time.UTC)
 	require.Equal(t, exp, act)
 
+	exp = time.Date(2019, 12, 16, 12, 10, 30, 0, time.Local).In(time.UTC)
+	act = metric.GetDateTime("time_sec_clickhouse_1", false).(time.Time).In(time.UTC)
+	require.Equal(t, exp, act)
+
 	exp = time.Time{}
 	act = metric.GetDateTime("not_exist", false).(time.Time)
 	require.Equal(t, exp, act)
 }
 
-func TestCsvDateTimeCh(t *testing.T) {
-	pp := NewParserPool("csv", csvSampleSchema, "", TSLayoutCh)
-	parser := pp.Get()
-	defer pp.Put(parser)
-	metric, err := parser.Parse(csvSample)
-	require.Nil(t, err)
-
-	var exp, act time.Time
-	exp = time.Date(2019, 12, 16, 12, 10, 30, 0, time.Local).In(time.UTC)
-	act = metric.GetDateTime("time_sec_clickhouse_1", false).(time.Time).In(time.UTC)
-	require.Equal(t, exp, act)
-}
-
-func TestCsvDateTime64Std(t *testing.T) {
-	pp := NewParserPool("csv", csvSampleSchema, "", TSLayoutStd)
+func TestCsvDateTime64(t *testing.T) {
+	pp, _ := NewParserPool("csv", csvSampleSchema, "", "")
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, err := parser.Parse(csvSample)
@@ -144,26 +135,17 @@ func TestCsvDateTime64Std(t *testing.T) {
 	act = metric.GetDateTime64("time_ms_rfc3339_2", false).(time.Time).In(time.UTC)
 	require.EqualValues(t, exp, act)
 
+	exp = time.Date(2019, 12, 16, 12, 10, 30, 123000000, time.Local).In(time.UTC)
+	act = metric.GetDateTime64("time_ms_clickhouse_1", false).(time.Time).In(time.UTC)
+	require.Equal(t, exp, act)
+
 	exp = time.Time{}
 	act = metric.GetDateTime64("not_exist", false).(time.Time)
 	require.Equal(t, exp, act)
 }
 
-func TestCsvDateTime64Ch(t *testing.T) {
-	pp := NewParserPool("csv", csvSampleSchema, "", TSLayoutCh)
-	parser := pp.Get()
-	defer pp.Put(parser)
-	metric, err := parser.Parse(csvSample)
-	require.Nil(t, err)
-
-	var exp, act time.Time
-	exp = time.Date(2019, 12, 16, 12, 10, 30, 123000000, time.Local).In(time.UTC)
-	act = metric.GetDateTime64("time_ms_clickhouse_1", false).(time.Time).In(time.UTC)
-	require.Equal(t, exp, act)
-}
-
 func TestCsvElasticDateTime(t *testing.T) {
-	pp := NewParserPool("csv", csvSampleSchema, "", TSLayoutStd)
+	pp, _ := NewParserPool("csv", csvSampleSchema, "", "")
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, err := parser.Parse(csvSample)
@@ -185,7 +167,7 @@ func TestCsvElasticDateTime(t *testing.T) {
 }
 
 func TestCsvArray(t *testing.T) {
-	pp := NewParserPool("csv", csvSampleSchema, "", TSLayout)
+	pp, _ := NewParserPool("csv", csvSampleSchema, "", "")
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, err := parser.Parse(csvSample)

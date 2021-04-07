@@ -29,6 +29,7 @@ var _ Parser = (*FastjsonParser)(nil)
 
 // FastjsonParser, parser for get data in json format
 type FastjsonParser struct {
+	pp  *ParserPool
 	fjp fastjson.Parser
 }
 
@@ -38,11 +39,12 @@ func (p *FastjsonParser) Parse(bs []byte) (metric model.Metric, err error) {
 		err = errors.Wrapf(err, "")
 		return
 	}
-	metric = &FastjsonMetric{value: value}
+	metric = &FastjsonMetric{pp: p.pp, value: value}
 	return
 }
 
 type FastjsonMetric struct {
+	pp    *ParserPool
 	value *fastjson.Value
 }
 
@@ -135,7 +137,7 @@ func (c *FastjsonMetric) GetDate(key string, nullable bool) interface{} {
 	}
 
 	val := c.GetString(key, false).(string)
-	t, _ := time.ParseInLocation(TSLayout[0], val, TimeZone)
+	t, _ := c.pp.ParseDateTime(key, val)
 	return t
 }
 
@@ -149,7 +151,7 @@ func (c *FastjsonMetric) GetDateTime(key string, nullable bool) interface{} {
 	}
 
 	val := c.GetString(key, false).(string)
-	t, _ := time.ParseInLocation(TSLayout[1], val, TimeZone)
+	t, _ := c.pp.ParseDateTime(key, val)
 	return t
 }
 
@@ -163,7 +165,7 @@ func (c *FastjsonMetric) GetDateTime64(key string, nullable bool) interface{} {
 	}
 
 	val := c.GetString(key, false).(string)
-	t, _ := time.ParseInLocation(TSLayout[2], val, TimeZone)
+	t, _ := c.pp.ParseDateTime(key, val)
 	return t
 }
 

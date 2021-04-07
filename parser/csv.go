@@ -30,36 +30,35 @@ var _ Parser = (*CsvParser)(nil)
 
 // CsvParser implementation to parse input from a CSV format per RFC 4180
 type CsvParser struct {
-	title     []string
-	delimiter string
+	pp *ParserPool
 }
 
 // Parse extract a list of comma-separated values from the data
 func (p *CsvParser) Parse(bs []byte) (metric model.Metric, err error) {
 	r := csv.NewReader(bytes.NewReader(bs))
-	r.FieldsPerRecord = len(p.title)
-	if len(p.delimiter) > 0 {
-		r.Comma = rune(p.delimiter[0])
+	r.FieldsPerRecord = len(p.pp.csvFormat)
+	if len(p.pp.delimiter) > 0 {
+		r.Comma = rune(p.pp.delimiter[0])
 	}
 	var value []string
 	if value, err = r.Read(); err != nil {
 		err = errors.Wrap(err, "")
 		return
 	}
-	metric = &CsvMetric{p.title, value}
+	metric = &CsvMetric{p.pp, value}
 	return
 }
 
 // CsvMetic
 type CsvMetric struct {
-	titles []string
+	pp     *ParserPool
 	values []string
 }
 
 // Get returns the value corresponding to a column expects called
 // interpret the type
 func (c *CsvMetric) Get(key string) interface{} {
-	for i, k := range c.titles {
+	for i, k := range c.pp.csvFormat {
 		if k == key && i < len(c.values) {
 			return c.values[i]
 		}
@@ -70,7 +69,7 @@ func (c *CsvMetric) Get(key string) interface{} {
 // GetString get the value as string
 func (c *CsvMetric) GetString(key string, nullable bool) interface{} {
 	_ = nullable // nullable can not be supported with csv
-	for i, k := range c.titles {
+	for i, k := range c.pp.csvFormat {
 		if k == key && i < len(c.values) {
 			return c.values[i]
 		}
@@ -81,7 +80,7 @@ func (c *CsvMetric) GetString(key string, nullable bool) interface{} {
 // GetFloat returns the value as float
 func (c *CsvMetric) GetFloat(key string, nullable bool) interface{} {
 	_ = nullable // nullable can not be supported with csv
-	for i, k := range c.titles {
+	for i, k := range c.pp.csvFormat {
 		if k == key && i < len(c.values) {
 			n, _ := strconv.ParseFloat(c.values[i], 64)
 			return n
@@ -93,7 +92,7 @@ func (c *CsvMetric) GetFloat(key string, nullable bool) interface{} {
 // GetInt returns int
 func (c *CsvMetric) GetInt(key string, nullable bool) interface{} {
 	_ = nullable // nullable can not be supported with csv
-	for i, k := range c.titles {
+	for i, k := range c.pp.csvFormat {
 		if k == key && i < len(c.values) {
 			n, _ := strconv.ParseInt(c.values[i], 10, 64)
 			return n
@@ -153,19 +152,19 @@ func (c *CsvMetric) GetDate(key string, nullable bool) interface{} {
 	_ = nullable // nullable can not be supported with csv
 
 	val := c.GetString(key, false).(string)
-	t, _ := time.ParseInLocation(TSLayout[0], val, TimeZone)
+	t, _ := c.pp.ParseDateTime(key, val)
 	return t
 }
 
 func (c *CsvMetric) GetDateTime(key string, nullable bool) interface{} {
 	val := c.GetString(key, false).(string)
-	t, _ := time.ParseInLocation(TSLayout[1], val, TimeZone)
+	t, _ := c.pp.ParseDateTime(key, val)
 	return t
 }
 
 func (c *CsvMetric) GetDateTime64(key string, nullable bool) interface{} {
 	val := c.GetString(key, false).(string)
-	t, _ := time.ParseInLocation(TSLayout[2], val, TimeZone)
+	t, _ := c.pp.ParseDateTime(key, val)
 	return t
 }
 

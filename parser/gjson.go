@@ -27,14 +27,16 @@ import (
 var _ Parser = (*GjsonParser)(nil)
 
 type GjsonParser struct {
+	pp *ParserPool
 }
 
 func (p *GjsonParser) Parse(bs []byte) (metric model.Metric, err error) {
-	metric = &GjsonMetric{string(bs)}
+	metric = &GjsonMetric{p.pp, string(bs)}
 	return
 }
 
 type GjsonMetric struct {
+	pp  *ParserPool
 	raw string
 }
 
@@ -104,7 +106,7 @@ func (c *GjsonMetric) GetDate(key string, nullable bool) interface{} {
 	}
 
 	val := r.String()
-	t, _ := time.ParseInLocation(TSLayout[0], val, TimeZone)
+	t, _ := c.pp.ParseDateTime(key, val)
 	return t
 }
 
@@ -119,7 +121,7 @@ func (c *GjsonMetric) GetDateTime(key string, nullable bool) interface{} {
 	}
 
 	val := r.String()
-	t, _ := time.ParseInLocation(TSLayout[1], val, TimeZone)
+	t, _ := c.pp.ParseDateTime(key, val)
 	return t
 }
 
@@ -134,7 +136,7 @@ func (c *GjsonMetric) GetDateTime64(key string, nullable bool) interface{} {
 	}
 
 	val := r.String()
-	t, _ := time.ParseInLocation(TSLayout[2], val, TimeZone)
+	t, _ := c.pp.ParseDateTime(key, val)
 	return t
 }
 
