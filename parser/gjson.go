@@ -27,7 +27,7 @@ import (
 var _ Parser = (*GjsonParser)(nil)
 
 type GjsonParser struct {
-	pp *ParserPool
+	pp *Pool
 }
 
 func (p *GjsonParser) Parse(bs []byte) (metric model.Metric, err error) {
@@ -36,7 +36,7 @@ func (p *GjsonParser) Parse(bs []byte) (metric model.Metric, err error) {
 }
 
 type GjsonMetric struct {
-	pp  *ParserPool
+	pp  *Pool
 	raw string
 }
 

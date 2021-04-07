@@ -245,8 +245,8 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 			log.Warnf("number of columns reaches upper limit %d", maxDims)
 			return false
 		}
-		strKey := key.(string)
-		strVal := value.(string)
+		strKey, _ := key.(string)
+		strVal, _ := value.(string)
 		switch strVal {
 		case "int":
 			strVal = "Nullable(Int64)"
@@ -292,7 +292,8 @@ func (c *ClickHouse) getDistTbls() (distTbls []string, err error) {
 	taskCfg := &c.cfg.Task
 	chCfg := &c.cfg.Clickhouse
 	conn := pool.GetConn(0)
-	query := fmt.Sprintf(`SELECT name FROM system.tables WHERE engine='Distributed' AND database='%s' AND match(create_table_query, 'Distributed.*\'%s\',\s*\'%s\'')`, chCfg.DB, chCfg.DB, taskCfg.TableName)
+	query := fmt.Sprintf(`SELECT name FROM system.tables WHERE engine='Distributed' AND database='%s' AND match(create_table_query, 'Distributed.*\'%s\',\s*\'%s\'')`,
+		chCfg.DB, chCfg.DB, taskCfg.TableName)
 	log.Infof("%s: executing sql=> %s", taskCfg.Name, query)
 
 	var rows *sql.Rows

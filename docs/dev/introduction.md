@@ -28,7 +28,7 @@ Refers to [design](./design.md) for how it works.
 - [x] UInt8, UInt16, UInt32, UInt64, Int8, Int16, Int32, Int64
 - [x] Float32, Float64
 - [x] String, FixedString, LowCardinality(String)
-- [x] Date, DateTime, DateTime64. Support [these layouts](https://github.com/housepower/clickhouse_sinker/blob/master/parser/parser.go).
+- [x] Date, DateTime, DateTime64. Automatically detect [these date formats](https://github.com/housepower/clickhouse_sinker/blob/master/parser/parser.go).
 - [x] Array(T), where T is one of above basic types
 - [x] Nullable(T), where T is one of above basic types
 - [x] [ElasticDateTime](https://www.elastic.co/guide/en/elasticsearch/reference/current/date.html) => Int64 (2019-12-16T12:10:30Z => 1576498230)

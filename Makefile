@@ -25,7 +25,7 @@ benchtest: pre
 systest: build
 	bash go.test.sh
 lint:
-	golangci-lint run --issues-exit-code=0 --disable=nakedret,exhaustivestruct,wrapcheck,paralleltest,rowserrcheck,cyclop
+	golangci-lint run --issues-exit-code=0 --disable=nakedret,exhaustivestruct,wrapcheck,paralleltest,rowserrcheck,cyclop,scopelint,nilerr
 run: pre
 	go run cmd/clickhouse_sinker/main.go --local-cfg-dir conf/
 

@@ -68,7 +68,7 @@ type Parser interface {
 }
 
 // Pool may be used for pooling Parsers for similarly typed JSONs.
-type ParserPool struct {
+type Pool struct {
 	name         string
 	csvFormat    []string
 	delimiter    string
@@ -78,7 +78,7 @@ type ParserPool struct {
 }
 
 // NewParserPool creates a parser pool
-func NewParserPool(name string, csvFormat []string, delimiter string, timezone string) (pp *ParserPool, err error) {
+func NewParserPool(name string, csvFormat []string, delimiter string, timezone string) (pp *Pool, err error) {
 	var tz *time.Location
 	if timezone == "" {
 		tz = time.Local
@@ -86,7 +86,7 @@ func NewParserPool(name string, csvFormat []string, delimiter string, timezone s
 		err = errors.Wrapf(err, "")
 		return
 	}
-	pp = &ParserPool{
+	pp = &Pool{
 		name:      name,
 		csvFormat: csvFormat,
 		delimiter: delimiter,
@@ -98,7 +98,7 @@ func NewParserPool(name string, csvFormat []string, delimiter string, timezone s
 // Get returns a Parser from pp.
 //
 // The Parser must be Put to pp after use.
-func (pp *ParserPool) Get() Parser {
+func (pp *Pool) Get() Parser {
 	v := pp.pool.Get()
 	if v == nil {
 		switch pp.name {
@@ -119,11 +119,11 @@ func (pp *ParserPool) Get() Parser {
 //
 // p and objects recursively returned from p cannot be used after p
 // is put into pp.
-func (pp *ParserPool) Put(p Parser) {
+func (pp *Pool) Put(p Parser) {
 	pp.pool.Put(p)
 }
 
-func (pp *ParserPool) ParseDateTime(key string, val string) (t time.Time, err error) {
+func (pp *Pool) ParseDateTime(key string, val string) (t time.Time, err error) {
 	var layout string
 	var lay interface{}
 	var ok bool
@@ -140,7 +140,7 @@ func (pp *ParserPool) ParseDateTime(key string, val string) (t time.Time, err er
 		err = errors.Errorf("cannot parse time %s at field %s", strconv.Quote(val), key)
 		return
 	}
-	layout = lay.(string)
+	layout, _ = lay.(string)
 	t, _ = time.ParseInLocation(layout, val, pp.timeZone)
 	return
 }

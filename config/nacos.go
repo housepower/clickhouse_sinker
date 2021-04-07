@@ -39,7 +39,7 @@ func (ncm *NacosConfManager) Init(properties map[string]interface{}) (err error)
 
 	var clientDir string
 	if v, ok := properties["clientDir"]; ok {
-		clientDir = v.(string)
+		clientDir, _ = v.(string)
 	} else {
 		clientDir = "/tmp/nacos"
 	}
@@ -47,10 +47,10 @@ func (ncm *NacosConfManager) Init(properties map[string]interface{}) (err error)
 	group := constant.DEFAULT_GROUP //Empty string doesn't work!
 	var ok bool
 	if _, ok = properties["namespaceId"]; ok {
-		namespaceID = properties["namespaceId"].(string)
+		namespaceID, _ = properties["namespaceId"].(string)
 	}
 	if _, ok = properties["group"]; ok {
-		group = properties["group"].(string)
+		group, _ = properties["group"].(string)
 	}
 	cc := constant.ClientConfig{
 		NamespaceId:         namespaceID,
@@ -77,7 +77,7 @@ func (ncm *NacosConfManager) Init(properties map[string]interface{}) (err error)
 
 	ncm.group = group
 	if _, ok = properties["dataId"]; ok {
-		ncm.dataID = properties["dataId"].(string)
+		ncm.dataID, _ = properties["dataId"].(string)
 	}
 	return
 }

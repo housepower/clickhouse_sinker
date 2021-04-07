@@ -30,7 +30,7 @@ var _ Parser = (*CsvParser)(nil)
 
 // CsvParser implementation to parse input from a CSV format per RFC 4180
 type CsvParser struct {
-	pp *ParserPool
+	pp *Pool
 }
 
 // Parse extract a list of comma-separated values from the data
@@ -51,7 +51,7 @@ func (p *CsvParser) Parse(bs []byte) (metric model.Metric, err error) {
 
 // CsvMetic
 type CsvMetric struct {
-	pp     *ParserPool
+	pp     *Pool
 	values []string
 }
 
@@ -106,7 +106,7 @@ func (c *CsvMetric) GetArray(key string, t string) interface{} {
 	var err error
 	var array []string
 	var r *csv.Reader
-	val := c.GetString(key, false).(string)
+	val, _ := c.GetString(key, false).(string)
 	valLen := len(val)
 	if val == "" || val[0] != '[' || val[valLen-1] != ']' {
 		goto QUIT
@@ -151,26 +151,26 @@ QUIT:
 func (c *CsvMetric) GetDate(key string, nullable bool) interface{} {
 	_ = nullable // nullable can not be supported with csv
 
-	val := c.GetString(key, false).(string)
+	val, _ := c.GetString(key, false).(string)
 	t, _ := c.pp.ParseDateTime(key, val)
 	return t
 }
 
 func (c *CsvMetric) GetDateTime(key string, nullable bool) interface{} {
-	val := c.GetString(key, false).(string)
+	val, _ := c.GetString(key, false).(string)
 	t, _ := c.pp.ParseDateTime(key, val)
 	return t
 }
 
 func (c *CsvMetric) GetDateTime64(key string, nullable bool) interface{} {
-	val := c.GetString(key, false).(string)
+	val, _ := c.GetString(key, false).(string)
 	t, _ := c.pp.ParseDateTime(key, val)
 	return t
 }
 
 func (c *CsvMetric) GetElasticDateTime(key string, nullable bool) interface{} {
 	_ = nullable // nullable can not be supported with csv
-	val := c.GetString(key, false).(string)
+	val, _ := c.GetString(key, false).(string)
 	t, _ := time.Parse(time.RFC3339, val)
 
 	return t.Unix()

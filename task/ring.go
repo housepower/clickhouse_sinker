@@ -89,7 +89,7 @@ func (ring *Ring) ForceBatchOrShard(arg interface{}) {
 	ring.mux.Lock()
 	defer ring.mux.Unlock()
 	if arg != nil {
-		newMsg = arg.(*model.InputMessage)
+		newMsg, _ = arg.(*model.InputMessage)
 		log.Warnf("%s: Ring.ForceBatchOrShard partition %d message range [%d, %d)", taskCfg.Name, newMsg.Partition, ring.ringGroundOff, newMsg.Offset)
 	}
 	if !ring.isIdle {

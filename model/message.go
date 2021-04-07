@@ -70,7 +70,7 @@ func (bs *BatchSys) TryCommit() error {
 	// ensure groups be committed orderly
 LOOP:
 	for e := bs.groups.Front(); e != nil; {
-		grp := e.Value.(*BatchGroup)
+		grp, _ := e.Value.(*BatchGroup)
 		if atomic.LoadInt32(&grp.PendWrite) != 0 {
 			break LOOP
 		}

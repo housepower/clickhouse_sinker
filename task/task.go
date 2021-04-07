@@ -52,7 +52,7 @@ type Service struct {
 	stopped    chan struct{}
 	inputer    input.Inputer
 	clickhouse *output.ClickHouse
-	pp         *parser.ParserPool
+	pp         *parser.Pool
 	cfg        *config.Config
 	dims       []*model.ColumnWithType
 
@@ -70,7 +70,7 @@ type Service struct {
 }
 
 // NewTaskService creates an instance of new tasks with kafka, clickhouse and paser instances
-func NewTaskService(inputer input.Inputer, clickhouse *output.ClickHouse, pp *parser.ParserPool, cfg *config.Config) *Service {
+func NewTaskService(inputer input.Inputer, clickhouse *output.ClickHouse, pp *parser.Pool, cfg *config.Config) *Service {
 	return &Service{
 		stopped:    make(chan struct{}),
 		inputer:    inputer,

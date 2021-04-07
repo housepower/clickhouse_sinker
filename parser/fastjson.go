@@ -29,7 +29,7 @@ var _ Parser = (*FastjsonParser)(nil)
 
 // FastjsonParser, parser for get data in json format
 type FastjsonParser struct {
-	pp  *ParserPool
+	pp  *Pool
 	fjp fastjson.Parser
 }
 
@@ -44,7 +44,7 @@ func (p *FastjsonParser) Parse(bs []byte) (metric model.Metric, err error) {
 }
 
 type FastjsonMetric struct {
-	pp    *ParserPool
+	pp    *Pool
 	value *fastjson.Value
 }
 
@@ -136,7 +136,7 @@ func (c *FastjsonMetric) GetDate(key string, nullable bool) interface{} {
 		return nil
 	}
 
-	val := c.GetString(key, false).(string)
+	val, _ := c.GetString(key, false).(string)
 	t, _ := c.pp.ParseDateTime(key, val)
 	return t
 }
@@ -146,11 +146,11 @@ func (c *FastjsonMetric) GetDateTime(key string, nullable bool) interface{} {
 		return nil
 	}
 
-	if v := c.GetFloat(key, false).(float64); v != 0 {
+	if v, _ := c.GetFloat(key, false).(float64); v != 0 {
 		return time.Unix(int64(v), int64(v*1e9)%1e9)
 	}
 
-	val := c.GetString(key, false).(string)
+	val, _ := c.GetString(key, false).(string)
 	t, _ := c.pp.ParseDateTime(key, val)
 	return t
 }
@@ -160,11 +160,11 @@ func (c *FastjsonMetric) GetDateTime64(key string, nullable bool) interface{} {
 		return nil
 	}
 
-	if v := c.GetFloat(key, false).(float64); v != 0 {
+	if v, _ := c.GetFloat(key, false).(float64); v != 0 {
 		return time.Unix(int64(v), int64(v*1e9)%1e9)
 	}
 
-	val := c.GetString(key, false).(string)
+	val, _ := c.GetString(key, false).(string)
 	t, _ := c.pp.ParseDateTime(key, val)
 	return t
 }
