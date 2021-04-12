@@ -27,7 +27,4 @@ systest: build
 lint:
 	golangci-lint run --issues-exit-code=0 --disable=nakedret,exhaustivestruct,wrapcheck,paralleltest,rowserrcheck,cyclop,scopelint,nilerr
 run: pre
-	go run cmd/clickhouse_sinker/main.go --local-cfg-dir conf/
-
-docker-run:
-	docker run --net=host -e "CONFIG=`cat conf/config.json`" -e "TASK=`cat conf/tasks/logstash_sample.json`" --rm -it `docker build -q .`
+	go run cmd/clickhouse_sinker/main.go --local-cfg-file docker/test_dynamic_schema.json
