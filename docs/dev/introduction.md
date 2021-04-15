@@ -47,7 +47,7 @@ clickhouse_sinker supports following encryption mechanisms:
 
 An example kafka config:
 
-```
+```json
   "kafka": {
     "brokers": "192.168.31.64:9092",
     "@version": "Required if you use sarama. It's the the Kafka server version.",
@@ -58,7 +58,7 @@ An example kafka config:
 - Encryption using SSL
 
 An example kafka config:
-```
+```json
   "kafka": {
     "brokers": "192.168.31.64:9093",
     "version": "2.2.1",
@@ -75,7 +75,7 @@ An example kafka config:
 ```
 
 Or if you have extracted certificates from JKS, use the following config:
-```
+```json
   "kafka": {
     "brokers": "192.168.31.64:9093",
     "version": "2.2.1",
@@ -91,7 +91,7 @@ Or if you have extracted certificates from JKS, use the following config:
 
 FYI. `kafka-console-consumer.sh` works as the following setup:
 
-```
+```bash
 $ cat config/client_SSL_NOAUTH.properties
 security.protocol=SSL
 ssl.truststore.location=/etc/security/kafka.client.truststore.jks
@@ -111,7 +111,7 @@ clickhouse_sinker support following following authentication mechanisms:
 
 An example kafka config:
 
-```
+```json
   "kafka": {
     "brokers": "192.168.31.64:9092",
     "@version": "Required if you use sarama. It's the the Kafka server version.",
@@ -122,7 +122,7 @@ An example kafka config:
 - SASL/PLAIN
 
 An example kafka config:
-```
+```json
   "kafka": {
     "brokers": "192.168.31.64:9094",
     "version": "2.2.1",
@@ -137,7 +137,7 @@ An example kafka config:
 
 FYI. Java clients work with the following setup:
 
-```
+```bash
 $ cat config/client_PLAINTEXT_PLAIN.properties
 security.protocol=SASL_PLAINTEXT
 sasl.kerberos.service.name=kafka
@@ -152,7 +152,7 @@ $ bin/kafka-console-consumer.sh --bootstrap-server 192.168.31.64:9094 --topic su
 - SASL/SCRAM
 
 An example kafka config:
-```
+```json
   "kafka": {
     "brokers": "192.168.31.64:9094",
     "version": "2.2.1",
@@ -168,7 +168,7 @@ An example kafka config:
 
 FYI. Java clients work with the following setup:
 
-```
+```bash
 $ cat config/client_PLAINTEXT_SCRAM.properties
 security.protocol=SASL_PLAINTEXT
 sasl.kerberos.service.name=kafka
@@ -183,7 +183,7 @@ $ bin/kafka-console-consumer.sh --bootstrap-server 192.168.31.64:9094 --topic su
 - SASL/GSSAPI(Kerberos)
 
 An example kafka config:
-```
+```json
   "kafka": {
     "brokers": "192.168.31.64:9094",
     "version": "2.2.1",
@@ -206,7 +206,7 @@ An example kafka config:
 
 FYI. Java clients work with the following setup:
 
-```
+```bash
 $ cat config/client_PLAINTEXT_GSSAPI.properties
 security.protocol=SASL_PLAINTEXT
 sasl.kerberos.service.name=kafka
@@ -273,7 +273,7 @@ If CLI `--metric-push-gateway-addrs` or env `METRIC_PUSH_GATEWAY_ADDRS` (a list 
 
 There are several abstract interfaces which you can implement to support more message format, message queue and config management mechanism.
 
-```
+```go
 type Parser interface {
 	Parse(bs []byte) model.Metric
 }

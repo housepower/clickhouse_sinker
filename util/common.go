@@ -78,7 +78,7 @@ func GetSourceName(name string) (sourcename string) {
 }
 
 // GetShift returns the smallest `shift` which 1<<shift is no smaller than s
-func GetShift(s int) (shift int) {
+func GetShift(s int) (shift uint) {
 	for shift = 0; (1 << shift) < s; shift++ {
 	}
 	return

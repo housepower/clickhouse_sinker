@@ -44,9 +44,10 @@ type Config struct {
 
 // KafkaConfig configuration parameters
 type KafkaConfig struct {
-	Brokers string
-	Version string
-	TLS     struct {
+	Brokers  string
+	Version  string
+	Security map[string]string
+	TLS      struct {
 		Enable         bool
 		CaCertFiles    string // Required. It's the CA cert.pem with which Kafka brokers certs be signed.
 		ClientCertFile string // Required for client authentication. It's client cert.pem.
@@ -141,12 +142,13 @@ type TaskConfig struct {
 }
 
 const (
-	defaultFlushInterval = 3
-	defaultBufferSize    = 1 << 20 //1048576
-	defaultMinBufferSize = 1 << 14 //  16384
-	defaultMsgSizeHint   = 1000
-	defaultTimeZone      = "Local"
-	defaultLogLevel      = "info"
+	defaultFlushInterval      = 3
+	defaultBufferSize         = 1 << 20 //1048576
+	defaultMinBufferSize      = 1 << 14 //  16384
+	defaultMsgSizeHint        = 1000
+	defaultTimeZone           = "Local"
+	defaultLogLevel           = "info"
+	defaultKerberosConfigPath = "/etc/krb5.conf"
 )
 
 func ParseLocalCfgFile(cfgPath string) (cfg *Config, err error) {
@@ -173,6 +175,8 @@ func (cfg *Config) Normallize() (err error) {
 	if cfg.Kafka.Version == "" {
 		cfg.Kafka.Version = "2.2.1"
 	}
+
+	cfg.convertKfkSecurity()
 	if cfg.Kafka.Sasl.Enable {
 		cfg.Kafka.Sasl.Mechanism = strings.ToUpper(cfg.Kafka.Sasl.Mechanism)
 		switch cfg.Kafka.Sasl.Mechanism {
@@ -233,4 +237,102 @@ func (cfg *Config) Normallize() (err error) {
 		cfg.LogLevel = defaultLogLevel
 	}
 	return
+}
+
+//convert java client style configuration into sinker
+func (cfg *Config) convertKfkSecurity() {
+	if protocal, ok := cfg.Kafka.Security["security.protocol"]; ok {
+		if strings.Contains(protocal, "SASL") {
+			cfg.Kafka.Sasl.Enable = true
+		}
+		if strings.Contains(protocal, "SSL") {
+			cfg.Kafka.TLS.Enable = true
+		}
+	}
+
+	if cfg.Kafka.TLS.Enable {
+		if endpIdentAlgo, ok := cfg.Kafka.Security["ssl.endpoint.identification.algorithm"]; ok {
+			cfg.Kafka.TLS.EndpIdentAlgo = endpIdentAlgo
+		}
+		if trustStoreLocation, ok := cfg.Kafka.Security["ssl.truststore.location"]; ok {
+			cfg.Kafka.TLS.TrustStoreLocation = trustStoreLocation
+		}
+		if trustStorePassword, ok := cfg.Kafka.Security["ssl.truststore.password"]; ok {
+			cfg.Kafka.TLS.TrustStorePassword = trustStorePassword
+		}
+		if keyStoreLocation, ok := cfg.Kafka.Security["ssl.keystore.location"]; ok {
+			cfg.Kafka.TLS.KeystoreLocation = keyStoreLocation
+		}
+		if keyStorePassword, ok := cfg.Kafka.Security["ssl.keystore.password"]; ok {
+			cfg.Kafka.TLS.KeystorePassword = keyStorePassword
+		}
+	}
+	if cfg.Kafka.Sasl.Enable {
+		if mechanism, ok := cfg.Kafka.Security["sasl.mechanism"]; ok {
+			cfg.Kafka.Sasl.Mechanism = mechanism
+		}
+		if config, ok := cfg.Kafka.Security["sasl.jaas.config"]; ok {
+			configMap := readConfig(config)
+			if strings.Contains(cfg.Kafka.Sasl.Mechanism, "SCRAM") {
+				// SCRAM-SHA-256 or SCRAM-SHA-512
+				if username, ok := configMap["username"]; ok {
+					cfg.Kafka.Sasl.Username = username
+				}
+				if password, ok := configMap["password"]; ok {
+					cfg.Kafka.Sasl.Password = password
+				}
+			}
+			if strings.Contains(cfg.Kafka.Sasl.Mechanism, "GSSAPI") {
+				// GSSAPI
+				if useKeyTab, ok := configMap["useKeyTab"]; ok {
+					if useKeyTab == "true" {
+						cfg.Kafka.Sasl.GSSAPI.AuthType = 2
+					} else {
+						cfg.Kafka.Sasl.GSSAPI.AuthType = 1
+					}
+				}
+				if cfg.Kafka.Sasl.GSSAPI.AuthType == 1 {
+					//Username and password
+					if username, ok := configMap["username"]; ok {
+						cfg.Kafka.Sasl.GSSAPI.Username = username
+					}
+					if password, ok := configMap["password"]; ok {
+						cfg.Kafka.Sasl.GSSAPI.Password = password
+					}
+				} else {
+					//Keytab
+					if keyTab, ok := configMap["keyTab"]; ok {
+						cfg.Kafka.Sasl.GSSAPI.KeyTabPath = keyTab
+					}
+					if principal, ok := configMap["principal"]; ok {
+						username := strings.Split(principal, "@")[0]
+						realm := strings.Split(principal, "@")[1]
+						cfg.Kafka.Sasl.GSSAPI.Username = username
+						cfg.Kafka.Sasl.GSSAPI.Realm = realm
+					}
+					if servicename, ok := cfg.Kafka.Security["sasl.kerberos.service.name"]; ok {
+						cfg.Kafka.Sasl.GSSAPI.ServiceName = servicename
+					}
+					if cfg.Kafka.Sasl.GSSAPI.KerberosConfigPath == "" {
+						cfg.Kafka.Sasl.GSSAPI.KerberosConfigPath = defaultKerberosConfigPath
+					}
+				}
+			}
+		}
+	}
+}
+
+func readConfig(config string) map[string]string {
+	configMap := make(map[string]string)
+	config = strings.TrimSuffix(config, ";")
+	fields := strings.Split(config, " ")
+	for _, field := range fields {
+		if strings.Contains(field, "=") {
+			key := strings.Split(field, "=")[0]
+			value := strings.Split(field, "=")[1]
+			value = strings.Trim(value, "\"")
+			configMap[key] = value
+		}
+	}
+	return configMap
 }

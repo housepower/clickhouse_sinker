@@ -20,7 +20,7 @@ type Ring struct {
 	ringGroundOff    int64 //min message offset inside the ring
 	ringCeilingOff   int64 //1 + max message offset inside the ring
 	ringFilledOffset int64 //every message which's offset inside range [ringGroundOff, ringFilledOffset) is in the ring
-	batchSizeShift   int   //the shift of desired batch size
+	batchSizeShift   uint   //the shift of desired batch size
 	tid              goetty.Timeout
 	idleCnt          int
 	isIdle           bool

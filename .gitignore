@@ -10,4 +10,5 @@ package-lock.json
 *.bin
 .goreleaser.yml
 dist
+vendor
 

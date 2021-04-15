@@ -26,6 +26,14 @@
   // kafka configs
   "kafka": {
     "brokers": "127.0.0.1:9093",
+    
+    // jave client style security  authentication
+    "security":{
+        "security.protocol": "SASL_PLAINTEXT",
+        "sasl.kerberos.service.name": "kafka",
+        "sasl.mechanism":"GSSAPI",
+        "sasl.jaas.config":"com.sun.security.auth.module.Krb5LoginModule required useKeyTab=true storeKey=true debug=true         keyTab=\"/etc/security/mmmtest.keytab\" principal=\"mmm@ALANWANG.COM\";"
+    }
 
     // SSL
     "tls": {
