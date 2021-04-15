@@ -97,10 +97,6 @@ func (ncm *NacosConfManager) GetConfig() (conf *Config, err error) {
 		err = errors.Wrapf(err, "")
 		return
 	}
-	if ncm.dataID != conf.Task.Name {
-		err = errors.Errorf("DataId %s doesn't match with config: %s", ncm.dataID, content)
-		return
-	}
 	return
 }
 
@@ -112,7 +108,7 @@ func (ncm *NacosConfManager) PublishConfig(conf *Config) (err error) {
 	}
 	content := string(bs)
 	_, err = ncm.configClient.PublishConfig(vo.ConfigParam{
-		DataId:  conf.Task.Name,
+		DataId:  ncm.dataID,
 		Group:   ncm.group,
 		Content: content,
 	})
@@ -120,6 +116,5 @@ func (ncm *NacosConfManager) PublishConfig(conf *Config) (err error) {
 		err = errors.Wrapf(err, "")
 		return
 	}
-	ncm.dataID = conf.Task.Name
 	return
 }

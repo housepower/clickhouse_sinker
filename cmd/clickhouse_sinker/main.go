@@ -140,6 +140,7 @@ func main() {
 		var rcm config.RemoteConfManager
 		var properties map[string]interface{}
 		if cmdOps.NacosDataID != "" {
+			log.Infof("get config from nacos serverAddrs %s, namespaceId %s, group %s, dataId %s", cmdOps.NacosAddr, cmdOps.NacosNamespaceID, cmdOps.NacosGroup, cmdOps.NacosDataID)
 			rcm = &config.NacosConfManager{}
 			properties = make(map[string]interface{})
 			properties["serverAddrs"] = cmdOps.NacosAddr
@@ -148,6 +149,8 @@ func main() {
 			properties["namespaceId"] = cmdOps.NacosNamespaceID
 			properties["group"] = cmdOps.NacosGroup
 			properties["dataId"] = cmdOps.NacosDataID
+		} else {
+			log.Infof("get config from local file %s", cmdOps.LocalCfgFile)
 		}
 		if rcm != nil {
 			if err := rcm.Init(properties); err != nil {
@@ -254,15 +257,15 @@ func (s *Sinker) Run() {
 				return
 			case <-time.After(5 * time.Second):
 				if newCfg, err = s.rcm.GetConfig(); err != nil {
-					log.Fatalf("%+v", err)
+					log.Errorf("%+v", err)
 					return
 				}
 				if err = newCfg.Normallize(); err != nil {
-					log.Fatalf("%+v", err)
+					log.Errorf("%+v", err)
 					return
 				}
 				if err = s.applyConfig(newCfg); err != nil {
-					log.Fatalf("%+v", err)
+					log.Errorf("%+v", err)
 					return
 				}
 			}

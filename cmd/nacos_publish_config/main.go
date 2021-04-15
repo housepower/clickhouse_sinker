@@ -37,8 +37,8 @@ var (
 		`nacos namespace ID. Neither DEFAULT_NAMESPACE_ID("public") nor namespace name work!`)
 	nacosGroup = flag.String("nacos-group", "DEFAULT_GROUP",
 		`nacos group name. Empty string doesn't work!`)
-	nacosDataID = flag.String("nacos-dataid", "",
-		`nacos data id, the task name`)
+	nacosDataID = flag.String("nacos-dataid", "clickhouse_sinker.json",
+		`nacos data id`)
 
 	localCfgFile = flag.String("local-cfg-file", "/etc/clickhouse_sinker.json", "local config file")
 )

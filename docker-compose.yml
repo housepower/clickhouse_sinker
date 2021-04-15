@@ -45,7 +45,7 @@ services:
     security_opt:
       - label:disable
   nacos:
-    image: nacos/nacos-server:1.4.0
+    image: nacos/nacos-server:1.4.1
     container_name: nacos-standalone
     environment:
     - PREFER_HOST_MODE=hostname
