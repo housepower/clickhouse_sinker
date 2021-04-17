@@ -241,11 +241,11 @@ func (cfg *Config) Normallize() (err error) {
 
 //convert java client style configuration into sinker
 func (cfg *Config) convertKfkSecurity() {
-	if protocal, ok := cfg.Kafka.Security["security.protocol"]; ok {
-		if strings.Contains(protocal, "SASL") {
+	if protocol, ok := cfg.Kafka.Security["security.protocol"]; ok {
+		if strings.Contains(protocol, "SASL") {
 			cfg.Kafka.Sasl.Enable = true
 		}
-		if strings.Contains(protocal, "SSL") {
+		if strings.Contains(protocol, "SSL") {
 			cfg.Kafka.TLS.Enable = true
 		}
 	}
