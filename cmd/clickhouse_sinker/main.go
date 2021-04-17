@@ -209,8 +209,7 @@ type Sinker struct {
 
 // NewSinker get an instance of sinker with the task list
 func NewSinker(rcm config.RemoteConfManager) *Sinker {
-	parent := context.Background()
-	ctx, cancel := context.WithCancel(parent)
+	ctx, cancel := context.WithCancel(context.Background())
 	s := &Sinker{rcm: rcm, ctx: ctx, cancel: cancel}
 	return s
 }
@@ -275,16 +274,19 @@ func (s *Sinker) Run() {
 
 // Close shutdown task
 func (s *Sinker) Close() {
-	s.cancel()
-	s.task.Stop()
-
+	// Stop task gracefully. Wait until all flying data be processed (write to CH and commit to Kafka).
+	log.Infof("%s: stopping parsing pool", s.curCfg.Task.Name)
 	util.GlobalParsingPool.StopWait()
+	log.Infof("%s: stopping writing pool", s.curCfg.Task.Name)
 	util.GlobalWritingPool.StopWait()
+	log.Infof("%s: stopping timer wheel", s.curCfg.Task.Name)
 	util.GlobalTimerWheel.Stop()
 
+	s.task.Stop()
 	if s.pusher != nil {
 		s.pusher.Stop()
 	}
+	s.cancel()
 }
 
 func (s *Sinker) applyConfig(newCfg *config.Config) (err error) {
@@ -343,29 +345,31 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 	log.Infof("going to apply a different config: %+v", string(bsNewCfg))
 
 	if !reflect.DeepEqual(newCfg.Kafka, s.curCfg.Kafka) || !reflect.DeepEqual(newCfg.Clickhouse, s.curCfg.Clickhouse) || !reflect.DeepEqual(newCfg.Task, s.curCfg.Task) {
-		// 1. Stop task
+		// 1. Stop task gracefully. Wait until all flying data be processed (write to CH and commit to Kafka).
+		log.Infof("%s: stopping parsing pool", s.curCfg.Task.Name)
+		util.GlobalParsingPool.StopWait()
+		log.Infof("%s: stopping writing pool", s.curCfg.Task.Name)
+		util.GlobalWritingPool.StopWait()
+		log.Infof("%s: stopping timer wheel", s.curCfg.Task.Name)
+		util.GlobalTimerWheel.Stop()
 		s.task.Stop()
 
-		// 2. Generate, initialize and start task
+		// 2. Generate and initialize task
 		t := GenTask(newCfg)
 		if err = t.Init(); err != nil {
 			return
 		}
-		go t.Run(s.ctx)
-		s.task = t
 
-		// 3. Resize goroutine pools.
-		concurrentParsers := 10
-		if runtime.NumCPU() >= 2 {
-			if concurrentParsers > runtime.NumCPU()/2 {
-				concurrentParsers = runtime.NumCPU() / 2
-			}
-		} else {
-			concurrentParsers = 1
-		}
-		util.GlobalParsingPool.Resize(concurrentParsers)
+		// 3. Restart goroutine pools.
+		util.InitGlobalTimerWheel()
+		util.GlobalParsingPool.Restart()
 		totalConn := pool.GetTotalConn()
 		util.GlobalWritingPool.Resize(totalConn)
+		util.GlobalWritingPool.Restart()
+
+		// 4. Start task
+		go t.Run(s.ctx)
+		s.task = t
 	}
 	// Record the new config
 	s.curCfg = newCfg
