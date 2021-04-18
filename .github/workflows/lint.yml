@@ -1,14 +1,12 @@
-name: golangci-lint
+name: lint
 on:
   push:
-    tags:
-      - v*
-    branches:
-      - master
+    tags: [ v* ]
+    branches: [ master ]
   pull_request:
+    branches: [ master ]
 jobs:
-  golangci:
-    name: lint
+  golangci-lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
@@ -26,3 +24,11 @@ jobs:
 
           # Optional: show only new issues if it's a pull request. The default value is `false`.
           # only-new-issues: true
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        fetch-depth: '0'
+    - name: gitleaks-action
+      uses: zricethezav/gitleaks-action@master
