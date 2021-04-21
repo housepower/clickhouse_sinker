@@ -37,8 +37,6 @@ import (
 	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/pkg/errors"
 	"golang.org/x/time/rate"
-
-	log "github.com/sirupsen/logrus"
 )
 
 // TaskService holds the configuration for each task
@@ -113,7 +111,7 @@ func (service *Service) Init() (err error) {
 		}
 		if maxDims <= len(service.dims) {
 			service.cfg.Task.DynamicSchema.Enable = false
-			log.Warnf("%s: disabled DynamicSchema since the number of columns reaches upper limit %d", taskCfg.Name, maxDims)
+			util.Logger.Warnf("%s: disabled DynamicSchema since the number of columns reaches upper limit %d", taskCfg.Name, maxDims)
 		} else {
 			for _, dim := range service.dims {
 				service.knownKeys.Store(dim.SourceName, nil)
@@ -134,13 +132,13 @@ func (service *Service) Run(ctx context.Context) {
 	service.started = true
 	service.parentCtx = ctx
 	service.ctx, service.cancel = context.WithCancel(ctx)
-	log.Infof("%s: task started", service.cfg.Task.Name)
+	util.Logger.Infof("%s: task started", service.cfg.Task.Name)
 	go service.inputer.Run(service.ctx)
 	if service.sharder != nil {
 		// schedule a delayed ForceFlush
 		if service.sharder.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(service.cfg.Task.FlushInterval)*time.Second, service.sharder.ForceFlush, nil); err != nil {
 			err = errors.Wrap(err, "")
-			log.Fatalf("%s: got error %+v", service.cfg.Task.Name, err)
+			util.Logger.Fatalf("%s: got error %+v", service.cfg.Task.Name, err)
 		}
 	}
 
@@ -151,7 +149,7 @@ LOOP:
 			break LOOP
 		case batch := <-service.batchChan:
 			if err := service.flush(batch); err != nil {
-				log.Errorf("%s: got error %+v", service.cfg.Task.Name, err)
+				util.Logger.Errorf("%s: got error %+v", service.cfg.Task.Name, err)
 			}
 		}
 	}
@@ -197,7 +195,7 @@ func (service *Service) put(msg model.InputMessage) {
 		// schedule a delayed ForceBatchOrShard
 		if ring.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(taskCfg.FlushInterval)*time.Second, ring.ForceBatchOrShard, nil); err != nil {
 			err = errors.Wrap(err, "")
-			log.Fatalf("%s: got error %+v", taskCfg.Name, err)
+			util.Logger.Fatalf("%s: got error %+v", taskCfg.Name, err)
 		}
 		service.rings[msg.Partition] = ring
 		service.Unlock()
@@ -210,7 +208,7 @@ func (service *Service) put(msg model.InputMessage) {
 		if msg.Offset < ringFilledOffset {
 			statistics.RingMsgsOffTooSmallErrorTotal.WithLabelValues(taskCfg.Name).Inc()
 			if service.limiter2.Allow() {
-				log.Warnf("%s: got a message(topic %v, partition %d, offset %v) left to %v",
+				util.Logger.Warnf("%s: got a message(topic %v, partition %d, offset %v) left to %v",
 					taskCfg.Name, msg.Topic, msg.Partition, msg.Offset, ringFilledOffset)
 			}
 			return
@@ -218,7 +216,7 @@ func (service *Service) put(msg model.InputMessage) {
 		if msg.Offset >= ringGroundOff+ring.ringCap && atomic.LoadInt32(&service.cntNewKeys) == 0 {
 			statistics.RingMsgsOffTooLargeErrorTotal.WithLabelValues(service.cfg.Task.Name).Inc()
 			if service.limiter3.Allow() {
-				log.Warnf("%s: got a message(topic %v, partition %d, offset %v) right to the range [%v, %v)",
+				util.Logger.Warnf("%s: got a message(topic %v, partition %d, offset %v) right to the range [%v, %v)",
 					taskCfg.Name, msg.Topic, msg.Partition, msg.Offset, ring.ringGroundOff, ring.ringGroundOff+ring.ringCap)
 			}
 			time.Sleep(1 * time.Second)
@@ -236,7 +234,7 @@ func (service *Service) put(msg model.InputMessage) {
 		if err != nil {
 			statistics.ParseMsgsErrorTotal.WithLabelValues(taskCfg.Name).Inc()
 			if service.limiter1.Allow() {
-				log.Errorf("%s: failed to parse message(topic %v, partition %d, offset %v) %+v, string(value) <<<%+v>>>, got error %+v",
+				util.Logger.Errorf("%s: failed to parse message(topic %v, partition %d, offset %v) %+v, string(value) <<<%+v>>>, got error %+v",
 					service.cfg.Task.Name, msg.Topic, msg.Partition, msg.Offset, msg, string(msg.Value), err)
 			}
 		} else {
@@ -262,7 +260,7 @@ func (service *Service) put(msg model.InputMessage) {
 					service.sharder.ForceFlush(nil)
 				}
 				if service.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(taskCfg.FlushInterval)*time.Second, service.changeSchema, nil); err != nil {
-					log.Fatalf("got error %+v", err)
+					util.Logger.Fatalf("got error %+v", err)
 					os.Exit(-1)
 				}
 			}
@@ -290,13 +288,13 @@ func (service *Service) changeSchema(arg interface{}) {
 	taskCfg := &service.cfg.Task
 	// change schema
 	if err = service.clickhouse.ChangeSchema(&service.newKeys); err != nil {
-		log.Fatalf("%s: clickhouse.ChangeSchema failed with error: %+v", taskCfg.Name, err)
+		util.Logger.Fatalf("%s: clickhouse.ChangeSchema failed with error: %+v", taskCfg.Name, err)
 		os.Exit(-1)
 	}
 	// restart myself
 	service.Stop()
 	if err = service.Init(); err != nil {
-		log.Fatalf("%s: init failed with error: %+v", taskCfg.Name, err)
+		util.Logger.Fatalf("%s: init failed with error: %+v", taskCfg.Name, err)
 		os.Exit(-1)
 	}
 	go service.Run(service.parentCtx)
@@ -304,15 +302,15 @@ func (service *Service) changeSchema(arg interface{}) {
 
 // Stop stop kafka and clickhouse client. This is blocking.
 func (service *Service) Stop() {
-	log.Infof("%s: stopping task service...", service.cfg.Task.Name)
+	util.Logger.Infof("%s: stopping task service...", service.cfg.Task.Name)
 	service.cancel()
 	if err := service.inputer.Stop(); err != nil {
 		panic(err)
 	}
-	log.Infof("%s: stopped input", service.cfg.Task.Name)
+	util.Logger.Infof("%s: stopped input", service.cfg.Task.Name)
 
 	_ = service.clickhouse.Stop()
-	log.Infof("%s: stopped output", service.cfg.Task.Name)
+	util.Logger.Infof("%s: stopped output", service.cfg.Task.Name)
 
 	if service.sharder != nil {
 		service.sharder.tid.Stop()
@@ -323,12 +321,12 @@ func (service *Service) Stop() {
 		}
 	}
 	service.tid.Stop()
-	log.Infof("%s: stopped internal timers", service.cfg.Task.Name)
+	util.Logger.Infof("%s: stopped internal timers", service.cfg.Task.Name)
 
 	if service.started {
 		<-service.stopped
 	}
-	log.Infof("%s: stopped", service.cfg.Task.Name)
+	util.Logger.Infof("%s: stopped", service.cfg.Task.Name)
 }
 
 // GoID returns goroutine id

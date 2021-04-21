@@ -26,7 +26,6 @@ import (
 	"github.com/segmentio/kafka-go"
 	"github.com/segmentio/kafka-go/sasl/plain"
 	"github.com/segmentio/kafka-go/sasl/scram"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/housepower/clickhouse_sinker/config"
 	"github.com/housepower/clickhouse_sinker/model"
@@ -67,8 +66,7 @@ func (k *KafkaGo) Init(cfg *config.Config, taskName string, putFn func(msg model
 		MinBytes:       k.cfg.Task.MinBufferSize * k.cfg.Task.MsgSizeHint,
 		MaxBytes:       k.cfg.Task.BufferSize * k.cfg.Task.MsgSizeHint,
 		MaxWait:        time.Duration(k.cfg.Task.FlushInterval) * time.Second,
-		CommitInterval: time.Second,          // flushes commits to Kafka every second
-		ErrorLogger:    log.StandardLogger(), //kafka-go INFO log is too verbose
+		CommitInterval: time.Second, // flushes commits to Kafka every second
 	}
 	if kfkCfg.TLS.CaCertFiles == "" && kfkCfg.TLS.TrustStoreLocation != "" {
 		if kfkCfg.TLS.CaCertFiles, _, err = util.JksToPem(kfkCfg.TLS.TrustStoreLocation, kfkCfg.TLS.TrustStorePassword, false); err != nil {
@@ -130,15 +128,15 @@ LOOP_KAFKA_GO:
 		var msg kafka.Message
 		if msg, err = k.r.FetchMessage(ctx); err != nil {
 			if errors.Is(err, context.Canceled) {
-				log.Infof("%s: Kafka.Run quit due to context has been canceled", k.cfg.Task.Name)
+				util.Logger.Infof("%s: Kafka.Run quit due to context has been canceled", k.cfg.Task.Name)
 				break LOOP_KAFKA_GO
 			} else if errors.Is(err, io.EOF) {
-				log.Infof("%s: Kafka.Run quit due to reader has been closed", k.cfg.Task.Name)
+				util.Logger.Infof("%s: Kafka.Run quit due to reader has been closed", k.cfg.Task.Name)
 				break LOOP_KAFKA_GO
 			} else {
 				statistics.ConsumeMsgsErrorTotal.WithLabelValues(k.cfg.Task.Name).Inc()
 				err = errors.Wrap(err, "")
-				log.Errorf("%s: Kafka.Run got error %+v", k.cfg.Task.Name, err)
+				util.Logger.Errorf("%s: Kafka.Run got error %+v", k.cfg.Task.Name, err)
 				continue
 			}
 		}

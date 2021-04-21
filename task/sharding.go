@@ -13,7 +13,6 @@ import (
 	"github.com/housepower/clickhouse_sinker/statistics"
 	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/pkg/errors"
-	log "github.com/sirupsen/logrus"
 )
 
 type ShardingPolicy struct {
@@ -183,7 +182,7 @@ func (sh *Sharder) PutElems(partition int, ringBuf []model.MsgRow, begOff, endOf
 			maxBatchSize = batchSize
 		}
 	}
-	log.Debugf("%s: sharded a batch for topic %v patittion %d, offset %d, messages %d, gaps: %+v, parse errors: %d",
+	util.Logger.Debugf("%s: sharded a batch for topic %v patittion %d, offset %d, messages %d, gaps: %+v, parse errors: %d",
 		taskCfg.Name, taskCfg.Topic, partition, endOff-1,
 		msgCnt, gaps, parseErrs)
 	if maxBatchSize >= taskCfg.BufferSize {
@@ -218,7 +217,7 @@ func (sh *Sharder) doFlush(_ interface{}) {
 		}
 	}
 	if msgCnt > 0 {
-		log.Debugf("%s: going to flush batch group for topic %v, offsets %+v, messages %d", taskCfg.Name, taskCfg.Name, sh.offsets, msgCnt)
+		util.Logger.Debugf("%s: going to flush batch group for topic %v, offsets %+v, messages %d", taskCfg.Name, taskCfg.Name, sh.offsets, msgCnt)
 		sh.batchSys.CreateBatchGroupMulti(batches, sh.offsets)
 		sh.offsets = sh.offsets[:0]
 		// ALL batches in a group shall be populated before sending any one to next stage.
@@ -232,6 +231,6 @@ func (sh *Sharder) doFlush(_ interface{}) {
 	sh.tid.Stop()
 	if sh.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(taskCfg.FlushInterval)*time.Second, sh.ForceFlush, nil); err != nil {
 		err = errors.Wrap(err, "")
-		log.Fatalf("%s: got error %+v", taskCfg.Name, err)
+		util.Logger.Fatalf("%s: got error %+v", taskCfg.Name, err)
 	}
 }

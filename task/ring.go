@@ -6,7 +6,6 @@ import (
 
 	"github.com/fagongzi/goetty"
 	"github.com/pkg/errors"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/housepower/clickhouse_sinker/model"
 	"github.com/housepower/clickhouse_sinker/statistics"
@@ -44,7 +43,7 @@ func (ring *Ring) PutElem(msgRow model.MsgRow) {
 		ring.idleCnt = 0
 		ring.isIdle = false
 		ring.ringBuf = make([]model.MsgRow, ring.ringCap)
-		log.Infof("%s: topic %s partition %d quit idle", taskCfg.Name, taskCfg.Topic, ring.partition)
+		util.Logger.Infof("%s: topic %s partition %d quit idle", taskCfg.Name, taskCfg.Topic, ring.partition)
 	}
 	// assert(msgOffset < ring.ringGroundOff + ring.ringCap)
 	if msgOffset >= ring.ringCeilingOff {
@@ -53,7 +52,7 @@ func (ring *Ring) PutElem(msgRow model.MsgRow) {
 
 	if ring.service.sharder != nil && msgRow.Row != nil {
 		if msgRow.Shard, err = ring.service.sharder.Calc(msgRow.Row); err != nil {
-			log.Fatalf("%s: got error %+v", taskCfg.Name, err)
+			util.Logger.Fatalf("%s: got error %+v", taskCfg.Name, err)
 		}
 	}
 	statistics.RingMsgs.WithLabelValues(taskCfg.Name).Inc()
@@ -66,7 +65,7 @@ func (ring *Ring) PutElem(msgRow model.MsgRow) {
 		ring.tid.Stop()
 		if ring.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(taskCfg.FlushInterval)*time.Second, ring.ForceBatchOrShard, nil); err != nil {
 			err = errors.Wrap(err, "")
-			log.Fatalf("%s: got error %+v", taskCfg.Name, err)
+			util.Logger.Fatalf("%s: got error %+v", taskCfg.Name, err)
 		}
 	}
 }
@@ -81,7 +80,7 @@ func (ring *Ring) ForceBatchOrShard(arg interface{}) {
 	taskCfg := &ring.service.cfg.Task
 	select {
 	case <-ring.service.ctx.Done():
-		log.Errorf("%s: Ring.ForceBatchOrShard quit due to the context has been canceled", taskCfg.Name)
+		util.Logger.Errorf("%s: Ring.ForceBatchOrShard quit due to the context has been canceled", taskCfg.Name)
 		return
 	default:
 	}
@@ -90,7 +89,7 @@ func (ring *Ring) ForceBatchOrShard(arg interface{}) {
 	defer ring.mux.Unlock()
 	if arg != nil {
 		newMsg, _ = arg.(*model.InputMessage)
-		log.Warnf("%s: Ring.ForceBatchOrShard partition %d message range [%d, %d)", taskCfg.Name, newMsg.Partition, ring.ringGroundOff, newMsg.Offset)
+		util.Logger.Warnf("%s: Ring.ForceBatchOrShard partition %d message range [%d, %d)", taskCfg.Name, newMsg.Partition, ring.ringGroundOff, newMsg.Offset)
 	}
 	if !ring.isIdle {
 		if newMsg == nil {
@@ -103,7 +102,7 @@ func (ring *Ring) ForceBatchOrShard(arg interface{}) {
 					ring.idleCnt = 0
 					ring.isIdle = true
 					ring.ringBuf = nil
-					log.Infof("%s: topic %s partition %d enter idle", taskCfg.Name, taskCfg.Topic, ring.partition)
+					util.Logger.Infof("%s: topic %s partition %d enter idle", taskCfg.Name, taskCfg.Topic, ring.partition)
 				}
 			}
 		} else {
@@ -127,7 +126,7 @@ func (ring *Ring) ForceBatchOrShard(arg interface{}) {
 	var err error
 	if ring.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(taskCfg.FlushInterval)*time.Second, ring.ForceBatchOrShard, nil); err != nil {
 		err = errors.Wrap(err, "")
-		log.Fatalf("%s: got error %+v", taskCfg.Name, err)
+		util.Logger.Fatalf("%s: got error %+v", taskCfg.Name, err)
 	}
 }
 
@@ -179,7 +178,7 @@ func (ring *Ring) genBatchOrShard(expNewGroundOff int64) {
 		}
 
 		if batch.RealSize > 0 {
-			log.Debugf("%s: going to flush a batch for topic %v patittion %d, offset %d, messages %d, gaps: %+v, parse errors: %d",
+			util.Logger.Debugf("%s: going to flush a batch for topic %v patittion %d, offset %d, messages %d, gaps: %+v, parse errors: %d",
 				taskCfg.Name, taskCfg.Topic, ring.partition, endOff-1,
 				batch.RealSize, gaps, parseErrs)
 

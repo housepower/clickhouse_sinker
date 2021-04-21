@@ -20,11 +20,11 @@ import (
 	"net"
 	"time"
 
+	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/push"
 	"github.com/prometheus/common/expfmt"
-	log "github.com/sirupsen/logrus"
 )
 
 var (
@@ -215,11 +215,11 @@ FOR:
 			err := p.pusher.Push()
 			if err != nil {
 				err = errors.Wrapf(err, "")
-				log.Infof("pushing metrics failed. %v", err)
+				util.Logger.Error("pushing metrics failed", err)
 				p.reconnect()
 			}
 		case <-ctx.Done():
-			log.Warnf("metric pusher quit due to context has been canceled")
+			util.Logger.Warn("metric pusher quit due to context has been canceled")
 			break FOR
 		}
 	}

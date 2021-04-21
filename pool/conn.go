@@ -29,8 +29,6 @@ import (
 	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/pkg/errors"
 	"github.com/troian/healthcheck"
-
-	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -52,11 +50,11 @@ type Connection struct {
 func (c *Connection) ReConnect() error {
 	sqlDB, err := sql.Open("clickhouse", c.dsn)
 	if err != nil {
-		log.Info("reconnect to ", c.dsn, err.Error())
+		util.Logger.Info("reconnect to ", c.dsn, err.Error())
 		return err
 	}
 	setDBParams(sqlDB)
-	log.Info("reconnect success to ", c.dsn)
+	util.Logger.Info("reconnect success to ", c.dsn)
 	c.DB = sqlDB
 	return nil
 }
@@ -111,8 +109,7 @@ func FreeConn() {
 	defer lock.Unlock()
 	for _, conn := range connections {
 		if err := health.Health.RemoveReadinessCheck(conn.dsn); err != nil {
-			err = errors.Wrapf(err, conn.dsn)
-			log.Errorf("got error: %+v", err)
+			util.Logger.Error(conn.dsn+" RemoveReadinessCheck failed", err)
 		}
 		conn.DB.Close()
 	}

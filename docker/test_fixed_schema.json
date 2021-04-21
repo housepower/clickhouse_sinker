@@ -38,5 +38,6 @@
     ],
     "bufferSize": 50000
   },
-  "logLevel": "debug"
+  "logLevel": "debug",
+  "logPaths": ["stdout", "test_fixed_schema.log"]
 }

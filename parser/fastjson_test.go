@@ -1,12 +1,9 @@
 package parser
 
 import (
-	"fmt"
-	"strings"
 	"testing"
 	"time"
 
-	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"github.com/valyala/fastjson"
 )
@@ -212,7 +209,7 @@ func TestFastjsonDetectSchema(t *testing.T) {
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
 
-	var nameAndTypes []string
+	act := make(map[string]string)
 	c, _ := metric.(*FastjsonMetric)
 	var obj *fastjson.Object
 	var err error
@@ -220,7 +217,7 @@ func TestFastjsonDetectSchema(t *testing.T) {
 		return
 	}
 	obj.Visit(func(key []byte, v *fastjson.Value) {
-		nameAndTypes = append(nameAndTypes, fmt.Sprintf("%s: %s", string(key), v.Type().String()))
+		act[string(key)] = v.Type().String()
 	})
-	log.Infof("detected json schema: {%s}", strings.Join(nameAndTypes, ", "))
+	require.Equal(t, jsonSchema, act)
 }

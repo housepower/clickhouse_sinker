@@ -16,50 +16,25 @@ limitations under the License.
 package util
 
 import (
-	"log"
+	"go.uber.org/zap"
 )
 
 func Run(appName string, initFunc, jobFunc, cleanupFunc func() error) {
-	log.Printf("Initial [%s]", appName)
+	Logger.Info(appName + " initialization")
 	if err := initFunc(); err != nil {
-		log.Printf("Initial [%s] failure: [%s]", appName, err)
-		panic(err)
+		Logger.Fatal(appName+" initialization failed", zap.Error(err))
 	}
-	log.Printf("Initial [%s] complete", appName)
+	Logger.Info(appName + " initialization completed")
 	go func() {
 		if err := jobFunc(); err != nil {
-			log.Printf("[%s] run error: [%v]", appName, err)
-			panic(err)
+			Logger.Fatal(appName+" run failed", zap.Error(err))
 		}
 	}()
 
 	WaitForExitSign()
-	log.Printf("[%s] watched the exit signal, start to clean", appName)
+	Logger.Info(appName + " got the exit signal, start to clean")
 	if err := cleanupFunc(); err != nil {
-		log.Printf("[%s] clean failed: [%v]", appName, err)
-		panic(err)
+		Logger.Fatal(appName+" clean failed", zap.Error(err))
 	}
-	log.Printf("[%s] clean complete, exited", appName)
-}
-
-func Funcs(funcs ...func() error) func() error {
-	return func() error {
-		for _, fun := range funcs {
-			if err := fun(); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-}
-func LogWrapper(msg string, fun func() error) func() error {
-	return func() error {
-		log.Println(msg + " start")
-		if err := fun(); err != nil {
-			log.Printf("%s failed: %v", msg, err)
-			return err
-		}
-		log.Println(msg + " success")
-		return nil
-	}
+	Logger.Info(appName + " clean completed, exit")
 }

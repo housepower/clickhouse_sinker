@@ -25,7 +25,6 @@ import (
 
 	"github.com/Shopify/sarama"
 	"github.com/pkg/errors"
-	log "github.com/sirupsen/logrus"
 	"github.com/xdg/scram"
 
 	"github.com/housepower/clickhouse_sinker/config"
@@ -59,7 +58,7 @@ func (h MyConsumerGroupHandler) Setup(sess sarama.ConsumerGroupSession) error {
 	return nil
 }
 func (h MyConsumerGroupHandler) Cleanup(_ sarama.ConsumerGroupSession) error {
-	log.Infof("%s: consumer group %s cleanup", h.k.cfg.Task.Name, h.k.cfg.Task.ConsumerGroup)
+	util.Logger.Infof("%s: consumer group %s cleanup", h.k.cfg.Task.Name, h.k.cfg.Task.ConsumerGroup)
 	time.Sleep(5 * time.Second)
 	return nil
 }
@@ -90,7 +89,6 @@ func (k *KafkaSarama) Init(cfg *config.Config, taskName string, putFn func(msg m
 		err = errors.Wrapf(err, "")
 		return
 	}
-	sarama.Logger = log.StandardLogger()
 	if kfkCfg.TLS.CaCertFiles == "" && kfkCfg.TLS.TrustStoreLocation != "" {
 		if kfkCfg.TLS.CaCertFiles, _, err = util.JksToPem(kfkCfg.TLS.TrustStoreLocation, kfkCfg.TLS.TrustStorePassword, false); err != nil {
 			return
@@ -148,15 +146,15 @@ LOOP_SARAMA:
 		// recreated to get the new claims
 		if err := k.cg.Consume(ctx, []string{taskCfg.Topic}, handler); err != nil {
 			if errors.Is(err, context.Canceled) {
-				log.Infof("%s: Kafka.Run quit due to context has been canceled", taskCfg.Name)
+				util.Logger.Infof("%s: Kafka.Run quit due to context has been canceled", taskCfg.Name)
 				break LOOP_SARAMA
 			} else if errors.Is(err, sarama.ErrClosedConsumerGroup) {
-				log.Infof("%s: Kafka.Run quit due to consumer group has been closed", taskCfg.Name)
+				util.Logger.Infof("%s: Kafka.Run quit due to consumer group has been closed", taskCfg.Name)
 				break LOOP_SARAMA
 			} else {
 				statistics.ConsumeMsgsErrorTotal.WithLabelValues(taskCfg.Name).Inc()
 				err = errors.Wrap(err, "")
-				log.Errorf("%s: Kafka.Run got error %+v", taskCfg.Name, err)
+				util.Logger.Errorf("%s: Kafka.Run got error %+v", taskCfg.Name, err)
 				continue
 			}
 		}

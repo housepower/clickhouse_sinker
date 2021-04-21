@@ -40,6 +40,7 @@ type Config struct {
 	Clickhouse ClickHouseConfig
 	Task       TaskConfig
 	LogLevel   string
+	LogPaths   []string
 }
 
 // KafkaConfig configuration parameters
@@ -232,9 +233,12 @@ func (cfg *Config) Normallize() (err error) {
 		}
 	}
 	switch strings.ToLower(cfg.LogLevel) {
-	case "panic", "fatal", "error", "warn", "warning", "info", "debug", "trace":
+	case "debug", "info", "warn", "error", "dpanic", "panic", "fatal":
 	default:
 		cfg.LogLevel = defaultLogLevel
+	}
+	if len(cfg.LogPaths) == 0 {
+		cfg.LogPaths = []string{"stdout"}
 	}
 	return
 }

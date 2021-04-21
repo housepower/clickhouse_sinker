@@ -75,7 +75,7 @@
   },
 
   "task": {
-    "name": "daily_request",
+    "name": "test_dynamic_schema",
     // kafka topic
     "topic": "topic",
     // kafka consume from earliest or latest
@@ -130,7 +130,10 @@
     "timezone": ""
   },
 
-  // log level, possible value: panic, fatal, error, warn, warning, info, debug, trace
-  "logLevel": "debug"
+  // log level, possible value: "debug", "info", "warn", "error", "dpanic", "panic", "fatal"
+  "logLevel": "debug",
+
+  // log output paths, possible value: "stdout", "stderr", relative file path, absoute file path. Log files will be rotated every 100MB, keep 10 old ones.
+  "logPaths": ["stdout", "test_dynamic_schema.log"]
 }
 ```

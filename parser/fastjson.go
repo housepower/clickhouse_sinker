@@ -20,8 +20,8 @@ import (
 	"time"
 
 	"github.com/housepower/clickhouse_sinker/model"
+	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/pkg/errors"
-	log "github.com/sirupsen/logrus"
 	"github.com/valyala/fastjson"
 )
 
@@ -198,7 +198,7 @@ func (c *FastjsonMetric) GetNewKeys(knownKeys *sync.Map, newKeys *sync.Map) (fou
 				newKeys.Store(strKey, "string")
 				foundNew = true
 			} else {
-				log.Warnf("FastjsonMetric.GetNewKeys found a kv not be int/float/string, key: %s, value: %s", strKey, v.String())
+				util.Logger.Warnf("FastjsonMetric.GetNewKeys found a kv not be int/float/string, key: %s, value: %s", strKey, v.String())
 			}
 		}
 	})

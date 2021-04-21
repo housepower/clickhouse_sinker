@@ -34,8 +34,6 @@ import (
 	"github.com/housepower/clickhouse_sinker/statistics"
 	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/pkg/errors"
-
-	log "github.com/sirupsen/logrus"
 )
 
 var (
@@ -101,7 +99,7 @@ func (c *ClickHouse) write(batch *model.Batch) error {
 		}
 	}
 	if err != nil {
-		log.Errorf("%s: stmt.Exec failed %d times with errors %+v", c.cfg.Task.Name, numErr, err)
+		util.Logger.Errorf("%s: stmt.Exec failed %d times with errors %+v", c.cfg.Task.Name, numErr, err)
 		goto ERR
 	}
 
@@ -125,7 +123,7 @@ func shouldReconnect(err error) bool {
 	if strings.Contains(err.Error(), "connection refused") || strings.Contains(err.Error(), "bad connection") {
 		return true
 	}
-	log.Infof("permanent error: %v", err.Error())
+	util.Logger.Infof("permanent error: %v", err.Error())
 	return false
 }
 
@@ -141,17 +139,16 @@ func (c *ClickHouse) loopWrite(batch *model.Batch) {
 			// TODO: kafka_go and sarama commit give different error when context is cancceled.
 			// How to unify them?
 			if std_errors.Is(err, context.Canceled) || std_errors.Is(err, io.ErrClosedPipe) {
-				log.Infof("%s: ClickHouse.loopWrite quit due to the context has been cancelled", c.cfg.Task.Name)
+				util.Logger.Infof("%s: ClickHouse.loopWrite quit due to the context has been cancelled", c.cfg.Task.Name)
 				return
 			}
-			log.Errorf("%s: committing offset failed with permanent error %+v", c.cfg.Task.Name, err)
-			os.Exit(-1)
+			util.Logger.Fatalf("%s: committing offset failed with permanent error %+v", c.cfg.Task.Name, err)
 		}
 		if std_errors.Is(err, context.Canceled) {
-			log.Infof("%s: ClickHouse.loopWrite quit due to the context has been cancelled", c.cfg.Task.Name)
+			util.Logger.Infof("%s: ClickHouse.loopWrite quit due to the context has been cancelled", c.cfg.Task.Name)
 			return
 		}
-		log.Errorf("%s: flush batch(try #%d) failed with error %+v", c.cfg.Task.Name, c.cfg.Clickhouse.RetryTimes-times, err)
+		util.Logger.Errorf("%s: flush batch(try #%d) failed with error %+v", c.cfg.Task.Name, c.cfg.Clickhouse.RetryTimes-times, err)
 		statistics.FlushMsgsErrorTotal.WithLabelValues(c.cfg.Task.Name).Add(float64(batch.RealSize))
 		times++
 		if shouldReconnect(err) && (c.cfg.Clickhouse.RetryTimes <= 0 || times < c.cfg.Clickhouse.RetryTimes) {
@@ -217,7 +214,7 @@ func (c *ClickHouse) initSchema() (err error) {
 	c.prepareSQL = "INSERT INTO " + c.cfg.Clickhouse.DB + "." + c.cfg.Task.TableName + " (" + strings.Join(quotedDms, ",") + ") " +
 		"VALUES (" + strings.Join(params, ",") + ")"
 
-	log.Infof("%s: Prepare sql=> %s", c.cfg.Task.Name, c.prepareSQL)
+	util.Logger.Infof("%s: Prepare sql=> %s", c.cfg.Task.Name, c.prepareSQL)
 	return nil
 }
 
@@ -235,14 +232,14 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 	}
 	newKeysQuota := maxDims - len(c.Dims)
 	if newKeysQuota <= 0 {
-		log.Warnf("number of columns reaches upper limit %d", maxDims)
+		util.Logger.Warnf("number of columns reaches upper limit %d", maxDims)
 		return
 	}
 	var i int
 	newKeys.Range(func(key, value interface{}) bool {
 		i++
 		if i > newKeysQuota {
-			log.Warnf("number of columns reaches upper limit %d", maxDims)
+			util.Logger.Warnf("number of columns reaches upper limit %d", maxDims)
 			return false
 		}
 		strKey, _ := key.(string)
@@ -279,7 +276,7 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 	}
 	conn := pool.GetConn(0)
 	for _, query := range queries {
-		log.Infof("%s: executing sql=> %s", taskCfg.Name, query)
+		util.Logger.Infof("%s: executing sql=> %s", taskCfg.Name, query)
 		if _, err = conn.Exec(query); err != nil {
 			err = errors.Wrapf(err, query)
 			return
@@ -294,7 +291,7 @@ func (c *ClickHouse) getDistTbls() (distTbls []string, err error) {
 	conn := pool.GetConn(0)
 	query := fmt.Sprintf(`SELECT name FROM system.tables WHERE engine='Distributed' AND database='%s' AND match(create_table_query, 'Distributed.*\'%s\',\s*\'%s\'')`,
 		chCfg.DB, chCfg.DB, taskCfg.TableName)
-	log.Infof("%s: executing sql=> %s", taskCfg.Name, query)
+	util.Logger.Infof("%s: executing sql=> %s", taskCfg.Name, query)
 
 	var rows *sql.Rows
 	if rows, err = conn.Query(query); err != nil {

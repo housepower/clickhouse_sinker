@@ -30,7 +30,9 @@ import (
 	"strings"
 	"time"
 
-	log "github.com/sirupsen/logrus"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"gopkg.in/natefinch/lumberjack.v2"
 
 	"github.com/fagongzi/goetty"
 	"github.com/pkg/errors"
@@ -40,6 +42,7 @@ var (
 	GlobalTimerWheel  *goetty.TimeoutWheel //the global timer wheel
 	GlobalParsingPool *WorkerPool          //for all tasks' parsing, cpu intensive
 	GlobalWritingPool *WorkerPool          //the all tasks' writing ClickHouse, cpu-net balance
+	Logger            *zap.SugaredLogger
 )
 
 // InitGlobalTimerWheel initialize the global timer wheel
@@ -86,14 +89,16 @@ func GetShift(s int) (shift uint) {
 
 // GetOutboundIP get preferred outbound ip of this machine
 //https://stackoverflow.com/questions/23558425/how-do-i-get-the-local-ip-address-in-go
-func GetOutboundIP() net.IP {
-	conn, err := net.Dial("udp", "8.8.8.8:80")
-	if err != nil {
-		log.Fatal(err)
+func GetOutboundIP() (ip net.IP, err error) {
+	var conn net.Conn
+	if conn, err = net.Dial("udp", "8.8.8.8:80"); err != nil {
+		err = errors.Wrapf(err, "")
+		return
 	}
 	defer conn.Close()
 	localAddr, _ := conn.LocalAddr().(*net.UDPAddr)
-	return localAddr.IP
+	ip = localAddr.IP
+	return
 }
 
 // GetSpareTCPPort find a spare TCP port
@@ -195,7 +200,7 @@ func JksToPem(jksPath, jksPassword string, overwrite bool) (certPemPath, keyPemP
 		{"openssl", "pkcs12", "-in", pkcs12Path, "-nodes", "-nocerts", "-out", keyPemPath, "-passin", "env:password"},
 	}
 	for _, cmd := range cmds {
-		log.Infof(strings.Join(cmd, " "))
+		Logger.Info(strings.Join(cmd, " "))
 		exe := exec.Command(cmd[0], cmd[1:]...)
 		if cmd[0] == "keytool" {
 			exe.Stdin = bytes.NewReader([]byte(jksPassword + "\n" + jksPassword + "\n" + jksPassword))
@@ -204,11 +209,41 @@ func JksToPem(jksPath, jksPassword string, overwrite bool) (certPemPath, keyPemP
 		}
 		var out []byte
 		out, err = exe.CombinedOutput()
-		log.Infof(string(out))
+		Logger.Info(string(out))
 		if err != nil {
 			err = errors.Wrapf(err, "")
 			return
 		}
 	}
 	return
+}
+
+func InitLogger(logLevel string, logPaths []string) {
+	var lvl zapcore.Level
+	if err := lvl.Set(logLevel); err != nil {
+		lvl = zap.InfoLevel
+	}
+	var syncers []zapcore.WriteSyncer
+	for _, p := range logPaths {
+		switch p {
+		case "stdout":
+			syncers = append(syncers, zapcore.AddSync(os.Stdout))
+		case "stderr":
+			syncers = append(syncers, zapcore.AddSync(os.Stderr))
+		default:
+			writeFile := zapcore.AddSync(&lumberjack.Logger{
+				Filename:   p,
+				MaxSize:    100, // megabytes
+				MaxBackups: 10,
+			})
+			syncers = append(syncers, writeFile)
+		}
+	}
+
+	core := zapcore.NewCore(
+		zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig()),
+		zapcore.NewMultiWriteSyncer(syncers...),
+		lvl,
+	)
+	Logger = zap.New(core).Sugar()
 }

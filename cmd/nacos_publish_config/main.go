@@ -23,7 +23,7 @@ import (
 
 	_ "github.com/ClickHouse/clickhouse-go"
 	"github.com/housepower/clickhouse_sinker/config"
-	log "github.com/sirupsen/logrus"
+	"github.com/housepower/clickhouse_sinker/util"
 )
 
 var (
@@ -60,44 +60,42 @@ func PublishSinkerConfig() {
 	var cfg *config.Config
 	if _, err = os.Stat(*localCfgFile); err == nil {
 		if cfg, err = config.ParseLocalCfgFile(*localCfgFile); err != nil {
-			log.Fatalf("%+v", err)
+			util.Logger.Fatalf("%+v", err)
 			return
 		}
 	} else {
-		log.Fatalf("expect --local-cfg-file")
+		util.Logger.Fatalf("expect --local-cfg-file")
 		return
 	}
 
 	if err = cfg.Normallize(); err != nil {
-		log.Fatalf("%+v", err)
+		util.Logger.Fatalf("%+v", err)
 		return
 	}
 
 	ncm := config.NacosConfManager{}
 	properties := getProperties()
 	if err = ncm.Init(properties); err != nil {
-		log.Fatalf("%+v", err)
+		util.Logger.Fatalf("%+v", err)
 	}
 
 	if err = ncm.PublishConfig(cfg); err != nil {
-		log.Fatalf("%+v", err)
+		util.Logger.Fatalf("%+v", err)
 	}
-	log.Infof("sleep a while")
+	util.Logger.Infof("sleep a while")
 	time.Sleep(10 * time.Second)
 
 	var newCfg *config.Config
 	if newCfg, err = ncm.GetConfig(); err != nil {
-		log.Fatalf("%+v", err)
+		util.Logger.Fatalf("%+v", err)
 	}
 	if !reflect.DeepEqual(newCfg, cfg) {
-		log.Fatalf("got different config: %+v", newCfg)
+		util.Logger.Fatalf("got different config: %+v", newCfg)
 	}
 }
 
 func main() {
-	log.SetFormatter(&log.TextFormatter{
-		FullTimestamp: true,
-	})
+	util.InitLogger("info", []string{"stdout"})
 	flag.Parse()
 	PublishSinkerConfig()
 }

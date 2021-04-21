@@ -16,7 +16,6 @@ package parser
 
 import (
 	"encoding/json"
-	"log"
 	"testing"
 
 	"github.com/tidwall/gjson"
@@ -49,6 +48,33 @@ var jsonSample = []byte(`{
 	"bool_true": true,
 	"bool_false": false
 }`)
+
+var jsonSchema = map[string]string{
+	"its":                   "number",
+	"_ip":                   "string",
+	"cgi":                   "string",
+	"channel":               "string",
+	"platform":              "string",
+	"experiment":            "string",
+	"ip":                    "string",
+	"version":               "string",
+	"success":               "number",
+	"percent":               "number",
+	"mp":                    "object",
+	"date1":                 "string",
+	"time_sec_rfc3339_1":    "string",
+	"time_sec_rfc3339_2":    "string",
+	"time_sec_clickhouse_1": "string",
+	"time_ms_rfc3339_1":     "string",
+	"time_ms_rfc3339_2":     "string",
+	"time_ms_clickhouse_1":  "string",
+	"array_int":             "array",
+	"array_float":           "array",
+	"array_string":          "array",
+	"array_empty":           "array",
+	"bool_true":             "true",
+	"bool_false":            "false",
+}
 
 var jsonSample2 = []byte(`{"date":"2021-01-02","ip":"192.168.0.3","floatvalue":425.633,"doublevalue":571.2464722672763,"novalue":" ","metric":"CPU_Idle_Time","service":"Web3","listvalue":["aaa","bbb","ccc"],"addint":123,"adddouble":571.2464722672763,"addstring":"add","value":123,"timestamp":"2021-01-02 21:06:00"}`)
 
@@ -83,7 +109,7 @@ func BenchmarkUnmarshallFastJson(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		v, err := p.Parse(str)
 		if err != nil {
-			log.Fatal(err)
+			panic(err)
 		}
 		v.GetInt("its")
 		v.GetStringBytes("_ip")
