@@ -19,7 +19,6 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"os"
 	"runtime"
 	"strconv"
 	"strings"
@@ -229,23 +228,27 @@ func (service *Service) put(msg model.InputMessage) {
 	_ = util.GlobalParsingPool.Submit(func() {
 		var row *model.Row
 		var foundNewKeys bool
+		var metric model.Metric
 		p := service.pp.Get()
-		metric, err := p.Parse(msg.Value)
+		metric, err = p.Parse(msg.Value)
+		if err == nil {
+			row, err = model.MetricToRow(metric, msg, service.dims)
+		}
 		if err != nil {
 			statistics.ParseMsgsErrorTotal.WithLabelValues(taskCfg.Name).Inc()
 			if service.limiter1.Allow() {
 				util.Logger.Errorf("%s: failed to parse message(topic %v, partition %d, offset %v) %+v, string(value) <<<%+v>>>, got error %+v",
 					service.cfg.Task.Name, msg.Topic, msg.Partition, msg.Offset, msg, string(msg.Value), err)
 			}
-		} else {
-			row = model.MetricToRow(metric, msg, service.dims)
+			// WARNNING: metric.GetXXX may depend on p. Don't call them after p been freed.
+			service.pp.Put(p)
+			return
 		}
+		service.pp.Put(p)
+
 		if taskCfg.DynamicSchema.Enable {
 			foundNewKeys = metric.GetNewKeys(&service.knownKeys, &service.newKeys)
 		}
-		// WARNNING: metric.GetXXX may depend on p. Don't call them after p been freed.
-		service.pp.Put(p)
-
 		if foundNewKeys {
 			cntNewKeys := atomic.AddInt32(&service.cntNewKeys, 1)
 			if cntNewKeys == 1 {
@@ -261,7 +264,6 @@ func (service *Service) put(msg model.InputMessage) {
 				}
 				if service.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(taskCfg.FlushInterval)*time.Second, service.changeSchema, nil); err != nil {
 					util.Logger.Fatalf("got error %+v", err)
-					os.Exit(-1)
 				}
 			}
 		}
@@ -289,13 +291,11 @@ func (service *Service) changeSchema(arg interface{}) {
 	// change schema
 	if err = service.clickhouse.ChangeSchema(&service.newKeys); err != nil {
 		util.Logger.Fatalf("%s: clickhouse.ChangeSchema failed with error: %+v", taskCfg.Name, err)
-		os.Exit(-1)
 	}
 	// restart myself
 	service.Stop()
 	if err = service.Init(); err != nil {
 		util.Logger.Fatalf("%s: init failed with error: %+v", taskCfg.Name, err)
-		os.Exit(-1)
 	}
 	go service.Run(service.parentCtx)
 }

@@ -16,8 +16,6 @@ package model
 
 import (
 	"strings"
-
-	"github.com/ClickHouse/clickhouse-go"
 )
 
 const (
@@ -43,7 +41,7 @@ var (
 )
 
 // There are only three cases for the value type of metric, (float64, string, map [string] interface {})
-func GetValueByType(metric Metric, cwt *ColumnWithType) interface{} {
+func GetValueByType(metric Metric, cwt *ColumnWithType) (val interface{}, err error) {
 	name := cwt.SourceName
 	switch cwt.Type {
 	case Int:
@@ -53,11 +51,11 @@ func GetValueByType(metric Metric, cwt *ColumnWithType) interface{} {
 	case String:
 		return metric.GetString(name, cwt.Nullable)
 	case IntArray:
-		return clickhouse.Array(metric.GetArray(name, "int"))
+		return metric.GetArray(name, "int")
 	case FloatArray:
-		return clickhouse.Array(metric.GetArray(name, "float"))
+		return metric.GetArray(name, "float")
 	case StringArray:
-		return clickhouse.Array(metric.GetArray(name, "string"))
+		return metric.GetArray(name, "string")
 	case Date:
 		return metric.GetDate(name, cwt.Nullable)
 	case DateTime:

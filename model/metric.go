@@ -15,19 +15,20 @@ limitations under the License.
 
 package model
 
-import "sync"
+import (
+	"sync"
+)
 
 // Metric interface for metric collection
 type Metric interface {
-	Get(key string) interface{}
-	GetString(key string, nullable bool) interface{}
-	GetArray(key string, t string) interface{}
-	GetFloat(key string, nullable bool) interface{}
-	GetInt(key string, nullable bool) interface{}
-	GetDate(key string, nullable bool) interface{}
-	GetDateTime(key string, nullable bool) interface{}
-	GetDateTime64(key string, nullable bool) interface{}
-	GetElasticDateTime(key string, nullable bool) interface{}
+	GetString(key string, nullable bool) (val interface{}, err error)
+	GetFloat(key string, nullable bool) (val interface{}, err error)
+	GetInt(key string, nullable bool) (val interface{}, err error)
+	GetDate(key string, nullable bool) (val interface{}, err error)
+	GetDateTime(key string, nullable bool) (val interface{}, err error)
+	GetDateTime64(key string, nullable bool) (val interface{}, err error)
+	GetElasticDateTime(key string, nullable bool) (val interface{}, err error)
+	GetArray(key string, t string) (val interface{}, err error)
 	GetNewKeys(knownKeys *sync.Map, newKeys *sync.Map) bool
 }
 

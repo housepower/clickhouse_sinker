@@ -70,7 +70,7 @@ type Parser interface {
 // Pool may be used for pooling Parsers for similarly typed JSONs.
 type Pool struct {
 	name         string
-	csvFormat    []string
+	csvFormat    map[string]int
 	delimiter    string
 	timeZone     *time.Location
 	knownLayouts sync.Map
@@ -88,9 +88,14 @@ func NewParserPool(name string, csvFormat []string, delimiter string, timezone s
 	}
 	pp = &Pool{
 		name:      name,
-		csvFormat: csvFormat,
 		delimiter: delimiter,
 		timeZone:  tz,
+	}
+	if csvFormat != nil {
+		pp.csvFormat = make(map[string]int)
+		for i, title := range csvFormat {
+			pp.csvFormat[title] = i
+		}
 	}
 	return
 }

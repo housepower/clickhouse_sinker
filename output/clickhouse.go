@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"os"
 	"regexp"
 	"strings"
 	"sync"
@@ -154,7 +153,7 @@ func (c *ClickHouse) loopWrite(batch *model.Batch) {
 		if shouldReconnect(err) && (c.cfg.Clickhouse.RetryTimes <= 0 || times < c.cfg.Clickhouse.RetryTimes) {
 			time.Sleep(10 * time.Second)
 		} else {
-			os.Exit(-1)
+			util.Logger.Fatalf("%s: ClickHouse.loopWrite failed", c.cfg.Task.Name)
 		}
 	}
 }

@@ -48,52 +48,121 @@ type FastjsonMetric struct {
 	value *fastjson.Value
 }
 
-func (c *FastjsonMetric) Get(key string) interface{} {
-	return c.value.Get(key)
-}
-
-func (c *FastjsonMetric) GetString(key string, nullable bool) interface{} {
-	v := c.value.GetStringBytes(key)
-	if nullable && v == nil {
-		return nil
-	}
-	return string(v)
-}
-
-func (c *FastjsonMetric) GetFloat(key string, nullable bool) interface{} {
-	if nullable && !c.value.Exists(key) {
-		return nil
-	}
-	return c.value.GetFloat64(key)
-}
-
-func (c *FastjsonMetric) GetInt(key string, nullable bool) interface{} {
+func (c *FastjsonMetric) GetString(key string, nullable bool) (val interface{}, err error) {
 	v := c.value.Get(key)
 	if v == nil {
 		if nullable {
-			return nil
+			return
 		}
-		return int64(0)
+		val = ""
+		return
 	}
-	if v.Type() == fastjson.TypeTrue {
-		return int64(1)
+	var b []byte
+	if b, err = v.StringBytes(); err != nil {
+		return
 	}
-	return c.value.GetInt64(key)
+	val = string(b)
+	return
 }
 
-func (c *FastjsonMetric) GetArray(key string, t string) interface{} {
-	array := c.value.GetArray(key)
-	if array == nil {
+func (c *FastjsonMetric) GetFloat(key string, nullable bool) (val interface{}, err error) {
+	v := c.value.Get(key)
+	if v == nil {
+		if nullable {
+			return
+		}
+		val = float64(0.0)
+		return
+	}
+	val, err = v.Float64()
+	return
+}
+
+func (c *FastjsonMetric) GetInt(key string, nullable bool) (val interface{}, err error) {
+	v := c.value.Get(key)
+	if v == nil {
+		if nullable {
+			return
+		}
+		val = int64(0)
+		return
+	}
+	switch v.Type() {
+	case fastjson.TypeTrue:
+		val = int64(1)
+	case fastjson.TypeFalse:
+		val = int64(0)
+	default:
+		val, err = v.Int64()
+	}
+	return
+}
+
+func (c *FastjsonMetric) GetDate(key string, nullable bool) (val interface{}, err error) {
+	return c.GetDateTime(key, nullable)
+}
+
+func (c *FastjsonMetric) GetDateTime(key string, nullable bool) (val interface{}, err error) {
+	v := c.value.Get(key)
+	if v == nil {
+		if nullable {
+			return
+		}
+		val = Epoch
+		return
+	}
+	switch v.Type() {
+	case fastjson.TypeNumber:
+		var f float64
+		if f, err = v.Float64(); err != nil {
+			return
+		}
+		val = time.Unix(int64(f), int64(f*1e9)%1e9)
+	case fastjson.TypeString:
+		var b []byte
+		if b, err = v.StringBytes(); err != nil {
+			return
+		}
+		val, err = c.pp.ParseDateTime(key, string(b))
+	default:
+		err = errors.Errorf("GetDateTime %s got unexpected type %s", key, v.Type().String())
+	}
+	return
+}
+
+func (c *FastjsonMetric) GetDateTime64(key string, nullable bool) (val interface{}, err error) {
+	return c.GetDateTime(key, nullable)
+}
+
+func (c *FastjsonMetric) GetElasticDateTime(key string, nullable bool) (val interface{}, err error) {
+	var t interface{}
+	if t, err = c.GetDateTime(key, nullable); err != nil {
+		return
+	}
+	if t != nil {
+		val = t.(time.Time).Unix()
+	}
+	return
+}
+
+func (c *FastjsonMetric) GetArray(key string, t string) (val interface{}, err error) {
+	v := c.value.Get(key)
+	if v == nil {
 		switch t {
 		case "int":
-			return []int64{}
+			val = []int64{}
 		case "float":
-			return []float64{}
+			val = []float64{}
 		case "string":
-			return []string{}
+			val = []string{}
 		default:
-			return nil
+			panic("LOGIC ERROR: not supported array type " + t)
 		}
+		return
+	}
+	var array []*fastjson.Value
+	if array, err = v.Array(); err != nil {
+		return
 	}
 	switch t {
 	case "int":
@@ -103,80 +172,37 @@ func (c *FastjsonMetric) GetArray(key string, t string) interface{} {
 			if e.Type() == fastjson.TypeTrue {
 				v = 1
 			} else {
-				v, _ = e.Int64()
+				if v, err = e.Int64(); err != nil {
+					return
+				}
 			}
 			results = append(results, v)
 		}
-		return results
+		val = results
 	case "float":
 		results := make([]float64, 0, len(array))
 		for _, e := range array {
-			v, _ := e.Float64()
+			var v float64
+			if v, err = e.Float64(); err != nil {
+				return
+			}
 			results = append(results, v)
 		}
-		return results
+		val = results
 	case "string":
 		results := make([]string, 0, len(array))
 		for _, e := range array {
-			v, _ := e.StringBytes()
+			var v []byte
+			if v, err = e.StringBytes(); err != nil {
+				return
+			}
 			results = append(results, string(v))
 		}
-		return results
+		val = results
 	default:
-		panic("not supported array type " + t)
+		panic("LOGIC ERROR: not supported array type " + t)
 	}
-}
-
-func (c *FastjsonMetric) String() string {
-	return c.value.String()
-}
-
-func (c *FastjsonMetric) GetDate(key string, nullable bool) interface{} {
-	if nullable && !c.value.Exists(key) {
-		return nil
-	}
-
-	val, _ := c.GetString(key, false).(string)
-	t, _ := c.pp.ParseDateTime(key, val)
-	return t
-}
-
-func (c *FastjsonMetric) GetDateTime(key string, nullable bool) interface{} {
-	if nullable && !c.value.Exists(key) {
-		return nil
-	}
-
-	if v, _ := c.GetFloat(key, false).(float64); v != 0 {
-		return time.Unix(int64(v), int64(v*1e9)%1e9)
-	}
-
-	val, _ := c.GetString(key, false).(string)
-	t, _ := c.pp.ParseDateTime(key, val)
-	return t
-}
-
-func (c *FastjsonMetric) GetDateTime64(key string, nullable bool) interface{} {
-	if nullable && !c.value.Exists(key) {
-		return nil
-	}
-
-	if v, _ := c.GetFloat(key, false).(float64); v != 0 {
-		return time.Unix(int64(v), int64(v*1e9)%1e9)
-	}
-
-	val, _ := c.GetString(key, false).(string)
-	t, _ := c.pp.ParseDateTime(key, val)
-	return t
-}
-
-func (c *FastjsonMetric) GetElasticDateTime(key string, nullable bool) interface{} {
-	val := c.GetString(key, nullable)
-	if val == nil {
-		return nil
-	}
-	t, _ := time.Parse(time.RFC3339, val.(string))
-
-	return t.Unix()
+	return
 }
 
 func (c *FastjsonMetric) GetNewKeys(knownKeys *sync.Map, newKeys *sync.Map) (foundNew bool) {

@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pkg/errors"
 	"github.com/tidwall/gjson"
 
 	"github.com/housepower/clickhouse_sinker/model"
@@ -40,114 +41,143 @@ type GjsonMetric struct {
 	raw string
 }
 
-func (c *GjsonMetric) Get(key string) interface{} {
-	return gjson.Get(c.raw, key).Value()
-}
-
-func (c *GjsonMetric) GetString(key string, nullable bool) interface{} {
+func (c *GjsonMetric) GetString(key string, nullable bool) (val interface{}, err error) {
 	r := gjson.Get(c.raw, key)
-	if nullable && !r.Exists() {
-		return nil
+	if !r.Exists() {
+		if nullable {
+			return
+		}
+		val = ""
+		return
 	}
-
-	return r.String()
+	switch r.Type {
+	case gjson.String:
+		val = r.Str
+	default:
+		err = errors.Errorf("GetString %s got unexpected type %s", key, r.Type.String())
+	}
+	return
 }
 
-func (c *GjsonMetric) GetArray(key string, t string) interface{} {
-	slice := gjson.Get(c.raw, key).Array()
+func (c *GjsonMetric) GetFloat(key string, nullable bool) (val interface{}, err error) {
+	r := gjson.Get(c.raw, key)
+	if !r.Exists() {
+		if nullable {
+			return
+		}
+		val = float64(0.0)
+		return
+	}
+	switch r.Type {
+	case gjson.Number:
+		val = r.Num
+	default:
+		err = errors.Errorf("GetFloat %s got unexpected type %s", key, r.Type.String())
+	}
+	return
+}
+
+func (c *GjsonMetric) GetInt(key string, nullable bool) (val interface{}, err error) {
+	r := gjson.Get(c.raw, key)
+	if !r.Exists() {
+		if nullable {
+			return
+		}
+		val = int64(0)
+		return
+	}
+	switch r.Type {
+	case gjson.Number:
+		val = int64(r.Num)
+	default:
+		err = errors.Errorf("GetInt %s got unexpected type %s", key, r.Type.String())
+	}
+	return
+}
+
+func (c *GjsonMetric) GetDate(key string, nullable bool) (val interface{}, err error) {
+	return c.GetDateTime(key, nullable)
+}
+
+func (c *GjsonMetric) GetDateTime(key string, nullable bool) (val interface{}, err error) {
+	r := gjson.Get(c.raw, key)
+	if !r.Exists() {
+		if nullable {
+			return
+		}
+		val = Epoch
+		return
+	}
+	switch r.Type {
+	case gjson.Number:
+		val = time.Unix(int64(r.Num), int64(r.Num*1e9)%1e9)
+	case gjson.String:
+		val, err = c.pp.ParseDateTime(key, r.Str)
+	default:
+		err = errors.Errorf("GetDateTime %s got unexpected type %s", key, r.Type.String())
+	}
+	return
+}
+
+func (c *GjsonMetric) GetDateTime64(key string, nullable bool) (val interface{}, err error) {
+	return c.GetDateTime(key, nullable)
+}
+
+func (c *GjsonMetric) GetElasticDateTime(key string, nullable bool) (val interface{}, err error) {
+	var t interface{}
+	if t, err = c.GetDateTime(key, nullable); err != nil {
+		return
+	}
+	if t != nil {
+		val = t.(time.Time).Unix()
+	}
+	return
+}
+
+func (c *GjsonMetric) GetArray(key string, t string) (val interface{}, err error) {
+	r := gjson.Get(c.raw, key)
+	if !r.Exists() {
+		switch t {
+		case "int":
+			val = []int64{}
+		case "float":
+			val = []float64{}
+		case "string":
+			val = []string{}
+		default:
+			panic("LOGIC ERROR: not supported array type " + t)
+		}
+		return
+	}
+	if r.Type != gjson.JSON {
+		err = errors.Errorf("GetArray %s got unexpected type %s", key, r.Type.String())
+		return
+	}
+	array := r.Array()
 	switch t {
 	case "string":
-		results := make([]string, 0, len(slice))
-		for _, s := range slice {
+		results := make([]string, 0, len(array))
+		for _, s := range array {
 			results = append(results, s.String())
 		}
-		return results
-
+		val = results
 	case "float":
-		results := make([]float64, 0, len(slice))
+		results := make([]float64, 0, len(array))
 
-		for _, s := range slice {
+		for _, s := range array {
 			results = append(results, s.Float())
 		}
-		return results
-
+		val = results
 	case "int":
-		results := make([]int64, 0, len(slice))
-		for _, s := range slice {
+		results := make([]int64, 0, len(array))
+		for _, s := range array {
 			results = append(results, s.Int())
 		}
-		return results
-
+		val = results
 	default:
-		panic("not supported array type " + t)
+		panic("LOGIC ERROR: not supported array type " + t)
 	}
-}
-
-func (c *GjsonMetric) GetFloat(key string, nullable bool) interface{} {
-	r := gjson.Get(c.raw, key)
-	if nullable && !r.Exists() {
-		return nil
-	}
-	return r.Float()
-}
-
-func (c *GjsonMetric) GetInt(key string, nullable bool) interface{} {
-	r := gjson.Get(c.raw, key)
-	if nullable && !r.Exists() {
-		return nil
-	}
-	return r.Int()
-}
-
-func (c *GjsonMetric) GetDate(key string, nullable bool) interface{} {
-	r := gjson.Get(c.raw, key)
-	if nullable && !r.Exists() {
-		return nil
-	}
-
-	val := r.String()
-	t, _ := c.pp.ParseDateTime(key, val)
-	return t
-}
-
-func (c *GjsonMetric) GetDateTime(key string, nullable bool) interface{} {
-	r := gjson.Get(c.raw, key)
-	if nullable && !r.Exists() {
-		return nil
-	}
-
-	if v := r.Float(); v != 0 {
-		return time.Unix(int64(v), int64(v*1e9)%1e9)
-	}
-
-	val := r.String()
-	t, _ := c.pp.ParseDateTime(key, val)
-	return t
-}
-
-func (c *GjsonMetric) GetDateTime64(key string, nullable bool) interface{} {
-	r := gjson.Get(c.raw, key)
-	if nullable && !r.Exists() {
-		return nil
-	}
-
-	if v := r.Float(); v != 0 {
-		return time.Unix(int64(v), int64(v*1e9)%1e9)
-	}
-
-	val := r.String()
-	t, _ := c.pp.ParseDateTime(key, val)
-	return t
-}
-
-func (c *GjsonMetric) GetElasticDateTime(key string, nullable bool) interface{} {
-	r := gjson.Get(c.raw, key)
-	if nullable && !r.Exists() {
-		return nil
-	}
-
-	t, _ := time.Parse(time.RFC3339, r.String())
-	return t.Unix()
+	return
 }
 
 func (c *GjsonMetric) GetNewKeys(knownKeys *sync.Map, newKeys *sync.Map) bool {
