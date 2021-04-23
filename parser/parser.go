@@ -28,7 +28,8 @@ var (
 	Layouts = []string{
 		//DateTime
 		"2006-01-02T15:04:05.999999999Z07:00", //time.RFC3339Nano, `date --iso-8601=ns` output format
-		"2006-01-02T15:04:05Z07:00",           //time.RFC3339, `date --iso-8601=s` output format
+		"2006-01-02T15:04:05Z07:00",           //time.RFC3339, `date --iso-8601=s` on Ubuntu 20.04
+		"2006-01-02T15:04:05-0700",            //`date --iso-8601=s` on CentOS 7.6
 		"2006-01-02T15:04:05.999999999",
 		"2006-01-02T15:04:05",
 		"2006-01-02 15:04:05.999999999Z07:00", //`date --rfc-3339=ns` output format

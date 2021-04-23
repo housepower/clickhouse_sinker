@@ -21,6 +21,7 @@ package pool
 import (
 	"database/sql"
 	"fmt"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -75,7 +76,7 @@ func InitConn(hosts [][]string, port int, db, username, password, dsnParams stri
 			replicaAddrs[i] = fmt.Sprintf("%s:%d", ip, port)
 		}
 		dsn := fmt.Sprintf("tcp://%s?database=%s&username=%s&password=%s&block_size=%d",
-			replicaAddrs[0], db, username, password, BlockSize)
+			replicaAddrs[0], url.QueryEscape(db), url.QueryEscape(username), url.QueryEscape(password), BlockSize)
 		if numReplicas > 1 {
 			dsn += "&connection_open_strategy=in_order&alt_hosts=" + strings.Join(replicaAddrs[1:numReplicas], ",")
 		}

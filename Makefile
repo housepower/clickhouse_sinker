@@ -1,8 +1,8 @@
 PKG := github.com/housepower/clickhouse_sinker
 EDITION ?= housepower
 
-SINKER_LDFLAGS += -X "$(PKG)/config.SinkerReleaseVersion=$(git describe --tags --dirty)"
-SINKER_LDFLAGS += -X "$(PKG)/config.SinkerBuildTS=$(shell date -u '+%Y-%m-%d %I:%M:%S')"
+SINKER_LDFLAGS += -X "$(PKG)/config.SinkerReleaseVersion=$(shell git describe --tags --dirty)"
+SINKER_LDFLAGS += -X "$(PKG)/config.SinkerBuildTS=$(shell date --iso-8601=s)"
 SINKER_LDFLAGS += -X "$(PKG)/config.SinkerGitHash=$(shell git rev-parse HEAD)"
 SINKER_LDFLAGS += -X "$(PKG)/config.SinkerGitBranch=$(shell git rev-parse --abbrev-ref HEAD)"
 SINKER_LDFLAGS += -X "$(PKG)/config.SinkerEdition=$(EDITION)"

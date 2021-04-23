@@ -116,8 +116,8 @@ func initCmdOptions() {
 func init() {
 	util.InitLogger("info", []string{"stdout"})
 	initCmdOptions()
+	util.Logger.Info(config.GetSinkerInfo())
 	if cmdOps.ShowVer {
-		util.Logger.Info(config.GetSinkerInfo())
 		os.Exit(0)
 	}
 	var err error
