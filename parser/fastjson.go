@@ -50,7 +50,7 @@ type FastjsonMetric struct {
 
 func (c *FastjsonMetric) GetString(key string, nullable bool) (val interface{}, err error) {
 	v := c.value.Get(key)
-	if v == nil {
+	if v == nil || v.Type() == fastjson.TypeNull {
 		if nullable {
 			return
 		}
@@ -67,7 +67,7 @@ func (c *FastjsonMetric) GetString(key string, nullable bool) (val interface{}, 
 
 func (c *FastjsonMetric) GetFloat(key string, nullable bool) (val interface{}, err error) {
 	v := c.value.Get(key)
-	if v == nil {
+	if v == nil || v.Type() == fastjson.TypeNull {
 		if nullable {
 			return
 		}
@@ -80,7 +80,7 @@ func (c *FastjsonMetric) GetFloat(key string, nullable bool) (val interface{}, e
 
 func (c *FastjsonMetric) GetInt(key string, nullable bool) (val interface{}, err error) {
 	v := c.value.Get(key)
-	if v == nil {
+	if v == nil || v.Type() == fastjson.TypeNull {
 		if nullable {
 			return
 		}
@@ -104,7 +104,7 @@ func (c *FastjsonMetric) GetDate(key string, nullable bool) (val interface{}, er
 
 func (c *FastjsonMetric) GetDateTime(key string, nullable bool) (val interface{}, err error) {
 	v := c.value.Get(key)
-	if v == nil {
+	if v == nil || v.Type() == fastjson.TypeNull {
 		if nullable {
 			return
 		}
@@ -125,7 +125,7 @@ func (c *FastjsonMetric) GetDateTime(key string, nullable bool) (val interface{}
 		}
 		val, err = c.pp.ParseDateTime(key, string(b))
 	default:
-		err = errors.Errorf("GetDateTime %s got unexpected type %s", key, v.Type().String())
+		err = errors.Errorf("value doesn't contain number nor string, it contains %s", v.Type().String())
 	}
 	return
 }
@@ -147,7 +147,7 @@ func (c *FastjsonMetric) GetElasticDateTime(key string, nullable bool) (val inte
 
 func (c *FastjsonMetric) GetArray(key string, t string) (val interface{}, err error) {
 	v := c.value.Get(key)
-	if v == nil {
+	if v == nil || v.Type() == fastjson.TypeNull {
 		switch t {
 		case "int":
 			val = []int64{}

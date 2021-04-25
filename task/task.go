@@ -237,8 +237,8 @@ func (service *Service) put(msg model.InputMessage) {
 		if err != nil {
 			statistics.ParseMsgsErrorTotal.WithLabelValues(taskCfg.Name).Inc()
 			if service.limiter1.Allow() {
-				util.Logger.Errorf("%s: failed to parse message(topic %v, partition %d, offset %v) %+v, string(value) <<<%+v>>>, got error %+v",
-					service.cfg.Task.Name, msg.Topic, msg.Partition, msg.Offset, msg, string(msg.Value), err)
+				util.Logger.Errorf("%s: failed to parse message(topic %v, partition %d, offset %v) string(value) <<<%s>>>, got error %+v",
+					service.cfg.Task.Name, msg.Topic, msg.Partition, msg.Offset, string(msg.Value), err)
 			}
 			// WARNNING: metric.GetXXX may depend on p. Don't call them after p been freed.
 			service.pp.Put(p)

@@ -43,7 +43,7 @@ type GjsonMetric struct {
 
 func (c *GjsonMetric) GetString(key string, nullable bool) (val interface{}, err error) {
 	r := gjson.Get(c.raw, key)
-	if !r.Exists() {
+	if !r.Exists() || r.Type == gjson.Null {
 		if nullable {
 			return
 		}
@@ -54,14 +54,14 @@ func (c *GjsonMetric) GetString(key string, nullable bool) (val interface{}, err
 	case gjson.String:
 		val = r.Str
 	default:
-		err = errors.Errorf("GetString %s got unexpected type %s", key, r.Type.String())
+		err = errors.Errorf("value doesn't contain string, it contains %s", r.Type.String())
 	}
 	return
 }
 
 func (c *GjsonMetric) GetFloat(key string, nullable bool) (val interface{}, err error) {
 	r := gjson.Get(c.raw, key)
-	if !r.Exists() {
+	if !r.Exists() || r.Type == gjson.Null {
 		if nullable {
 			return
 		}
@@ -72,14 +72,14 @@ func (c *GjsonMetric) GetFloat(key string, nullable bool) (val interface{}, err 
 	case gjson.Number:
 		val = r.Num
 	default:
-		err = errors.Errorf("GetFloat %s got unexpected type %s", key, r.Type.String())
+		err = errors.Errorf("value doesn't contain number, it contains %s", r.Type.String())
 	}
 	return
 }
 
 func (c *GjsonMetric) GetInt(key string, nullable bool) (val interface{}, err error) {
 	r := gjson.Get(c.raw, key)
-	if !r.Exists() {
+	if !r.Exists() || r.Type == gjson.Null {
 		if nullable {
 			return
 		}
@@ -90,7 +90,7 @@ func (c *GjsonMetric) GetInt(key string, nullable bool) (val interface{}, err er
 	case gjson.Number:
 		val = int64(r.Num)
 	default:
-		err = errors.Errorf("GetInt %s got unexpected type %s", key, r.Type.String())
+		err = errors.Errorf("value doesn't contain number, it contains %s", r.Type.String())
 	}
 	return
 }
@@ -101,7 +101,7 @@ func (c *GjsonMetric) GetDate(key string, nullable bool) (val interface{}, err e
 
 func (c *GjsonMetric) GetDateTime(key string, nullable bool) (val interface{}, err error) {
 	r := gjson.Get(c.raw, key)
-	if !r.Exists() {
+	if !r.Exists() || r.Type == gjson.Null {
 		if nullable {
 			return
 		}
@@ -114,7 +114,7 @@ func (c *GjsonMetric) GetDateTime(key string, nullable bool) (val interface{}, e
 	case gjson.String:
 		val, err = c.pp.ParseDateTime(key, r.Str)
 	default:
-		err = errors.Errorf("GetDateTime %s got unexpected type %s", key, r.Type.String())
+		err = errors.Errorf("value doesn't contain string, it contains %s", r.Type.String())
 	}
 	return
 }
@@ -136,7 +136,7 @@ func (c *GjsonMetric) GetElasticDateTime(key string, nullable bool) (val interfa
 
 func (c *GjsonMetric) GetArray(key string, t string) (val interface{}, err error) {
 	r := gjson.Get(c.raw, key)
-	if !r.Exists() {
+	if !r.Exists() || r.Type == gjson.Null {
 		switch t {
 		case "int":
 			val = []int64{}
@@ -150,7 +150,7 @@ func (c *GjsonMetric) GetArray(key string, t string) (val interface{}, err error
 		return
 	}
 	if r.Type != gjson.JSON {
-		err = errors.Errorf("GetArray %s got unexpected type %s", key, r.Type.String())
+		err = errors.Errorf("value doesn't contain json, it contains %s", r.Type.String())
 		return
 	}
 	array := r.Array()
