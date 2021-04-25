@@ -61,6 +61,12 @@ type CmdOptions struct {
 }
 
 var (
+	//goreleaser fill following info per https://goreleaser.com/customization/build/.
+	version = "None"
+	commit  = "None"
+	date    = "None"
+	builtBy = "None"
+
 	cmdOps      CmdOptions
 	selfIP      string
 	httpMetrics = promhttp.Handler()
@@ -113,10 +119,14 @@ func initCmdOptions() {
 	flag.Parse()
 }
 
+func getVersion() string {
+	return fmt.Sprintf("version %s, commit %s, date %s, builtBy %s", version, commit, date, builtBy)
+}
+
 func init() {
 	util.InitLogger("info", []string{"stdout"})
 	initCmdOptions()
-	util.Logger.Info(config.GetSinkerInfo())
+	util.Logger.Info(getVersion())
 	if cmdOps.ShowVer {
 		os.Exit(0)
 	}

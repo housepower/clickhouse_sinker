@@ -1,11 +1,7 @@
-PKG := github.com/housepower/clickhouse_sinker
-EDITION ?= housepower
-
-SINKER_LDFLAGS += -X "$(PKG)/config.SinkerReleaseVersion=$(shell git describe --tags --dirty)"
-SINKER_LDFLAGS += -X "$(PKG)/config.SinkerBuildTS=$(shell date --iso-8601=s)"
-SINKER_LDFLAGS += -X "$(PKG)/config.SinkerGitHash=$(shell git rev-parse HEAD)"
-SINKER_LDFLAGS += -X "$(PKG)/config.SinkerGitBranch=$(shell git rev-parse --abbrev-ref HEAD)"
-SINKER_LDFLAGS += -X "$(PKG)/config.SinkerEdition=$(EDITION)"
+SINKER_LDFLAGS += -X "main.version=$(shell git describe --tags --dirty)"
+SINKER_LDFLAGS += -X "main.date=$(shell date --iso-8601=s)"
+SINKER_LDFLAGS += -X "main.commit=$(shell git rev-parse HEAD)"
+SINKER_LDFLAGS += -X "main.builtBy=$(shell echo `whoami`@`hostname`)"
 
 GO        := CGO_ENABLED=0 go
 GOBUILD   := $(GO) build $(BUILD_FLAG)
