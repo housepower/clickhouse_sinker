@@ -35,6 +35,7 @@ import (
 	"github.com/housepower/clickhouse_sinker/statistics"
 	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/pkg/errors"
+	"go.uber.org/zap"
 	"golang.org/x/time/rate"
 )
 
@@ -110,7 +111,7 @@ func (service *Service) Init() (err error) {
 		}
 		if maxDims <= len(service.dims) {
 			service.cfg.Task.DynamicSchema.Enable = false
-			util.Logger.Warnf("%s: disabled DynamicSchema since the number of columns reaches upper limit %d", taskCfg.Name, maxDims)
+			util.Logger.Warn(fmt.Sprintf("disabled DynamicSchema since the number of columns reaches upper limit %d", maxDims), zap.String("task", taskCfg.Name))
 		} else {
 			for _, dim := range service.dims {
 				service.knownKeys.Store(dim.SourceName, nil)
@@ -131,13 +132,13 @@ func (service *Service) Run(ctx context.Context) {
 	service.started = true
 	service.parentCtx = ctx
 	service.ctx, service.cancel = context.WithCancel(ctx)
-	util.Logger.Infof("%s: task started", service.cfg.Task.Name)
+	util.Logger.Info("task started", zap.String("task", service.cfg.Task.Name))
 	go service.inputer.Run(service.ctx)
 	if service.sharder != nil {
 		// schedule a delayed ForceFlush
 		if service.sharder.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(service.cfg.Task.FlushInterval)*time.Second, service.sharder.ForceFlush, nil); err != nil {
 			err = errors.Wrap(err, "")
-			util.Logger.Fatalf("%s: got error %+v", service.cfg.Task.Name, err)
+			util.Logger.Fatal("scheduling timer failed", zap.String("task", service.cfg.Task.Name), zap.Error(err))
 		}
 	}
 
@@ -148,7 +149,7 @@ LOOP:
 			break LOOP
 		case batch := <-service.batchChan:
 			if err := service.flush(batch); err != nil {
-				util.Logger.Errorf("%s: got error %+v", service.cfg.Task.Name, err)
+				util.Logger.Fatal("service.flush failed", zap.String("task", service.cfg.Task.Name), zap.Error(err))
 			}
 		}
 	}
@@ -194,7 +195,7 @@ func (service *Service) put(msg model.InputMessage) {
 		// schedule a delayed ForceBatchOrShard
 		if ring.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(taskCfg.FlushInterval)*time.Second, ring.ForceBatchOrShard, nil); err != nil {
 			err = errors.Wrap(err, "")
-			util.Logger.Fatalf("%s: got error %+v", taskCfg.Name, err)
+			util.Logger.Fatal("scheduling timer failed", zap.String("task", taskCfg.Name), zap.Error(err))
 		}
 		service.rings[msg.Partition] = ring
 		service.Unlock()
@@ -207,16 +208,16 @@ func (service *Service) put(msg model.InputMessage) {
 		if msg.Offset < ringFilledOffset {
 			statistics.RingMsgsOffTooSmallErrorTotal.WithLabelValues(taskCfg.Name).Inc()
 			if service.limiter2.Allow() {
-				util.Logger.Warnf("%s: got a message(topic %v, partition %d, offset %v) left to %v",
-					taskCfg.Name, msg.Topic, msg.Partition, msg.Offset, ringFilledOffset)
+				util.Logger.Warn(fmt.Sprintf("got a message(topic %v, partition %d, offset %v) left to %v",
+					msg.Topic, msg.Partition, msg.Offset, ringFilledOffset), zap.String("task", taskCfg.Name))
 			}
 			return
 		}
 		if msg.Offset >= ringGroundOff+ring.ringCap && atomic.LoadInt32(&service.cntNewKeys) == 0 {
 			statistics.RingMsgsOffTooLargeErrorTotal.WithLabelValues(service.cfg.Task.Name).Inc()
 			if service.limiter3.Allow() {
-				util.Logger.Warnf("%s: got a message(topic %v, partition %d, offset %v) right to the range [%v, %v)",
-					taskCfg.Name, msg.Topic, msg.Partition, msg.Offset, ring.ringGroundOff, ring.ringGroundOff+ring.ringCap)
+				util.Logger.Warn(fmt.Sprintf("got a message(topic %v, partition %d, offset %v) right to the range [%v, %v)",
+					msg.Topic, msg.Partition, msg.Offset, ring.ringGroundOff, ring.ringGroundOff+ring.ringCap), zap.String("task", taskCfg.Name))
 			}
 			time.Sleep(1 * time.Second)
 			ring.ForceBatchOrShard(&msg)
@@ -237,8 +238,8 @@ func (service *Service) put(msg model.InputMessage) {
 		if err != nil {
 			statistics.ParseMsgsErrorTotal.WithLabelValues(taskCfg.Name).Inc()
 			if service.limiter1.Allow() {
-				util.Logger.Errorf("%s: failed to parse message(topic %v, partition %d, offset %v) string(value) <<<%s>>>, got error %+v",
-					service.cfg.Task.Name, msg.Topic, msg.Partition, msg.Offset, string(msg.Value), err)
+				util.Logger.Error(fmt.Sprintf("failed to parse message(topic %v, partition %d, offset %v)",
+					msg.Topic, msg.Partition, msg.Offset), zap.String("message value", string(msg.Value)), zap.String("task", service.cfg.Task.Name), zap.Error(err))
 			}
 			// WARNNING: metric.GetXXX may depend on p. Don't call them after p been freed.
 			service.pp.Put(p)
@@ -263,7 +264,7 @@ func (service *Service) put(msg model.InputMessage) {
 					service.sharder.ForceFlush(nil)
 				}
 				if service.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(taskCfg.FlushInterval)*time.Second, service.changeSchema, nil); err != nil {
-					util.Logger.Fatalf("got error %+v", err)
+					util.Logger.Fatal("scheduling timer failed", zap.String("task", service.cfg.Task.Name), zap.Error(err))
 				}
 			}
 		}
@@ -290,27 +291,28 @@ func (service *Service) changeSchema(arg interface{}) {
 	taskCfg := &service.cfg.Task
 	// change schema
 	if err = service.clickhouse.ChangeSchema(&service.newKeys); err != nil {
-		util.Logger.Fatalf("%s: clickhouse.ChangeSchema failed with error: %+v", taskCfg.Name, err)
+		util.Logger.Fatal("clickhouse.ChangeSchema failed", zap.String("task", taskCfg.Name), zap.Error(err))
 	}
 	// restart myself
 	service.Stop()
 	if err = service.Init(); err != nil {
-		util.Logger.Fatalf("%s: init failed with error: %+v", taskCfg.Name, err)
+		util.Logger.Fatal("service.Init failed", zap.String("task", taskCfg.Name), zap.Error(err))
 	}
 	go service.Run(service.parentCtx)
 }
 
 // Stop stop kafka and clickhouse client. This is blocking.
 func (service *Service) Stop() {
-	util.Logger.Infof("%s: stopping task service...", service.cfg.Task.Name)
+	taskCfg := &service.cfg.Task
+	util.Logger.Info("stopping task service...", zap.String("task", taskCfg.Name))
 	service.cancel()
 	if err := service.inputer.Stop(); err != nil {
 		panic(err)
 	}
-	util.Logger.Infof("%s: stopped input", service.cfg.Task.Name)
+	util.Logger.Info("stopped input", zap.String("task", taskCfg.Name))
 
 	_ = service.clickhouse.Stop()
-	util.Logger.Infof("%s: stopped output", service.cfg.Task.Name)
+	util.Logger.Info("stopped output", zap.String("task", taskCfg.Name))
 
 	if service.sharder != nil {
 		service.sharder.tid.Stop()
@@ -321,12 +323,12 @@ func (service *Service) Stop() {
 		}
 	}
 	service.tid.Stop()
-	util.Logger.Infof("%s: stopped internal timers", service.cfg.Task.Name)
+	util.Logger.Info("stopped internal timers", zap.String("task", taskCfg.Name))
 
 	if service.started {
 		<-service.stopped
 	}
-	util.Logger.Infof("%s: stopped", service.cfg.Task.Name)
+	util.Logger.Info("stopped", zap.String("task", taskCfg.Name))
 }
 
 // GoID returns goroutine id

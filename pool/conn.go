@@ -30,6 +30,7 @@ import (
 	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/pkg/errors"
 	"github.com/troian/healthcheck"
+	"go.uber.org/zap"
 )
 
 const (
@@ -51,11 +52,11 @@ type Connection struct {
 func (c *Connection) ReConnect() error {
 	sqlDB, err := sql.Open("clickhouse", c.dsn)
 	if err != nil {
-		util.Logger.Info("reconnect to ", c.dsn, err.Error())
+		util.Logger.Info("sql.Open failed", zap.String("dsn", c.dsn), zap.Error(err))
 		return err
 	}
 	setDBParams(sqlDB)
-	util.Logger.Info("reconnect success to ", c.dsn)
+	util.Logger.Info("sql.Open succeeded", zap.String("dsn", c.dsn))
 	c.DB = sqlDB
 	return nil
 }
@@ -110,7 +111,7 @@ func FreeConn() {
 	defer lock.Unlock()
 	for _, conn := range connections {
 		if err := health.Health.RemoveReadinessCheck(conn.dsn); err != nil {
-			util.Logger.Error(conn.dsn+" RemoveReadinessCheck failed", err)
+			util.Logger.Error("health.Health.RemoveReadinessCheck failed", zap.Error(err))
 		}
 		conn.DB.Close()
 	}

@@ -1,11 +1,13 @@
 package task
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
 	"github.com/fagongzi/goetty"
 	"github.com/pkg/errors"
+	"go.uber.org/zap"
 
 	"github.com/housepower/clickhouse_sinker/model"
 	"github.com/housepower/clickhouse_sinker/statistics"
@@ -43,7 +45,7 @@ func (ring *Ring) PutElem(msgRow model.MsgRow) {
 		ring.idleCnt = 0
 		ring.isIdle = false
 		ring.ringBuf = make([]model.MsgRow, ring.ringCap)
-		util.Logger.Infof("%s: topic %s partition %d quit idle", taskCfg.Name, taskCfg.Topic, ring.partition)
+		util.Logger.Info(fmt.Sprintf("topic %s partition %d became busy", taskCfg.Topic, ring.partition), zap.String("task", taskCfg.Name))
 	}
 	// assert(msgOffset < ring.ringGroundOff + ring.ringCap)
 	if msgOffset >= ring.ringCeilingOff {
@@ -52,7 +54,7 @@ func (ring *Ring) PutElem(msgRow model.MsgRow) {
 
 	if ring.service.sharder != nil && msgRow.Row != nil {
 		if msgRow.Shard, err = ring.service.sharder.Calc(msgRow.Row); err != nil {
-			util.Logger.Fatalf("%s: got error %+v", taskCfg.Name, err)
+			util.Logger.Fatal("shard number calculation failed", zap.String("task", taskCfg.Name), zap.Error(err))
 		}
 	}
 	statistics.RingMsgs.WithLabelValues(taskCfg.Name).Inc()
@@ -65,7 +67,7 @@ func (ring *Ring) PutElem(msgRow model.MsgRow) {
 		ring.tid.Stop()
 		if ring.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(taskCfg.FlushInterval)*time.Second, ring.ForceBatchOrShard, nil); err != nil {
 			err = errors.Wrap(err, "")
-			util.Logger.Fatalf("%s: got error %+v", taskCfg.Name, err)
+			util.Logger.Fatal("sheduling timer failed", zap.String("task", taskCfg.Name), zap.Error(err))
 		}
 	}
 }
@@ -80,7 +82,7 @@ func (ring *Ring) ForceBatchOrShard(arg interface{}) {
 	taskCfg := &ring.service.cfg.Task
 	select {
 	case <-ring.service.ctx.Done():
-		util.Logger.Errorf("%s: Ring.ForceBatchOrShard quit due to the context has been canceled", taskCfg.Name)
+		util.Logger.Error("Ring.ForceBatchOrShard quit due to the context has been canceled", zap.String("task", taskCfg.Name))
 		return
 	default:
 	}
@@ -89,7 +91,7 @@ func (ring *Ring) ForceBatchOrShard(arg interface{}) {
 	defer ring.mux.Unlock()
 	if arg != nil {
 		newMsg, _ = arg.(*model.InputMessage)
-		util.Logger.Warnf("%s: Ring.ForceBatchOrShard partition %d message range [%d, %d)", taskCfg.Name, newMsg.Partition, ring.ringGroundOff, newMsg.Offset)
+		util.Logger.Warn(fmt.Sprintf("Ring.ForceBatchOrShard partition %d message range [%d, %d)", newMsg.Partition, ring.ringGroundOff, newMsg.Offset), zap.String("task", taskCfg.Name))
 	}
 	if !ring.isIdle {
 		if newMsg == nil {
@@ -102,7 +104,7 @@ func (ring *Ring) ForceBatchOrShard(arg interface{}) {
 					ring.idleCnt = 0
 					ring.isIdle = true
 					ring.ringBuf = nil
-					util.Logger.Infof("%s: topic %s partition %d enter idle", taskCfg.Name, taskCfg.Topic, ring.partition)
+					util.Logger.Info(fmt.Sprintf("topic %s partition %d became idle", taskCfg.Topic, ring.partition), zap.String("task", taskCfg.Name))
 				}
 			}
 		} else {
@@ -126,7 +128,7 @@ func (ring *Ring) ForceBatchOrShard(arg interface{}) {
 	var err error
 	if ring.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(taskCfg.FlushInterval)*time.Second, ring.ForceBatchOrShard, nil); err != nil {
 		err = errors.Wrap(err, "")
-		util.Logger.Fatalf("%s: got error %+v", taskCfg.Name, err)
+		util.Logger.Fatal("scheduling timer filed", zap.String("task", taskCfg.Name), zap.Error(err))
 	}
 }
 
@@ -178,9 +180,9 @@ func (ring *Ring) genBatchOrShard(expNewGroundOff int64) {
 		}
 
 		if batch.RealSize > 0 {
-			util.Logger.Debugf("%s: going to flush a batch for topic %v patittion %d, offset %d, messages %d, gaps: %+v, parse errors: %d",
-				taskCfg.Name, taskCfg.Topic, ring.partition, endOff-1,
-				batch.RealSize, gaps, parseErrs)
+			util.Logger.Debug(fmt.Sprintf("going to flush a batch for topic %v patittion %d, offset %d, messages %d, gaps: %+v, parse errors: %d", taskCfg.Topic, ring.partition, endOff-1,
+				batch.RealSize, gaps, parseErrs),
+				zap.String("task", taskCfg.Name))
 
 			batch.BatchIdx = (endOff - 1) >> ring.batchSizeShift
 			ring.batchSys.CreateBatchGroupSingle(batch, ring.partition, endOff-1)

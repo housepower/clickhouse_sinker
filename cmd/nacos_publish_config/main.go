@@ -24,6 +24,7 @@ import (
 	_ "github.com/ClickHouse/clickhouse-go"
 	"github.com/housepower/clickhouse_sinker/config"
 	"github.com/housepower/clickhouse_sinker/util"
+	"go.uber.org/zap"
 )
 
 var (
@@ -60,37 +61,37 @@ func PublishSinkerConfig() {
 	var cfg *config.Config
 	if _, err = os.Stat(*localCfgFile); err == nil {
 		if cfg, err = config.ParseLocalCfgFile(*localCfgFile); err != nil {
-			util.Logger.Fatalf("%+v", err)
+			util.Logger.Fatal("config.ParseLocalCfgFile failed", zap.Error(err))
 			return
 		}
 	} else {
-		util.Logger.Fatalf("expect --local-cfg-file")
+		util.Logger.Fatal("expect --local-cfg-file")
 		return
 	}
 
 	if err = cfg.Normallize(); err != nil {
-		util.Logger.Fatalf("%+v", err)
+		util.Logger.Fatal("cfg.Normallize failed", zap.Error(err))
 		return
 	}
 
 	ncm := config.NacosConfManager{}
 	properties := getProperties()
 	if err = ncm.Init(properties); err != nil {
-		util.Logger.Fatalf("%+v", err)
+		util.Logger.Fatal("ncm.Init failed", zap.Error(err))
 	}
 
 	if err = ncm.PublishConfig(cfg); err != nil {
-		util.Logger.Fatalf("%+v", err)
+		util.Logger.Fatal("ncm.PublishConfig failed", zap.Error(err))
 	}
-	util.Logger.Infof("sleep a while")
+	util.Logger.Info("sleep a while")
 	time.Sleep(10 * time.Second)
 
 	var newCfg *config.Config
 	if newCfg, err = ncm.GetConfig(); err != nil {
-		util.Logger.Fatalf("%+v", err)
+		util.Logger.Fatal("ncm.GetConfig failed", zap.Error(err))
 	}
 	if !reflect.DeepEqual(newCfg, cfg) {
-		util.Logger.Fatalf("got different config: %+v", newCfg)
+		util.Logger.Fatal("BUG: got different config", zap.Reflect("cfg", cfg), zap.Reflect("newCfg", newCfg))
 	}
 }
 

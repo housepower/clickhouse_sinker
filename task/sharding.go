@@ -1,6 +1,7 @@
 package task
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"sync"
@@ -13,6 +14,7 @@ import (
 	"github.com/housepower/clickhouse_sinker/statistics"
 	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/pkg/errors"
+	"go.uber.org/zap"
 )
 
 type ShardingPolicy struct {
@@ -182,9 +184,9 @@ func (sh *Sharder) PutElems(partition int, ringBuf []model.MsgRow, begOff, endOf
 			maxBatchSize = batchSize
 		}
 	}
-	util.Logger.Debugf("%s: sharded a batch for topic %v patittion %d, offset %d, messages %d, gaps: %+v, parse errors: %d",
-		taskCfg.Name, taskCfg.Topic, partition, endOff-1,
-		msgCnt, gaps, parseErrs)
+	util.Logger.Debug(fmt.Sprintf("sharded a batch for topic %v patittion %d, offset %d, messages %d, gaps: %+v, parse errors: %d",
+		taskCfg.Topic, partition, endOff-1, msgCnt, gaps, parseErrs),
+		zap.String("task", taskCfg.Name))
 	if maxBatchSize >= taskCfg.BufferSize {
 		sh.doFlush(nil)
 	}
@@ -217,7 +219,7 @@ func (sh *Sharder) doFlush(_ interface{}) {
 		}
 	}
 	if msgCnt > 0 {
-		util.Logger.Debugf("%s: going to flush batch group for topic %v, offsets %+v, messages %d", taskCfg.Name, taskCfg.Name, sh.offsets, msgCnt)
+		util.Logger.Debug(fmt.Sprintf("going to flush batch group for topic %v, offsets %+v, messages %d", taskCfg.Topic, sh.offsets, msgCnt), zap.String("task", taskCfg.Name))
 		sh.batchSys.CreateBatchGroupMulti(batches, sh.offsets)
 		sh.offsets = sh.offsets[:0]
 		// ALL batches in a group shall be populated before sending any one to next stage.
@@ -231,6 +233,6 @@ func (sh *Sharder) doFlush(_ interface{}) {
 	sh.tid.Stop()
 	if sh.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(taskCfg.FlushInterval)*time.Second, sh.ForceFlush, nil); err != nil {
 		err = errors.Wrap(err, "")
-		util.Logger.Fatalf("%s: got error %+v", taskCfg.Name, err)
+		util.Logger.Fatal("scheduling timer failed", zap.String("task", taskCfg.Name), zap.Error(err))
 	}
 }

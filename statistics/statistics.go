@@ -25,6 +25,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/push"
 	"github.com/prometheus/common/expfmt"
+	"go.uber.org/zap"
 )
 
 var (
@@ -215,7 +216,7 @@ FOR:
 			err := p.pusher.Push()
 			if err != nil {
 				err = errors.Wrapf(err, "")
-				util.Logger.Error("pushing metrics failed", err)
+				util.Logger.Error("pushing metrics failed", zap.Error(err))
 				p.reconnect()
 			}
 		case <-ctx.Done():

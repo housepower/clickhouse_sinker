@@ -2,6 +2,7 @@ package input
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/housepower/clickhouse_sinker/config"
 	"github.com/housepower/clickhouse_sinker/model"
@@ -28,7 +29,7 @@ func NewInputer(typ string) Inputer {
 	case TypeKafkaSarama:
 		return NewKafkaSarama()
 	default:
-		util.Logger.Fatalf("%s is not a supported input type", typ)
+		util.Logger.Fatal(fmt.Sprintf("BUG: %s is not a supported input type", typ))
 		return nil
 	}
 }

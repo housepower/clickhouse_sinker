@@ -42,7 +42,7 @@ var (
 	GlobalTimerWheel  *goetty.TimeoutWheel //the global timer wheel
 	GlobalParsingPool *WorkerPool          //for all tasks' parsing, cpu intensive
 	GlobalWritingPool *WorkerPool          //the all tasks' writing ClickHouse, cpu-net balance
-	Logger            *zap.SugaredLogger
+	Logger            *zap.Logger
 )
 
 // InitGlobalTimerWheel initialize the global timer wheel
@@ -240,10 +240,12 @@ func InitLogger(logLevel string, logPaths []string) {
 		}
 	}
 
+	cfg := zap.NewProductionEncoderConfig()
+	cfg.EncodeTime = zapcore.RFC3339NanoTimeEncoder
 	core := zapcore.NewCore(
-		zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig()),
+		zapcore.NewJSONEncoder(cfg),
 		zapcore.NewMultiWriteSyncer(syncers...),
 		lvl,
 	)
-	Logger = zap.New(core).Sugar()
+	Logger = zap.New(core)
 }

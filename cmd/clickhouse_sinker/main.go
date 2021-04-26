@@ -17,7 +17,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -42,7 +41,6 @@ import (
 	"go.uber.org/zap"
 
 	_ "github.com/ClickHouse/clickhouse-go"
-	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -154,7 +152,8 @@ func main() {
 		var rcm config.RemoteConfManager
 		var properties map[string]interface{}
 		if cmdOps.NacosDataID != "" {
-			util.Logger.Infof("get config from nacos serverAddrs %s, namespaceId %s, group %s, dataId %s", cmdOps.NacosAddr, cmdOps.NacosNamespaceID, cmdOps.NacosGroup, cmdOps.NacosDataID)
+			util.Logger.Info(fmt.Sprintf("get config from nacos serverAddrs %s, namespaceId %s, group %s, dataId %s",
+				cmdOps.NacosAddr, cmdOps.NacosNamespaceID, cmdOps.NacosGroup, cmdOps.NacosDataID))
 			rcm = &config.NacosConfManager{}
 			properties = make(map[string]interface{})
 			properties["serverAddrs"] = cmdOps.NacosAddr
@@ -164,7 +163,7 @@ func main() {
 			properties["group"] = cmdOps.NacosGroup
 			properties["dataId"] = cmdOps.NacosDataID
 		} else {
-			util.Logger.Infof("get config from local file %s", cmdOps.LocalCfgFile)
+			util.Logger.Info(fmt.Sprintf("get config from local file %s", cmdOps.LocalCfgFile))
 		}
 		if rcm != nil {
 			if err := rcm.Init(properties); err != nil {
@@ -199,8 +198,10 @@ func main() {
 			mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
 			mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 
-			util.Logger.Infof("Run http server http://%s:%d", selfIP, cmdOps.HTTPPort)
-			util.Logger.Error(http.ListenAndServe(fmt.Sprintf(":%d", cmdOps.HTTPPort), mux))
+			util.Logger.Info(fmt.Sprintf("Run http server http://%s:%d", selfIP, cmdOps.HTTPPort))
+			if err := http.ListenAndServe(fmt.Sprintf(":%d", cmdOps.HTTPPort), mux); err != nil {
+				util.Logger.Error("http.ListenAndServe failed", zap.Error(err))
+			}
 		}()
 
 		runner.Run()
@@ -247,19 +248,19 @@ func (s *Sinker) Run() {
 	if s.rcm == nil {
 		if _, err = os.Stat(cmdOps.LocalCfgFile); err == nil {
 			if newCfg, err = config.ParseLocalCfgFile(cmdOps.LocalCfgFile); err != nil {
-				util.Logger.Fatalf("%+v", err)
+				util.Logger.Fatal("config.ParseLocalCfgFile failed", zap.Error(err))
 				return
 			}
 		} else {
-			util.Logger.Fatalf("expect --local-cfg-file or --local-cfg-dir")
+			util.Logger.Fatal("expect --local-cfg-file or --local-cfg-dir")
 			return
 		}
 		if err = newCfg.Normallize(); err != nil {
-			util.Logger.Fatalf("%+v", err)
+			util.Logger.Fatal("newCfg.Normallize failed", zap.Error(err))
 			return
 		}
 		if err = s.applyConfig(newCfg); err != nil {
-			util.Logger.Fatalf("%+v", err)
+			util.Logger.Fatal("s.applyConfig failed", zap.Error(err))
 			return
 		}
 		<-s.ctx.Done()
@@ -270,15 +271,15 @@ func (s *Sinker) Run() {
 				return
 			case <-time.After(5 * time.Second):
 				if newCfg, err = s.rcm.GetConfig(); err != nil {
-					util.Logger.Errorf("%+v", err)
+					util.Logger.Error("s.rcm.GetConfig failed", zap.Error(err))
 					return
 				}
 				if err = newCfg.Normallize(); err != nil {
-					util.Logger.Errorf("%+v", err)
+					util.Logger.Error("newCfg.Normallize failed", zap.Error(err))
 					return
 				}
 				if err = s.applyConfig(newCfg); err != nil {
-					util.Logger.Errorf("%+v", err)
+					util.Logger.Error("s.applyConfig failed", zap.Error(err))
 					return
 				}
 			}
@@ -289,11 +290,11 @@ func (s *Sinker) Run() {
 // Close shutdown task
 func (s *Sinker) Close() {
 	// Stop task gracefully. Wait until all flying data be processed (write to CH and commit to Kafka).
-	util.Logger.Infof("%s: stopping parsing pool", s.curCfg.Task.Name)
+	util.Logger.Info("stopping parsing pool", zap.String("task", s.curCfg.Task.Name))
 	util.GlobalParsingPool.StopWait()
-	util.Logger.Infof("%s: stopping writing pool", s.curCfg.Task.Name)
+	util.Logger.Info("stopping writing pool", zap.String("task", s.curCfg.Task.Name))
 	util.GlobalWritingPool.StopWait()
-	util.Logger.Infof("%s: stopping timer wheel", s.curCfg.Task.Name)
+	util.Logger.Info("stopping timer wheel", zap.String("task", s.curCfg.Task.Name))
 	util.GlobalTimerWheel.Stop()
 
 	s.task.Stop()
@@ -317,13 +318,7 @@ func (s *Sinker) applyConfig(newCfg *config.Config) (err error) {
 }
 
 func (s *Sinker) applyFirstConfig(newCfg *config.Config) (err error) {
-	var bsNewCfg []byte
-	if bsNewCfg, err = json.Marshal(newCfg); err != nil {
-		err = errors.Wrapf(err, "")
-		return
-	}
-	util.Logger.Infof("going to apply the first config: %+v", string(bsNewCfg))
-
+	util.Logger.Info("going to apply the first config", zap.Reflect("config", newCfg))
 	util.InitGlobalTimerWheel()
 	t := GenTask(newCfg)
 	if err = t.Init(); err != nil {
@@ -348,20 +343,15 @@ func (s *Sinker) applyFirstConfig(newCfg *config.Config) (err error) {
 }
 
 func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
-	var bsNewCfg []byte
-	if bsNewCfg, err = json.Marshal(newCfg); err != nil {
-		err = errors.Wrapf(err, "")
-		return
-	}
-	util.Logger.Infof("going to apply a different config: %+v", string(bsNewCfg))
+	util.Logger.Info("going to apply another config", zap.Reflect("config", newCfg))
 
 	if !reflect.DeepEqual(newCfg.Kafka, s.curCfg.Kafka) || !reflect.DeepEqual(newCfg.Clickhouse, s.curCfg.Clickhouse) || !reflect.DeepEqual(newCfg.Task, s.curCfg.Task) {
 		// 1. Stop task gracefully. Wait until all flying data be processed (write to CH and commit to Kafka).
-		util.Logger.Infof("%s: stopping parsing pool", s.curCfg.Task.Name)
+		util.Logger.Info("stopping parsing pool", zap.String("task", s.curCfg.Task.Name))
 		util.GlobalParsingPool.StopWait()
-		util.Logger.Infof("%s: stopping writing pool", s.curCfg.Task.Name)
+		util.Logger.Info("stopping writing pool", zap.String("task", s.curCfg.Task.Name))
 		util.GlobalWritingPool.StopWait()
-		util.Logger.Infof("%s: stopping timer wheel", s.curCfg.Task.Name)
+		util.Logger.Info("stopping timer wheel", zap.String("task", s.curCfg.Task.Name))
 		util.GlobalTimerWheel.Stop()
 		s.task.Stop()
 

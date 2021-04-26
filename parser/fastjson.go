@@ -23,6 +23,7 @@ import (
 	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/pkg/errors"
 	"github.com/valyala/fastjson"
+	"go.uber.org/zap"
 )
 
 var _ Parser = (*FastjsonParser)(nil)
@@ -224,7 +225,7 @@ func (c *FastjsonMetric) GetNewKeys(knownKeys *sync.Map, newKeys *sync.Map) (fou
 				newKeys.Store(strKey, "string")
 				foundNew = true
 			} else {
-				util.Logger.Warnf("FastjsonMetric.GetNewKeys found a kv not be int/float/string, key: %s, value: %s", strKey, v.String())
+				util.Logger.Warn("FastjsonMetric.GetNewKeys found a kv not be int/float/string", zap.String("key", strKey), zap.String("value", v.String()))
 			}
 		}
 	})

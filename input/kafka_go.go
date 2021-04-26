@@ -26,6 +26,7 @@ import (
 	"github.com/segmentio/kafka-go"
 	"github.com/segmentio/kafka-go/sasl/plain"
 	"github.com/segmentio/kafka-go/sasl/scram"
+	"go.uber.org/zap"
 
 	"github.com/housepower/clickhouse_sinker/config"
 	"github.com/housepower/clickhouse_sinker/model"
@@ -128,15 +129,15 @@ LOOP_KAFKA_GO:
 		var msg kafka.Message
 		if msg, err = k.r.FetchMessage(ctx); err != nil {
 			if errors.Is(err, context.Canceled) {
-				util.Logger.Infof("%s: Kafka.Run quit due to context has been canceled", k.cfg.Task.Name)
+				util.Logger.Info("Kafka.Run quit due to context has been canceled", zap.String("task", k.cfg.Task.Name))
 				break LOOP_KAFKA_GO
 			} else if errors.Is(err, io.EOF) {
-				util.Logger.Infof("%s: Kafka.Run quit due to reader has been closed", k.cfg.Task.Name)
+				util.Logger.Info("Kafka.Run quit due to reader has been closed", zap.String("task", k.cfg.Task.Name))
 				break LOOP_KAFKA_GO
 			} else {
 				statistics.ConsumeMsgsErrorTotal.WithLabelValues(k.cfg.Task.Name).Inc()
 				err = errors.Wrap(err, "")
-				util.Logger.Errorf("%s: Kafka.Run got error %+v", k.cfg.Task.Name, err)
+				util.Logger.Error("k.r.FetchMessage failed", zap.String("task", k.cfg.Task.Name), zap.Error(err))
 				continue
 			}
 		}

@@ -33,6 +33,7 @@ import (
 	"github.com/housepower/clickhouse_sinker/statistics"
 	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/pkg/errors"
+	"go.uber.org/zap"
 )
 
 var (
@@ -98,7 +99,7 @@ func (c *ClickHouse) write(batch *model.Batch) error {
 		}
 	}
 	if err != nil {
-		util.Logger.Errorf("%s: stmt.Exec failed %d times with errors %+v", c.cfg.Task.Name, numErr, err)
+		util.Logger.Error("stmt.Exec failed", zap.String("task", c.cfg.Task.Name), zap.Int("times", numErr), zap.Error(err))
 		goto ERR
 	}
 
@@ -122,7 +123,7 @@ func shouldReconnect(err error) bool {
 	if strings.Contains(err.Error(), "connection refused") || strings.Contains(err.Error(), "bad connection") {
 		return true
 	}
-	util.Logger.Infof("permanent error: %v", err.Error())
+	util.Logger.Info("this is a permanent error", zap.Error(err))
 	return false
 }
 
@@ -138,22 +139,22 @@ func (c *ClickHouse) loopWrite(batch *model.Batch) {
 			// TODO: kafka_go and sarama commit give different error when context is cancceled.
 			// How to unify them?
 			if std_errors.Is(err, context.Canceled) || std_errors.Is(err, io.ErrClosedPipe) {
-				util.Logger.Infof("%s: ClickHouse.loopWrite quit due to the context has been cancelled", c.cfg.Task.Name)
+				util.Logger.Info("ClickHouse.loopWrite quit due to the context has been cancelled", zap.String("task", c.cfg.Task.Name))
 				return
 			}
-			util.Logger.Fatalf("%s: committing offset failed with permanent error %+v", c.cfg.Task.Name, err)
+			util.Logger.Fatal("committing offset failed with permanent error %+v", zap.String("task", c.cfg.Task.Name), zap.Error(err))
 		}
 		if std_errors.Is(err, context.Canceled) {
-			util.Logger.Infof("%s: ClickHouse.loopWrite quit due to the context has been cancelled", c.cfg.Task.Name)
+			util.Logger.Info("ClickHouse.loopWrite quit due to the context has been cancelled", zap.String("task", c.cfg.Task.Name))
 			return
 		}
-		util.Logger.Errorf("%s: flush batch(try #%d) failed with error %+v", c.cfg.Task.Name, c.cfg.Clickhouse.RetryTimes-times, err)
+		util.Logger.Error("flush batch failed", zap.String("task", c.cfg.Task.Name), zap.Int("try", c.cfg.Clickhouse.RetryTimes-times), zap.Error(err))
 		statistics.FlushMsgsErrorTotal.WithLabelValues(c.cfg.Task.Name).Add(float64(batch.RealSize))
 		times++
 		if shouldReconnect(err) && (c.cfg.Clickhouse.RetryTimes <= 0 || times < c.cfg.Clickhouse.RetryTimes) {
 			time.Sleep(10 * time.Second)
 		} else {
-			util.Logger.Fatalf("%s: ClickHouse.loopWrite failed", c.cfg.Task.Name)
+			util.Logger.Fatal("ClickHouse.loopWrite failed", zap.String("task", c.cfg.Task.Name))
 		}
 	}
 }
@@ -213,7 +214,7 @@ func (c *ClickHouse) initSchema() (err error) {
 	c.prepareSQL = "INSERT INTO " + c.cfg.Clickhouse.DB + "." + c.cfg.Task.TableName + " (" + strings.Join(quotedDms, ",") + ") " +
 		"VALUES (" + strings.Join(params, ",") + ")"
 
-	util.Logger.Infof("%s: Prepare sql=> %s", c.cfg.Task.Name, c.prepareSQL)
+	util.Logger.Info(fmt.Sprintf("Prepare sql=> %s", c.prepareSQL), zap.String("task", c.cfg.Task.Name))
 	return nil
 }
 
@@ -231,14 +232,14 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 	}
 	newKeysQuota := maxDims - len(c.Dims)
 	if newKeysQuota <= 0 {
-		util.Logger.Warnf("number of columns reaches upper limit %d", maxDims)
+		util.Logger.Warn("number of columns reaches upper limit", zap.Int("limit", maxDims), zap.Int("current", len(c.Dims)))
 		return
 	}
 	var i int
 	newKeys.Range(func(key, value interface{}) bool {
 		i++
 		if i > newKeysQuota {
-			util.Logger.Warnf("number of columns reaches upper limit %d", maxDims)
+			util.Logger.Warn("number of columns reaches upper limit", zap.Int("limit", maxDims), zap.Int("current", i))
 			return false
 		}
 		strKey, _ := key.(string)
@@ -275,7 +276,7 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 	}
 	conn := pool.GetConn(0)
 	for _, query := range queries {
-		util.Logger.Infof("%s: executing sql=> %s", taskCfg.Name, query)
+		util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", taskCfg.Name))
 		if _, err = conn.Exec(query); err != nil {
 			err = errors.Wrapf(err, query)
 			return
@@ -290,7 +291,7 @@ func (c *ClickHouse) getDistTbls() (distTbls []string, err error) {
 	conn := pool.GetConn(0)
 	query := fmt.Sprintf(`SELECT name FROM system.tables WHERE engine='Distributed' AND database='%s' AND match(create_table_query, 'Distributed.*\'%s\',\s*\'%s\'')`,
 		chCfg.DB, chCfg.DB, taskCfg.TableName)
-	util.Logger.Infof("%s: executing sql=> %s", taskCfg.Name, query)
+	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", taskCfg.Name))
 
 	var rows *sql.Rows
 	if rows, err = conn.Query(query); err != nil {

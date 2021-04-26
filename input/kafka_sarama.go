@@ -26,6 +26,7 @@ import (
 	"github.com/Shopify/sarama"
 	"github.com/pkg/errors"
 	"github.com/xdg/scram"
+	"go.uber.org/zap"
 
 	"github.com/housepower/clickhouse_sinker/config"
 	"github.com/housepower/clickhouse_sinker/model"
@@ -58,7 +59,7 @@ func (h MyConsumerGroupHandler) Setup(sess sarama.ConsumerGroupSession) error {
 	return nil
 }
 func (h MyConsumerGroupHandler) Cleanup(_ sarama.ConsumerGroupSession) error {
-	util.Logger.Infof("%s: consumer group %s cleanup", h.k.cfg.Task.Name, h.k.cfg.Task.ConsumerGroup)
+	util.Logger.Info("consumer group cleanup", zap.String("task", h.k.cfg.Task.Name), zap.String("consumer group", h.k.cfg.Task.ConsumerGroup))
 	time.Sleep(5 * time.Second)
 	return nil
 }
@@ -146,15 +147,15 @@ LOOP_SARAMA:
 		// recreated to get the new claims
 		if err := k.cg.Consume(ctx, []string{taskCfg.Topic}, handler); err != nil {
 			if errors.Is(err, context.Canceled) {
-				util.Logger.Infof("%s: Kafka.Run quit due to context has been canceled", taskCfg.Name)
+				util.Logger.Info("Kafka.Run quit due to context has been canceled", zap.String("task", k.cfg.Task.Name))
 				break LOOP_SARAMA
 			} else if errors.Is(err, sarama.ErrClosedConsumerGroup) {
-				util.Logger.Infof("%s: Kafka.Run quit due to consumer group has been closed", taskCfg.Name)
+				util.Logger.Info("Kafka.Run quit due to consumer group has been closed", zap.String("task", k.cfg.Task.Name))
 				break LOOP_SARAMA
 			} else {
 				statistics.ConsumeMsgsErrorTotal.WithLabelValues(taskCfg.Name).Inc()
 				err = errors.Wrap(err, "")
-				util.Logger.Errorf("%s: Kafka.Run got error %+v", taskCfg.Name, err)
+				util.Logger.Error("Kafka.Run got error %+v", zap.String("task", k.cfg.Task.Name), zap.Error(err))
 				continue
 			}
 		}
