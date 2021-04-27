@@ -52,11 +52,11 @@ type Connection struct {
 func (c *Connection) ReConnect() error {
 	sqlDB, err := sql.Open("clickhouse", c.dsn)
 	if err != nil {
-		util.Logger.Info("sql.Open failed", zap.String("dsn", c.dsn), zap.Error(err))
+		util.Logger.Debug("sql.Open failed", zap.String("dsn", c.dsn), zap.Error(err))
 		return err
 	}
 	setDBParams(sqlDB)
-	util.Logger.Info("sql.Open succeeded", zap.String("dsn", c.dsn))
+	util.Logger.Debug("sql.Open succeeded", zap.String("dsn", c.dsn))
 	c.DB = sqlDB
 	return nil
 }
@@ -84,6 +84,7 @@ func InitConn(hosts [][]string, port int, db, username, password, dsnParams stri
 		if dsnParams != "" {
 			dsn += "&" + dsnParams
 		}
+		util.Logger.Debug("sql.Open", zap.String("dsn", dsn))
 		if sqlDB, err = sql.Open("clickhouse", dsn); err != nil {
 			err = errors.Wrapf(err, "")
 			return
