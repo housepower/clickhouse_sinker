@@ -88,14 +88,19 @@ type KafkaConfig struct {
 
 // ClickHouseConfig configuration parameters
 type ClickHouseConfig struct {
-	Cluster string
-	DB      string
-	Hosts   [][]string
-	Port    int
+	Cluster   string
+	DB        string
+	Hosts     [][]string
+	Port      int
+	Username  string
+	Password  string
+	DsnParams string
 
-	Username   string
-	Password   string
-	DsnParams  string
+	// Whether enable TLS encryption with clickhouse-server
+	Secure bool
+	// Whether skip verify clickhouse-server cert
+	InsecureSkipVerify bool
+
 	RetryTimes int //<=0 means retry infinitely
 }
 

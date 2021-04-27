@@ -19,6 +19,10 @@
     "username": "default"
     "password": "",
     "db": "default",  // database name
+    // Whether enable TLS encryption with clickhouse-server
+    secure bool
+    // Whether skip verify clickhouse-server cert if secure=true.
+    insecureSkipVerify bool
     // retryTimes when error occurs in inserting datas
     "retryTimes": 0,
   },

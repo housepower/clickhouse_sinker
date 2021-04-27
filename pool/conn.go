@@ -22,6 +22,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -61,7 +62,7 @@ func (c *Connection) ReConnect() error {
 	return nil
 }
 
-func InitConn(hosts [][]string, port int, db, username, password, dsnParams string) (err error) {
+func InitConn(hosts [][]string, port int, db, username, password, dsnParams string, secure, skipVerify bool) (err error) {
 	var sqlDB *sql.DB
 	lock.Lock()
 	defer lock.Unlock()
@@ -83,6 +84,9 @@ func InitConn(hosts [][]string, port int, db, username, password, dsnParams stri
 		}
 		if dsnParams != "" {
 			dsn += "&" + dsnParams
+		}
+		if secure {
+			dsn += "&secure=true&skip_verify=" + strconv.FormatBool(skipVerify)
 		}
 		util.Logger.Debug("sql.Open", zap.String("dsn", dsn))
 		if sqlDB, err = sql.Open("clickhouse", dsn); err != nil {
