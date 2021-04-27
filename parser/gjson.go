@@ -50,12 +50,8 @@ func (c *GjsonMetric) GetString(key string, nullable bool) (val interface{}, err
 		val = ""
 		return
 	}
-	switch r.Type {
-	case gjson.String:
-		val = r.Str
-	default:
-		err = errors.Errorf("value doesn't contain string, it contains %s", r.Type.String())
-	}
+	// Everything can be converted to string.
+	val = r.String()
 	return
 }
 

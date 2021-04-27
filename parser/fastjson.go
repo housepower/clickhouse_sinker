@@ -58,11 +58,17 @@ func (c *FastjsonMetric) GetString(key string, nullable bool) (val interface{}, 
 		val = ""
 		return
 	}
-	var b []byte
-	if b, err = v.StringBytes(); err != nil {
-		return
+	// Everything can be converted to string.
+	switch v.Type() {
+	case fastjson.TypeString:
+		var b []byte
+		if b, err = v.StringBytes(); err != nil {
+			return
+		}
+		val = string(b)
+	default:
+		val = v.String()
 	}
-	val = string(b)
 	return
 }
 

@@ -80,12 +80,13 @@ var jsonSchema = map[string]string{
 	"bool_false":            "false",
 }
 
-var csvSample = []byte(`1536813227,"0.11","escaped_""ws",2019-12-16,2019-12-16T12:10:30Z,2019-12-16T12:10:30+08:00,2019-12-16 12:10:30,2019-12-16T12:10:30.123Z,2019-12-16T12:10:30.123+08:00,2019-12-16 12:10:30.123,"[1,2,3]","[1.1,2.2,3.3]","[aa,bb,cc]","[]"`)
+var csvSample = []byte(`1536813227,"0.11","escaped_""ws",{""i"" : [1,2,3], ""f"": [1.1,2.2,3.3], ""s"": [""aa"",""bb"",""cc""], ""e"": []},2019-12-16,2019-12-16T12:10:30Z,2019-12-16T12:10:30+08:00,2019-12-16 12:10:30,2019-12-16T12:10:30.123Z,2019-12-16T12:10:30.123+08:00,2019-12-16 12:10:30.123,"[1,2,3]","[1.1,2.2,3.3]","[aa,bb,cc]","[]", "true", "false"`)
 
 var csvSchema = []string{
 	"its",
 	"percent",
 	"channel",
+	"mp",
 	"date1",
 	"time_sec_rfc3339_1",
 	"time_sec_rfc3339_2",
@@ -97,46 +98,45 @@ var csvSchema = []string{
 	"array_float",
 	"array_string",
 	"array_empty",
+	"bool_true",
+	"bool_false",
 }
 
 var initialize sync.Once
 var initErr error
 var names = []string{"csv", "fastjson", "gjson"}
-var pools []*Pool
-var parsers []Parser
-var metrics []model.Metric
+var pools map[string]*Pool
+var parsers map[string]Parser
+var metrics map[string]model.Metric
 
 func initMetrics() {
 	var pp *Pool
 	var parser Parser
 	var metric model.Metric
-
-	pp, _ = NewParserPool("csv", csvSchema, "", "")
-	parser = pp.Get()
-	if metric, initErr = parser.Parse(csvSample); initErr != nil {
-		return
+	var sample []byte
+	pools = make(map[string]*Pool)
+	parsers = make(map[string]Parser)
+	metrics = make(map[string]model.Metric)
+	for _, name := range names {
+		switch name {
+		case "csv":
+			pp, _ = NewParserPool("csv", csvSchema, "", "")
+			sample = csvSample
+		case "fastjson":
+			pp, _ = NewParserPool("fastjson", nil, "", "")
+			sample = jsonSample
+		case "gjson":
+			pp, _ = NewParserPool("gjson", nil, "", "")
+			sample = jsonSample
+		}
+		parser = pp.Get()
+		if metric, initErr = parser.Parse(sample); initErr != nil {
+			return
+		}
+		pools[name] = pp
+		parsers[name] = parser
+		metrics[name] = metric
 	}
-	metrics = append(metrics, metric)
-	pools = append(pools, pp)
-	parsers = append(parsers, parser)
-
-	pp, _ = NewParserPool("fastjson", nil, "", "")
-	parser = pp.Get()
-	if metric, initErr = parser.Parse(jsonSample); initErr != nil {
-		return
-	}
-	metrics = append(metrics, metric)
-	pools = append(pools, pp)
-	parsers = append(parsers, parser)
-
-	pp, _ = NewParserPool("gjson", nil, "", "")
-	parser = pp.Get()
-	if metric, initErr = parser.Parse(jsonSample); initErr != nil {
-		return
-	}
-	metrics = append(metrics, metric)
-	pools = append(pools, pp)
-	parsers = append(parsers, parser)
 }
 
 func TestParserInt(t *testing.T) {
@@ -149,7 +149,7 @@ func TestParserInt(t *testing.T) {
 	var desc string
 	for i := range names {
 		name := names[i]
-		metric := metrics[i]
+		metric := metrics[name]
 
 		desc = name + ` GetInt("its", false)`
 		exp = 1536813227
@@ -189,7 +189,7 @@ func TestParserFloat(t *testing.T) {
 	var desc string
 	for i := range names {
 		name := names[i]
-		metric := metrics[i]
+		metric := metrics[name]
 
 		desc = name + ` GetFloat("percent", false)`
 		exp = 0.11
@@ -229,7 +229,7 @@ func TestParserString(t *testing.T) {
 	var desc string
 	for i := range names {
 		name := names[i]
-		metric := metrics[i]
+		metric := metrics[name]
 
 		desc = name + ` GetString("channel", false)`
 		exp = "escaped_\"ws"
@@ -252,15 +252,14 @@ func TestParserString(t *testing.T) {
 		require.Nil(t, err, desc)
 		require.Nil(t, v, desc)
 
-		// Verify parsers treat type mismatch as error.
+		// Verify everything can be converted to string.
 		desc = name + ` GetString("its", false)`
-		_, err = metric.GetString("its", false)
-		switch name {
-		case "csv":
-			require.Nil(t, err, desc)
-		default:
-			require.NotNil(t, err, desc)
-		}
+		exp = "1536813227"
+		v, err = metric.GetString("its", false)
+		require.Nil(t, err, desc)
+		require.IsType(t, exp, v, desc)
+		act, _ = v.(string)
+		require.Equal(t, exp, act, desc)
 	}
 }
 
@@ -274,7 +273,7 @@ func TestParserDateTime(t *testing.T) {
 	var desc string
 	for i := range names {
 		name := names[i]
-		metric := metrics[i]
+		metric := metrics[name]
 
 		desc = name + ` GetDate("date1", false)`
 		exp = time.Date(2019, 12, 16, 0, 0, 0, 0, time.Local)
@@ -333,7 +332,7 @@ func TestParserDateTime64(t *testing.T) {
 	var desc string
 	for i := range names {
 		name := names[i]
-		metric := metrics[i]
+		metric := metrics[name]
 
 		desc = name + ` GetDateTime64("time_ms_rfc3339_1", false)`
 		exp = time.Date(2019, 12, 16, 12, 10, 30, 123000000, time.UTC)
@@ -379,7 +378,7 @@ func TestParserElasticDateTime(t *testing.T) {
 	var desc string
 	for i := range names {
 		name := names[i]
-		metric := metrics[i]
+		metric := metrics[name]
 
 		desc = name + ` GetElasticDateTime("time_sec_rfc3339_1", false)`
 		exp = time.Date(2019, 12, 16, 12, 10, 30, 0, time.UTC).Unix()
@@ -413,7 +412,7 @@ func TestParserArray(t *testing.T) {
 	var desc string
 	for i := range names {
 		name := names[i]
-		metric := metrics[i]
+		metric := metrics[name]
 
 		desc = name + ` GetArray("array_int", "int")`
 		expI := []int64{1, 2, 3}
