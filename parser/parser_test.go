@@ -16,6 +16,7 @@ package parser
 
 import (
 	"encoding/json"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -37,7 +38,7 @@ var jsonSample = []byte(`{
 	"version":"5.8.3",
 	"success":0,
 	"percent":0.11,
-	"mp": {"i" : [1,2,3], "f": [1.1,2.2,3.3], "s": ["aa","bb","cc"], "e": []},
+	"mp": {"i":[1,2,3],"f":[1.1,2.2,3.3],"s":["aa","bb","cc"],"e":[]},
 	"date1": "2019-12-16",
 	"time_sec_rfc3339_1":    "2019-12-16T12:10:30Z",
 	"time_sec_rfc3339_2":    "2019-12-16T12:10:30+08:00",
@@ -80,7 +81,7 @@ var jsonSchema = map[string]string{
 	"bool_false":            "false",
 }
 
-var csvSample = []byte(`1536813227,"0.11","escaped_""ws",{""i"" : [1,2,3], ""f"": [1.1,2.2,3.3], ""s"": [""aa"",""bb"",""cc""], ""e"": []},2019-12-16,2019-12-16T12:10:30Z,2019-12-16T12:10:30+08:00,2019-12-16 12:10:30,2019-12-16T12:10:30.123Z,2019-12-16T12:10:30.123+08:00,2019-12-16 12:10:30.123,"[1,2,3]","[1.1,2.2,3.3]","[aa,bb,cc]","[]", "true", "false"`)
+var csvSample = []byte(`1536813227,"0.11","escaped_""ws","{""i"":[1,2,3],""f"":[1.1,2.2,3.3],""s"":[""aa"",""bb"",""cc""],""e"":[]}",2019-12-16,2019-12-16T12:10:30Z,2019-12-16T12:10:30+08:00,2019-12-16 12:10:30,2019-12-16T12:10:30.123Z,2019-12-16T12:10:30.123+08:00,2019-12-16 12:10:30.123,"[1,2,3]","[1.1,2.2,3.3]","[""aa"",""bb"",""cc""]","[]","true","false"`)
 
 var csvSchema = []string{
 	"its",
@@ -108,6 +109,29 @@ var names = []string{"csv", "fastjson", "gjson"}
 var pools map[string]*Pool
 var parsers map[string]Parser
 var metrics map[string]model.Metric
+
+type SimpleCase struct {
+	Field    string
+	Nullable bool
+	ExpVal   interface{}
+	ExpErr   error
+}
+
+type ArrayCase struct {
+	Field  string
+	Type   string
+	ExpVal interface{}
+	ExpErr error
+}
+
+var ErrParse = fmt.Errorf("generic parsing error")
+
+func Bool2Str(b bool) string {
+	if b {
+		return "true"
+	}
+	return "false"
+}
 
 func initMetrics() {
 	var pp *Pool
@@ -139,328 +163,137 @@ func initMetrics() {
 	}
 }
 
-func TestParserInt(t *testing.T) {
+func doTestSimple(t *testing.T, method string, testCases []SimpleCase) {
+	t.Helper()
 	initialize.Do(initMetrics)
 	require.Nil(t, initErr)
-
-	var err error
-	var v interface{}
-	var exp, act int64
-	var desc string
 	for i := range names {
 		name := names[i]
 		metric := metrics[name]
-
-		desc = name + ` GetInt("its", false)`
-		exp = 1536813227
-		v, err = metric.GetInt("its", false)
-		require.Nil(t, err, desc)
-		require.IsType(t, exp, v, desc)
-		act, _ = v.(int64)
-		require.Equal(t, exp, act, desc)
-
-		desc = name + ` GetInt("not_exist", false)`
-		exp = int64(0)
-		v, err = metric.GetInt("not_exist", false)
-		require.Nil(t, err, desc)
-		require.IsType(t, exp, v, desc)
-		act, _ = v.(int64)
-		require.Equal(t, exp, act, desc)
-
-		desc = name + ` GetInt("not_exist", true)`
-		v, err = metric.GetInt("not_exist", true)
-		require.Nil(t, err, desc)
-		require.Nil(t, v, desc)
-
-		// Verify parsers treat type mismatch as error.
-		desc = name + ` GetInt("channel", false)`
-		_, err = metric.GetInt("channel", false)
-		require.NotNil(t, err, desc)
+		for j := range testCases {
+			var err error
+			var v interface{}
+			desc := fmt.Sprintf(`%s %s("%s", %s)`, name, method, testCases[j].Field, Bool2Str(testCases[j].Nullable))
+			switch method {
+			case "GetInt":
+				v, err = metric.GetInt(testCases[j].Field, testCases[j].Nullable)
+			case "GetFloat":
+				v, err = metric.GetFloat(testCases[j].Field, testCases[j].Nullable)
+			case "GetString":
+				v, err = metric.GetString(testCases[j].Field, testCases[j].Nullable)
+			case "GetDate":
+				v, err = metric.GetDate(testCases[j].Field, testCases[j].Nullable)
+			case "GetDateTime":
+				v, err = metric.GetDateTime(testCases[j].Field, testCases[j].Nullable)
+			case "GetDateTime64":
+				v, err = metric.GetDateTime64(testCases[j].Field, testCases[j].Nullable)
+			case "GetElasticDateTime":
+				v, err = metric.GetElasticDateTime(testCases[j].Field, testCases[j].Nullable)
+			default:
+				panic("error!")
+			}
+			if testCases[j].ExpErr == nil {
+				require.Nil(t, err, desc)
+				require.Equal(t, testCases[j].ExpVal, v, desc)
+			} else {
+				require.NotNil(t, err, desc)
+			}
+		}
 	}
+}
+
+func TestParserInt(t *testing.T) {
+	testCases := []SimpleCase{
+		{"its", false, int64(1536813227), nil},
+		{"not_exist", false, int64(0), nil},
+		{"not_exist", true, nil, nil},
+		{"channel", false, nil, ErrParse},
+	}
+	doTestSimple(t, "GetInt", testCases)
 }
 
 func TestParserFloat(t *testing.T) {
-	initialize.Do(initMetrics)
-	require.Nil(t, initErr)
-
-	var err error
-	var v interface{}
-	var exp, act float64
-	var desc string
-	for i := range names {
-		name := names[i]
-		metric := metrics[name]
-
-		desc = name + ` GetFloat("percent", false)`
-		exp = 0.11
-		v, err = metric.GetFloat("percent", false)
-		require.Nil(t, err, desc)
-		require.IsType(t, exp, v, desc)
-		act, _ = v.(float64)
-		require.Equal(t, exp, act, desc)
-
-		desc = name + ` GetFloat("not_exist", false)`
-		exp = 0.0
-		v, err = metric.GetFloat("not_exist", false)
-		require.Nil(t, err, desc)
-		require.IsType(t, exp, v, desc)
-		act, _ = v.(float64)
-		require.Equal(t, exp, act, desc)
-
-		desc = name + ` GetFloat("not_exist", true)`
-		v, err = metric.GetFloat("not_exist", true)
-		require.Nil(t, err, desc)
-		require.Nil(t, v, desc)
-
-		// Verify parsers treat type mismatch as error.
-		desc = name + ` GetFloat("channel", false)`
-		_, err = metric.GetFloat("channel", false)
-		require.NotNil(t, err, desc)
+	testCases := []SimpleCase{
+		{"percent", false, 0.11, nil},
+		{"not_exist", false, 0.0, nil},
+		{"not_exist", true, nil, nil},
+		{"channel", false, nil, ErrParse},
 	}
+	doTestSimple(t, "GetFloat", testCases)
 }
 
 func TestParserString(t *testing.T) {
-	initialize.Do(initMetrics)
-	require.Nil(t, initErr)
-
-	var err error
-	var v interface{}
-	var exp, act string
-	var desc string
-	for i := range names {
-		name := names[i]
-		metric := metrics[name]
-
-		desc = name + ` GetString("channel", false)`
-		exp = "escaped_\"ws"
-		v, err = metric.GetString("channel", false)
-		require.Nil(t, err, desc)
-		require.IsType(t, exp, v, desc)
-		act, _ = v.(string)
-		require.Equal(t, exp, act, desc)
-
-		desc = name + ` GetString("not_exist", false)`
-		exp = ""
-		v, err = metric.GetString("not_exist", false)
-		require.Nil(t, err, desc)
-		require.IsType(t, exp, v, desc)
-		act, _ = v.(string)
-		require.Equal(t, exp, act, desc)
-
-		desc = name + ` GetString("not_exist", true)`
-		v, err = metric.GetString("not_exist", true)
-		require.Nil(t, err, desc)
-		require.Nil(t, v, desc)
-
-		// Verify everything can be converted to string.
-		desc = name + ` GetString("its", false)`
-		exp = "1536813227"
-		v, err = metric.GetString("its", false)
-		require.Nil(t, err, desc)
-		require.IsType(t, exp, v, desc)
-		act, _ = v.(string)
-		require.Equal(t, exp, act, desc)
+	testCases := []SimpleCase{
+		{"channel", false, "escaped_\"ws", nil},
+		{"not_exist", false, "", nil},
+		{"not_exist", true, nil, nil},
+		{"its", false, "1536813227", nil},
+		{"array_int", false, "[1,2,3]", nil},
+		{"array_string", false, `["aa","bb","cc"]`, nil},
+		{"mp", false, `{"i":[1,2,3],"f":[1.1,2.2,3.3],"s":["aa","bb","cc"],"e":[]}`, nil},
 	}
+	doTestSimple(t, "GetString", testCases)
 }
 
 func TestParserDateTime(t *testing.T) {
-	initialize.Do(initMetrics)
-	require.Nil(t, initErr)
-
-	var err error
-	var v interface{}
-	var exp, act time.Time
-	var desc string
-	for i := range names {
-		name := names[i]
-		metric := metrics[name]
-
-		desc = name + ` GetDate("date1", false)`
-		exp = time.Date(2019, 12, 16, 0, 0, 0, 0, time.Local)
-		v, err = metric.GetDate("date1", false)
-		require.Nil(t, err, desc)
-		require.IsType(t, exp, v, desc)
-		act = v.(time.Time).In(time.Local)
-		require.Equal(t, exp, act, desc)
-
-		desc = name + ` GetDateTime("time_sec_rfc3339_1", false)`
-		exp = time.Date(2019, 12, 16, 12, 10, 30, 0, time.UTC)
-		v, err = metric.GetDateTime("time_sec_rfc3339_1", false)
-		require.Nil(t, err, desc)
-		require.IsType(t, exp, v, desc)
-		act = v.(time.Time).In(time.UTC)
-		require.Equal(t, exp, act, desc)
-
-		desc = name + ` GetDateTime("time_sec_rfc3339_2", false)`
-		exp = time.Date(2019, 12, 16, 12, 10, 30, 0, time.FixedZone("CST", 8*60*60)).In(time.UTC)
-		v, err = metric.GetDateTime("time_sec_rfc3339_2", false)
-		require.Nil(t, err, desc)
-		require.IsType(t, exp, v, desc)
-		act = v.(time.Time).In(time.UTC)
-		require.Equal(t, exp, act, desc)
-
-		desc = name + ` GetDateTime("time_sec_clickhouse_1", false)`
-		exp = time.Date(2019, 12, 16, 12, 10, 30, 0, time.Local).In(time.UTC)
-		v, err = metric.GetDateTime("time_sec_clickhouse_1", false)
-		require.Nil(t, err, desc)
-		require.IsType(t, exp, v, desc)
-		act = v.(time.Time).In(time.UTC)
-		require.Equal(t, exp, act, desc)
-
-		desc = name + ` GetDateTime("not_exist", false)`
-		exp = Epoch
-		v, err = metric.GetDateTime("not_exist", false)
-		require.Nil(t, err, desc)
-		require.IsType(t, exp, v, desc)
-		act = v.(time.Time).In(time.UTC)
-		require.Equal(t, exp, act, desc)
-
-		// Verify parsers treat type mismatch as error.
-		desc = name + ` GetDateTime("array_int", false)`
-		_, err = metric.GetDateTime("array_int", false)
-		require.NotNil(t, err, desc)
+	testCases := []SimpleCase{
+		{"date1", false, time.Date(2019, 12, 16, 0, 0, 0, 0, time.Local).In(time.UTC), nil},
+		{"time_sec_rfc3339_1", false, time.Date(2019, 12, 16, 12, 10, 30, 0, time.UTC), nil},
+		{"time_sec_rfc3339_2", false, time.Date(2019, 12, 16, 12, 10, 30, 0, time.FixedZone("CST", 8*60*60)).In(time.UTC), nil},
+		{"time_sec_clickhouse_1", false, time.Date(2019, 12, 16, 12, 10, 30, 0, time.Local).In(time.UTC), nil},
+		{"not_exist", false, Epoch, nil},
+		{"array_int", false, nil, ErrParse},
 	}
+	doTestSimple(t, "GetDateTime", testCases)
 }
 
 func TestParserDateTime64(t *testing.T) {
-	initialize.Do(initMetrics)
-	require.Nil(t, initErr)
-
-	var err error
-	var v interface{}
-	var exp, act time.Time
-	var desc string
-	for i := range names {
-		name := names[i]
-		metric := metrics[name]
-
-		desc = name + ` GetDateTime64("time_ms_rfc3339_1", false)`
-		exp = time.Date(2019, 12, 16, 12, 10, 30, 123000000, time.UTC)
-		v, err = metric.GetDateTime64("time_ms_rfc3339_1", false)
-		require.Nil(t, err, desc)
-		require.IsType(t, exp, v, desc)
-		act = v.(time.Time).In(time.UTC)
-		require.Equal(t, exp, act, desc)
-
-		desc = name + ` GetDateTime64("time_ms_rfc3339_2", false)`
-		exp = time.Date(2019, 12, 16, 12, 10, 30, 123000000, time.FixedZone("CST", 8*60*60)).In(time.UTC)
-		v, err = metric.GetDateTime64("time_ms_rfc3339_2", false)
-		require.Nil(t, err, desc)
-		require.IsType(t, exp, v, desc)
-		act = v.(time.Time).In(time.UTC)
-		require.Equal(t, exp, act, desc)
-
-		desc = name + ` GetDateTime64("time_ms_clickhouse_1", false)`
-		exp = time.Date(2019, 12, 16, 12, 10, 30, 123000000, time.Local).In(time.UTC)
-		v, err = metric.GetDateTime64("time_ms_clickhouse_1", false)
-		require.Nil(t, err, desc)
-		require.IsType(t, exp, v, desc)
-		act = v.(time.Time).In(time.UTC)
-		require.Equal(t, exp, act, desc)
-
-		desc = name + ` GetDateTime64("not_exist", false)`
-		exp = Epoch
-		v, err = metric.GetDateTime64("not_exist", false)
-		require.Nil(t, err, desc)
-		require.IsType(t, exp, v, desc)
-		act = v.(time.Time).In(time.UTC)
-		require.Equal(t, exp, act, desc)
+	testCases := []SimpleCase{
+		{"time_ms_rfc3339_1", false, time.Date(2019, 12, 16, 12, 10, 30, 123000000, time.UTC), nil},
+		{"time_ms_rfc3339_2", false, time.Date(2019, 12, 16, 12, 10, 30, 123000000, time.FixedZone("CST", 8*60*60)).In(time.UTC), nil},
+		{"time_ms_clickhouse_1", false, time.Date(2019, 12, 16, 12, 10, 30, 123000000, time.Local).In(time.UTC), nil},
+		{"not_exist", false, Epoch, nil},
+		{"array_int", false, nil, ErrParse},
 	}
+	doTestSimple(t, "GetDateTime64", testCases)
 }
 
 func TestParserElasticDateTime(t *testing.T) {
-	initialize.Do(initMetrics)
-	require.Nil(t, initErr)
-
-	var err error
-	var v interface{}
-	var exp, act int64
-	var desc string
-	for i := range names {
-		name := names[i]
-		metric := metrics[name]
-
-		desc = name + ` GetElasticDateTime("time_sec_rfc3339_1", false)`
-		exp = time.Date(2019, 12, 16, 12, 10, 30, 0, time.UTC).Unix()
-		v, err = metric.GetElasticDateTime("time_sec_rfc3339_1", false)
-		require.Nil(t, err, desc)
-		require.IsType(t, exp, v, desc)
-		act, _ = v.(int64)
-		require.Equal(t, exp, act, desc)
-
-		desc = name + ` GetElasticDateTime("not_exist", false)`
-		exp = 0
-		v, err = metric.GetElasticDateTime("not_exist", false)
-		require.Nil(t, err, desc)
-		require.IsType(t, exp, v, desc)
-		act, _ = v.(int64)
-		require.Equal(t, exp, act, desc)
-
-		desc = name + ` GetElasticDateTime("not_exist", true)`
-		v, err = metric.GetElasticDateTime("not_exist", true)
-		require.Nil(t, err, desc)
-		require.Nil(t, v, desc)
+	testCases := []SimpleCase{
+		{"time_ms_rfc3339_1", false, time.Date(2019, 12, 16, 12, 10, 30, 0, time.UTC).Unix(), nil},
+		{"not_exist", false, int64(0), nil},
+		{"not_exist", true, nil, nil},
 	}
+	doTestSimple(t, "GetElasticDateTime", testCases)
 }
 
 func TestParserArray(t *testing.T) {
 	initialize.Do(initMetrics)
 	require.Nil(t, initErr)
+	testCases := []ArrayCase{
+		{"array_int", "int", []int64{1, 2, 3}, nil},
+		{"array_float", "float", []float64{1.1, 2.2, 3.3}, nil},
+		{"array_string", "string", []string{"aa", "bb", "cc"}, nil},
+		{"array_empty", "int", []int64{}, nil},
+		{"array_empty", "float", []float64{}, nil},
+	}
 
-	var err error
-	var v interface{}
-	var desc string
 	for i := range names {
 		name := names[i]
 		metric := metrics[name]
-
-		desc = name + ` GetArray("array_int", "int")`
-		expI := []int64{1, 2, 3}
-		v, err = metric.GetArray("array_int", "int")
-		require.Nil(t, err, desc)
-		require.IsType(t, expI, v, desc)
-		actI, _ := v.([]int64)
-		require.Equal(t, expI, actI, desc)
-
-		desc = name + ` GetArray("array_float", "float")`
-		expF := []float64{1.1, 2.2, 3.3}
-		v, err = metric.GetArray("array_float", "float")
-		require.Nil(t, err, desc)
-		require.IsType(t, expF, v, desc)
-		actF, _ := v.([]float64)
-		require.Equal(t, expF, actF, desc)
-
-		desc = name + ` GetArray("array_string", "string")`
-		expS := []string{"aa", "bb", "cc"}
-		v, err = metric.GetArray("array_string", "string")
-		require.Nil(t, err, desc)
-		require.IsType(t, expS, v, desc)
-		actS, _ := v.([]string)
-		require.Equal(t, expS, actS, desc)
-
-		desc = name + ` GetArray("array_empty", "int")`
-		expIE := []int64{}
-		v, err = metric.GetArray("array_empty", "int")
-		require.Nil(t, err, desc)
-		require.IsType(t, expIE, v, desc)
-		actIE, _ := v.([]int64)
-		require.Equal(t, expIE, actIE, desc)
-
-		desc = name + ` GetArray("array_empty", "float")`
-		expFE := []float64{}
-		v, err = metric.GetArray("array_empty", "float")
-		require.Nil(t, err, desc)
-		require.IsType(t, expFE, v, desc)
-		actFE, _ := v.([]float64)
-		require.Equal(t, expFE, actFE, desc)
-
-		desc = name + ` GetArray("array_empty", "string")`
-		expSE := []string{}
-		v, err = metric.GetArray("array_empty", "string")
-		require.Nil(t, err, desc)
-		require.IsType(t, expSE, v, desc)
-		actSE, _ := v.([]string)
-		require.Equal(t, expSE, actSE, desc)
+		for j := range testCases {
+			var err error
+			var v interface{}
+			desc := fmt.Sprintf(`%s GetArray("%s", "%s")`, name, testCases[j].Field, testCases[j].Type)
+			v, err = metric.GetArray(testCases[j].Field, testCases[j].Type)
+			if testCases[j].ExpErr == nil {
+				require.Nil(t, err, desc)
+				require.Equal(t, testCases[j].ExpVal, v, desc)
+			} else {
+				require.NotNil(t, err, desc)
+				require.Nil(t, v, desc)
+			}
+		}
 	}
 }
 

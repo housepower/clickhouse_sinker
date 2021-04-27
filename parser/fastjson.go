@@ -124,7 +124,7 @@ func (c *FastjsonMetric) GetDateTime(key string, nullable bool) (val interface{}
 		if f, err = v.Float64(); err != nil {
 			return
 		}
-		val = time.Unix(int64(f), int64(f*1e9)%1e9)
+		val = time.Unix(int64(f), int64(f*1e9)%1e9).In(time.UTC)
 	case fastjson.TypeString:
 		var b []byte
 		if b, err = v.StringBytes(); err != nil {

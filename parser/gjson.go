@@ -106,7 +106,7 @@ func (c *GjsonMetric) GetDateTime(key string, nullable bool) (val interface{}, e
 	}
 	switch r.Type {
 	case gjson.Number:
-		val = time.Unix(int64(r.Num), int64(r.Num*1e9)%1e9)
+		val = time.Unix(int64(r.Num), int64(r.Num*1e9)%1e9).In(time.UTC)
 	case gjson.String:
 		val, err = c.pp.ParseDateTime(key, r.Str)
 	default:

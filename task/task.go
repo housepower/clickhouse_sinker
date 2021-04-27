@@ -235,7 +235,7 @@ func (service *Service) put(msg model.InputMessage) {
 		if err == nil {
 			row, err = model.MetricToRow(metric, msg, service.dims)
 		}
-		// WARNNING: Always PutElem even if there's parsing error, so that this message can be acked to Kafka and skipped writting to ClickHouse.
+		// WARNNING: Always PutElem even if there's parsing error, so that this message can be acked to Kafka and skipped writing to ClickHouse.
 		if err != nil {
 			statistics.ParseMsgsErrorTotal.WithLabelValues(taskCfg.Name).Inc()
 			if service.limiter1.Allow() {

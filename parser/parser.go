@@ -137,6 +137,7 @@ func (pp *Pool) ParseDateTime(key string, val string) (t time.Time, err error) {
 	if lay, ok = pp.knownLayouts.Load(key); !ok {
 		for _, layout = range Layouts {
 			if t, err = time.ParseInLocation(layout, val, pp.timeZone); err == nil {
+				t = t.In(time.UTC)
 				pp.knownLayouts.Store(key, layout)
 				return
 			}
@@ -148,7 +149,10 @@ func (pp *Pool) ParseDateTime(key string, val string) (t time.Time, err error) {
 		return
 	}
 	layout, _ = lay.(string)
-	t, _ = time.ParseInLocation(layout, val, pp.timeZone)
+	if t, err = time.ParseInLocation(layout, val, pp.timeZone); err != nil {
+		return
+	}
+	t = t.In(time.UTC)
 	return
 }
 
