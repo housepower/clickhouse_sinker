@@ -255,7 +255,7 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 			err = errors.Errorf("%s: BUG: unsupported column type %s", taskCfg.Name, strVal)
 			return false
 		}
-		query := fmt.Sprintf("ALTER TABLE %s.%s %s ADD COLUMN IF NOT EXISTS %s %s", chCfg.DB, taskCfg.TableName, onCluster, strKey, strVal)
+		query := fmt.Sprintf("ALTER TABLE %s.%s %s ADD COLUMN IF NOT EXISTS `%s` %s", chCfg.DB, taskCfg.TableName, onCluster, strKey, strVal)
 		queries = append(queries, query)
 		return true
 	})
