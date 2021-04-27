@@ -235,16 +235,15 @@ func (service *Service) put(msg model.InputMessage) {
 		if err == nil {
 			row, err = model.MetricToRow(metric, msg, service.dims)
 		}
+		// WARNNING: Always PutElem even if there's parsing error, so that this message can be acked to Kafka and skipped writting to ClickHouse.
 		if err != nil {
 			statistics.ParseMsgsErrorTotal.WithLabelValues(taskCfg.Name).Inc()
 			if service.limiter1.Allow() {
 				util.Logger.Error(fmt.Sprintf("failed to parse message(topic %v, partition %d, offset %v)",
 					msg.Topic, msg.Partition, msg.Offset), zap.String("message value", string(msg.Value)), zap.String("task", service.cfg.Task.Name), zap.Error(err))
 			}
-			// WARNNING: metric.GetXXX may depend on p. Don't call them after p been freed.
-			service.pp.Put(p)
-			return
 		}
+		// WARNNING: metric.GetXXX may depend on p. Don't call them after p been freed.
 		service.pp.Put(p)
 
 		if taskCfg.DynamicSchema.Enable {

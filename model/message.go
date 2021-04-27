@@ -185,6 +185,7 @@ func MetricToRow(metric Metric, msg InputMessage, dims []*ColumnWithType) (row *
 		} else {
 			if val, err = GetValueByType(metric, dim); err != nil {
 				PutRow(row)
+				row = nil
 				return
 			}
 			*row = append(*row, val)
