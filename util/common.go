@@ -247,5 +247,5 @@ func InitLogger(logLevel string, logPaths []string) {
 		zapcore.NewMultiWriteSyncer(syncers...),
 		lvl,
 	)
-	Logger = zap.New(core)
+	Logger = zap.New(core, zap.AddStacktrace(zap.ErrorLevel))
 }
