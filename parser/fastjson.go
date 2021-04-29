@@ -122,17 +122,21 @@ func (c *FastjsonMetric) GetDateTime(key string, nullable bool) (val interface{}
 	case fastjson.TypeNumber:
 		var f float64
 		if f, err = v.Float64(); err != nil {
+			val = Epoch
+			err = nil
 			return
 		}
 		val = time.Unix(int64(f), int64(f*1e9)%1e9).In(time.UTC)
 	case fastjson.TypeString:
 		var b []byte
 		if b, err = v.StringBytes(); err != nil {
+			val = Epoch
+			err = nil
 			return
 		}
-		val, err = c.pp.ParseDateTime(key, string(b))
+		val = c.pp.ParseDateTime(key, string(b))
 	default:
-		err = errors.Errorf("value doesn't contain number nor string, it contains %s", v.Type().String())
+		val = Epoch
 	}
 	return
 }

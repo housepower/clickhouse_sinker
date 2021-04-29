@@ -115,7 +115,7 @@ func (c *CsvMetric) GetDateTime(key string, nullable bool) (val interface{}, err
 		val = Epoch
 		return
 	}
-	val, err = c.pp.ParseDateTime(key, c.values[idx])
+	val = c.pp.ParseDateTime(key, c.values[idx])
 	return
 }
 

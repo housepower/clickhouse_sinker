@@ -108,9 +108,9 @@ func (c *GjsonMetric) GetDateTime(key string, nullable bool) (val interface{}, e
 	case gjson.Number:
 		val = time.Unix(int64(r.Num), int64(r.Num*1e9)%1e9).In(time.UTC)
 	case gjson.String:
-		val, err = c.pp.ParseDateTime(key, r.Str)
+		val = c.pp.ParseDateTime(key, r.Str)
 	default:
-		err = errors.Errorf("value doesn't contain string, it contains %s", r.Type.String())
+		val = Epoch
 	}
 	return
 }

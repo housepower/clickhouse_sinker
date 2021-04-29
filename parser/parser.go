@@ -16,7 +16,6 @@ package parser
 
 import (
 	"encoding/json"
-	"strconv"
 	"sync"
 	"time"
 
@@ -130,7 +129,11 @@ func (pp *Pool) Put(p Parser) {
 	pp.pool.Put(p)
 }
 
-func (pp *Pool) ParseDateTime(key string, val string) (t time.Time, err error) {
+// Detect date format for each key at the first message.
+// Return time in UTC.
+// Return Epoch if parsing fail.
+func (pp *Pool) ParseDateTime(key string, val string) (t time.Time) {
+	var err error
 	var layout string
 	var lay interface{}
 	var ok bool
@@ -145,11 +148,12 @@ func (pp *Pool) ParseDateTime(key string, val string) (t time.Time, err error) {
 		pp.knownLayouts.Store(key, nil)
 	}
 	if lay == nil {
-		err = errors.Errorf("cannot parse time %s at field %s", strconv.Quote(val), key)
+		t = Epoch
 		return
 	}
 	layout, _ = lay.(string)
 	if t, err = time.ParseInLocation(layout, val, pp.timeZone); err != nil {
+		t = Epoch
 		return
 	}
 	t = t.In(time.UTC)

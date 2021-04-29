@@ -242,7 +242,7 @@ func TestParserDateTime(t *testing.T) {
 		{"time_sec_rfc3339_2", false, time.Date(2019, 12, 16, 12, 10, 30, 0, time.FixedZone("CST", 8*60*60)).In(time.UTC), nil},
 		{"time_sec_clickhouse_1", false, time.Date(2019, 12, 16, 12, 10, 30, 0, time.Local).In(time.UTC), nil},
 		{"not_exist", false, Epoch, nil},
-		{"array_int", false, nil, ErrParse},
+		{"array_int", false, Epoch, nil},
 	}
 	doTestSimple(t, "GetDateTime", testCases)
 }
@@ -253,7 +253,7 @@ func TestParserDateTime64(t *testing.T) {
 		{"time_ms_rfc3339_2", false, time.Date(2019, 12, 16, 12, 10, 30, 123000000, time.FixedZone("CST", 8*60*60)).In(time.UTC), nil},
 		{"time_ms_clickhouse_1", false, time.Date(2019, 12, 16, 12, 10, 30, 123000000, time.Local).In(time.UTC), nil},
 		{"not_exist", false, Epoch, nil},
-		{"array_int", false, nil, ErrParse},
+		{"array_int", false, Epoch, nil},
 	}
 	doTestSimple(t, "GetDateTime64", testCases)
 }
