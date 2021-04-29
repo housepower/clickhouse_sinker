@@ -230,6 +230,7 @@ func (service *Service) put(msg model.InputMessage) {
 		var row *model.Row
 		var foundNewKeys bool
 		var metric model.Metric
+		defer statistics.ParsingPoolBacklog.WithLabelValues(taskCfg.Name).Dec()
 		p := service.pp.Get()
 		metric, err = p.Parse(msg.Value)
 		if err == nil {
