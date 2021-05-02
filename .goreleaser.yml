@@ -13,14 +13,14 @@ builds:
     goos:
       - linux
     main: cmd/clickhouse_sinker/main.go
-    binary: clickhouse_sinker
+    binary: dist/clickhouse_sinker
   - id: nacos_publish_config
     env:
       - CGO_ENABLED=0
     goos:
       - linux
     main: cmd/nacos_publish_config/main.go
-    binary: nacos_publish_config
+    binary: dist/nacos_publish_config
 dockers:
   -
     binaries:
