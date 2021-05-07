@@ -47,9 +47,9 @@ sudo docker cp send.sh kafka:/tmp/
 sudo docker exec kafka sh /tmp/send.sh
 
 echo "start clickhouse_sinker to consume"
-timeout 30 ./dist/clickhouse_sinker --local-cfg-file docker/test_fixed_schema.json
-timeout 30 ./dist/clickhouse_sinker --local-cfg-file docker/test_auto_schema.json
-timeout 60 ./dist/clickhouse_sinker --local-cfg-file docker/test_dynamic_schema.json
+timeout 30 ./clickhouse_sinker --local-cfg-file docker/test_fixed_schema.json
+timeout 30 ./clickhouse_sinker --local-cfg-file docker/test_auto_schema.json
+timeout 60 ./clickhouse_sinker --local-cfg-file docker/test_dynamic_schema.json
 
 echo "check result"
 count=`curl "localhost:8123" -d 'select count() from test_fixed_schema'`
@@ -79,14 +79,14 @@ curl "localhost:8123" -d 'TRUNCATE TABLE test_auto_schema'
 curl "localhost:8123" -d 'TRUNCATE TABLE test_dynamic_schema'
 
 echo "publish clickhouse_sinker config"
-./dist/nacos_publish_config --nacos-addr 127.0.0.1:8848 --nacos-username nacos --nacos-password nacos  --nacos-dataid test_fixed_schema --local-cfg-file docker/test_fixed_schema.json
-./dist/nacos_publish_config --nacos-addr 127.0.0.1:8848 --nacos-username nacos --nacos-password nacos  --nacos-dataid test_auto_schema --local-cfg-file docker/test_auto_schema.json
-./dist/nacos_publish_config --nacos-addr 127.0.0.1:8848 --nacos-username nacos --nacos-password nacos  --nacos-dataid test_dynamic_schema --local-cfg-file docker/test_dynamic_schema.json
+./nacos_publish_config --nacos-addr 127.0.0.1:8848 --nacos-username nacos --nacos-password nacos  --nacos-dataid test_fixed_schema --local-cfg-file docker/test_fixed_schema.json
+./nacos_publish_config --nacos-addr 127.0.0.1:8848 --nacos-username nacos --nacos-password nacos  --nacos-dataid test_auto_schema --local-cfg-file docker/test_auto_schema.json
+./nacos_publish_config --nacos-addr 127.0.0.1:8848 --nacos-username nacos --nacos-password nacos  --nacos-dataid test_dynamic_schema --local-cfg-file docker/test_dynamic_schema.json
 
 echo "start clickhouse_sinker to consume"
-timeout 30 ./dist/clickhouse_sinker --nacos-addr 127.0.0.1:8848 --nacos-username nacos --nacos-password nacos --nacos-dataid test_fixed_schema
-timeout 30 ./dist/clickhouse_sinker --nacos-addr 127.0.0.1:8848 --nacos-username nacos --nacos-password nacos --nacos-dataid test_auto_schema
-timeout 30 ./dist/clickhouse_sinker --nacos-addr 127.0.0.1:8848 --nacos-username nacos --nacos-password nacos --nacos-dataid test_dynamic_schema
+timeout 30 ./clickhouse_sinker --nacos-addr 127.0.0.1:8848 --nacos-username nacos --nacos-password nacos --nacos-dataid test_fixed_schema
+timeout 30 ./clickhouse_sinker --nacos-addr 127.0.0.1:8848 --nacos-username nacos --nacos-password nacos --nacos-dataid test_auto_schema
+timeout 30 ./clickhouse_sinker --nacos-addr 127.0.0.1:8848 --nacos-username nacos --nacos-password nacos --nacos-dataid test_dynamic_schema
 
 echo "check result"
 count=`curl "localhost:8123" -d 'select count() from test_fixed_schema'`

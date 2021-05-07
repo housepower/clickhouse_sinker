@@ -9,11 +9,11 @@ GOBUILD   := $(GO) build $(BUILD_FLAG)
 pre:
 	go mod tidy
 build: pre
-	$(GOBUILD) -ldflags '$(SINKER_LDFLAGS)' -o dist/clickhouse_sinker cmd/clickhouse_sinker/main.go
-	$(GOBUILD) -ldflags '$(SINKER_LDFLAGS)' -o dist/nacos_publish_config cmd/nacos_publish_config/main.go
+	$(GOBUILD) -ldflags '$(SINKER_LDFLAGS)' -o clickhouse_sinker cmd/clickhouse_sinker/main.go
+	$(GOBUILD) -ldflags '$(SINKER_LDFLAGS)' -o nacos_publish_config cmd/nacos_publish_config/main.go
 debug: pre
-	$(GOBUILD) -ldflags '$(SINKER_LDFLAGS)' -gcflags "all=-N -l" -o dist/clickhouse_sinker cmd/clickhouse_sinker/main.go
-	$(GOBUILD) -ldflags '$(SINKER_LDFLAGS)' -gcflags "all=-N -l" -o dist/nacos_publish_config cmd/nacos_publish_config/main.go
+	$(GOBUILD) -ldflags '$(SINKER_LDFLAGS)' -gcflags "all=-N -l" -o clickhouse_sinker cmd/clickhouse_sinker/main.go
+	$(GOBUILD) -ldflags '$(SINKER_LDFLAGS)' -gcflags "all=-N -l" -o nacos_publish_config cmd/nacos_publish_config/main.go
 unittest: pre
 	go test -v ./...
 benchtest: pre
