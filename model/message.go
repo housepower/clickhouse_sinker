@@ -170,9 +170,8 @@ func PutRow(r *Row) {
 	rowPool.Put(r)
 }
 
-func MetricToRow(metric Metric, msg InputMessage, dims []*ColumnWithType) (row *Row, err error) {
+func MetricToRow(metric Metric, msg InputMessage, dims []*ColumnWithType) (row *Row) {
 	row = GetRow()
-	var val interface{}
 	for _, dim := range dims {
 		if strings.HasPrefix(dim.Name, "__kafka") {
 			if strings.HasSuffix(dim.Name, "_topic") {
@@ -183,11 +182,7 @@ func MetricToRow(metric Metric, msg InputMessage, dims []*ColumnWithType) (row *
 				*row = append(*row, msg.Offset)
 			}
 		} else {
-			if val, err = GetValueByType(metric, dim); err != nil {
-				PutRow(row)
-				row = nil
-				return
-			}
+			val := GetValueByType(metric, dim)
 			*row = append(*row, val)
 		}
 	}

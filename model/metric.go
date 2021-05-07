@@ -21,14 +21,14 @@ import (
 
 // Metric interface for metric collection
 type Metric interface {
-	GetString(key string, nullable bool) (val interface{}, err error)
-	GetFloat(key string, nullable bool) (val interface{}, err error)
-	GetInt(key string, nullable bool) (val interface{}, err error)
-	GetDate(key string, nullable bool) (val interface{}, err error)
-	GetDateTime(key string, nullable bool) (val interface{}, err error)
-	GetDateTime64(key string, nullable bool) (val interface{}, err error)
-	GetElasticDateTime(key string, nullable bool) (val interface{}, err error)
-	GetArray(key string, t string) (val interface{}, err error)
+	GetString(key string, nullable bool) (val interface{})
+	GetFloat(key string, nullable bool) (val interface{})
+	GetInt(key string, nullable bool) (val interface{})
+	GetDate(key string, nullable bool) (val interface{})
+	GetDateTime(key string, nullable bool) (val interface{})
+	GetDateTime64(key string, nullable bool) (val interface{})
+	GetElasticDateTime(key string, nullable bool) (val interface{})
+	GetArray(key string, t string) (val interface{})
 	GetNewKeys(knownKeys *sync.Map, newKeys *sync.Map) bool
 }
 

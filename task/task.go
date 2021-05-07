@@ -80,7 +80,6 @@ func NewTaskService(inputer input.Inputer, clickhouse *output.ClickHouse, pp *pa
 }
 
 // Init initializes the kafak and clickhouse task associated with this service
-
 func (service *Service) Init() (err error) {
 	if err = service.clickhouse.Init(); err != nil {
 		return
@@ -234,7 +233,7 @@ func (service *Service) put(msg model.InputMessage) {
 		p := service.pp.Get()
 		metric, err = p.Parse(msg.Value)
 		if err == nil {
-			row, err = model.MetricToRow(metric, msg, service.dims)
+			row = model.MetricToRow(metric, msg, service.dims)
 		}
 		// WARNNING: Always PutElem even if there's parsing error, so that this message can be acked to Kafka and skipped writing to ClickHouse.
 		if err != nil {

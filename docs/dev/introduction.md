@@ -33,6 +33,18 @@ Refers to [design](./design.md) for how it works.
 - [x] Nullable(T), where T is one of above basic types
 - [x] [ElasticDateTime](https://www.elastic.co/guide/en/elasticsearch/reference/current/date.html) => Int64 (2019-12-16T12:10:30Z => 1576498230)
 
+Note:
+- A message is ignored if it's invalid json, or CSV value doesn't match with the format. This is counted by `ParseMsgsErrorTotal`.
+- If a message field value doesn't match with the type `T` declared in ClickHouse, the default value of `T` (see the following table) is filled.
+
+| ClickHouse data type | default value |
+| -------------------- |:-------------:|
+| Int8, Int16, ...     | 0             |
+| Float32, Float64     | 0.0           |
+| String, ...          | ""            |
+| Date, DateTime, ...  | EPOCH         |
+| Nullable(T)          | NULL          |
+| Array(T)             | []            |
 
 
 ## Configuration

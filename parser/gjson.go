@@ -19,7 +19,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pkg/errors"
 	"github.com/tidwall/gjson"
 
 	"github.com/housepower/clickhouse_sinker/model"
@@ -41,7 +40,7 @@ type GjsonMetric struct {
 	raw string
 }
 
-func (c *GjsonMetric) GetString(key string, nullable bool) (val interface{}, err error) {
+func (c *GjsonMetric) GetString(key string, nullable bool) (val interface{}) {
 	r := gjson.Get(c.raw, key)
 	if !r.Exists() || r.Type == gjson.Null {
 		if nullable {
@@ -50,12 +49,11 @@ func (c *GjsonMetric) GetString(key string, nullable bool) (val interface{}, err
 		val = ""
 		return
 	}
-	// Everything can be converted to string.
 	val = r.String()
 	return
 }
 
-func (c *GjsonMetric) GetFloat(key string, nullable bool) (val interface{}, err error) {
+func (c *GjsonMetric) GetFloat(key string, nullable bool) (val interface{}) {
 	r := gjson.Get(c.raw, key)
 	if !r.Exists() || r.Type == gjson.Null {
 		if nullable {
@@ -68,12 +66,12 @@ func (c *GjsonMetric) GetFloat(key string, nullable bool) (val interface{}, err 
 	case gjson.Number:
 		val = r.Num
 	default:
-		err = errors.Errorf("value doesn't contain number, it contains %s", r.Type.String())
+		val = float64(0.0)
 	}
 	return
 }
 
-func (c *GjsonMetric) GetInt(key string, nullable bool) (val interface{}, err error) {
+func (c *GjsonMetric) GetInt(key string, nullable bool) (val interface{}) {
 	r := gjson.Get(c.raw, key)
 	if !r.Exists() || r.Type == gjson.Null {
 		if nullable {
@@ -86,16 +84,16 @@ func (c *GjsonMetric) GetInt(key string, nullable bool) (val interface{}, err er
 	case gjson.Number:
 		val = int64(r.Num)
 	default:
-		err = errors.Errorf("value doesn't contain number, it contains %s", r.Type.String())
+		val = int64(0)
 	}
 	return
 }
 
-func (c *GjsonMetric) GetDate(key string, nullable bool) (val interface{}, err error) {
+func (c *GjsonMetric) GetDate(key string, nullable bool) (val interface{}) {
 	return c.GetDateTime(key, nullable)
 }
 
-func (c *GjsonMetric) GetDateTime(key string, nullable bool) (val interface{}, err error) {
+func (c *GjsonMetric) GetDateTime(key string, nullable bool) (val interface{}) {
 	r := gjson.Get(c.raw, key)
 	if !r.Exists() || r.Type == gjson.Null {
 		if nullable {
@@ -115,46 +113,30 @@ func (c *GjsonMetric) GetDateTime(key string, nullable bool) (val interface{}, e
 	return
 }
 
-func (c *GjsonMetric) GetDateTime64(key string, nullable bool) (val interface{}, err error) {
+func (c *GjsonMetric) GetDateTime64(key string, nullable bool) (val interface{}) {
 	return c.GetDateTime(key, nullable)
 }
 
-func (c *GjsonMetric) GetElasticDateTime(key string, nullable bool) (val interface{}, err error) {
-	var t interface{}
-	if t, err = c.GetDateTime(key, nullable); err != nil {
-		return
-	}
+func (c *GjsonMetric) GetElasticDateTime(key string, nullable bool) (val interface{}) {
+	t := c.GetDateTime(key, nullable)
 	if t != nil {
 		val = t.(time.Time).Unix()
 	}
 	return
 }
 
-func (c *GjsonMetric) GetArray(key string, t string) (val interface{}, err error) {
+func (c *GjsonMetric) GetArray(key string, t string) (val interface{}) {
 	r := gjson.Get(c.raw, key)
-	if !r.Exists() || r.Type == gjson.Null {
-		switch t {
-		case "int":
-			val = []int64{}
-		case "float":
-			val = []float64{}
-		case "string":
-			val = []string{}
-		default:
-			panic("LOGIC ERROR: not supported array type " + t)
-		}
-		return
-	}
-	if r.Type != gjson.JSON {
-		err = errors.Errorf("value doesn't contain json, it contains %s", r.Type.String())
+	if !r.Exists() || r.Type != gjson.JSON {
+		val = makeArray(t)
 		return
 	}
 	array := r.Array()
 	switch t {
-	case "string":
-		results := make([]string, 0, len(array))
+	case "int":
+		results := make([]int64, 0, len(array))
 		for _, s := range array {
-			results = append(results, s.String())
+			results = append(results, s.Int())
 		}
 		val = results
 	case "float":
@@ -164,10 +146,10 @@ func (c *GjsonMetric) GetArray(key string, t string) (val interface{}, err error
 			results = append(results, s.Float())
 		}
 		val = results
-	case "int":
-		results := make([]int64, 0, len(array))
+	case "string":
+		results := make([]string, 0, len(array))
 		for _, s := range array {
-			results = append(results, s.Int())
+			results = append(results, s.String())
 		}
 		val = results
 	default:

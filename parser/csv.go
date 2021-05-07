@@ -17,7 +17,6 @@ package parser
 import (
 	"bytes"
 	"encoding/csv"
-	"io"
 	"strconv"
 	"strings"
 	"sync"
@@ -46,6 +45,10 @@ func (p *CsvParser) Parse(bs []byte) (metric model.Metric, err error) {
 		err = errors.Wrap(err, "")
 		return
 	}
+	if len(value) != len(p.pp.csvFormat) {
+		err = errors.Errorf("csv value doesn't match the format")
+		return
+	}
 	metric = &CsvMetric{p.pp, value}
 	return
 }
@@ -57,7 +60,7 @@ type CsvMetric struct {
 }
 
 // GetString get the value as string
-func (c *CsvMetric) GetString(key string, nullable bool) (val interface{}, err error) {
+func (c *CsvMetric) GetString(key string, nullable bool) (val interface{}) {
 	var idx int
 	var ok bool
 	if idx, ok = c.pp.csvFormat[key]; !ok {
@@ -72,7 +75,7 @@ func (c *CsvMetric) GetString(key string, nullable bool) (val interface{}, err e
 }
 
 // GetFloat returns the value as float
-func (c *CsvMetric) GetFloat(key string, nullable bool) (val interface{}, err error) {
+func (c *CsvMetric) GetFloat(key string, nullable bool) (val interface{}) {
 	var idx int
 	var ok bool
 	if idx, ok = c.pp.csvFormat[key]; !ok {
@@ -82,12 +85,12 @@ func (c *CsvMetric) GetFloat(key string, nullable bool) (val interface{}, err er
 		val = float64(0.0)
 		return
 	}
-	val, err = strconv.ParseFloat(c.values[idx], 64)
+	val, _ = strconv.ParseFloat(c.values[idx], 64)
 	return
 }
 
 // GetInt returns int
-func (c *CsvMetric) GetInt(key string, nullable bool) (val interface{}, err error) {
+func (c *CsvMetric) GetInt(key string, nullable bool) (val interface{}) {
 	var idx int
 	var ok bool
 	if idx, ok = c.pp.csvFormat[key]; !ok {
@@ -97,15 +100,15 @@ func (c *CsvMetric) GetInt(key string, nullable bool) (val interface{}, err erro
 		val = int64(0)
 		return
 	}
-	val, err = strconv.ParseInt(c.values[idx], 10, 64)
+	val, _ = strconv.ParseInt(c.values[idx], 10, 64)
 	return
 }
 
-func (c *CsvMetric) GetDate(key string, nullable bool) (val interface{}, err error) {
+func (c *CsvMetric) GetDate(key string, nullable bool) (val interface{}) {
 	return c.GetDateTime(key, nullable)
 }
 
-func (c *CsvMetric) GetDateTime(key string, nullable bool) (val interface{}, err error) {
+func (c *CsvMetric) GetDateTime(key string, nullable bool) (val interface{}) {
 	var idx int
 	var ok bool
 	if idx, ok = c.pp.csvFormat[key]; !ok {
@@ -119,15 +122,12 @@ func (c *CsvMetric) GetDateTime(key string, nullable bool) (val interface{}, err
 	return
 }
 
-func (c *CsvMetric) GetDateTime64(key string, nullable bool) (val interface{}, err error) {
+func (c *CsvMetric) GetDateTime64(key string, nullable bool) (val interface{}) {
 	return c.GetDateTime(key, nullable)
 }
 
-func (c *CsvMetric) GetElasticDateTime(key string, nullable bool) (val interface{}, err error) {
-	var t interface{}
-	if t, err = c.GetDateTime(key, nullable); err != nil {
-		return
-	}
+func (c *CsvMetric) GetElasticDateTime(key string, nullable bool) (val interface{}) {
+	t := c.GetDateTime(key, nullable)
 	if t != nil {
 		val = t.(time.Time).Unix()
 	}
@@ -135,34 +135,20 @@ func (c *CsvMetric) GetElasticDateTime(key string, nullable bool) (val interface
 }
 
 // GetArray parse an CSV encoded array
-func (c *CsvMetric) GetArray(key string, t string) (val interface{}, err error) {
-	var s interface{}
+func (c *CsvMetric) GetArray(key string, t string) (val interface{}) {
+	var err error
 	var array []string
 	var r *csv.Reader
-	if s, err = c.GetString(key, false); err != nil {
-		return
-	}
+	s := c.GetString(key, false)
 	str, _ := s.(string)
 	strLen := len(str)
 	if str == "" || str[0] != '[' || str[strLen-1] != ']' {
-		err = errors.Errorf("GetArray %s got unexpected value %s", key, str)
+		val = makeArray(t)
 		return
 	}
 	r = csv.NewReader(strings.NewReader(str[1 : strLen-1]))
 	if array, err = r.Read(); err != nil {
-		if errors.Is(err, io.EOF) {
-			err = nil
-			switch t {
-			case "int":
-				val = []int64{}
-			case "float":
-				val = []float64{}
-			case "string":
-				val = []string{}
-			default:
-				panic("LOGIC ERROR: not supported array type " + t)
-			}
-		}
+		val = makeArray(t)
 		return
 	}
 	switch t {
@@ -170,20 +156,18 @@ func (c *CsvMetric) GetArray(key string, t string) (val interface{}, err error) 
 		results := make([]int64, 0, len(array))
 		var v int64
 		for _, e := range array {
-			if v, err = strconv.ParseInt(e, 10, 64); err != nil {
-				return
+			if v, err = strconv.ParseInt(e, 10, 64); err == nil {
+				results = append(results, v)
 			}
-			results = append(results, v)
 		}
 		val = results
 	case "float":
 		results := make([]float64, 0, len(array))
 		var v float64
 		for _, e := range array {
-			if v, err = strconv.ParseFloat(e, 64); err != nil {
-				return
+			if v, err = strconv.ParseFloat(e, 64); err == nil {
+				results = append(results, v)
 			}
-			results = append(results, v)
 		}
 		val = results
 	case "string":

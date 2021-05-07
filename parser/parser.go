@@ -15,7 +15,6 @@ limitations under the License.
 package parser
 
 import (
-	"encoding/json"
 	"sync"
 	"time"
 
@@ -160,7 +159,16 @@ func (pp *Pool) ParseDateTime(key string, val string) (t time.Time) {
 	return
 }
 
-func GetJSONShortStr(v interface{}) string {
-	bs, _ := json.Marshal(v)
-	return string(bs)
+func makeArray(typ string) (val interface{}) {
+	switch typ {
+	case "int":
+		val = []int64{}
+	case "float":
+		val = []float64{}
+	case "string":
+		val = []string{}
+	default:
+		panic("LOGIC ERROR: not supported array type " + typ)
+	}
+	return
 }

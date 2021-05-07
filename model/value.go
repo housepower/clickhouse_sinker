@@ -16,8 +16,6 @@ package model
 
 import (
 	"strings"
-
-	"github.com/pkg/errors"
 )
 
 const (
@@ -43,34 +41,31 @@ var (
 )
 
 // There are only three cases for the value type of metric, (float64, string, map [string] interface {})
-func GetValueByType(metric Metric, cwt *ColumnWithType) (val interface{}, err error) {
+func GetValueByType(metric Metric, cwt *ColumnWithType) (val interface{}) {
 	name := cwt.SourceName
 	switch cwt.Type {
 	case Int:
-		val, err = metric.GetInt(name, cwt.Nullable)
+		val = metric.GetInt(name, cwt.Nullable)
 	case Float:
-		val, err = metric.GetFloat(name, cwt.Nullable)
+		val = metric.GetFloat(name, cwt.Nullable)
 	case String:
-		val, err = metric.GetString(name, cwt.Nullable)
+		val = metric.GetString(name, cwt.Nullable)
 	case IntArray:
-		val, err = metric.GetArray(name, "int")
+		val = metric.GetArray(name, "int")
 	case FloatArray:
-		val, err = metric.GetArray(name, "float")
+		val = metric.GetArray(name, "float")
 	case StringArray:
-		val, err = metric.GetArray(name, "string")
+		val = metric.GetArray(name, "string")
 	case Date:
-		val, err = metric.GetDate(name, cwt.Nullable)
+		val = metric.GetDate(name, cwt.Nullable)
 	case DateTime:
-		val, err = metric.GetDateTime(name, cwt.Nullable)
+		val = metric.GetDateTime(name, cwt.Nullable)
 	case DateTime64:
-		val, err = metric.GetDateTime64(name, cwt.Nullable)
+		val = metric.GetDateTime64(name, cwt.Nullable)
 	case ElasticDateTime:
-		val, err = metric.GetElasticDateTime(name, cwt.Nullable)
+		val = metric.GetElasticDateTime(name, cwt.Nullable)
 	default:
 		panic("BUG: reached switch default condition")
-	}
-	if err != nil {
-		err = errors.Errorf(name + " " + err.Error())
 	}
 	return
 }
