@@ -16,12 +16,14 @@ limitations under the License.
 package parser
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
 	"github.com/tidwall/gjson"
 
 	"github.com/housepower/clickhouse_sinker/model"
+	"github.com/housepower/clickhouse_sinker/util"
 )
 
 var _ Parser = (*GjsonParser)(nil)
@@ -89,10 +91,6 @@ func (c *GjsonMetric) GetInt(key string, nullable bool) (val interface{}) {
 	return
 }
 
-func (c *GjsonMetric) GetDate(key string, nullable bool) (val interface{}) {
-	return c.GetDateTime(key, nullable)
-}
-
 func (c *GjsonMetric) GetDateTime(key string, nullable bool) (val interface{}) {
 	r := gjson.Get(c.raw, key)
 	if !r.Exists() || r.Type == gjson.Null {
@@ -113,10 +111,6 @@ func (c *GjsonMetric) GetDateTime(key string, nullable bool) (val interface{}) {
 	return
 }
 
-func (c *GjsonMetric) GetDateTime64(key string, nullable bool) (val interface{}) {
-	return c.GetDateTime(key, nullable)
-}
-
 func (c *GjsonMetric) GetElasticDateTime(key string, nullable bool) (val interface{}) {
 	t := c.GetDateTime(key, nullable)
 	if t != nil {
@@ -125,35 +119,42 @@ func (c *GjsonMetric) GetElasticDateTime(key string, nullable bool) (val interfa
 	return
 }
 
-func (c *GjsonMetric) GetArray(key string, t string) (val interface{}) {
+func (c *GjsonMetric) GetArray(key string, typ int) (val interface{}) {
 	r := gjson.Get(c.raw, key)
 	if !r.Exists() || r.Type != gjson.JSON {
-		val = makeArray(t)
+		val = makeArray(typ)
 		return
 	}
 	array := r.Array()
-	switch t {
-	case "int":
+	switch typ {
+	case model.Int:
 		results := make([]int64, 0, len(array))
-		for _, s := range array {
-			results = append(results, s.Int())
+		for _, e := range array {
+			results = append(results, e.Int())
 		}
 		val = results
-	case "float":
+	case model.Float:
 		results := make([]float64, 0, len(array))
 
-		for _, s := range array {
-			results = append(results, s.Float())
+		for _, e := range array {
+			results = append(results, e.Float())
 		}
 		val = results
-	case "string":
+	case model.String:
 		results := make([]string, 0, len(array))
-		for _, s := range array {
-			results = append(results, s.String())
+		for _, e := range array {
+			results = append(results, e.String())
+		}
+		val = results
+	case model.DateTime:
+		results := make([]time.Time, 0, len(array))
+		for _, e := range array {
+			t := c.pp.ParseDateTime(key, e.String())
+			results = append(results, t)
 		}
 		val = results
 	default:
-		panic("LOGIC ERROR: not supported array type " + t)
+		util.Logger.Fatal(fmt.Sprintf("LOGIC ERROR: unsupported array type %v", typ))
 	}
 	return
 }

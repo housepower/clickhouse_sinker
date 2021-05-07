@@ -15,20 +15,23 @@ limitations under the License.
 package model
 
 import (
+	"fmt"
 	"strings"
+
+	"github.com/housepower/clickhouse_sinker/util"
 )
 
 const (
-	Int = iota
+	TypeUnknown = iota
+	Int
 	Float
 	String
+	DateTime
+	ElasticDateTime
 	IntArray
 	FloatArray
 	StringArray
-	Date
-	DateTime
-	DateTime64
-	ElasticDateTime
+	DateTimeArray
 )
 
 type TypeInfo struct {
@@ -50,22 +53,20 @@ func GetValueByType(metric Metric, cwt *ColumnWithType) (val interface{}) {
 		val = metric.GetFloat(name, cwt.Nullable)
 	case String:
 		val = metric.GetString(name, cwt.Nullable)
-	case IntArray:
-		val = metric.GetArray(name, "int")
-	case FloatArray:
-		val = metric.GetArray(name, "float")
-	case StringArray:
-		val = metric.GetArray(name, "string")
-	case Date:
-		val = metric.GetDate(name, cwt.Nullable)
 	case DateTime:
 		val = metric.GetDateTime(name, cwt.Nullable)
-	case DateTime64:
-		val = metric.GetDateTime64(name, cwt.Nullable)
 	case ElasticDateTime:
 		val = metric.GetElasticDateTime(name, cwt.Nullable)
+	case IntArray:
+		val = metric.GetArray(name, Int)
+	case FloatArray:
+		val = metric.GetArray(name, Float)
+	case StringArray:
+		val = metric.GetArray(name, String)
+	case DateTimeArray:
+		val = metric.GetArray(name, DateTime)
 	default:
-		panic("BUG: reached switch default condition")
+		util.Logger.Fatal("LOGIC ERROR: reached switch default condition")
 	}
 	return
 }
@@ -81,54 +82,45 @@ func WhichType(typ string) (dataType int, nullable bool) {
 		typ = typ[len("Nullable(") : len(typ)-1]
 	}
 	if strings.HasPrefix(typ, "DateTime64") {
-		dataType = DateTime64
-	} else if strings.HasPrefix(typ, "DateTime") {
 		dataType = DateTime
 	} else {
-		panic("unsupported ClickHouse data type " + typ)
+		util.Logger.Fatal(fmt.Sprintf("LOGIC ERROR: unsupported ClickHouse data type %v", typ))
 	}
 	typeInfo[typ] = TypeInfo{Type: dataType, Nullable: nullable}
 	return
 }
 
 func init() {
+	primTypeInfo := make(map[string]TypeInfo)
 	typeInfo = make(map[string]TypeInfo)
 	for _, t := range []string{"UInt8", "UInt16", "UInt32", "UInt64", "Int8",
 		"Int16", "Int32", "Int64"} {
-		typeInfo[t] = TypeInfo{Type: Int, Nullable: false}
-	}
-	for _, t := range []string{"Nullable(UInt8)", "Nullable(UInt16)", "Nullable(UInt32)", "Nullable(UInt64)",
-		"Nullable(Int8)", "Nullable(Int16)", "Nullable(Int32)", "Nullable(Int64)"} {
-		typeInfo[t] = TypeInfo{Type: Int, Nullable: true}
+		primTypeInfo[t] = TypeInfo{Type: Int, Nullable: false}
 	}
 	for _, t := range []string{"Float32", "Float64"} {
-		typeInfo[t] = TypeInfo{Type: Float, Nullable: false}
-	}
-	for _, t := range []string{"Nullable(Float32)", "Nullable(Float64)"} {
-		typeInfo[t] = TypeInfo{Type: Float, Nullable: true}
+		primTypeInfo[t] = TypeInfo{Type: Float, Nullable: false}
 	}
 	for _, t := range []string{"String", "FixedString"} {
-		typeInfo[t] = TypeInfo{Type: String, Nullable: false}
+		primTypeInfo[t] = TypeInfo{Type: String, Nullable: false}
 	}
-	for _, t := range []string{"Nullable(String)", "Nullable(FixedString)"} {
-		typeInfo[t] = TypeInfo{Type: String, Nullable: true}
+	for _, t := range []string{"Date", "DateTime", "DateTime64"} {
+		primTypeInfo[t] = TypeInfo{Type: DateTime, Nullable: false}
 	}
-	for _, t := range []string{"Array(UInt8)", "Array(UInt16)", "Array(UInt32)",
-		"Array(UInt64)", "Array(Int8)", "Array(Int16)", "Array(Int32)", "Array(Int64)"} {
-		typeInfo[t] = TypeInfo{Type: IntArray, Nullable: false}
+	primTypeInfo["ElasticDateTime"] = TypeInfo{Type: ElasticDateTime, Nullable: false}
+	for k, v := range primTypeInfo {
+		typeInfo[k] = v
+		nullK := fmt.Sprintf("Nullable(%s)", k)
+		typeInfo[nullK] = TypeInfo{Type: v.Type, Nullable: true}
+		arrK := fmt.Sprintf("Array(%s)", k)
+		switch v.Type {
+		case Int:
+			typeInfo[arrK] = TypeInfo{Type: IntArray, Nullable: false}
+		case Float:
+			typeInfo[arrK] = TypeInfo{Type: FloatArray, Nullable: false}
+		case String:
+			typeInfo[arrK] = TypeInfo{Type: StringArray, Nullable: false}
+		case DateTime:
+			typeInfo[arrK] = TypeInfo{Type: DateTimeArray, Nullable: false}
+		}
 	}
-	for _, t := range []string{"Array(Float32)", "Array(Float64)"} {
-		typeInfo[t] = TypeInfo{Type: FloatArray, Nullable: false}
-	}
-	for _, t := range []string{"Array(String)", "Array(FixedString)"} {
-		typeInfo[t] = TypeInfo{Type: StringArray, Nullable: false}
-	}
-	typeInfo["Date"] = TypeInfo{Type: Date, Nullable: false}
-	typeInfo["Nullable(Date)"] = TypeInfo{Type: Date, Nullable: true}
-	typeInfo["DateTime"] = TypeInfo{Type: DateTime, Nullable: false}
-	typeInfo["Nullable(DateTime)"] = TypeInfo{Type: DateTime, Nullable: true}
-	typeInfo["DateTime64"] = TypeInfo{Type: DateTime64, Nullable: false}
-	typeInfo["Nullable(DateTime64)"] = TypeInfo{Type: DateTime64, Nullable: true}
-	typeInfo["ElasticDateTime"] = TypeInfo{Type: ElasticDateTime, Nullable: false}
-	typeInfo["Nullable(ElasticDateTime)"] = TypeInfo{Type: ElasticDateTime, Nullable: true}
 }

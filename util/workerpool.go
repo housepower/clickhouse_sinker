@@ -28,10 +28,10 @@ type WorkerPool struct {
 // New creates and starts a pool of worker goroutines.
 func NewWorkerPool(maxWorkers int, queueSize int) *WorkerPool {
 	if maxWorkers <= 0 {
-		panic("WorkerNum must be greater than zero")
+		Logger.Fatal("WorkerNum must be greater than zero")
 	}
 	if queueSize <= 0 {
-		panic("queueSize must be greater than zero")
+		Logger.Fatal("queueSize must be greater than zero")
 	}
 
 	w := &WorkerPool{

@@ -17,12 +17,14 @@ package parser
 import (
 	"bytes"
 	"encoding/csv"
+	"fmt"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/housepower/clickhouse_sinker/model"
+	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/pkg/errors"
 )
 
@@ -104,10 +106,6 @@ func (c *CsvMetric) GetInt(key string, nullable bool) (val interface{}) {
 	return
 }
 
-func (c *CsvMetric) GetDate(key string, nullable bool) (val interface{}) {
-	return c.GetDateTime(key, nullable)
-}
-
 func (c *CsvMetric) GetDateTime(key string, nullable bool) (val interface{}) {
 	var idx int
 	var ok bool
@@ -122,10 +120,6 @@ func (c *CsvMetric) GetDateTime(key string, nullable bool) (val interface{}) {
 	return
 }
 
-func (c *CsvMetric) GetDateTime64(key string, nullable bool) (val interface{}) {
-	return c.GetDateTime(key, nullable)
-}
-
 func (c *CsvMetric) GetElasticDateTime(key string, nullable bool) (val interface{}) {
 	t := c.GetDateTime(key, nullable)
 	if t != nil {
@@ -135,7 +129,7 @@ func (c *CsvMetric) GetElasticDateTime(key string, nullable bool) (val interface
 }
 
 // GetArray parse an CSV encoded array
-func (c *CsvMetric) GetArray(key string, t string) (val interface{}) {
+func (c *CsvMetric) GetArray(key string, typ int) (val interface{}) {
 	var err error
 	var array []string
 	var r *csv.Reader
@@ -143,16 +137,16 @@ func (c *CsvMetric) GetArray(key string, t string) (val interface{}) {
 	str, _ := s.(string)
 	strLen := len(str)
 	if str == "" || str[0] != '[' || str[strLen-1] != ']' {
-		val = makeArray(t)
+		val = makeArray(typ)
 		return
 	}
 	r = csv.NewReader(strings.NewReader(str[1 : strLen-1]))
 	if array, err = r.Read(); err != nil {
-		val = makeArray(t)
+		val = makeArray(typ)
 		return
 	}
-	switch t {
-	case "int":
+	switch typ {
+	case model.Int:
 		results := make([]int64, 0, len(array))
 		var v int64
 		for _, e := range array {
@@ -161,7 +155,7 @@ func (c *CsvMetric) GetArray(key string, t string) (val interface{}) {
 			}
 		}
 		val = results
-	case "float":
+	case model.Float:
 		results := make([]float64, 0, len(array))
 		var v float64
 		for _, e := range array {
@@ -170,10 +164,17 @@ func (c *CsvMetric) GetArray(key string, t string) (val interface{}) {
 			}
 		}
 		val = results
-	case "string":
+	case model.String:
 		val = array
+	case model.DateTime:
+		results := make([]time.Time, 0, len(array))
+		for _, e := range array {
+			v := c.pp.ParseDateTime(key, e)
+			results = append(results, v)
+		}
+		val = results
 	default:
-		panic("LOGIC ERROR: not supported array type " + t)
+		util.Logger.Fatal(fmt.Sprintf("LOGIC ERROR: unsupported array type %v", typ))
 	}
 	return
 }

@@ -15,10 +15,12 @@ limitations under the License.
 package parser
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
 	"github.com/housepower/clickhouse_sinker/model"
+	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/pkg/errors"
 )
 
@@ -137,12 +139,10 @@ func (pp *Pool) ParseDateTime(key string, val string) (t time.Time) {
 	var lay interface{}
 	var ok bool
 	if lay, ok = pp.knownLayouts.Load(key); !ok {
-		for _, layout = range Layouts {
-			if t, err = time.ParseInLocation(layout, val, pp.timeZone); err == nil {
-				t = t.In(time.UTC)
-				pp.knownLayouts.Store(key, layout)
-				return
-			}
+		t, layout = parseInLocation(val, pp.timeZone)
+		if layout != "" {
+			pp.knownLayouts.Store(key, layout)
+			return
 		}
 		pp.knownLayouts.Store(key, nil)
 	}
@@ -159,16 +159,31 @@ func (pp *Pool) ParseDateTime(key string, val string) (t time.Time) {
 	return
 }
 
-func makeArray(typ string) (val interface{}) {
+func makeArray(typ int) (val interface{}) {
 	switch typ {
-	case "int":
+	case model.Int:
 		val = []int64{}
-	case "float":
+	case model.Float:
 		val = []float64{}
-	case "string":
+	case model.String:
 		val = []string{}
+	case model.DateTime:
+		val = []time.Time{}
 	default:
-		panic("LOGIC ERROR: not supported array type " + typ)
+		util.Logger.Fatal(fmt.Sprintf("LOGIC ERROR: unsupported array type %v", typ))
+	}
+	return
+}
+
+func parseInLocation(val string, loc *time.Location) (t time.Time, layout string) {
+	var err error
+	var lay string
+	for _, lay = range Layouts {
+		if t, err = time.ParseInLocation(lay, val, loc); err == nil {
+			t = t.In(time.UTC)
+			layout = lay
+			return
+		}
 	}
 	return
 }

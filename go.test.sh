@@ -31,10 +31,10 @@ for i in `seq 10001 30000`;do
     echo "{\"time\" : \"${now}\", \"name\" : \"name$i\", \"value\" : $i, \"newkey1\" : $i }"
 done >> a.json
 for i in `seq 30001 50000`;do
-    echo "{\"time\" : \"${now}\", \"name\" : \"name$i\", \"value\" : $i, \"newkey2\" : $i.123 }"
+    echo "{\"time\" : \"${now}\", \"name\" : \"name$i\", \"value\" : $i, \"newkey2\" : $i.123, \"newkey3\" : \"name$i\", \"newkey4\" : \"${now}\" }"
 done >> a.json
 for i in `seq 50001 70000`;do
-    echo "{\"time\" : \"${now}\", \"name\" : \"name$i\", \"value\" : $i, \"newkey3\" : \"name$i\" }"
+    echo "{\"time\" : \"${now}\", \"name\" : \"name$i\", \"value\" : $i, \"newkey5\" : [$i], \"newkey6\" : [$i.123], \"newkey7\" : [\"name$i\"], \"newkey8\" : [\"${now}\"] }"
 done >> a.json
 for i in `seq 70001 100000`;do
     echo "{\"time\" : \"${now}\", \"name\" : \"name$i\", \"value\" : $i }"
@@ -62,7 +62,7 @@ echo "Got test_auto_schema count => $count"
 
 schema=`curl "localhost:8123" -d 'DESC test_dynamic_schema' 2>/dev/null | grep newkey | sort | tr -d '\t' | tr '\n' ','`
 echo "Got test_dynamic_schema schema => $schema"
-[ $schema = "newkey1Nullable(Int64),newkey2Nullable(Float64),newkey3Nullable(String)," ] || exit 1
+[ $schema = "newkey1Nullable(Int64),newkey2Nullable(Float64),newkey3Nullable(String),newkey4Nullable(DateTime),newkey5Array(Int64),newkey6Array(Float64),newkey7Array(String),newkey8Array(DateTime)," ] || exit 1
 count=`curl "localhost:8123" -d 'SELECT count() FROM test_dynamic_schema'`
 echo "Got test_dynamic_schema count => $count"
 [ $count -eq 100000 ] || exit 1

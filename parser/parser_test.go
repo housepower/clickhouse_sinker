@@ -49,6 +49,7 @@ var jsonSample = []byte(`{
 	"array_int": [1,2,3],
 	"array_float": [1.1,2.2,3.3],
 	"array_string": ["aa","bb","cc"],
+	"array_date": ["2000-01-01","2000-01-02","2000-01-03"],
 	"array_empty": [],
 	"bool_true": true,
 	"bool_false": false
@@ -76,12 +77,13 @@ var jsonSchema = map[string]string{
 	"array_int":             "array",
 	"array_float":           "array",
 	"array_string":          "array",
+	"array_date":            "array",
 	"array_empty":           "array",
 	"bool_true":             "true",
 	"bool_false":            "false",
 }
 
-var csvSample = []byte(`1536813227,"0.11","escaped_""ws","{""i"":[1,2,3],""f"":[1.1,2.2,3.3],""s"":[""aa"",""bb"",""cc""],""e"":[]}",2019-12-16,2019-12-16T12:10:30Z,2019-12-16T12:10:30+08:00,2019-12-16 12:10:30,2019-12-16T12:10:30.123Z,2019-12-16T12:10:30.123+08:00,2019-12-16 12:10:30.123,"[1,2,3]","[1.1,2.2,3.3]","[""aa"",""bb"",""cc""]","[]","true","false"`)
+var csvSample = []byte(`1536813227,"0.11","escaped_""ws","{""i"":[1,2,3],""f"":[1.1,2.2,3.3],""s"":[""aa"",""bb"",""cc""],""e"":[]}",2019-12-16,2019-12-16T12:10:30Z,2019-12-16T12:10:30+08:00,2019-12-16 12:10:30,2019-12-16T12:10:30.123Z,2019-12-16T12:10:30.123+08:00,2019-12-16 12:10:30.123,"[1,2,3]","[1.1,2.2,3.3]","[""aa"",""bb"",""cc""]","[""2000-01-01"",""2000-01-02"",""2000-01-03""]","[]","true","false"`)
 
 var csvSchema = []string{
 	"its",
@@ -98,6 +100,7 @@ var csvSchema = []string{
 	"array_int",
 	"array_float",
 	"array_string",
+	"array_date",
 	"array_empty",
 	"bool_true",
 	"bool_false",
@@ -118,7 +121,7 @@ type SimpleCase struct {
 
 type ArrayCase struct {
 	Field  string
-	Type   string
+	Type   int
 	ExpVal interface{}
 }
 
@@ -176,12 +179,8 @@ func doTestSimple(t *testing.T, method string, testCases []SimpleCase) {
 				v = metric.GetFloat(testCases[j].Field, testCases[j].Nullable)
 			case "GetString":
 				v = metric.GetString(testCases[j].Field, testCases[j].Nullable)
-			case "GetDate":
-				v = metric.GetDate(testCases[j].Field, testCases[j].Nullable)
 			case "GetDateTime":
 				v = metric.GetDateTime(testCases[j].Field, testCases[j].Nullable)
-			case "GetDateTime64":
-				v = metric.GetDateTime64(testCases[j].Field, testCases[j].Nullable)
 			case "GetElasticDateTime":
 				v = metric.GetElasticDateTime(testCases[j].Field, testCases[j].Nullable)
 			default:
@@ -231,21 +230,13 @@ func TestParserDateTime(t *testing.T) {
 		{"time_sec_rfc3339_1", false, time.Date(2019, 12, 16, 12, 10, 30, 0, time.UTC)},
 		{"time_sec_rfc3339_2", false, time.Date(2019, 12, 16, 12, 10, 30, 0, time.FixedZone("CST", 8*60*60)).In(time.UTC)},
 		{"time_sec_clickhouse_1", false, time.Date(2019, 12, 16, 12, 10, 30, 0, time.Local).In(time.UTC)},
-		{"not_exist", false, Epoch},
-		{"array_int", false, Epoch},
-	}
-	doTestSimple(t, "GetDateTime", testCases)
-}
-
-func TestParserDateTime64(t *testing.T) {
-	testCases := []SimpleCase{
 		{"time_ms_rfc3339_1", false, time.Date(2019, 12, 16, 12, 10, 30, 123000000, time.UTC)},
 		{"time_ms_rfc3339_2", false, time.Date(2019, 12, 16, 12, 10, 30, 123000000, time.FixedZone("CST", 8*60*60)).In(time.UTC)},
 		{"time_ms_clickhouse_1", false, time.Date(2019, 12, 16, 12, 10, 30, 123000000, time.Local).In(time.UTC)},
 		{"not_exist", false, Epoch},
 		{"array_int", false, Epoch},
 	}
-	doTestSimple(t, "GetDateTime64", testCases)
+	doTestSimple(t, "GetDateTime", testCases)
 }
 
 func TestParserElasticDateTime(t *testing.T) {
@@ -260,12 +251,20 @@ func TestParserElasticDateTime(t *testing.T) {
 func TestParserArray(t *testing.T) {
 	initialize.Do(initMetrics)
 	require.Nil(t, initErr)
+	var ts []time.Time
+	for _, e := range []string{"2000-01-01", "2000-01-02", "2000-01-03"} {
+		t, _ := parseInLocation(e, time.Local)
+		ts = append(ts, t)
+	}
 	testCases := []ArrayCase{
-		{"array_int", "int", []int64{1, 2, 3}},
-		{"array_float", "float", []float64{1.1, 2.2, 3.3}},
-		{"array_string", "string", []string{"aa", "bb", "cc"}},
-		{"array_empty", "int", []int64{}},
-		{"array_empty", "float", []float64{}},
+		{"array_int", model.Int, []int64{1, 2, 3}},
+		{"array_float", model.Float, []float64{1.1, 2.2, 3.3}},
+		{"array_string", model.String, []string{"aa", "bb", "cc"}},
+		{"array_date", model.DateTime, ts},
+		{"array_empty", model.Int, []int64{}},
+		{"array_empty", model.Float, []float64{}},
+		{"array_empty", model.String, []string{}},
+		{"array_empty", model.DateTime, []time.Time{}},
 	}
 
 	for i := range names {
@@ -273,7 +272,7 @@ func TestParserArray(t *testing.T) {
 		metric := metrics[name]
 		for j := range testCases {
 			var v interface{}
-			desc := fmt.Sprintf(`%s GetArray("%s", "%s")`, name, testCases[j].Field, testCases[j].Type)
+			desc := fmt.Sprintf(`%s GetArray("%s", %d)`, name, testCases[j].Field, testCases[j].Type)
 			v = metric.GetArray(testCases[j].Field, testCases[j].Type)
 			require.Equal(t, testCases[j].ExpVal, v, desc)
 		}

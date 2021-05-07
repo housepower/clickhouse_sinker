@@ -23,6 +23,7 @@ import (
 	"io"
 	"math"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -243,14 +244,24 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 			return false
 		}
 		strKey, _ := key.(string)
-		strVal, _ := value.(string)
-		switch strVal {
-		case "int":
+		var strVal string
+		switch value.(int) {
+		case model.Int:
 			strVal = "Nullable(Int64)"
-		case "float":
+		case model.Float:
 			strVal = "Nullable(Float64)"
-		case "string":
+		case model.String:
 			strVal = "Nullable(String)"
+		case model.DateTime:
+			strVal = "Nullable(DateTime)"
+		case model.IntArray:
+			strVal = "Array(Int64)"
+		case model.FloatArray:
+			strVal = "Array(Float64)"
+		case model.StringArray:
+			strVal = "Array(String)"
+		case model.DateTimeArray:
+			strVal = "Array(DateTime)"
 		default:
 			err = errors.Errorf("%s: BUG: unsupported column type %s", taskCfg.Name, strVal)
 			return false
@@ -262,6 +273,7 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 	if err != nil {
 		return
 	}
+	sort.Strings(queries)
 	if chCfg.Cluster != "" {
 		var distTbls []string
 		if distTbls, err = c.getDistTbls(); err != nil {

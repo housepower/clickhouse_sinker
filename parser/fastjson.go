@@ -16,6 +16,7 @@ limitations under the License.
 package parser
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
@@ -101,10 +102,6 @@ func (c *FastjsonMetric) GetInt(key string, nullable bool) (val interface{}) {
 	return
 }
 
-func (c *FastjsonMetric) GetDate(key string, nullable bool) (val interface{}) {
-	return c.GetDateTime(key, nullable)
-}
-
 func (c *FastjsonMetric) GetDateTime(key string, nullable bool) (val interface{}) {
 	v := c.value.Get(key)
 	if v == nil || v.Type() == fastjson.TypeNull {
@@ -136,10 +133,6 @@ func (c *FastjsonMetric) GetDateTime(key string, nullable bool) (val interface{}
 	return
 }
 
-func (c *FastjsonMetric) GetDateTime64(key string, nullable bool) (val interface{}) {
-	return c.GetDateTime(key, nullable)
-}
-
 func (c *FastjsonMetric) GetElasticDateTime(key string, nullable bool) (val interface{}) {
 	t := c.GetDateTime(key, nullable)
 	if t != nil {
@@ -148,15 +141,15 @@ func (c *FastjsonMetric) GetElasticDateTime(key string, nullable bool) (val inte
 	return
 }
 
-func (c *FastjsonMetric) GetArray(key string, t string) (val interface{}) {
+func (c *FastjsonMetric) GetArray(key string, typ int) (val interface{}) {
 	v := c.value.Get(key)
 	if v == nil || v.Type() != fastjson.TypeArray {
-		val = makeArray(t)
+		val = makeArray(typ)
 		return
 	}
 	array, _ := v.Array()
-	switch t {
-	case "int":
+	switch typ {
+	case model.Int:
 		results := make([]int64, 0, len(array))
 		for _, e := range array {
 			var v int64
@@ -168,22 +161,30 @@ func (c *FastjsonMetric) GetArray(key string, t string) (val interface{}) {
 			results = append(results, v)
 		}
 		val = results
-	case "float":
+	case model.Float:
 		results := make([]float64, 0, len(array))
 		for _, e := range array {
 			v, _ := e.Float64()
 			results = append(results, v)
 		}
 		val = results
-	case "string":
+	case model.String:
 		results := make([]string, 0, len(array))
 		for _, e := range array {
 			v, _ := e.StringBytes()
 			results = append(results, string(v))
 		}
 		val = results
+	case model.DateTime:
+		results := make([]time.Time, 0, len(array))
+		for _, e := range array {
+			v, _ := e.StringBytes()
+			t := c.pp.ParseDateTime(key, string(v))
+			results = append(results, t)
+		}
+		val = results
 	default:
-		panic("LOGIC ERROR: not supported array type " + t)
+		util.Logger.Fatal(fmt.Sprintf("LOGIC ERROR: unsupported array type %v", typ))
 	}
 	return
 }
@@ -197,19 +198,43 @@ func (c *FastjsonMetric) GetNewKeys(knownKeys *sync.Map, newKeys *sync.Map) (fou
 	obj.Visit(func(key []byte, v *fastjson.Value) {
 		strKey := string(key)
 		if _, loaded := knownKeys.LoadOrStore(strKey, nil); !loaded {
-			if _, err = v.Int64(); err == nil {
-				newKeys.Store(strKey, "int")
-				foundNew = true
-			} else if _, err = v.Float64(); err == nil {
-				newKeys.Store(strKey, "float")
-				foundNew = true
-			} else if _, err = v.StringBytes(); err == nil {
-				newKeys.Store(strKey, "string")
+			if typ := fjDetectType(v); typ != model.TypeUnknown {
+				newKeys.Store(strKey, typ)
 				foundNew = true
 			} else {
-				util.Logger.Warn("FastjsonMetric.GetNewKeys found a kv not be int/float/string", zap.String("key", strKey), zap.String("value", v.String()))
+				util.Logger.Warn("FastjsonMetric.GetNewKeys failed to detect field type", zap.String("key", strKey), zap.String("value", v.String()))
 			}
 		}
 	})
+	return
+}
+
+func fjDetectType(v *fastjson.Value) (typ int) {
+	if vt := v.Type(); vt == fastjson.TypeNull {
+	} else if vt == fastjson.TypeTrue || vt == fastjson.TypeFalse {
+		typ = model.Int
+	} else if _, err := v.Int64(); err == nil {
+		typ = model.Int
+	} else if _, err := v.Float64(); err == nil {
+		typ = model.Float
+	} else if val, err := v.StringBytes(); err == nil {
+		if _, layout := parseInLocation(string(val), time.Local); layout != "" {
+			typ = model.DateTime
+		} else {
+			typ = model.String
+		}
+	} else if arr, err := v.Array(); err == nil && len(arr) > 0 {
+		typ2 := fjDetectType(arr[0])
+		switch typ2 {
+		case model.Int:
+			typ = model.IntArray
+		case model.Float:
+			typ = model.FloatArray
+		case model.String:
+			typ = model.StringArray
+		case model.DateTime:
+			typ = model.DateTimeArray
+		}
+	}
 	return
 }

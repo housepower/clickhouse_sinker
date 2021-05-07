@@ -19,9 +19,6 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"runtime"
-	"strconv"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -306,7 +303,7 @@ func (service *Service) Stop() {
 	util.Logger.Info("stopping task service...", zap.String("task", taskCfg.Name))
 	service.cancel()
 	if err := service.inputer.Stop(); err != nil {
-		panic(err)
+		util.Logger.Fatal("service.inputer.Stop failed", zap.Error(err))
 	}
 	util.Logger.Info("stopped input", zap.String("task", taskCfg.Name))
 
@@ -328,16 +325,4 @@ func (service *Service) Stop() {
 		<-service.stopped
 	}
 	util.Logger.Info("stopped", zap.String("task", taskCfg.Name))
-}
-
-// GoID returns goroutine id
-func GoID() int {
-	var buf [64]byte
-	n := runtime.Stack(buf[:], false)
-	idField := strings.Fields(strings.TrimPrefix(string(buf[:n]), "goroutine "))[0]
-	id, err := strconv.Atoi(idField)
-	if err != nil {
-		panic(fmt.Sprintf("cannot get goroutine id: %v", err))
-	}
-	return id
 }
