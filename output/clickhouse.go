@@ -253,7 +253,7 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 		case model.String:
 			strVal = "Nullable(String)"
 		case model.DateTime:
-			strVal = "Nullable(DateTime)"
+			strVal = "Nullable(DateTime64(3))"
 		case model.IntArray:
 			strVal = "Array(Int64)"
 		case model.FloatArray:
@@ -261,7 +261,7 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 		case model.StringArray:
 			strVal = "Array(String)"
 		case model.DateTimeArray:
-			strVal = "Array(DateTime)"
+			strVal = "Array(DateTime64(3))"
 		default:
 			err = errors.Errorf("%s: BUG: unsupported column type %s", taskCfg.Name, strVal)
 			return false

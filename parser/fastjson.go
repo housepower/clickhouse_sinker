@@ -171,15 +171,37 @@ func (c *FastjsonMetric) GetArray(key string, typ int) (val interface{}) {
 	case model.String:
 		results := make([]string, 0, len(array))
 		for _, e := range array {
-			v, _ := e.StringBytes()
-			results = append(results, string(v))
+			if e.Type() == fastjson.TypeString {
+				v, _ := e.StringBytes()
+				results = append(results, string(v))
+			} else {
+				results = append(results, e.String())
+			}
 		}
 		val = results
 	case model.DateTime:
 		results := make([]time.Time, 0, len(array))
+		var err error
 		for _, e := range array {
-			v, _ := e.StringBytes()
-			t := c.pp.ParseDateTime(key, string(v))
+			var t time.Time
+			switch e.Type() {
+			case fastjson.TypeNumber:
+				var f float64
+				if f, err = e.Float64(); err != nil {
+					t = Epoch
+				} else {
+					t = time.Unix(int64(f), int64(f*1e9)%1e9).In(time.UTC)
+				}
+			case fastjson.TypeString:
+				var b []byte
+				if b, err = e.StringBytes(); err != nil {
+					t = Epoch
+				} else {
+					t = c.pp.ParseDateTime(key, string(b))
+				}
+			default:
+				t = Epoch
+			}
 			results = append(results, t)
 		}
 		val = results
@@ -210,31 +232,40 @@ func (c *FastjsonMetric) GetNewKeys(knownKeys *sync.Map, newKeys *sync.Map) (fou
 }
 
 func fjDetectType(v *fastjson.Value) (typ int) {
-	if vt := v.Type(); vt == fastjson.TypeNull {
-	} else if vt == fastjson.TypeTrue || vt == fastjson.TypeFalse {
+	switch v.Type() {
+	case fastjson.TypeNull:
+	case fastjson.TypeTrue:
 		typ = model.Int
-	} else if _, err := v.Int64(); err == nil {
+	case fastjson.TypeFalse:
 		typ = model.Int
-	} else if _, err := v.Float64(); err == nil {
+	case fastjson.TypeNumber:
 		typ = model.Float
-	} else if val, err := v.StringBytes(); err == nil {
-		if _, layout := parseInLocation(string(val), time.Local); layout != "" {
-			typ = model.DateTime
-		} else {
-			typ = model.String
+		if _, err := v.Int64(); err == nil {
+			typ = model.Int
 		}
-	} else if arr, err := v.Array(); err == nil && len(arr) > 0 {
-		typ2 := fjDetectType(arr[0])
-		switch typ2 {
-		case model.Int:
-			typ = model.IntArray
-		case model.Float:
-			typ = model.FloatArray
-		case model.String:
-			typ = model.StringArray
-		case model.DateTime:
-			typ = model.DateTimeArray
+	case fastjson.TypeString:
+		typ = model.String
+		if val, err := v.StringBytes(); err == nil {
+			if _, layout := parseInLocation(string(val), time.Local); layout != "" {
+				typ = model.DateTime
+			}
 		}
+	case fastjson.TypeArray:
+		if arr, err := v.Array(); err == nil && len(arr) > 0 {
+			typ2 := fjDetectType(arr[0])
+			switch typ2 {
+			case model.Int:
+				typ = model.IntArray
+			case model.Float:
+				typ = model.FloatArray
+			case model.String:
+				typ = model.StringArray
+			case model.DateTime:
+				typ = model.DateTimeArray
+			}
+		}
+	default:
+		typ = model.String
 	}
 	return
 }

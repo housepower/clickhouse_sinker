@@ -50,6 +50,7 @@ var jsonSample = []byte(`{
 	"array_float": [1.1,2.2,3.3],
 	"array_string": ["aa","bb","cc"],
 	"array_date": ["2000-01-01","2000-01-02","2000-01-03"],
+	"array_object": [{"i":[1,2,3],"f":[1.1,2.2,3.3]},{"s":["aa","bb","cc"],"e":[]}],
 	"array_empty": [],
 	"bool_true": true,
 	"bool_false": false
@@ -78,12 +79,13 @@ var jsonSchema = map[string]string{
 	"array_float":           "array",
 	"array_string":          "array",
 	"array_date":            "array",
+	"array_object":          "array",
 	"array_empty":           "array",
 	"bool_true":             "true",
 	"bool_false":            "false",
 }
 
-var csvSample = []byte(`1536813227,"0.11","escaped_""ws","{""i"":[1,2,3],""f"":[1.1,2.2,3.3],""s"":[""aa"",""bb"",""cc""],""e"":[]}",2019-12-16,2019-12-16T12:10:30Z,2019-12-16T12:10:30+08:00,2019-12-16 12:10:30,2019-12-16T12:10:30.123Z,2019-12-16T12:10:30.123+08:00,2019-12-16 12:10:30.123,"[1,2,3]","[1.1,2.2,3.3]","[""aa"",""bb"",""cc""]","[""2000-01-01"",""2000-01-02"",""2000-01-03""]","[]","true","false"`)
+var csvSample = []byte(`1536813227,"0.11","escaped_""ws","{""i"":[1,2,3],""f"":[1.1,2.2,3.3],""s"":[""aa"",""bb"",""cc""],""e"":[]}",2019-12-16,2019-12-16T12:10:30Z,2019-12-16T12:10:30+08:00,2019-12-16 12:10:30,2019-12-16T12:10:30.123Z,2019-12-16T12:10:30.123+08:00,2019-12-16 12:10:30.123,"[1,2,3]","[1.1,2.2,3.3]","[""aa"",""bb"",""cc""]","[""2000-01-01"",""2000-01-02"",""2000-01-03""]","[{""i"":[1,2,3],""f"":[1.1,2.2,3.3]},{""s"":[""aa"",""bb"",""cc""],""e"":[]}]","[]","true","false"`)
 
 var csvSchema = []string{
 	"its",
@@ -101,6 +103,7 @@ var csvSchema = []string{
 	"array_float",
 	"array_string",
 	"array_date",
+	"array_object",
 	"array_empty",
 	"bool_true",
 	"bool_false",
@@ -154,7 +157,8 @@ func initMetrics() {
 		}
 		parser = pp.Get()
 		if metric, initErr = parser.Parse(sample); initErr != nil {
-			return
+			msg := fmt.Sprintf("%+v", initErr)
+			panic(msg)
 		}
 		pools[name] = pp
 		parsers[name] = parser
@@ -261,6 +265,7 @@ func TestParserArray(t *testing.T) {
 		{"array_float", model.Float, []float64{1.1, 2.2, 3.3}},
 		{"array_string", model.String, []string{"aa", "bb", "cc"}},
 		{"array_date", model.DateTime, ts},
+		{"array_object", model.String, []string{`{"i":[1,2,3],"f":[1.1,2.2,3.3]}`, `{"s":["aa","bb","cc"],"e":[]}`}},
 		{"array_empty", model.Int, []int64{}},
 		{"array_empty", model.Float, []float64{}},
 		{"array_empty", model.String, []string{}},
@@ -271,6 +276,10 @@ func TestParserArray(t *testing.T) {
 		name := names[i]
 		metric := metrics[name]
 		for j := range testCases {
+			if name == "csv" && testCases[j].Field == "array_object" {
+				// csv parser doesn't support object array yet.
+				continue
+			}
 			var v interface{}
 			desc := fmt.Sprintf(`%s GetArray("%s", %d)`, name, testCases[j].Field, testCases[j].Type)
 			v = metric.GetArray(testCases[j].Field, testCases[j].Type)

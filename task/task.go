@@ -229,9 +229,6 @@ func (service *Service) put(msg model.InputMessage) {
 		defer statistics.ParsingPoolBacklog.WithLabelValues(taskCfg.Name).Dec()
 		p := service.pp.Get()
 		metric, err = p.Parse(msg.Value)
-		if err == nil {
-			row = model.MetricToRow(metric, msg, service.dims)
-		}
 		// WARNNING: Always PutElem even if there's parsing error, so that this message can be acked to Kafka and skipped writing to ClickHouse.
 		if err != nil {
 			statistics.ParseMsgsErrorTotal.WithLabelValues(taskCfg.Name).Inc()
@@ -239,13 +236,15 @@ func (service *Service) put(msg model.InputMessage) {
 				util.Logger.Error(fmt.Sprintf("failed to parse message(topic %v, partition %d, offset %v)",
 					msg.Topic, msg.Partition, msg.Offset), zap.String("message value", string(msg.Value)), zap.String("task", service.cfg.Task.Name), zap.Error(err))
 			}
+		} else {
+			row = model.MetricToRow(metric, msg, service.dims)
+			if taskCfg.DynamicSchema.Enable {
+				foundNewKeys = metric.GetNewKeys(&service.knownKeys, &service.newKeys)
+			}
 		}
 		// WARNNING: metric.GetXXX may depend on p. Don't call them after p been freed.
 		service.pp.Put(p)
 
-		if taskCfg.DynamicSchema.Enable {
-			foundNewKeys = metric.GetNewKeys(&service.knownKeys, &service.newKeys)
-		}
 		if foundNewKeys {
 			cntNewKeys := atomic.AddInt32(&service.cntNewKeys, 1)
 			if cntNewKeys == 1 {

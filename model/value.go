@@ -83,6 +83,9 @@ func WhichType(typ string) (dataType int, nullable bool) {
 	}
 	if strings.HasPrefix(typ, "DateTime64") {
 		dataType = DateTime
+	} else if strings.HasPrefix(typ, "Array(DateTime64") {
+		dataType = DateTimeArray
+		nullable = false
 	} else {
 		util.Logger.Fatal(fmt.Sprintf("LOGIC ERROR: unsupported ClickHouse data type %v", typ))
 	}

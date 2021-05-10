@@ -149,7 +149,15 @@ func (c *GjsonMetric) GetArray(key string, typ int) (val interface{}) {
 	case model.DateTime:
 		results := make([]time.Time, 0, len(array))
 		for _, e := range array {
-			t := c.pp.ParseDateTime(key, e.String())
+			var t time.Time
+			switch e.Type {
+			case gjson.Number:
+				t = time.Unix(int64(e.Num), int64(r.Num*1e9)%1e9).In(time.UTC)
+			case gjson.String:
+				t = c.pp.ParseDateTime(key, e.Str)
+			default:
+				t = Epoch
+			}
 			results = append(results, t)
 		}
 		val = results
