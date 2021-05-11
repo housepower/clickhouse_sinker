@@ -18,7 +18,6 @@ import (
 	"bytes"
 	"encoding/csv"
 	"fmt"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -26,6 +25,7 @@ import (
 	"github.com/housepower/clickhouse_sinker/model"
 	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/pkg/errors"
+	"github.com/valyala/fastjson/fastfloat"
 )
 
 var _ Parser = (*CsvParser)(nil)
@@ -87,7 +87,7 @@ func (c *CsvMetric) GetFloat(key string, nullable bool) (val interface{}) {
 		val = float64(0.0)
 		return
 	}
-	val, _ = strconv.ParseFloat(c.values[idx], 64)
+	val = fastfloat.ParseBestEffort(c.values[idx])
 	return
 }
 
@@ -102,7 +102,7 @@ func (c *CsvMetric) GetInt(key string, nullable bool) (val interface{}) {
 		val = int64(0)
 		return
 	}
-	val, _ = strconv.ParseInt(c.values[idx], 10, 64)
+	val = fastfloat.ParseInt64BestEffort(c.values[idx])
 	return
 }
 
@@ -148,20 +148,16 @@ func (c *CsvMetric) GetArray(key string, typ int) (val interface{}) {
 	switch typ {
 	case model.Int:
 		results := make([]int64, 0, len(array))
-		var v int64
 		for _, e := range array {
-			if v, err = strconv.ParseInt(e, 10, 64); err == nil {
-				results = append(results, v)
-			}
+			v := fastfloat.ParseInt64BestEffort(e)
+			results = append(results, v)
 		}
 		val = results
 	case model.Float:
 		results := make([]float64, 0, len(array))
-		var v float64
 		for _, e := range array {
-			if v, err = strconv.ParseFloat(e, 64); err == nil {
-				results = append(results, v)
-			}
+			v := fastfloat.ParseBestEffort(e)
+			results = append(results, v)
 		}
 		val = results
 	case model.String:

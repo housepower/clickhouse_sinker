@@ -82,12 +82,7 @@ func (c *GjsonMetric) GetInt(key string, nullable bool) (val interface{}) {
 		val = int64(0)
 		return
 	}
-	switch r.Type {
-	case gjson.Number:
-		val = int64(r.Num)
-	default:
-		val = int64(0)
-	}
+	val = r.Int()
 	return
 }
 
