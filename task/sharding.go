@@ -113,7 +113,7 @@ type Sharder struct {
 
 func NewSharder(service *Service) (sh *Sharder, err error) {
 	var policy *ShardingPolicy
-	ckNum := pool.GetTotalConn()
+	ckNum := pool.NumShard()
 	taskCfg := &service.cfg.Task
 	if policy, err = NewShardingPolicy(taskCfg.ShardingKey, taskCfg.ShardingPolicy, service.clickhouse.Dms, ckNum); err != nil {
 		return
