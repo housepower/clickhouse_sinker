@@ -18,7 +18,6 @@ package output
 import (
 	"context"
 	"database/sql"
-	std_errors "errors"
 	"fmt"
 	"io"
 	"math"
@@ -28,6 +27,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ClickHouse/clickhouse-go"
 	"github.com/housepower/clickhouse_sinker/config"
 	"github.com/housepower/clickhouse_sinker/model"
 	"github.com/housepower/clickhouse_sinker/pool"
@@ -40,6 +40,9 @@ import (
 var (
 	selectSQLTemplate    = `select name, type, default_kind from system.columns where database = '%s' and table = '%s'`
 	lowCardinalityRegexp = regexp.MustCompile(`LowCardinality\((.+)\)`)
+
+	// refers to src/Common/ErrorCodes.cpp, https://github.com/ClickHouse/ClickHouse/issues/24036
+	replicaSpecificErrorCodes = []int32{1000}
 )
 
 // ClickHouse is an output service consumers from kafka messages
@@ -60,7 +63,7 @@ func NewClickHouse(cfg *config.Config) *ClickHouse {
 // Init the clickhouse intance
 func (c *ClickHouse) Init() (err error) {
 	chCfg := &c.cfg.Clickhouse
-	if err = pool.InitConn(chCfg.Hosts, chCfg.Port, chCfg.DB, chCfg.Username, chCfg.Password, chCfg.DsnParams, chCfg.Secure, chCfg.InsecureSkipVerify); err != nil {
+	if err = pool.InitClusterConn(chCfg.Hosts, chCfg.Port, chCfg.DB, chCfg.Username, chCfg.Password, chCfg.DsnParams, chCfg.Secure, chCfg.InsecureSkipVerify); err != nil {
 		return
 	}
 	return c.initSchema()
@@ -76,99 +79,104 @@ func (c *ClickHouse) Send(batch *model.Batch) {
 }
 
 // Write kvs to clickhouse
-func (c *ClickHouse) write(batch *model.Batch) error {
-	var numErr int
-	var err, tmpErr error
+func (c *ClickHouse) write(batch *model.Batch, reconnect bool) (err error) {
 	var stmt *sql.Stmt
 	var tx *sql.Tx
 	if len(*batch.Rows) == 0 {
-		return nil
+		return
 	}
 
-	conn := pool.GetConn(batch.BatchIdx)
+	conn := pool.GetShardConn(batch.BatchIdx)
+	if reconnect {
+		if err = conn.NextGoodReplica(); err != nil {
+			return
+		}
+	}
 	if tx, err = conn.Begin(); err != nil {
-		goto ERR
+		err = errors.Wrapf(err, "conn.Begin")
+		return
 	}
 	if stmt, err = tx.Prepare(c.prepareSQL); err != nil {
-		goto ERR
+		err = errors.Wrapf(err, "tx.Prepare %s", c.prepareSQL)
+		return
 	}
 	defer stmt.Close()
 	for _, row := range *batch.Rows {
-		if _, tmpErr = stmt.Exec(*row...); tmpErr != nil {
-			numErr++
-			err = tmpErr
+		if _, err = stmt.Exec(*row...); err != nil {
+			err = errors.Wrapf(err, "stmt.Exec")
+			break
 		}
 	}
 	if err != nil {
-		util.Logger.Error("stmt.Exec failed", zap.String("task", c.cfg.Task.Name), zap.Int("times", numErr), zap.Error(err))
-		goto ERR
+		_ = tx.Rollback()
+		return err
 	}
-
 	if err = tx.Commit(); err != nil {
-		goto ERR
+		err = errors.Wrapf(err, "tx.Commit")
+		return
 	}
 	statistics.FlushMsgsTotal.WithLabelValues(c.cfg.Task.Name).Add(float64(batch.RealSize))
-	return err
-ERR:
-	if shouldReconnect(err) {
-		_ = conn.ReConnect()
-		statistics.ClickhouseReconnectTotal.WithLabelValues(c.cfg.Task.Name).Inc()
-	}
-	return err
+	return
 }
 
 func shouldReconnect(err error) bool {
-	if err == nil {
-		return false
+	var exp *clickhouse.Exception
+	if errors.As(err, &exp) {
+		util.Logger.Error("this is an exception from clickhouse-server", zap.Reflect("exception", exp))
+		var replicaSpecific bool
+		for _, ec := range replicaSpecificErrorCodes {
+			if ec == exp.Code {
+				replicaSpecific = true
+				break
+			}
+		}
+		return replicaSpecific
 	}
-	if strings.Contains(err.Error(), "connection refused") || strings.Contains(err.Error(), "bad connection") {
-		return true
-	}
-	util.Logger.Info("this is a permanent error", zap.Error(err))
-	return false
+	return true
 }
 
 // LoopWrite will dead loop to write the records
 func (c *ClickHouse) loopWrite(batch *model.Batch) {
 	var err error
 	var times int
+	var reconnect bool
 	for {
-		if err = c.write(batch); err == nil {
+		if err = c.write(batch, reconnect); err == nil {
 			if err = batch.Commit(); err == nil {
 				return
 			}
-			// TODO: kafka_go and sarama commit give different error when context is cancceled.
-			// How to unify them?
-			if std_errors.Is(err, context.Canceled) || std_errors.Is(err, io.ErrClosedPipe) {
+			// Note: kafka_go and sarama commit give different error when context is cancceled.
+			if errors.Is(err, context.Canceled) || errors.Is(err, io.ErrClosedPipe) {
 				util.Logger.Info("ClickHouse.loopWrite quit due to the context has been cancelled", zap.String("task", c.cfg.Task.Name))
 				return
 			}
 			util.Logger.Fatal("committing offset failed with permanent error %+v", zap.String("task", c.cfg.Task.Name), zap.Error(err))
 		}
-		if std_errors.Is(err, context.Canceled) {
+		if errors.Is(err, context.Canceled) {
 			util.Logger.Info("ClickHouse.loopWrite quit due to the context has been cancelled", zap.String("task", c.cfg.Task.Name))
 			return
 		}
-		util.Logger.Error("flush batch failed", zap.String("task", c.cfg.Task.Name), zap.Int("try", c.cfg.Clickhouse.RetryTimes-times), zap.Error(err))
+		util.Logger.Error("flush batch failed", zap.String("task", c.cfg.Task.Name), zap.Int("try", times), zap.Error(err))
 		statistics.FlushMsgsErrorTotal.WithLabelValues(c.cfg.Task.Name).Add(float64(batch.RealSize))
 		times++
-		if shouldReconnect(err) && (c.cfg.Clickhouse.RetryTimes <= 0 || times < c.cfg.Clickhouse.RetryTimes) {
-			time.Sleep(10 * time.Second)
-		} else {
+		reconnect = shouldReconnect(err)
+		if reconnect && c.cfg.Clickhouse.RetryTimes > 0 && times >= c.cfg.Clickhouse.RetryTimes {
 			util.Logger.Fatal("ClickHouse.loopWrite failed", zap.String("task", c.cfg.Task.Name))
+		} else {
+			time.Sleep(10 * time.Second)
 		}
 	}
 }
 
 // Stop free clickhouse connections
 func (c *ClickHouse) Stop() error {
-	pool.FreeConn()
+	pool.FreeClusterConn()
 	return nil
 }
 
 func (c *ClickHouse) initSchema() (err error) {
 	if c.cfg.Task.AutoSchema {
-		conn := pool.GetConn(0)
+		conn := pool.GetShardConn(0)
 		var rs *sql.Rows
 		if rs, err = conn.Query(fmt.Sprintf(selectSQLTemplate, c.cfg.Clickhouse.DB, c.cfg.Task.TableName)); err != nil {
 			err = errors.Wrapf(err, "")
@@ -286,7 +294,7 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 				chCfg.Cluster, chCfg.DB, taskCfg.TableName))
 		}
 	}
-	conn := pool.GetConn(0)
+	conn := pool.GetShardConn(0)
 	for _, query := range queries {
 		util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", taskCfg.Name))
 		if _, err = conn.Exec(query); err != nil {
@@ -300,7 +308,7 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 func (c *ClickHouse) getDistTbls() (distTbls []string, err error) {
 	taskCfg := &c.cfg.Task
 	chCfg := &c.cfg.Clickhouse
-	conn := pool.GetConn(0)
+	conn := pool.GetShardConn(0)
 	query := fmt.Sprintf(`SELECT name FROM system.tables WHERE engine='Distributed' AND database='%s' AND match(create_table_query, 'Distributed.*\'%s\',\s*\'%s\'')`,
 		chCfg.DB, chCfg.DB, taskCfg.TableName)
 	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", taskCfg.Name))

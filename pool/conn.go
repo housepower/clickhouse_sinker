@@ -23,7 +23,6 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -40,34 +39,63 @@ const (
 
 var (
 	lock        sync.Mutex
-	connections []*Connection
+	clusterConn []*ShardConn
+	dsnTmpl     string
 )
 
-// Connection a datastructure for storing the clickhouse connection
-type Connection struct {
+// ShardConn a datastructure for storing the clickhouse connection
+type ShardConn struct {
 	*sql.DB
-	dsn string
+	Dsn      string
+	Replicas []string //ip:port list of replicas
+	NextRep  int      //index of next replica
 }
 
-// ReConnect used for restablishing connection with server
-func (c *Connection) ReConnect() error {
-	sqlDB, err := sql.Open("clickhouse", c.dsn)
-	if err != nil {
-		util.Logger.Debug("sql.Open failed", zap.String("dsn", c.dsn), zap.Error(err))
-		return err
+// NextGoodReplica connects to next good replica
+func (c *ShardConn) NextGoodReplica() error {
+	if c.DB != nil {
+		if err := health.Health.RemoveReadinessCheck(c.Dsn); err != nil {
+			util.Logger.Warn("health.Health.RemoveReadinessCheck failed", zap.String("dsn", c.Dsn), zap.Error(err))
+		}
+		c.DB.Close()
+		c.DB = nil
 	}
-	setDBParams(sqlDB)
-	util.Logger.Debug("sql.Open succeeded", zap.String("dsn", c.dsn))
-	c.DB = sqlDB
-	return nil
+	savedNextRep := c.NextRep
+	// try all replicas, including the current one
+	for i := 0; i < len(c.Replicas); i++ {
+		c.Dsn = fmt.Sprintf(dsnTmpl, c.Replicas[c.NextRep])
+		c.NextRep = (c.NextRep + 1) % len(c.Replicas)
+		sqlDB, err := sql.Open("clickhouse", c.Dsn)
+		if err != nil {
+			util.Logger.Warn("sql.Open failed", zap.String("dsn", c.Dsn), zap.Error(err))
+			continue
+		}
+		setDBParams(sqlDB)
+		util.Logger.Info("sql.Open succeeded", zap.String("dsn", c.Dsn))
+		if err = health.Health.AddReadinessCheck(c.Dsn, healthcheck.DatabasePingCheck(sqlDB, 30*time.Second)); err != nil {
+			util.Logger.Warn("health.Health.RemoveReadinessCheck failed", zap.String("dsn", c.Dsn), zap.Error(err))
+		}
+		c.DB = sqlDB
+		return nil
+	}
+	err := errors.Errorf("no good replica among replicas %v since %d", c.Replicas, savedNextRep)
+	return err
 }
 
-func InitConn(hosts [][]string, port int, db, username, password, dsnParams string, secure, skipVerify bool) (err error) {
-	var sqlDB *sql.DB
+func InitClusterConn(hosts [][]string, port int, db, username, password, dsnParams string, secure, skipVerify bool) (err error) {
 	lock.Lock()
 	defer lock.Unlock()
-	// Each shard has a *sql.DB which connects to all replicas inside the shard.
-	// "alt_hosts" tolerates replica single-point-failure.
+	// Each shard has a *sql.DB which connects to one replica inside the shard.
+	// "alt_hosts" tolerates replica single-point-failure. However more flexable switching is needed for some cases for example https://github.com/ClickHouse/ClickHouse/issues/24036.
+	dsnTmpl = "tcp://%s" + fmt.Sprintf("?database=%s&username=%s&password=%s&block_size=%d",
+		url.QueryEscape(db), url.QueryEscape(username), url.QueryEscape(password), BlockSize)
+	if dsnParams != "" {
+		dsnTmpl += "&" + dsnParams
+	}
+	if secure {
+		dsnTmpl += "&secure=true&skip_verify=" + strconv.FormatBool(skipVerify)
+	}
+
 	for _, replicas := range hosts {
 		numReplicas := len(replicas)
 		replicaAddrs := make([]string, numReplicas)
@@ -77,28 +105,13 @@ func InitConn(hosts [][]string, port int, db, username, password, dsnParams stri
 			}
 			replicaAddrs[i] = fmt.Sprintf("%s:%d", ip, port)
 		}
-		dsn := fmt.Sprintf("tcp://%s?database=%s&username=%s&password=%s&block_size=%d",
-			replicaAddrs[0], url.QueryEscape(db), url.QueryEscape(username), url.QueryEscape(password), BlockSize)
-		if numReplicas > 1 {
-			dsn += "&connection_open_strategy=in_order&alt_hosts=" + strings.Join(replicaAddrs[1:numReplicas], ",")
+		sc := &ShardConn{
+			Replicas: replicaAddrs,
 		}
-		if dsnParams != "" {
-			dsn += "&" + dsnParams
-		}
-		if secure {
-			dsn += "&secure=true&skip_verify=" + strconv.FormatBool(skipVerify)
-		}
-		util.Logger.Debug("sql.Open", zap.String("dsn", dsn))
-		if sqlDB, err = sql.Open("clickhouse", dsn); err != nil {
-			err = errors.Wrapf(err, "")
+		if err = sc.NextGoodReplica(); err != nil {
 			return
 		}
-		setDBParams(sqlDB)
-		if err = health.Health.AddReadinessCheck(dsn, healthcheck.DatabasePingCheck(sqlDB, 30*time.Second)); err != nil {
-			err = errors.Wrapf(err, "")
-			return
-		}
-		connections = append(connections, &Connection{sqlDB, dsn})
+		clusterConn = append(clusterConn, sc)
 	}
 	return
 }
@@ -111,33 +124,35 @@ func setDBParams(sqlDB *sql.DB) {
 	sqlDB.SetConnMaxIdleTime(10 * time.Second)
 }
 
-func FreeConn() {
+func FreeClusterConn() {
 	lock.Lock()
 	defer lock.Unlock()
-	for _, conn := range connections {
-		if err := health.Health.RemoveReadinessCheck(conn.dsn); err != nil {
-			util.Logger.Error("health.Health.RemoveReadinessCheck failed", zap.Error(err))
+	for _, sc := range clusterConn {
+		if sc.DB != nil {
+			if err := health.Health.RemoveReadinessCheck(sc.Dsn); err != nil {
+				util.Logger.Error("health.Health.RemoveReadinessCheck failed", zap.String("dsn", sc.Dsn), zap.Error(err))
+			}
+			sc.DB.Close()
 		}
-		conn.DB.Close()
 	}
-	connections = []*Connection{}
+	clusterConn = []*ShardConn{}
 }
 
-func GetTotalConn() (cnt int) {
+func NumShard() (cnt int) {
 	lock.Lock()
 	defer lock.Unlock()
-	return len(connections)
+	return len(clusterConn)
 }
 
-// GetConn select a clickhouse node from the cluster based on batchNum
-func GetConn(batchNum int64) (con *Connection) {
+// GetShardConn select a clickhouse shard based on batchNum
+func GetShardConn(batchNum int64) (con *ShardConn) {
 	lock.Lock()
 	defer lock.Unlock()
-	con = connections[batchNum%int64(len(connections))]
+	con = clusterConn[batchNum%int64(len(clusterConn))]
 	return
 }
 
 // CloseAll closed all connection and destroys the pool
 func CloseAll() {
-	FreeConn()
+	FreeClusterConn()
 }

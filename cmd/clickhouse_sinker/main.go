@@ -334,7 +334,7 @@ func (s *Sinker) applyFirstConfig(newCfg *config.Config) (err error) {
 		concurrentParsers = 1
 	}
 	util.InitGlobalParsingPool(concurrentParsers)
-	totalConn := pool.GetTotalConn()
+	totalConn := pool.NumShard()
 	util.InitGlobalWritingPool(totalConn)
 
 	go s.task.Run(s.ctx)
@@ -364,7 +364,7 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 		// 3. Restart goroutine pools.
 		util.InitGlobalTimerWheel()
 		util.GlobalParsingPool.Restart()
-		totalConn := pool.GetTotalConn()
+		totalConn := pool.NumShard()
 		util.GlobalWritingPool.Resize(totalConn)
 		util.GlobalWritingPool.Restart()
 
