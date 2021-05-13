@@ -34,18 +34,19 @@ Refers to [design](./design.md) for how it works.
 - [x] [ElasticDateTime](https://www.elastic.co/guide/en/elasticsearch/reference/current/date.html) => Int64 (2019-12-16T12:10:30Z => 1576498230)
 
 Note:
+
 - A message is ignored if it's invalid json, or CSV value doesn't match with the format. This is counted by `ParseMsgsErrorTotal`.
-- If a message field value doesn't match with the type `T` declared in ClickHouse, the default value of `T` (see the following table) is filled.
+- If a message field type is imcompatible with the type `T` declared in ClickHouse, or field value is invalid to parse, the default value of `T` (see the following table) is filled.
+- If a message field type is compatible with the type `T` declared in ClickHouse, but field value is overflow, the nearer border of `T` is filled.
 
-| ClickHouse data type | default value |
-| -------------------- |:-------------:|
-| Int8, Int16, ...     | 0             |
-| Float32, Float64     | 0.0           |
-| String, ...          | ""            |
-| Date, DateTime, ...  | EPOCH         |
-| Nullable(T)          | NULL          |
-| Array(T)             | []            |
-
+| ClickHouse data type | default value | compatible Json data type           | valid range                           |
+|:--------------------:|:-------------:|:-----------------------------------:|:-------------------------------------:|
+| Int8, Int16, ...     | 0             | Bool, Number                        | Int8 [-128,127], ...                  |
+| Float32, Float64     | 0.0           | Number                              | Float32 [-MaxFloat32,MaxFloat32], ... |
+| String, ...          | ""            | Bool, Number, String, Object, Array | N/A                                   |
+| Date, DateTime, ...  | EPOCH         | Number, String                      | [EPOCH,MaxUint32_seconds_since_epoch) |
+| Nullable(T)          | NULL          | (The same as T)                     | (The same as T)                       |
+| Array(T)             | []            | (The same as T)                     | (The same as T)                       |
 
 ## Configuration
 
@@ -70,6 +71,7 @@ An example kafka config:
 - Encryption using SSL
 
 An example kafka config:
+
 ```json
   "kafka": {
     "brokers": "192.168.31.64:9093",
@@ -87,6 +89,7 @@ An example kafka config:
 ```
 
 Or if you have extracted certificates from JKS, use the following config:
+
 ```json
   "kafka": {
     "brokers": "192.168.31.64:9093",
@@ -134,6 +137,7 @@ An example kafka config:
 - SASL/PLAIN
 
 An example kafka config:
+
 ```json
   "kafka": {
     "brokers": "192.168.31.64:9094",
@@ -164,6 +168,7 @@ $ bin/kafka-console-consumer.sh --bootstrap-server 192.168.31.64:9094 --topic su
 - SASL/SCRAM
 
 An example kafka config:
+
 ```json
   "kafka": {
     "brokers": "192.168.31.64:9094",
@@ -195,6 +200,7 @@ $ bin/kafka-console-consumer.sh --bootstrap-server 192.168.31.64:9094 --topic su
 - SASL/GSSAPI(Kerberos)
 
 An example kafka config:
+
 ```json
   "kafka": {
     "brokers": "192.168.31.64:9094",
@@ -280,31 +286,29 @@ Sinker registers with Nacos if CLI `--consul-cfg-enable` or env `CONSUL_REGISTER
 
 If CLI `--metric-push-gateway-addrs` or env `METRIC_PUSH_GATEWAY_ADDRS` (a list of comma-separated urls) is present, metrics are pushed to one of given URLs regualarly.
 
-
 ## Extending
 
 There are several abstract interfaces which you can implement to support more message format, message queue and config management mechanism.
 
 ```go
 type Parser interface {
-	Parse(bs []byte) model.Metric
+    Parse(bs []byte) model.Metric
 }
 
 type Inputer interface {
-	Init(cfg *config.Config, taskName string, putFn func(msg model.InputMessage)) error
-	Run(ctx context.Context)
-	Stop() error
-	CommitMessages(ctx context.Context, message *model.InputMessage) error
+    Init(cfg *config.Config, taskName string, putFn func(msg model.InputMessage)) error
+    Run(ctx context.Context)
+    Stop() error
+    CommitMessages(ctx context.Context, message *model.InputMessage) error
 }
 
 // RemoteConfManager can be implemented by many backends: Nacos, Consul, etcd, ZooKeeper...
 type RemoteConfManager interface {
-	Init(properties map[string]interface{}) error
-	GetConfig() (conf *Config, err error)
-	// PublishConfig publishs the config. The manager shall not reference the passed Config object after call.
-	PublishConfig(conf *Config) (err error)
+    Init(properties map[string]interface{}) error
+    GetConfig() (conf *Config, err error)
+    // PublishConfig publishs the config. The manager shall not reference the passed Config object after call.
+    PublishConfig(conf *Config) (err error)
 }
-
 ```
 
 ## Why not [`Kafka Engine`](https://clickhouse.tech/docs/en/engines/table-engines/integrations/kafka/) built in ClickHouse?
@@ -313,7 +317,6 @@ type RemoteConfManager interface {
 - `Kafka Engine` runs inside the db process, lowers the database stability. On the other side, [Vertica](https://www.vertica.com/)'s official kafka importer is separated with the database server.
 - `Kafka Engine` doesn't support custom sharding policy.
 - Neither `Kafka Engine` nor clickhouse_sinker support exactly-once.
-
 
 ## Kafka Compatibility
 

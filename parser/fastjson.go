@@ -119,7 +119,7 @@ func (c *FastjsonMetric) GetDateTime(key string, nullable bool) (val interface{}
 			val = Epoch
 			return
 		}
-		val = time.Unix(int64(f), int64(f*1e9)%1e9).In(time.UTC)
+		val = UnixFloat(f)
 	case fastjson.TypeString:
 		var b []byte
 		if b, err = v.StringBytes(); err != nil {
@@ -143,14 +143,13 @@ func (c *FastjsonMetric) GetElasticDateTime(key string, nullable bool) (val inte
 
 func (c *FastjsonMetric) GetArray(key string, typ int) (val interface{}) {
 	v := c.value.Get(key)
+	val = makeArray(typ)
 	if v == nil || v.Type() != fastjson.TypeArray {
-		val = makeArray(typ)
 		return
 	}
 	array, _ := v.Array()
 	switch typ {
 	case model.Int:
-		results := make([]int64, 0, len(array))
 		for _, e := range array {
 			var v int64
 			if e.Type() == fastjson.TypeTrue {
@@ -158,43 +157,39 @@ func (c *FastjsonMetric) GetArray(key string, typ int) (val interface{}) {
 			} else {
 				v, _ = e.Int64()
 			}
-			results = append(results, v)
+			val = append(val.([]int64), v)
 		}
-		val = results
 	case model.Float:
-		results := make([]float64, 0, len(array))
 		for _, e := range array {
 			v, _ := e.Float64()
-			results = append(results, v)
+			val = append(val.([]float64), v)
 		}
-		val = results
 	case model.String:
-		results := make([]string, 0, len(array))
 		for _, e := range array {
-			if e.Type() == fastjson.TypeString {
-				v, _ := e.StringBytes()
-				results = append(results, string(v))
-			} else {
-				results = append(results, e.String())
+			var s string
+			switch e.Type() {
+			case fastjson.TypeNull:
+				s = ""
+			case fastjson.TypeString:
+				b, _ := e.StringBytes()
+				s = string(b)
+			default:
+				s = e.String()
 			}
+			val = append(val.([]string), s)
 		}
-		val = results
 	case model.DateTime:
-		results := make([]time.Time, 0, len(array))
-		var err error
 		for _, e := range array {
 			var t time.Time
 			switch e.Type() {
 			case fastjson.TypeNumber:
-				var f float64
-				if f, err = e.Float64(); err != nil {
+				if f, err := e.Float64(); err != nil {
 					t = Epoch
 				} else {
-					t = time.Unix(int64(f), int64(f*1e9)%1e9).In(time.UTC)
+					t = UnixFloat(f)
 				}
 			case fastjson.TypeString:
-				var b []byte
-				if b, err = e.StringBytes(); err != nil {
+				if b, err := e.StringBytes(); err != nil {
 					t = Epoch
 				} else {
 					t = c.pp.ParseDateTime(key, string(b))
@@ -202,9 +197,8 @@ func (c *FastjsonMetric) GetArray(key string, typ int) (val interface{}) {
 			default:
 				t = Epoch
 			}
-			results = append(results, t)
+			val = append(val.([]time.Time), t)
 		}
-		val = results
 	default:
 		util.Logger.Fatal(fmt.Sprintf("LOGIC ERROR: unsupported array type %v", typ))
 	}

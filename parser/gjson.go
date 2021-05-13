@@ -51,7 +51,14 @@ func (c *GjsonMetric) GetString(key string, nullable bool) (val interface{}) {
 		val = ""
 		return
 	}
-	val = r.String()
+	switch r.Type {
+	case gjson.Null:
+		val = ""
+	case gjson.String:
+		val = r.Str
+	default:
+		val = r.Raw
+	}
 	return
 }
 
@@ -82,7 +89,18 @@ func (c *GjsonMetric) GetInt(key string, nullable bool) (val interface{}) {
 		val = int64(0)
 		return
 	}
-	val = r.Int()
+	switch r.Type {
+	case gjson.True:
+		val = int64(1)
+	case gjson.Number:
+		if v := r.Int(); float64(v) != r.Num {
+			val = int64(0)
+		} else {
+			val = v
+		}
+	default:
+		val = int64(0)
+	}
 	return
 }
 
@@ -97,7 +115,7 @@ func (c *GjsonMetric) GetDateTime(key string, nullable bool) (val interface{}) {
 	}
 	switch r.Type {
 	case gjson.Number:
-		val = time.Unix(int64(r.Num), int64(r.Num*1e9)%1e9).In(time.UTC)
+		val = UnixFloat(r.Num)
 	case gjson.String:
 		val = c.pp.ParseDateTime(key, r.Str)
 	default:
@@ -125,20 +143,46 @@ func (c *GjsonMetric) GetArray(key string, typ int) (val interface{}) {
 	case model.Int:
 		results := make([]int64, 0, len(array))
 		for _, e := range array {
-			results = append(results, e.Int())
+			var v int64
+			switch e.Type {
+			case gjson.True:
+				v = int64(1)
+			case gjson.Number:
+				if v = e.Int(); float64(v) != e.Num {
+					v = int64(0)
+				}
+			default:
+				v = int64(0)
+			}
+			results = append(results, v)
 		}
 		val = results
 	case model.Float:
 		results := make([]float64, 0, len(array))
-
 		for _, e := range array {
-			results = append(results, e.Float())
+			var f float64
+			switch e.Type {
+			case gjson.Number:
+				f = e.Num
+			default:
+				f = float64(0.0)
+			}
+			results = append(results, f)
 		}
 		val = results
 	case model.String:
 		results := make([]string, 0, len(array))
 		for _, e := range array {
-			results = append(results, e.String())
+			var s string
+			switch e.Type {
+			case gjson.Null:
+				s = ""
+			case gjson.String:
+				s = e.Str
+			default:
+				s = e.Raw
+			}
+			results = append(results, s)
 		}
 		val = results
 	case model.DateTime:
@@ -147,7 +191,7 @@ func (c *GjsonMetric) GetArray(key string, typ int) (val interface{}) {
 			var t time.Time
 			switch e.Type {
 			case gjson.Number:
-				t = time.Unix(int64(e.Num), int64(r.Num*1e9)%1e9).In(time.UTC)
+				t = UnixFloat(e.Num)
 			case gjson.String:
 				t = c.pp.ParseDateTime(key, e.Str)
 			default:

@@ -16,6 +16,7 @@ package parser
 
 import (
 	"fmt"
+	"math"
 	"sync"
 	"time"
 
@@ -155,7 +156,7 @@ func (pp *Pool) ParseDateTime(key string, val string) (t time.Time) {
 		t = Epoch
 		return
 	}
-	t = t.In(time.UTC)
+	t = t.UTC()
 	return
 }
 
@@ -180,10 +181,27 @@ func parseInLocation(val string, loc *time.Location) (t time.Time, layout string
 	var lay string
 	for _, lay = range Layouts {
 		if t, err = time.ParseInLocation(lay, val, loc); err == nil {
-			t = t.In(time.UTC)
+			t = t.UTC()
 			layout = lay
 			return
 		}
 	}
 	return
+}
+
+func UnixInt(sec int64) (t time.Time) {
+	//2^32 seconds since epoch: 2106-02-07T06:28:16Z
+	if sec < 0 || sec >= 4294967296 {
+		return Epoch
+	}
+	return time.Unix(sec, 0).UTC()
+}
+
+func UnixFloat(sec float64) (t time.Time) {
+	//2^32 seconds since epoch: 2106-02-07T06:28:16Z
+	if sec < 0 || sec >= 4294967296.0 {
+		return Epoch
+	}
+	i, f := math.Modf(sec)
+	return time.Unix(int64(i), int64(f*1e9)).UTC()
 }

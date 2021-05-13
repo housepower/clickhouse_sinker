@@ -17,6 +17,8 @@ package parser
 import (
 	"encoding/json"
 	"fmt"
+	"log"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -27,93 +29,123 @@ import (
 	"github.com/valyala/fastjson"
 )
 
+// https://golang.org/pkg/math/, Mathematical constants
 var jsonSample = []byte(`{
-	"its":1536813227,
-	"_ip":"112.96.65.228",
-	"cgi":"/commui/queryhttpdns",
-	"channel":"escaped_\"ws",
-	"platform":"adr",
-	"experiment":"default",
-	"ip":"36.248.20.69",
-	"version":"5.8.3",
-	"success":0,
-	"percent":0.11,
-	"mp": {"i":[1,2,3],"f":[1.1,2.2,3.3],"s":["aa","bb","cc"],"e":[]},
-	"date1": "2019-12-16",
-	"time_sec_rfc3339_1":    "2019-12-16T12:10:30Z",
-	"time_sec_rfc3339_2":    "2019-12-16T12:10:30+08:00",
-	"time_sec_clickhouse_1": "2019-12-16 12:10:30",
-	"time_ms_rfc3339_1":     "2019-12-16T12:10:30.123Z",
-	"time_ms_rfc3339_2":     "2019-12-16T12:10:30.123+08:00",
-	"time_ms_clickhouse_1":  "2019-12-16 12:10:30.123",
-	"array_int": [-9223372036854775808,9223372036854775807],
-	"array_float": [1.1,2.2,3.3],
-	"array_string": ["aa","bb","cc"],
-	"array_date": ["2000-01-01","2000-01-02","2000-01-03"],
-	"array_object": [{"i":[1,2,3],"f":[1.1,2.2,3.3]},{"s":["aa","bb","cc"],"e":[]}],
-	"array_empty": [],
+	"null": null,
 	"bool_true": true,
-	"bool_false": false
+	"bool_false": false,
+	"num_int": 123,
+	"num_float": 123.321,
+	"str": "escaped_\"ws",
+	"str_int": "123",
+	"str_float": "123.321",
+	"str_date_1": "2009-07-13",
+	"str_date_2": "13/07/2009",
+	"str_time_rfc3339_1": "2009-07-13T09:07:13Z",
+	"str_time_rfc3339_2": "2009-07-13T09:07:13.123+08:00",
+	"str_time_clickhouse_1": "2009-07-13 09:07:13",
+	"str_time_clickhouse_2": "2009-07-13 09:07:13.123",
+	"obj": {"i":[1,2,3],"f":[1.1,2.2,3.3],"s":["aa","bb","cc"],"e":[]},
+	"array_empty": [],
+	"array_null": [null],
+	"array_bool": [true,false],
+	"array_num_int_1": [0, 255, 256, 65535, 65536, 4294967295, 4294967296, 18446744073709551615, 18446744073709551616],
+	"array_num_int_2": [-9223372036854775808, -2147483649, -2147483648, -32769, -32768, -129, -128, 0, 127, 128, 32767, 32768, 2147483647, 2147483648, 9223372036854775807],
+	"array_num_float": [4.940656458412465441765687928682213723651e-324, 1.401298464324817070923729583289916131280e-45, 0.0, 3.40282346638528859811704183484516925440e+38, 1.797693134862315708145274237317043567981e+308],
+	"array_str": ["aa","bb","cc"],
+	"array_str_int_1": ["0", "255", "256", "65535", "65536", "4294967295", "4294967296", "18446744073709551615", "18446744073709551616"],
+	"array_str_int_2": ["-9223372036854775808", "-2147483649", "-2147483648", "-32769", "-32768", "-129", "-128", "0", "127", "128", "32767", "32768", "2147483647", "2147483648", "9223372036854775807"],
+	"array_str_float": ["4.940656458412465441765687928682213723651e-324", "1.401298464324817070923729583289916131280e-45", "0.0", "3.40282346638528859811704183484516925440e+38", "1.797693134862315708145274237317043567981e+308"],
+	"array_str_date_1": ["2009-07-13","2009-07-14","2009-07-15"],
+	"array_str_date_2": ["13/07/2009","14/07/2009","15/07/2009"],
+	"array_str_time_rfc3339": ["2009-07-13T09:07:13Z", "2009-07-13T09:07:13+08:00", "2009-07-13T09:07:13.123Z", "2009-07-13T09:07:13.123+08:00"],
+	"array_str_time_clickhouse": ["2009-07-13 09:07:13", "2009-07-13 09:07:13.123"],
+	"array_obj": [{"i":[1,2,3],"f":[1.1,2.2,3.3]},{"s":["aa","bb","cc"],"e":[]}]
 }`)
 
 var jsonSchema = map[string]string{
-	"its":                   "number",
-	"_ip":                   "string",
-	"cgi":                   "string",
-	"channel":               "string",
-	"platform":              "string",
-	"experiment":            "string",
-	"ip":                    "string",
-	"version":               "string",
-	"success":               "number",
-	"percent":               "number",
-	"mp":                    "object",
-	"date1":                 "string",
-	"time_sec_rfc3339_1":    "string",
-	"time_sec_rfc3339_2":    "string",
-	"time_sec_clickhouse_1": "string",
-	"time_ms_rfc3339_1":     "string",
-	"time_ms_rfc3339_2":     "string",
-	"time_ms_clickhouse_1":  "string",
-	"array_int":             "array",
-	"array_float":           "array",
-	"array_string":          "array",
-	"array_date":            "array",
-	"array_object":          "array",
-	"array_empty":           "array",
-	"bool_true":             "true",
-	"bool_false":            "false",
+	"null":                      "null",
+	"bool_true":                 "true",
+	"bool_false":                "false",
+	"num_int":                   "number",
+	"num_float":                 "number",
+	"str":                       "string",
+	"str_int":                   "string",
+	"str_float":                 "string",
+	"str_date_1":                "string",
+	"str_date_2":                "string",
+	"str_time_rfc3339_1":        "string",
+	"str_time_rfc3339_2":        "string",
+	"str_time_clickhouse_1":     "string",
+	"str_time_clickhouse_2":     "string",
+	"obj":                       "object",
+	"array_empty":               "array",
+	"array_null":                "array",
+	"array_bool":                "array",
+	"array_num_int_1":           "array",
+	"array_num_int_2":           "array",
+	"array_num_float":           "array",
+	"array_str":                 "array",
+	"array_str_int_1":           "array",
+	"array_str_int_2":           "array",
+	"array_str_float":           "array",
+	"array_str_date_1":          "array",
+	"array_str_date_2":          "array",
+	"array_str_time_rfc3339":    "array",
+	"array_str_time_clickhouse": "array",
+	"array_obj":                 "array",
 }
 
-var csvSample = []byte(`1536813227,"0.11","escaped_""ws","{""i"":[1,2,3],""f"":[1.1,2.2,3.3],""s"":[""aa"",""bb"",""cc""],""e"":[]}",2019-12-16,2019-12-16T12:10:30Z,2019-12-16T12:10:30+08:00,2019-12-16 12:10:30,2019-12-16T12:10:30.123Z,2019-12-16T12:10:30.123+08:00,2019-12-16 12:10:30.123,"[-9223372036854775808,9223372036854775807]","[1.1,2.2,3.3]","[""aa"",""bb"",""cc""]","[""2000-01-01"",""2000-01-02"",""2000-01-03""]","[{""i"":[1,2,3],""f"":[1.1,2.2,3.3]},{""s"":[""aa"",""bb"",""cc""],""e"":[]}]","[]","true","false"`)
+var csvSample = []byte(`null,true,false,123,123.321,"escaped_""ws",123,123.321,2009-07-13,13/07/2009,2009-07-13T09:07:13Z,2009-07-13T09:07:13.123+08:00,2009-07-13 09:07:13,2009-07-13 09:07:13.123,"{""i"":[1,2,3],""f"":[1.1,2.2,3.3],""s"":[""aa"",""bb"",""cc""],""e"":[]}",[],[null],"[true,false]","[0,255,256,65535,65536,4294967295,4294967296,18446744073709551615,18446744073709551616]","[-9223372036854775808,-2147483649,-2147483648,-32769,-32768,-129,-128,0,127,128,32767,32768,2147483647,2147483648,9223372036854775807]","[4.940656458412465441765687928682213723651e-324,1.401298464324817070923729583289916131280e-45,0.0,3.40282346638528859811704183484516925440e+38,1.797693134862315708145274237317043567981e+308]","[""aa"",""bb"",""cc""]","[""0"",""255"",""256"",""65535"",""65536"",""4294967295"",""4294967296"",""18446744073709551615"",""18446744073709551616""]","[""-9223372036854775808"",""-2147483649"",""-2147483648"",""-32769"",""-32768"",""-129"",""-128"",""0"",""127"",""128"",""32767"",""32768"",""2147483647"",""2147483648"",""9223372036854775807""]","[""4.940656458412465441765687928682213723651e-324"",""1.401298464324817070923729583289916131280e-45"",""0.0"",""3.40282346638528859811704183484516925440e+38"",""1.797693134862315708145274237317043567981e+308""]","[""2009-07-13"",""2009-07-14"",""2009-07-15""]","[""13/07/2009"",""14/07/2009"",""15/07/2009""]","[""2009-07-13T09:07:13Z"",""2009-07-13T09:07:13+08:00"",""2009-07-13T09:07:13.123Z"",""2009-07-13T09:07:13.123+08:00""]","[""2009-07-13 09:07:13"",""2009-07-13 09:07:13.123""]","[{""i"":[1,2,3],""f"":[1.1,2.2,3.3]},{""s"":[""aa"",""bb"",""cc""],""e"":[]}]"`)
 
 var csvSchema = []string{
-	"its",
-	"percent",
-	"channel",
-	"mp",
-	"date1",
-	"time_sec_rfc3339_1",
-	"time_sec_rfc3339_2",
-	"time_sec_clickhouse_1",
-	"time_ms_rfc3339_1",
-	"time_ms_rfc3339_2",
-	"time_ms_clickhouse_1",
-	"array_int",
-	"array_float",
-	"array_string",
-	"array_date",
-	"array_object",
-	"array_empty",
+	"null",
 	"bool_true",
 	"bool_false",
+	"num_int",
+	"num_float",
+	"str",
+	"str_int",
+	"str_float",
+	"str_date_1",
+	"str_date_2",
+	"str_time_rfc3339_1",
+	"str_time_rfc3339_2",
+	"str_time_clickhouse_1",
+	"str_time_clickhouse_2",
+	"obj",
+	"array_empty",
+	"array_null",
+	"array_bool",
+	"array_num_int_1",
+	"array_num_int_2",
+	"array_num_float",
+	"array_str",
+	"array_str_int_1",
+	"array_str_int_2",
+	"array_str_float",
+	"array_str_date_1",
+	"array_str_date_2",
+	"array_str_time_rfc3339",
+	"array_str_time_clickhouse",
+	"array_obj",
 }
+
+var (
+	bdUtcNs       = time.Date(2009, 7, 13, 9, 7, 13, 123000000, time.UTC)
+	bdUtcSec      = bdUtcNs.Truncate(1 * time.Second)
+	bdShNsOrig    = time.Date(2009, 7, 13, 9, 7, 13, 123000000, time.FixedZone("CST", 8*60*60))
+	bdShNs        = bdShNsOrig.UTC()
+	bdShSec       = bdShNsOrig.Truncate(1 * time.Second).UTC()
+	bdLocalNsOrig = time.Date(2009, 7, 13, 9, 7, 13, 123000000, time.Local)
+	bdLocalNs     = bdLocalNsOrig.UTC()
+	bdLocalSec    = bdLocalNsOrig.Truncate(1 * time.Second).UTC()
+	bdLocalDate   = time.Date(2009, 7, 13, 0, 0, 0, 0, time.Local).UTC()
+)
 
 var initialize sync.Once
 var initErr error
-var names = []string{"csv", "fastjson", "gjson"}
-var pools map[string]*Pool
-var parsers map[string]Parser
+var names = []string{"fastjson", "gjson", "csv"}
 var metrics map[string]model.Metric
 
 type SimpleCase struct {
@@ -128,25 +160,16 @@ type ArrayCase struct {
 	ExpVal interface{}
 }
 
-func Bool2Str(b bool) string {
-	if b {
-		return "true"
-	}
-	return "false"
-}
-
 func initMetrics() {
 	var pp *Pool
 	var parser Parser
 	var metric model.Metric
 	var sample []byte
-	pools = make(map[string]*Pool)
-	parsers = make(map[string]Parser)
 	metrics = make(map[string]model.Metric)
 	for _, name := range names {
 		switch name {
 		case "csv":
-			pp, _ = NewParserPool("csv", csvSchema, "", "")
+			pp, _ = NewParserPool("csv", csvSchema, ",", "")
 			sample = csvSample
 		case "fastjson":
 			pp, _ = NewParserPool("fastjson", nil, "", "")
@@ -157,13 +180,20 @@ func initMetrics() {
 		}
 		parser = pp.Get()
 		if metric, initErr = parser.Parse(sample); initErr != nil {
-			msg := fmt.Sprintf("%+v", initErr)
+			msg := fmt.Sprintf("parser.Parse failed: %+v\n", initErr)
 			panic(msg)
 		}
-		pools[name] = pp
-		parsers[name] = parser
 		metrics[name] = metric
 	}
+}
+
+func sliceContains(list []string, target string) bool {
+	for _, s := range list {
+		if s == target {
+			return true
+		}
+	}
+	return false
 }
 
 func doTestSimple(t *testing.T, method string, testCases []SimpleCase) {
@@ -175,7 +205,11 @@ func doTestSimple(t *testing.T, method string, testCases []SimpleCase) {
 		metric := metrics[name]
 		for j := range testCases {
 			var v interface{}
-			desc := fmt.Sprintf(`%s %s("%s", %s)`, name, method, testCases[j].Field, Bool2Str(testCases[j].Nullable))
+			desc := fmt.Sprintf(`%s %s("%s", %s)`, name, method, testCases[j].Field, strconv.FormatBool(testCases[j].Nullable))
+			if name == "csv" && sliceContains([]string{"GetInt", "GetFloat", "GetDateTime", "GetElasticDateTime"}, method) && sliceContains([]string{"str_int", "str_float"}, testCases[j].Field) {
+				log.Printf("%s is known to not compatible with fastjson parser, skipping", desc)
+				continue
+			}
 			switch method {
 			case "GetInt":
 				v = metric.GetInt(testCases[j].Field, testCases[j].Nullable)
@@ -197,57 +231,182 @@ func doTestSimple(t *testing.T, method string, testCases []SimpleCase) {
 
 func TestParserInt(t *testing.T) {
 	testCases := []SimpleCase{
-		{"its", false, int64(1536813227)},
+		// nullable: false
 		{"not_exist", false, int64(0)},
+		{"null", false, int64(0)},
+		{"bool_true", false, int64(1)},
+		{"bool_false", false, int64(0)},
+		{"num_int", false, int64(123)},
+		{"num_float", false, int64(0)},
+		{"str", false, int64(0)},
+		{"str_int", false, int64(0)},
+		{"str_float", false, int64(0)},
+		{"str_date_1", false, int64(0)},
+		{"obj", false, int64(0)},
+		{"array_empty", false, int64(0)},
+		// nullable: true
 		{"not_exist", true, nil},
-		{"channel", false, int64(0)},
+		{"null", true, nil},
+		{"bool_true", true, int64(1)},
+		{"bool_false", true, int64(0)},
+		{"num_int", true, int64(123)},
+		{"num_float", true, int64(0)},
+		{"str", true, int64(0)},
+		{"str_int", true, int64(0)},
+		{"str_float", true, int64(0)},
+		{"str_date_1", true, int64(0)},
+		{"obj", true, int64(0)},
+		{"array_empty", true, int64(0)},
 	}
 	doTestSimple(t, "GetInt", testCases)
 }
 
 func TestParserFloat(t *testing.T) {
 	testCases := []SimpleCase{
-		{"percent", false, 0.11},
+		// nullable: false
 		{"not_exist", false, 0.0},
+		{"null", false, 0.0},
+		{"bool_true", false, 0.0},
+		{"bool_false", false, 0.0},
+		{"num_int", false, 123.0},
+		{"num_float", false, 123.321},
+		{"str", false, 0.0},
+		{"str_int", false, 0.0},
+		{"str_float", false, 0.0},
+		{"str_date_1", false, 0.0},
+		{"obj", false, 0.0},
+		{"array_empty", false, 0.0},
+		// nullable: true
 		{"not_exist", true, nil},
-		{"channel", false, 0.0},
+		{"null", true, nil},
+		{"bool_true", true, 0.0},
+		{"bool_false", true, 0.0},
+		{"num_int", true, 123.0},
+		{"num_float", true, 123.321},
+		{"str", true, 0.0},
+		{"str_int", true, 0.0},
+		{"str_float", true, 0.0},
+		{"str_date_1", true, 0.0},
+		{"obj", true, 0.0},
+		{"array_empty", true, 0.0},
 	}
 	doTestSimple(t, "GetFloat", testCases)
 }
 
 func TestParserString(t *testing.T) {
 	testCases := []SimpleCase{
-		{"channel", false, "escaped_\"ws"},
+		// nullable: false
 		{"not_exist", false, ""},
+		{"null", false, ""},
+		{"bool_true", false, "true"},
+		{"bool_false", false, "false"},
+		{"num_int", false, "123"},
+		{"num_float", false, "123.321"},
+		{"str", false, `escaped_"ws`},
+		{"str_int", false, "123"},
+		{"str_float", false, "123.321"},
+		{"str_date_1", false, "2009-07-13"},
+		{"obj", false, `{"i":[1,2,3],"f":[1.1,2.2,3.3],"s":["aa","bb","cc"],"e":[]}`},
+		{"array_empty", false, "[]"},
+		{"array_null", false, "[null]"},
+		{"array_bool", false, "[true,false]"},
+		{"array_str", false, `["aa","bb","cc"]`},
+		// nullable: true
 		{"not_exist", true, nil},
-		{"its", false, "1536813227"},
-		{"array_int", false, "[-9223372036854775808,9223372036854775807]"},
-		{"array_string", false, `["aa","bb","cc"]`},
-		{"mp", false, `{"i":[1,2,3],"f":[1.1,2.2,3.3],"s":["aa","bb","cc"],"e":[]}`},
+		{"null", true, nil},
+		{"bool_true", true, "true"},
+		{"bool_false", true, "false"},
+		{"num_int", true, "123"},
+		{"num_float", true, "123.321"},
+		{"str", true, `escaped_"ws`},
+		{"str_int", true, "123"},
+		{"str_float", true, "123.321"},
+		{"str_date_1", true, "2009-07-13"},
+		{"obj", true, `{"i":[1,2,3],"f":[1.1,2.2,3.3],"s":["aa","bb","cc"],"e":[]}`},
+		{"array_empty", true, "[]"},
+		{"array_null", true, "[null]"},
+		{"array_bool", true, "[true,false]"},
+		{"array_str", true, `["aa","bb","cc"]`},
 	}
 	doTestSimple(t, "GetString", testCases)
 }
 
 func TestParserDateTime(t *testing.T) {
 	testCases := []SimpleCase{
-		{"date1", false, time.Date(2019, 12, 16, 0, 0, 0, 0, time.Local).In(time.UTC)},
-		{"time_sec_rfc3339_1", false, time.Date(2019, 12, 16, 12, 10, 30, 0, time.UTC)},
-		{"time_sec_rfc3339_2", false, time.Date(2019, 12, 16, 12, 10, 30, 0, time.FixedZone("CST", 8*60*60)).In(time.UTC)},
-		{"time_sec_clickhouse_1", false, time.Date(2019, 12, 16, 12, 10, 30, 0, time.Local).In(time.UTC)},
-		{"time_ms_rfc3339_1", false, time.Date(2019, 12, 16, 12, 10, 30, 123000000, time.UTC)},
-		{"time_ms_rfc3339_2", false, time.Date(2019, 12, 16, 12, 10, 30, 123000000, time.FixedZone("CST", 8*60*60)).In(time.UTC)},
-		{"time_ms_clickhouse_1", false, time.Date(2019, 12, 16, 12, 10, 30, 123000000, time.Local).In(time.UTC)},
+		// nullable: false
 		{"not_exist", false, Epoch},
-		{"array_int", false, Epoch},
+		{"null", false, Epoch},
+		{"bool_true", false, Epoch},
+		{"bool_false", false, Epoch},
+		{"num_int", false, UnixInt(123)},
+		{"num_float", false, UnixFloat(123.321)},
+		{"str", false, Epoch},
+		{"str_int", false, Epoch},
+		{"str_float", false, Epoch},
+		{"str_date_1", false, bdLocalDate},
+		{"str_time_rfc3339_1", false, bdUtcSec},
+		{"str_time_rfc3339_2", false, bdShNs},
+		{"str_time_clickhouse_1", false, bdLocalSec},
+		{"str_time_clickhouse_2", false, bdLocalNs},
+		{"obj", false, Epoch},
+		{"array_empty", false, Epoch},
+		// nullable: true
+		{"not_exist", true, nil},
+		{"null", true, nil},
+		{"bool_true", true, Epoch},
+		{"bool_false", true, Epoch},
+		{"num_int", true, UnixInt(123)},
+		{"num_float", true, UnixFloat(123.321)},
+		{"str", true, Epoch},
+		{"str_int", true, Epoch},
+		{"str_float", true, Epoch},
+		{"str_date_1", true, bdLocalDate},
+		{"str_time_rfc3339_1", true, bdUtcSec},
+		{"str_time_rfc3339_2", true, bdShNs},
+		{"str_time_clickhouse_1", true, bdLocalSec},
+		{"str_time_clickhouse_2", true, bdLocalNs},
+		{"obj", true, Epoch},
+		{"array_empty", true, Epoch},
 	}
 	doTestSimple(t, "GetDateTime", testCases)
 }
 
 func TestParserElasticDateTime(t *testing.T) {
 	testCases := []SimpleCase{
-		{"time_ms_rfc3339_1", false, time.Date(2019, 12, 16, 12, 10, 30, 0, time.UTC).Unix()},
-		{"not_exist", false, int64(0)},
+		// nullable: false
+		{"not_exist", false, Epoch.Unix()},
+		{"null", false, Epoch.Unix()},
+		{"bool_true", false, Epoch.Unix()},
+		{"bool_false", false, Epoch.Unix()},
+		{"num_int", false, UnixInt(123).Unix()},
+		{"num_float", false, UnixFloat(123.321).Unix()},
+		{"str", false, Epoch.Unix()},
+		{"str_int", false, Epoch.Unix()},
+		{"str_float", false, Epoch.Unix()},
+		{"str_date_1", false, bdLocalDate.Unix()},
+		{"str_time_rfc3339_1", false, bdUtcSec.Unix()},
+		{"str_time_rfc3339_2", false, bdShNs.Unix()},
+		{"str_time_clickhouse_1", false, bdLocalSec.Unix()},
+		{"str_time_clickhouse_2", false, bdLocalNs.Unix()},
+		{"obj", false, Epoch.Unix()},
+		{"array_empty", false, Epoch.Unix()},
+		// nullable: true
 		{"not_exist", true, nil},
+		{"null", true, nil},
+		{"bool_true", true, Epoch.Unix()},
+		{"bool_false", true, Epoch.Unix()},
+		{"num_int", true, UnixInt(123).Unix()},
+		{"num_float", true, UnixFloat(123.321).Unix()},
+		{"str", true, Epoch.Unix()},
+		{"str_int", true, Epoch.Unix()},
+		{"str_float", true, Epoch.Unix()},
+		{"str_date_1", true, bdLocalDate.Unix()},
+		{"str_time_rfc3339_1", true, bdUtcSec.Unix()},
+		{"str_time_rfc3339_2", true, bdShNs.Unix()},
+		{"str_time_clickhouse_1", true, bdLocalSec.Unix()},
+		{"str_time_clickhouse_2", true, bdLocalNs.Unix()},
+		{"obj", true, Epoch.Unix()},
+		{"array_empty", true, Epoch.Unix()},
 	}
 	doTestSimple(t, "GetElasticDateTime", testCases)
 }
@@ -255,29 +414,78 @@ func TestParserElasticDateTime(t *testing.T) {
 func TestParserArray(t *testing.T) {
 	initialize.Do(initMetrics)
 	require.Nil(t, initErr)
-	var ts []time.Time
-	for _, e := range []string{"2000-01-01", "2000-01-02", "2000-01-03"} {
-		t, _ := parseInLocation(e, time.Local)
-		ts = append(ts, t)
-	}
+
 	testCases := []ArrayCase{
-		{"array_int", model.Float, []float64{-9223372036854775808, 9223372036854775807}},
-		{"array_int", model.Int, []int64{-9223372036854775808, 9223372036854775807}},
-		{"array_float", model.Float, []float64{1.1, 2.2, 3.3}},
-		{"array_string", model.String, []string{"aa", "bb", "cc"}},
-		{"array_date", model.DateTime, ts},
-		{"array_object", model.String, []string{`{"i":[1,2,3],"f":[1.1,2.2,3.3]}`, `{"s":["aa","bb","cc"],"e":[]}`}},
+		{"not_exist", model.Float, []float64{}},
+		{"null", model.Float, []float64{}},
+		{"num_int", model.Int, []int64{}},
+		{"num_float", model.Float, []float64{}},
+		{"str", model.String, []string{}},
+		{"str_int", model.String, []string{}},
+		{"str_date_1", model.DateTime, []time.Time{}},
+		{"obj", model.String, []string{}},
+
 		{"array_empty", model.Int, []int64{}},
 		{"array_empty", model.Float, []float64{}},
 		{"array_empty", model.String, []string{}},
 		{"array_empty", model.DateTime, []time.Time{}},
+
+		{"array_null", model.Int, []int64{0}},
+		{"array_null", model.Float, []float64{0.0}},
+		{"array_null", model.String, []string{""}},
+		{"array_null", model.DateTime, []time.Time{Epoch}},
+
+		{"array_bool", model.Int, []int64{1, 0}},
+		{"array_bool", model.Float, []float64{0.0, 0.0}},
+		{"array_bool", model.String, []string{"true", "false"}},
+		{"array_bool", model.DateTime, []time.Time{Epoch, Epoch}},
+
+		{"array_num_int_1", model.Int, []int64{0, 255, 256, 65535, 65536, 4294967295, 4294967296, 0, 0}},
+		{"array_num_int_1", model.Float, []float64{0, 255, 256, 65535, 65536, 4294967295, 4294967296, 18446744073709551615, 18446744073709551616}},
+		{"array_num_int_1", model.String, []string{"0", "255", "256", "65535", "65536", "4294967295", "4294967296", "18446744073709551615", "18446744073709551616"}},
+		{"array_num_int_1", model.DateTime, []time.Time{Epoch, UnixInt(255), UnixInt(256), UnixInt(65535), UnixInt(65536), UnixInt(4294967295), UnixInt(4294967296), Epoch, Epoch}},
+
+		{"array_num_int_2", model.Int, []int64{-9223372036854775808, -2147483649, -2147483648, -32769, -32768, -129, -128, 0, 127, 128, 32767, 32768, 2147483647, 2147483648, 9223372036854775807}},
+		{"array_num_int_2", model.Float, []float64{-9223372036854775808, -2147483649, -2147483648, -32769, -32768, -129, -128, 0, 127, 128, 32767, 32768, 2147483647, 2147483648, 9223372036854775807}},
+		{"array_num_int_2", model.String, []string{"-9223372036854775808", "-2147483649", "-2147483648", "-32769", "-32768", "-129", "-128", "0", "127", "128", "32767", "32768", "2147483647", "2147483648", "9223372036854775807"}},
+		{"array_num_int_2", model.DateTime, []time.Time{Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, UnixInt(127), UnixInt(128), UnixInt(32767), UnixInt(32768), UnixInt(2147483647), UnixInt(2147483648), UnixInt(9223372036854775807)}},
+
+		{"array_num_float", model.Int, []int64{0, 0, 0, 0, 0}},
+		{"array_num_float", model.Float, []float64{4.940656458412465441765687928682213723651e-324, 1.401298464324817070923729583289916131280e-45, 0.0, 3.40282346638528859811704183484516925440e+38, 1.797693134862315708145274237317043567981e+308}},
+		{"array_num_float", model.String, []string{"4.940656458412465441765687928682213723651e-324", "1.401298464324817070923729583289916131280e-45", "0.0", "3.40282346638528859811704183484516925440e+38", "1.797693134862315708145274237317043567981e+308"}},
+		{"array_num_float", model.DateTime, []time.Time{Epoch, Epoch, Epoch, UnixFloat(3.40282346638528859811704183484516925440e+38), UnixFloat(1.797693134862315708145274237317043567981e+308)}},
+
+		{"array_str", model.Int, []int64{0, 0, 0}},
+		{"array_str", model.Float, []float64{0.0, 0.0, 0.0}},
+		{"array_str", model.String, []string{"aa", "bb", "cc"}},
+		{"array_str", model.DateTime, []time.Time{Epoch, Epoch, Epoch}},
+
+		{"array_str_int_1", model.Int, []int64{0, 0, 0, 0, 0, 0, 0, 0, 0}},
+		{"array_str_int_1", model.Float, []float64{0, 0, 0, 0, 0, 0, 0, 0, 0}},
+		{"array_str_int_1", model.String, []string{"0", "255", "256", "65535", "65536", "4294967295", "4294967296", "18446744073709551615", "18446744073709551616"}},
+		{"array_str_int_1", model.DateTime, []time.Time{Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch}},
+
+		{"array_str_int_2", model.Int, []int64{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
+		{"array_str_int_2", model.Float, []float64{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
+		{"array_str_int_2", model.String, []string{"-9223372036854775808", "-2147483649", "-2147483648", "-32769", "-32768", "-129", "-128", "0", "127", "128", "32767", "32768", "2147483647", "2147483648", "9223372036854775807"}},
+		{"array_str_int_2", model.DateTime, []time.Time{Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch}},
+
+		{"array_str_float", model.Int, []int64{0, 0, 0, 0, 0}},
+		{"array_str_float", model.Float, []float64{0, 0, 0, 0, 0}},
+		{"array_str_float", model.String, []string{"4.940656458412465441765687928682213723651e-324", "1.401298464324817070923729583289916131280e-45", "0.0", "3.40282346638528859811704183484516925440e+38", "1.797693134862315708145274237317043567981e+308"}},
+		{"array_str_float", model.DateTime, []time.Time{Epoch, Epoch, Epoch, Epoch, Epoch}},
+
+		{"array_str_date_1", model.DateTime, []time.Time{bdLocalDate, bdLocalDate.Add(24 * time.Hour), bdLocalDate.Add(48 * time.Hour)}},
+		{"array_str_date_2", model.DateTime, []time.Time{bdLocalDate, bdLocalDate.Add(24 * time.Hour), bdLocalDate.Add(48 * time.Hour)}},
+		{"array_str_time_rfc3339", model.DateTime, []time.Time{bdUtcSec, bdShSec, bdUtcNs, bdShNs}},
+		{"array_str_time_clickhouse", model.DateTime, []time.Time{bdLocalSec, bdLocalNs}},
 	}
 
 	for i := range names {
 		name := names[i]
 		metric := metrics[name]
 		for j := range testCases {
-			if name == "csv" && testCases[j].Field == "array_object" {
+			if name == "csv" && testCases[j].Field == "array_obj" {
 				// csv parser doesn't support object array yet.
 				continue
 			}
@@ -290,15 +498,13 @@ func TestParserArray(t *testing.T) {
 }
 
 func BenchmarkUnmarshalljson(b *testing.B) {
-	mp := map[string]interface{}{}
+	object := map[string]interface{}{}
 	for i := 0; i < b.N; i++ {
-		_ = json.Unmarshal(jsonSample, &mp)
+		_ = json.Unmarshal(jsonSample, &object)
 	}
 }
 
 func BenchmarkUnmarshallFastJson(b *testing.B) {
-	// mp := map[string]interface{}{}
-	// var p fastjson.Parser
 	str := string(jsonSample)
 	var p fastjson.Parser
 	for i := 0; i < b.N; i++ {
@@ -306,53 +512,37 @@ func BenchmarkUnmarshallFastJson(b *testing.B) {
 		if err != nil {
 			panic(err)
 		}
-		v.GetInt("its")
-		v.GetStringBytes("_ip")
-		v.GetStringBytes("cgi")
-		v.GetStringBytes("channel")
-		v.GetStringBytes("platform")
-		v.GetStringBytes("experiment")
-		v.GetStringBytes("ip")
-		v.GetStringBytes("version")
-		v.GetInt("success")
-		v.GetInt("trycount")
+		v.GetInt("null")
+		v.GetInt("bool_true")
+		v.GetInt("num_int")
+		v.GetFloat64("num_float")
+		v.GetStringBytes("str")
+		v.GetStringBytes("str_float")
 	}
 }
 
 // 字段个数较少的情况下，直接Get性能更好
 func BenchmarkUnmarshallGjson(b *testing.B) {
-	// mp := map[string]interface{}{}
-	// var p fastjson.Parser
 	str := string(jsonSample)
 	for i := 0; i < b.N; i++ {
-		_ = gjson.Get(str, "its").Int()
-		_ = gjson.Get(str, "_ip").String()
-		_ = gjson.Get(str, "cgi").String()
-		_ = gjson.Get(str, "channel").String()
-		_ = gjson.Get(str, "platform").String()
-		_ = gjson.Get(str, "experiment").String()
-		_ = gjson.Get(str, "ip").String()
-		_ = gjson.Get(str, "version").String()
-		_ = gjson.Get(str, "success").Int()
-		_ = gjson.Get(str, "trycount").Int()
+		_ = gjson.Get(str, "null").Int()
+		_ = gjson.Get(str, "bool_true").Int()
+		_ = gjson.Get(str, "num_int").Int()
+		_ = gjson.Get(str, "num_float").Float()
+		_ = gjson.Get(str, "str").String()
+		_ = gjson.Get(str, "str_float").String()
 	}
 }
 
 func BenchmarkUnmarshalGabon2(b *testing.B) {
-	// mp := map[string]interface{}{}
-	// var p fastjson.Parser
 	str := string(jsonSample)
 	for i := 0; i < b.N; i++ {
 		result := gjson.Parse(str).Map()
-		_ = result["its"].Int()
-		_ = result["_ip"].String()
-		_ = result["cgi"].String()
-		_ = result["channel"].String()
-		_ = result["platform"].String()
-		_ = result["experiment"].String()
-		_ = result["ip"].String()
-		_ = result["version"].String()
-		_ = result["success"].Int()
-		_ = result["trycount"].Int()
+		_ = result["null"].Int()
+		_ = result["bool_true"].Int()
+		_ = result["num_int"].Int()
+		_ = result["num_float"].Float()
+		_ = result["str"].String()
+		_ = result["str_float"].String()
 	}
 }

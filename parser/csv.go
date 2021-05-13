@@ -18,13 +18,14 @@ import (
 	"bytes"
 	"encoding/csv"
 	"fmt"
-	"strings"
+	"strconv"
 	"sync"
 	"time"
 
 	"github.com/housepower/clickhouse_sinker/model"
 	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/pkg/errors"
+	"github.com/tidwall/gjson"
 	"github.com/valyala/fastjson/fastfloat"
 )
 
@@ -65,7 +66,7 @@ type CsvMetric struct {
 func (c *CsvMetric) GetString(key string, nullable bool) (val interface{}) {
 	var idx int
 	var ok bool
-	if idx, ok = c.pp.csvFormat[key]; !ok {
+	if idx, ok = c.pp.csvFormat[key]; !ok || c.values[idx] == "null" {
 		if nullable {
 			return
 		}
@@ -80,7 +81,7 @@ func (c *CsvMetric) GetString(key string, nullable bool) (val interface{}) {
 func (c *CsvMetric) GetFloat(key string, nullable bool) (val interface{}) {
 	var idx int
 	var ok bool
-	if idx, ok = c.pp.csvFormat[key]; !ok {
+	if idx, ok = c.pp.csvFormat[key]; !ok || c.values[idx] == "null" {
 		if nullable {
 			return
 		}
@@ -95,28 +96,37 @@ func (c *CsvMetric) GetFloat(key string, nullable bool) (val interface{}) {
 func (c *CsvMetric) GetInt(key string, nullable bool) (val interface{}) {
 	var idx int
 	var ok bool
-	if idx, ok = c.pp.csvFormat[key]; !ok {
+	if idx, ok = c.pp.csvFormat[key]; !ok || c.values[idx] == "null" {
 		if nullable {
 			return
 		}
 		val = int64(0)
 		return
 	}
-	val = fastfloat.ParseInt64BestEffort(c.values[idx])
+	if s := c.values[idx]; s == "true" {
+		val = int64(1)
+	} else {
+		val = fastfloat.ParseInt64BestEffort(s)
+	}
 	return
 }
 
 func (c *CsvMetric) GetDateTime(key string, nullable bool) (val interface{}) {
 	var idx int
 	var ok bool
-	if idx, ok = c.pp.csvFormat[key]; !ok {
+	if idx, ok = c.pp.csvFormat[key]; !ok || c.values[idx] == "null" {
 		if nullable {
 			return
 		}
 		val = Epoch
 		return
 	}
-	val = c.pp.ParseDateTime(key, c.values[idx])
+	s := c.values[idx]
+	if dd, err := strconv.ParseFloat(s, 64); err != nil {
+		val = c.pp.ParseDateTime(key, s)
+	} else {
+		val = UnixFloat(dd)
+	}
 	return
 }
 
@@ -130,18 +140,14 @@ func (c *CsvMetric) GetElasticDateTime(key string, nullable bool) (val interface
 
 // GetArray parse an CSV encoded array
 func (c *CsvMetric) GetArray(key string, typ int) (val interface{}) {
-	var err error
-	var array []string
-	var r *csv.Reader
 	s := c.GetString(key, false)
 	str, _ := s.(string)
-	strLen := len(str)
-	if str == "" || str[0] != '[' || str[strLen-1] != ']' {
+	if str == "" || str[0] != '[' {
 		val = makeArray(typ)
 		return
 	}
-	r = csv.NewReader(strings.NewReader(str[1 : strLen-1]))
-	if array, err = r.Read(); err != nil {
+	array := gjson.Parse(str).Array()
+	if len(array) == 0 {
 		val = makeArray(typ)
 		return
 	}
@@ -149,24 +155,61 @@ func (c *CsvMetric) GetArray(key string, typ int) (val interface{}) {
 	case model.Int:
 		results := make([]int64, 0, len(array))
 		for _, e := range array {
-			v := fastfloat.ParseInt64BestEffort(e)
+			var v int64
+			switch e.Type {
+			case gjson.True:
+				v = int64(1)
+			case gjson.Number:
+				if v = e.Int(); float64(v) != e.Num {
+					v = int64(0)
+				}
+			default:
+				v = int64(0)
+			}
 			results = append(results, v)
 		}
 		val = results
 	case model.Float:
 		results := make([]float64, 0, len(array))
 		for _, e := range array {
-			v := fastfloat.ParseBestEffort(e)
+			var v float64
+			switch e.Type {
+			case gjson.Number:
+				v = e.Num
+			default:
+				v = float64(0.0)
+			}
 			results = append(results, v)
 		}
 		val = results
 	case model.String:
-		val = array
+		results := make([]string, 0, len(array))
+		for _, e := range array {
+			var v string
+			switch e.Type {
+			case gjson.Null:
+				v = ""
+			case gjson.String:
+				v = e.Str
+			default:
+				v = e.Raw
+			}
+			results = append(results, v)
+		}
+		val = results
 	case model.DateTime:
 		results := make([]time.Time, 0, len(array))
 		for _, e := range array {
-			v := c.pp.ParseDateTime(key, e)
-			results = append(results, v)
+			var t time.Time
+			switch e.Type {
+			case gjson.Number:
+				t = UnixFloat(e.Num)
+			case gjson.String:
+				t = c.pp.ParseDateTime(key, e.Str)
+			default:
+				t = Epoch
+			}
+			results = append(results, t)
 		}
 		val = results
 	default:
