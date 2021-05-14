@@ -115,6 +115,17 @@ LOOP:
 	return
 }
 
+// https://stackoverflow.com/questions/50428176/how-to-get-ip-and-port-from-net-addr-when-it-could-be-a-net-udpaddr-or-net-tcpad
+func GetNetAddrPort(addr net.Addr) (port int) {
+	switch addr := addr.(type) {
+	case *net.UDPAddr:
+		port = addr.Port
+	case *net.TCPAddr:
+		port = addr.Port
+	}
+	return
+}
+
 // Refers to:
 // https://medium.com/processone/using-tls-authentication-for-your-go-kafka-client-3c5841f2a625
 // https://github.com/denji/golang-tls

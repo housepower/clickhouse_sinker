@@ -75,7 +75,7 @@ func initCmdOptions() {
 	// 1. Set options to default value.
 	cmdOps = CmdOptions{
 		ShowVer:          false,
-		HTTPPort:         2112,
+		HTTPPort:         0, // 0 menas a randomly OS chosen port
 		PushGatewayAddrs: "",
 		PushInterval:     10,
 		LocalCfgFile:     "/etc/clickhouse_sinker.json",
@@ -134,7 +134,6 @@ func init() {
 		log.Fatal("unable to determine self ip", err)
 	}
 	selfIP = ip.String()
-	cmdOps.HTTPPort = util.GetSpareTCPPort(cmdOps.HTTPPort)
 }
 
 // GenTask generate a task via config
@@ -198,8 +197,19 @@ func main() {
 			mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
 			mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 
-			util.Logger.Info(fmt.Sprintf("Run http server http://%s:%d", selfIP, cmdOps.HTTPPort))
-			if err := http.ListenAndServe(fmt.Sprintf(":%d", cmdOps.HTTPPort), mux); err != nil {
+			// cmdOps.HTTPPort=0: let OS choose the listen port, and record the exact metrics URL to log.
+			httpPort := cmdOps.HTTPPort
+			if httpPort != 0 {
+				httpPort = util.GetSpareTCPPort(httpPort)
+			}
+			httpAddr := fmt.Sprintf(":%d", httpPort)
+			listener, err := net.Listen("tcp", httpAddr)
+			if err != nil {
+				util.Logger.Fatal("net.Listen failed", zap.String("httpAddr", httpAddr), zap.Error(err))
+			}
+			httpPort = util.GetNetAddrPort(listener.Addr())
+			util.Logger.Info(fmt.Sprintf("Run metrics server at http://%s:%d/metrics", selfIP, httpPort))
+			if err := http.Serve(listener, mux); err != nil {
 				util.Logger.Error("http.ListenAndServe failed", zap.Error(err))
 			}
 		}()
