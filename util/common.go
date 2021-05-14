@@ -241,7 +241,7 @@ func InitLogger(logLevel string, logPaths []string) {
 	}
 
 	cfg := zap.NewProductionEncoderConfig()
-	cfg.EncodeTime = zapcore.RFC3339NanoTimeEncoder
+	cfg.EncodeTime = zapcore.ISO8601TimeEncoder
 	core := zapcore.NewCore(
 		zapcore.NewJSONEncoder(cfg),
 		zapcore.NewMultiWriteSyncer(syncers...),
