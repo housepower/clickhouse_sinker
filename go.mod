@@ -21,7 +21,7 @@ require (
 	github.com/valyala/fastjson v1.4.1
 	github.com/xdg/scram v0.0.0-20180814205039-7eeb5667e42c
 	go.uber.org/zap v1.15.0
-	golang.org/x/sys v0.0.0-20200917061948-648f2a039071 // indirect
+	golang.org/x/sys v0.0.0-20210217105451-b926d437f341 // indirect
 	golang.org/x/time v0.0.0-20200630173020-3af7569d3a1e
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0
 )

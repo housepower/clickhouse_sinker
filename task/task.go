@@ -78,6 +78,7 @@ func NewTaskService(inputer input.Inputer, clickhouse *output.ClickHouse, pp *pa
 
 // Init initializes the kafak and clickhouse task associated with this service
 func (service *Service) Init() (err error) {
+	util.Logger.Info("task initializing", zap.String("task", service.cfg.Task.Name))
 	if err = service.clickhouse.Init(); err != nil {
 		return
 	}
@@ -299,6 +300,10 @@ func (service *Service) changeSchema(arg interface{}) {
 // Stop stop kafka and clickhouse client. This is blocking.
 func (service *Service) Stop() {
 	taskCfg := &service.cfg.Task
+	if !service.started {
+		util.Logger.Info("stopped a already stopped task service", zap.String("task", taskCfg.Name))
+		return
+	}
 	util.Logger.Info("stopping task service...", zap.String("task", taskCfg.Name))
 	service.cancel()
 	if err := service.inputer.Stop(); err != nil {

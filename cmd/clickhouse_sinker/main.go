@@ -25,7 +25,6 @@ import (
 	"net/http/pprof"
 	"os"
 	"reflect"
-	"runtime"
 	"strings"
 	"time"
 
@@ -34,7 +33,6 @@ import (
 	"github.com/housepower/clickhouse_sinker/input"
 	"github.com/housepower/clickhouse_sinker/output"
 	"github.com/housepower/clickhouse_sinker/parser"
-	"github.com/housepower/clickhouse_sinker/pool"
 	"github.com/housepower/clickhouse_sinker/statistics"
 	"github.com/housepower/clickhouse_sinker/task"
 	"github.com/housepower/clickhouse_sinker/util"
@@ -184,6 +182,7 @@ func main() {
 					<p><a href="/ready?full=1">Ready Full</a></p>
 					<p><a href="/live">Live</a></p>
 					<p><a href="/live?full=1">Live Full</a></p>
+					<p><a href="/debug/pprof/">pprof</a></p>
 				</body></html>`))
 			})
 
@@ -208,7 +207,8 @@ func main() {
 				util.Logger.Fatal("net.Listen failed", zap.String("httpAddr", httpAddr), zap.Error(err))
 			}
 			httpPort = util.GetNetAddrPort(listener.Addr())
-			util.Logger.Info(fmt.Sprintf("Run metrics server at http://%s:%d/metrics", selfIP, httpPort))
+			util.Logger.Info(fmt.Sprintf("Run http server at http://%s:%d/", selfIP, httpPort))
+
 			if err := http.Serve(listener, mux); err != nil {
 				util.Logger.Error("http.ListenAndServe failed", zap.Error(err))
 			}
@@ -300,55 +300,50 @@ func (s *Sinker) Run() {
 // Close shutdown task
 func (s *Sinker) Close() {
 	// Stop task gracefully. Wait until all flying data be processed (write to CH and commit to Kafka).
-	util.Logger.Info("stopping parsing pool", zap.String("task", s.curCfg.Task.Name))
+	util.Logger.Info("stopping parsing pool")
 	util.GlobalParsingPool.StopWait()
-	util.Logger.Info("stopping writing pool", zap.String("task", s.curCfg.Task.Name))
+	util.Logger.Info("stopping writing pool")
 	util.GlobalWritingPool.StopWait()
-	util.Logger.Info("stopping timer wheel", zap.String("task", s.curCfg.Task.Name))
+	util.Logger.Info("stopping timer wheel")
 	util.GlobalTimerWheel.Stop()
-
-	s.task.Stop()
+	if s.task != nil {
+		s.task.Stop()
+		s.task = nil
+	}
 	if s.pusher != nil {
 		s.pusher.Stop()
+		s.pusher = nil
 	}
 	s.cancel()
 }
 
 func (s *Sinker) applyConfig(newCfg *config.Config) (err error) {
-	if s.curCfg == nil || newCfg.LogLevel != s.curCfg.LogLevel || !reflect.DeepEqual(newCfg.LogPaths, s.curCfg.LogPaths) {
-		util.InitLogger(newCfg.LogLevel, newCfg.LogPaths)
-	}
+	util.InitLogger(newCfg.LogLevel, newCfg.LogPaths)
 	if s.curCfg == nil {
 		// The first time invoking of applyConfig
 		err = s.applyFirstConfig(newCfg)
 	} else if !reflect.DeepEqual(newCfg.Clickhouse, s.curCfg.Clickhouse) || !reflect.DeepEqual(newCfg.Kafka, s.curCfg.Kafka) || !reflect.DeepEqual(newCfg.Task, s.curCfg.Task) {
 		err = s.applyAnotherConfig(newCfg)
+	} else {
+		util.Logger.Debug("got the same config", zap.Reflect("config", newCfg))
 	}
 	return
 }
 
 func (s *Sinker) applyFirstConfig(newCfg *config.Config) (err error) {
 	util.Logger.Info("going to apply the first config", zap.Reflect("config", newCfg))
+	// 1. Start goroutine pools.
 	util.InitGlobalTimerWheel()
-	t := GenTask(newCfg)
-	if err = t.Init(); err != nil {
+	util.InitGlobalParsingPool()
+	util.InitGlobalWritingPool(len(newCfg.Clickhouse.Hosts))
+
+	// 2. Generate, initialize and run task
+	s.task = GenTask(newCfg)
+	if err = s.task.Init(); err != nil {
 		return
 	}
-	s.task = t
-	concurrentParsers := 10
-	if runtime.NumCPU() >= 2 {
-		if concurrentParsers > runtime.NumCPU()/2 {
-			concurrentParsers = runtime.NumCPU() / 2
-		}
-	} else {
-		concurrentParsers = 1
-	}
-	util.InitGlobalParsingPool(concurrentParsers)
-	totalConn := pool.NumShard()
-	util.InitGlobalWritingPool(totalConn)
-
-	go s.task.Run(s.ctx)
 	s.curCfg = newCfg
+	go s.task.Run(s.ctx)
 	return
 }
 
@@ -357,32 +352,30 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 
 	if !reflect.DeepEqual(newCfg.Kafka, s.curCfg.Kafka) || !reflect.DeepEqual(newCfg.Clickhouse, s.curCfg.Clickhouse) || !reflect.DeepEqual(newCfg.Task, s.curCfg.Task) {
 		// 1. Stop task gracefully. Wait until all flying data be processed (write to CH and commit to Kafka).
-		util.Logger.Info("stopping parsing pool", zap.String("task", s.curCfg.Task.Name))
+		util.Logger.Info("stopping parsing pool")
 		util.GlobalParsingPool.StopWait()
-		util.Logger.Info("stopping writing pool", zap.String("task", s.curCfg.Task.Name))
+		util.Logger.Info("stopping writing pool")
 		util.GlobalWritingPool.StopWait()
-		util.Logger.Info("stopping timer wheel", zap.String("task", s.curCfg.Task.Name))
+		util.Logger.Info("stopping timer wheel")
 		util.GlobalTimerWheel.Stop()
 		s.task.Stop()
 
-		// 2. Generate and initialize task
-		t := GenTask(newCfg)
-		if err = t.Init(); err != nil {
-			return
-		}
-
-		// 3. Restart goroutine pools.
+		// 2. Restart goroutine pools.
+		util.Logger.Info("restarting parsing, writing and timer pool")
 		util.InitGlobalTimerWheel()
 		util.GlobalParsingPool.Restart()
-		totalConn := pool.NumShard()
-		util.GlobalWritingPool.Resize(totalConn)
+		util.GlobalWritingPool.Resize(len(newCfg.Clickhouse.Hosts))
 		util.GlobalWritingPool.Restart()
+		util.Logger.Info("resized parsing pool", zap.Int("maxWorkers", len(newCfg.Clickhouse.Hosts)))
 
-		// 4. Start task
-		go t.Run(s.ctx)
-		s.task = t
+		// 3. Generate, initialize and run task
+		s.task = GenTask(newCfg)
+		if err = s.task.Init(); err != nil {
+			return
+		}
+		// Record the new config
+		s.curCfg = newCfg
+		go s.task.Run(s.ctx)
 	}
-	// Record the new config
-	s.curCfg = newCfg
 	return
 }

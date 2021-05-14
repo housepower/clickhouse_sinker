@@ -25,6 +25,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strconv"
 	"strings"
@@ -43,25 +44,46 @@ var (
 	GlobalParsingPool *WorkerPool          //for all tasks' parsing, cpu intensive
 	GlobalWritingPool *WorkerPool          //the all tasks' writing ClickHouse, cpu-net balance
 	Logger            *zap.Logger
+	logLevel          string
+	logPaths          []string
 )
 
 // InitGlobalTimerWheel initialize the global timer wheel
 func InitGlobalTimerWheel() {
+	if GlobalTimerWheel != nil {
+		return
+	}
 	GlobalTimerWheel = goetty.NewTimeoutWheel(goetty.WithTickInterval(time.Second))
 }
 
 // InitGlobalParsingPool initialize GlobalParsingPool
-func InitGlobalParsingPool(maxWorkers int) {
+func InitGlobalParsingPool() {
+	if GlobalParsingPool != nil {
+		return
+	}
+	maxWorkers := 10
+	if runtime.NumCPU() >= 2 {
+		if maxWorkers > runtime.NumCPU()/2 {
+			maxWorkers = runtime.NumCPU() / 2
+		}
+	} else {
+		maxWorkers = 1
+	}
 	GlobalParsingPool = NewWorkerPool(maxWorkers, 100*runtime.NumCPU())
+	Logger.Info("initialized parsing pool", zap.Int("maxWorkers", maxWorkers), zap.Int("queueSize", 100*runtime.NumCPU()))
 }
 
 // InitGlobalWritingPool initialize GlobalWritingPool
 func InitGlobalWritingPool(maxWorkers int) {
+	if GlobalWritingPool != nil {
+		return
+	}
 	queueSize := runtime.NumCPU() / 4
 	if queueSize < 3 {
 		queueSize = 3
 	}
 	GlobalWritingPool = NewWorkerPool(maxWorkers, queueSize)
+	Logger.Info("initialized writing pool", zap.Int("maxWorkers", maxWorkers), zap.Int("queueSize", queueSize))
 }
 
 // StringContains check if contains string in array
@@ -229,7 +251,12 @@ func JksToPem(jksPath, jksPassword string, overwrite bool) (certPemPath, keyPemP
 	return
 }
 
-func InitLogger(logLevel string, logPaths []string) {
+func InitLogger(newLogLevel string, newLogPaths []string) {
+	if logLevel == newLogLevel && reflect.DeepEqual(logPaths, newLogPaths) {
+		return
+	}
+	logLevel = newLogLevel
+	logPaths = newLogPaths
 	var lvl zapcore.Level
 	if err := lvl.Set(logLevel); err != nil {
 		lvl = zap.InfoLevel
