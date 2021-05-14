@@ -269,18 +269,18 @@ func (s *Sinker) Run() {
 			select {
 			case <-s.ctx.Done():
 				return
-			case <-time.After(5 * time.Second):
+			case <-time.After(10 * time.Second):
 				if newCfg, err = s.rcm.GetConfig(); err != nil {
 					util.Logger.Error("s.rcm.GetConfig failed", zap.Error(err))
-					return
+					continue
 				}
 				if err = newCfg.Normallize(); err != nil {
 					util.Logger.Error("newCfg.Normallize failed", zap.Error(err))
-					return
+					continue
 				}
 				if err = s.applyConfig(newCfg); err != nil {
 					util.Logger.Error("s.applyConfig failed", zap.Error(err))
-					return
+					continue
 				}
 			}
 		}

@@ -65,6 +65,7 @@ func (c *ShardConn) NextGoodReplica() error {
 	for i := 0; i < len(c.Replicas); i++ {
 		c.Dsn = fmt.Sprintf(dsnTmpl, c.Replicas[c.NextRep])
 		c.NextRep = (c.NextRep + 1) % len(c.Replicas)
+		util.Logger.Info("sql.Open", zap.String("dsn", c.Dsn))
 		sqlDB, err := sql.Open("clickhouse", c.Dsn)
 		if err != nil {
 			util.Logger.Warn("sql.Open failed", zap.String("dsn", c.Dsn), zap.Error(err))
@@ -85,6 +86,7 @@ func (c *ShardConn) NextGoodReplica() error {
 func InitClusterConn(hosts [][]string, port int, db, username, password, dsnParams string, secure, skipVerify bool) (err error) {
 	lock.Lock()
 	defer lock.Unlock()
+	freeClusterConn()
 	// Each shard has a *sql.DB which connects to one replica inside the shard.
 	// "alt_hosts" tolerates replica single-point-failure. However more flexable switching is needed for some cases for example https://github.com/ClickHouse/ClickHouse/issues/24036.
 	dsnTmpl = "tcp://%s" + fmt.Sprintf("?database=%s&username=%s&password=%s&block_size=%d",
@@ -124,9 +126,7 @@ func setDBParams(sqlDB *sql.DB) {
 	sqlDB.SetConnMaxIdleTime(10 * time.Second)
 }
 
-func FreeClusterConn() {
-	lock.Lock()
-	defer lock.Unlock()
+func freeClusterConn() {
 	for _, sc := range clusterConn {
 		if sc.DB != nil {
 			if err := health.Health.RemoveReadinessCheck(sc.Dsn); err != nil {
@@ -136,6 +136,12 @@ func FreeClusterConn() {
 		}
 	}
 	clusterConn = []*ShardConn{}
+}
+
+func FreeClusterConn() {
+	lock.Lock()
+	defer lock.Unlock()
+	freeClusterConn()
 }
 
 func NumShard() (cnt int) {
