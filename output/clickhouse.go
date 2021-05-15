@@ -197,6 +197,10 @@ func (c *ClickHouse) initSchema() (err error) {
 				c.Dims = append(c.Dims, &model.ColumnWithType{Name: name, Type: tp, Nullable: nullable, SourceName: util.GetSourceName(name)})
 			}
 		}
+		if len(c.Dims) == 0 {
+			err = errors.Errorf("Table %s.%s doesn't exist", c.cfg.Clickhouse.DB, c.cfg.Task.TableName)
+			return
+		}
 	} else {
 		c.Dims = make([]*model.ColumnWithType, 0)
 		for _, dim := range c.cfg.Task.Dims {
