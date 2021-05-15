@@ -324,8 +324,6 @@ func (s *Sinker) applyConfig(newCfg *config.Config) (err error) {
 		err = s.applyFirstConfig(newCfg)
 	} else if !reflect.DeepEqual(newCfg.Clickhouse, s.curCfg.Clickhouse) || !reflect.DeepEqual(newCfg.Kafka, s.curCfg.Kafka) || !reflect.DeepEqual(newCfg.Task, s.curCfg.Task) {
 		err = s.applyAnotherConfig(newCfg)
-	} else {
-		util.Logger.Debug("got the same config", zap.Reflect("config", newCfg))
 	}
 	return
 }

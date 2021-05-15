@@ -51,6 +51,11 @@ type ShardConn struct {
 	NextRep  int      //index of next replica
 }
 
+// NumReplica returns number of replicas of this shard
+func (c *ShardConn) NumReplica() int {
+	return len(c.Replicas)
+}
+
 // NextGoodReplica connects to next good replica
 func (c *ShardConn) NextGoodReplica() error {
 	if c.DB != nil {
@@ -65,16 +70,21 @@ func (c *ShardConn) NextGoodReplica() error {
 	for i := 0; i < len(c.Replicas); i++ {
 		c.Dsn = fmt.Sprintf(dsnTmpl, c.Replicas[c.NextRep])
 		c.NextRep = (c.NextRep + 1) % len(c.Replicas)
-		util.Logger.Info("sql.Open", zap.String("dsn", c.Dsn))
 		sqlDB, err := sql.Open("clickhouse", c.Dsn)
 		if err != nil {
 			util.Logger.Warn("sql.Open failed", zap.String("dsn", c.Dsn), zap.Error(err))
 			continue
 		}
+		// According to sql.Open doc, "Open may just validate its arguments without creating a connection
+		// to the database. To verify that the data source name is valid, call Ping."
+		if err := sqlDB.Ping(); err != nil {
+			util.Logger.Warn("sqlDB.Ping failed", zap.String("dsn", c.Dsn), zap.Error(err))
+			continue
+		}
 		setDBParams(sqlDB)
-		util.Logger.Info("sql.Open succeeded", zap.String("dsn", c.Dsn))
+		util.Logger.Info("sql.Open and sqlDB.Ping succeeded", zap.String("dsn", c.Dsn))
 		if err = health.Health.AddReadinessCheck(c.Dsn, healthcheck.DatabasePingCheck(sqlDB, 30*time.Second)); err != nil {
-			util.Logger.Warn("health.Health.RemoveReadinessCheck failed", zap.String("dsn", c.Dsn), zap.Error(err))
+			util.Logger.Warn("health.Health.AddReadinessCheck failed", zap.String("dsn", c.Dsn), zap.Error(err))
 		}
 		c.DB = sqlDB
 		return nil
