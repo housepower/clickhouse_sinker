@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"log"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -137,6 +138,7 @@ var (
 	bdShNsOrig    = time.Date(2009, 7, 13, 9, 7, 13, 123000000, time.FixedZone("CST", 8*60*60))
 	bdShNs        = bdShNsOrig.UTC()
 	bdShSec       = bdShNsOrig.Truncate(1 * time.Second).UTC()
+	bdShMin       = bdShNsOrig.Truncate(1 * time.Minute).UTC()
 	bdLocalNsOrig = time.Date(2009, 7, 13, 9, 7, 13, 123000000, time.Local)
 	bdLocalNs     = bdLocalNsOrig.UTC()
 	bdLocalSec    = bdLocalNsOrig.Truncate(1 * time.Second).UTC()
@@ -158,6 +160,11 @@ type ArrayCase struct {
 	Field  string
 	Type   int
 	ExpVal interface{}
+}
+
+type DateTimeCase struct {
+	TS     string
+	ExpVal time.Time
 }
 
 func initMetrics() {
@@ -493,6 +500,93 @@ func TestParserArray(t *testing.T) {
 			desc := fmt.Sprintf(`%s GetArray("%s", %d)`, name, testCases[j].Field, testCases[j].Type)
 			v = metric.GetArray(testCases[j].Field, testCases[j].Type)
 			require.Equal(t, testCases[j].ExpVal, v, desc)
+		}
+	}
+}
+
+func TestParseDateTime(t *testing.T) {
+	// https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
+	// https://en.wikipedia.org/wiki/List_of_time_zone_abbreviations, "not part of the international time and date standard  ISO 8601 and their use as sole designator for a time zone is discouraged."
+	savedLocal := time.Local
+	defer func() {
+		time.Local = savedLocal
+	}()
+	locations := []string{"UTC", "Asia/Shanghai", "Europe/Moscow", "America/Los_Angeles"}
+	for _, location := range locations {
+		// change timezone settings programmatically
+		loc, err := time.LoadLocation(location)
+		require.Nil(t, err, fmt.Sprintf("time.LoadLocation(%s)", location))
+		time.Local = loc
+
+		bdLocalNsOrig = time.Date(2009, 7, 13, 9, 7, 13, 123000000, time.Local)
+		bdLocalNs = bdLocalNsOrig.UTC()
+		bdLocalSec = bdLocalNsOrig.Truncate(1 * time.Second).UTC()
+		bdLocalDate = time.Date(2009, 7, 13, 0, 0, 0, 0, time.Local).UTC()
+
+		testCases := []DateTimeCase{
+			//DateTime, RFC3339
+			{"2009-07-13T09:07:13.123+08:00", bdShNs},
+			{"2009-07-13T09:07:13.123+0800", bdShNs},
+			{"2009-07-13T09:07:13+08:00", bdShSec},
+			{"2009-07-13T09:07:13+0800", bdShSec},
+			{"2009-07-13T09:07:13.123Z", bdUtcNs},
+			{"2009-07-13T09:07:13Z", bdUtcSec},
+			{"2009-07-13T09:07:13.123", bdLocalNs},
+			{"2009-07-13T09:07:13", bdLocalSec},
+			//DateTime, ISO8601
+			{"2009-07-13 09:07:13.123+08:00", bdShNs},
+			{"2009-07-13 09:07:13.123+0800", bdShNs},
+			{"2009-07-13 09:07:13+08:00", bdShSec},
+			{"2009-07-13 09:07:13+0800", bdShSec},
+			{"2009-07-13 09:07:13.123Z", bdUtcNs},
+			{"2009-07-13 09:07:13Z", bdUtcSec},
+			{"2009-07-13 09:07:13.123", bdLocalNs},
+			{"2009-07-13 09:07:13", bdLocalSec},
+			//DateTime, other layouts supported by golang
+			{"Mon Jul 13 09:07:13 2009", bdLocalSec},
+			{"Mon Jul 13 09:07:13 CST 2009", bdShSec},
+			{"Mon Jul 13 09:07:13 +0800 2009", bdShSec},
+			{"13 Jul 09 09:07 CST", bdShMin},
+			{"13 Jul 09 09:07 +0800", bdShMin},
+			{"Monday, 13-Jul-09 09:07:13 CST", bdShSec},
+			{"Mon, 13 Jul 2009 09:07:13 CST", bdShSec},
+			{"Mon, 13 Jul 2009 09:07:13 +0800", bdShSec},
+			//DateTime, linux utils
+			{"Mon 13 Jul 2009 09:07:13 AM CST", bdShSec},
+			{"Mon Jul 13 09:07:13 CST 2009", bdShSec},
+			//DateTime, home-brewed
+			{"Jul 13, 2009 09:07:13.123+08:00", bdShNs},
+			{"Jul 13, 2009 09:07:13.123+0800", bdShNs},
+			{"Jul 13, 2009 09:07:13+08:00", bdShSec},
+			{"Jul 13, 2009 09:07:13+0800", bdShSec},
+			{"Jul 13, 2009 09:07:13.123Z", bdUtcNs},
+			{"Jul 13, 2009 09:07:13Z", bdUtcSec},
+			{"Jul 13, 2009 09:07:13.123", bdLocalNs},
+			{"Jul 13, 2009 09:07:13", bdLocalSec},
+			{"13/Jul/2009 09:07:13.123 +08:00", bdShNs},
+			{"13/Jul/2009 09:07:13.123 +0800", bdShNs},
+			{"13/Jul/2009 09:07:13 +08:00", bdShSec},
+			{"13/Jul/2009 09:07:13 +0800", bdShSec},
+			{"13/Jul/2009 09:07:13.123 Z", bdUtcNs},
+			{"13/Jul/2009 09:07:13 Z", bdUtcSec},
+			{"13/Jul/2009 09:07:13.123", bdLocalNs},
+			{"13/Jul/2009 09:07:13", bdLocalSec},
+			//Date
+			{"2009-07-13", bdLocalDate},
+			{"13/07/2009", bdLocalDate},
+			{"13/Jul/2009", bdLocalDate},
+			{"Jul 13, 2009", bdLocalDate},
+			{"Mon Jul 13, 2009", bdLocalDate},
+		}
+
+		for _, tc := range testCases {
+			v, layout := parseInLocation(tc.TS, time.Local)
+			desc := fmt.Sprintf(`parseInLocation("%s", "%s") = %s(layout: %s), expect %s`, tc.TS, location, v.Format(time.RFC3339Nano), layout, tc.ExpVal.Format(time.RFC3339Nano))
+			if strings.Contains(tc.TS, "CST") && v != tc.ExpVal {
+				log.Printf(desc + "(CST is ambiguous)")
+			} else {
+				require.Equal(t, tc.ExpVal, v, desc)
+			}
 		}
 	}
 }
