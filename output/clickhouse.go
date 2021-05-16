@@ -41,8 +41,10 @@ var (
 	selectSQLTemplate    = `select name, type, default_kind from system.columns where database = '%s' and table = '%s'`
 	lowCardinalityRegexp = regexp.MustCompile(`LowCardinality\((.+)\)`)
 
-	// refers to src/Common/ErrorCodes.cpp, https://github.com/ClickHouse/ClickHouse/issues/24036
-	replicaSpecificErrorCodes = []int32{1000}
+	// https://github.com/ClickHouse/ClickHouse/issues/24036
+	// src/Common/ErrorCodes.cpp
+	// src/Storages/MergeTree/ReplicatedMergeTreeBlockOutputStream.cpp
+	replicaSpecificErrorCodes = []int32{164, 225, 319, 1000} //READONLY, NO_ZOOKEEPER, UNKNOWN_STATUS_OF_INSERT, POCO_EXCEPTION
 )
 
 // ClickHouse is an output service consumers from kafka messages
