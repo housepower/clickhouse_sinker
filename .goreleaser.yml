@@ -12,6 +12,9 @@ builds:
       - CGO_ENABLED=0
     goos:
       - linux
+    goarch:
+      - amd64
+      - arm64
     main: cmd/clickhouse_sinker/main.go
     binary: clickhouse_sinker
   - id: nacos_publish_config
@@ -19,6 +22,9 @@ builds:
       - CGO_ENABLED=0
     goos:
       - linux
+    goarch:
+      - amd64
+      - arm64
     main: cmd/nacos_publish_config/main.go
     binary: nacos_publish_config
 dockers:
