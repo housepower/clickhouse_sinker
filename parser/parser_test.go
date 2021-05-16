@@ -16,6 +16,7 @@ package parser
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"strconv"
@@ -586,6 +587,62 @@ func TestParseDateTime(t *testing.T) {
 				log.Printf(desc + "(CST is ambiguous)")
 			} else {
 				require.Equal(t, tc.ExpVal, v, desc)
+			}
+		}
+	}
+}
+
+func TestParseInt(t *testing.T) {
+	arrayStrInt := []string{"invalid", "-9223372036854775809", "-9223372036854775808", "-2147483649", "-2147483648", "-32769", "-32768", "-129", "-128", "0", "127", "128", "255", "256", "32767", "32768", "65535", "65536", "2147483647", "2147483648", "4294967295", "4294967296", "9223372036854775807", "18446744073709551615", "18446744073709551616"}
+	i8Exp := []int8{0, -128, -128, -128, -128, -128, -128, -128, -128, 0, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127}
+	i16Exp := []int16{0, -32768, -32768, -32768, -32768, -32768, -32768, -129, -128, 0, 127, 128, 255, 256, 32767, 32767, 32767, 32767, 32767, 32767, 32767, 32767, 32767, 32767, 32767}
+	i32Exp := []int32{0, -2147483648, -2147483648, -2147483648, -2147483648, -32769, -32768, -129, -128, 0, 127, 128, 255, 256, 32767, 32768, 65535, 65536, 2147483647, 2147483647, 2147483647, 2147483647, 2147483647, 2147483647, 2147483647}
+	i64Exp := []int64{0, -9223372036854775808, -9223372036854775808, -2147483649, -2147483648, -32769, -32768, -129, -128, 0, 127, 128, 255, 256, 32767, 32768, 65535, 65536, 2147483647, 2147483648, 4294967295, 4294967296, 9223372036854775807, 9223372036854775807, 9223372036854775807}
+	u8Exp := []uint8{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 127, 128, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255}
+	u16Exp := []uint16{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 127, 128, 255, 256, 32767, 32768, 65535, 65535, 65535, 65535, 65535, 65535, 65535, 65535, 65535}
+	u32Exp := []uint32{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 127, 128, 255, 256, 32767, 32768, 65535, 65536, 2147483647, 2147483648, 4294967295, 4294967295, 4294967295, 4294967295, 4294967295}
+	u64Exp := []uint64{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 127, 128, 255, 256, 32767, 32768, 65535, 65536, 2147483647, 2147483648, 4294967295, 4294967296, 9223372036854775807, 18446744073709551615, 18446744073709551615}
+
+	for _, bitSize := range []int{8, 16, 32, 64} {
+		for i, s := range arrayStrInt {
+			var iv int64
+			var uv uint64
+			var ivErr, uvErr error
+			var desc string
+			iv, ivErr = strconv.ParseInt(s, 10, bitSize)
+			uv, uvErr = strconv.ParseUint(s, 10, bitSize)
+			var ivExp, uvExp, ivAct, uvAct interface{}
+			switch bitSize {
+			case 8:
+				ivExp = i8Exp[i]
+				ivAct = int8(iv)
+				uvExp = u8Exp[i]
+				uvAct = uint8(uv)
+			case 16:
+				ivExp = i16Exp[i]
+				ivAct = int16(iv)
+				uvExp = u16Exp[i]
+				uvAct = uint16(uv)
+			case 32:
+				ivExp = i32Exp[i]
+				ivAct = int32(iv)
+				uvExp = u32Exp[i]
+				uvAct = uint32(uv)
+			case 64:
+				ivExp = i64Exp[i]
+				ivAct = int64(iv)
+				uvExp = u64Exp[i]
+				uvAct = uint64(uv)
+			}
+			desc = fmt.Sprintf(`ParseInt("%s", 10, %d)=%d(%v)`, s, bitSize, iv, errors.Unwrap(ivErr))
+			require.Equal(t, ivExp, ivAct, desc)
+			desc = fmt.Sprintf(`ParseUint("%s", 10, %d)=%d(%v)`, s, bitSize, uv, errors.Unwrap(uvErr))
+			require.Equal(t, uvExp, uvAct, desc)
+			if strings.Contains(s, "invalid") {
+				require.True(t, errors.Is(ivErr, strconv.ErrSyntax))
+				require.True(t, errors.Is(uvErr, strconv.ErrSyntax))
+			} else if strings.Contains(s, "-") {
+				require.True(t, errors.Is(uvErr, strconv.ErrSyntax))
 			}
 		}
 	}
