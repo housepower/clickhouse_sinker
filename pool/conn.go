@@ -45,52 +45,77 @@ var (
 
 // ShardConn a datastructure for storing the clickhouse connection
 type ShardConn struct {
-	*sql.DB
-	Dsn      string
-	Replicas []string //ip:port list of replicas
-	NextRep  int      //index of next replica
+	lock     sync.Mutex
+	db       *sql.DB
+	connAt   time.Time
+	dsn      string
+	replicas []string //ip:port list of replicas
+	nextRep  int      //index of next replica
 }
 
-// NumReplica returns number of replicas of this shard
-func (c *ShardConn) NumReplica() int {
-	return len(c.Replicas)
+// GetCurReplica returns the current replica connection
+func (sc *ShardConn) GetCurReplica() (db *sql.DB) {
+	sc.lock.Lock()
+	db = sc.db
+	sc.lock.Unlock()
+	return
+}
+
+// Close closes the current replica connection
+func (sc *ShardConn) Close() {
+	sc.lock.Lock()
+	defer sc.lock.Unlock()
+	if sc.db != nil {
+		sc.db.Close()
+		sc.db = nil
+		if err := health.Health.RemoveReadinessCheck(sc.dsn); err != nil {
+			util.Logger.Error("health.Health.RemoveReadinessCheck failed", zap.String("dsn", sc.dsn), zap.Error(err))
+		}
+	}
 }
 
 // NextGoodReplica connects to next good replica
-func (c *ShardConn) NextGoodReplica() error {
-	if c.DB != nil {
-		if err := health.Health.RemoveReadinessCheck(c.Dsn); err != nil {
-			util.Logger.Warn("health.Health.RemoveReadinessCheck failed", zap.String("dsn", c.Dsn), zap.Error(err))
+func (sc *ShardConn) NextGoodReplica(failAt time.Time) (db *sql.DB, err error) {
+	sc.lock.Lock()
+	defer sc.lock.Unlock()
+	if sc.db != nil {
+		if sc.connAt.After(failAt) {
+			// Another goroutine has already done connection.
+			return sc.db, nil
 		}
-		c.DB.Close()
-		c.DB = nil
+		if err := health.Health.RemoveReadinessCheck(sc.dsn); err != nil {
+			util.Logger.Warn("health.Health.RemoveReadinessCheck failed", zap.String("dsn", sc.dsn), zap.Error(err))
+		}
+		sc.db.Close()
+		sc.db = nil
 	}
-	savedNextRep := c.NextRep
+	savedNextRep := sc.nextRep
 	// try all replicas, including the current one
-	for i := 0; i < len(c.Replicas); i++ {
-		c.Dsn = fmt.Sprintf(dsnTmpl, c.Replicas[c.NextRep])
-		c.NextRep = (c.NextRep + 1) % len(c.Replicas)
-		sqlDB, err := sql.Open("clickhouse", c.Dsn)
+	for i := 0; i < len(sc.replicas); i++ {
+		sc.dsn = fmt.Sprintf(dsnTmpl, sc.replicas[sc.nextRep])
+		sc.nextRep = (sc.nextRep + 1) % len(sc.replicas)
+		sqlDB, err := sql.Open("clickhouse", sc.dsn)
 		if err != nil {
-			util.Logger.Warn("sql.Open failed", zap.String("dsn", c.Dsn), zap.Error(err))
+			util.Logger.Warn("sql.Open failed", zap.String("dsn", sc.dsn), zap.Error(err))
 			continue
 		}
 		// According to sql.Open doc, "Open may just validate its arguments without creating a connection
 		// to the database. To verify that the data source name is valid, call Ping."
 		if err := sqlDB.Ping(); err != nil {
-			util.Logger.Warn("sqlDB.Ping failed", zap.String("dsn", c.Dsn), zap.Error(err))
+			util.Logger.Warn("sqlDB.Ping failed", zap.String("dsn", sc.dsn), zap.Error(err))
 			continue
 		}
 		setDBParams(sqlDB)
-		util.Logger.Info("sql.Open and sqlDB.Ping succeeded", zap.String("dsn", c.Dsn))
-		if err = health.Health.AddReadinessCheck(c.Dsn, healthcheck.DatabasePingCheck(sqlDB, 30*time.Second)); err != nil {
-			util.Logger.Warn("health.Health.AddReadinessCheck failed", zap.String("dsn", c.Dsn), zap.Error(err))
+		util.Logger.Info("sql.Open and sqlDB.Ping succeeded", zap.String("dsn", sc.dsn))
+		if err = health.Health.AddReadinessCheck(sc.dsn, healthcheck.DatabasePingCheck(sqlDB, 30*time.Second)); err != nil {
+			util.Logger.Warn("health.Health.AddReadinessCheck failed", zap.String("dsn", sc.dsn), zap.Error(err))
 		}
-		c.DB = sqlDB
-		return nil
+		sc.db = sqlDB
+		sc.connAt = time.Now()
+		return sc.db, nil
 	}
-	err := errors.Errorf("no good replica among replicas %v since %d", c.Replicas, savedNextRep)
-	return err
+	err = errors.Errorf("no good replica among replicas %v since %d", sc.replicas, savedNextRep)
+	return nil, err
 }
 
 func InitClusterConn(hosts [][]string, port int, db, username, password, dsnParams string, secure, skipVerify bool) (err error) {
@@ -118,9 +143,9 @@ func InitClusterConn(hosts [][]string, port int, db, username, password, dsnPara
 			replicaAddrs[i] = fmt.Sprintf("%s:%d", ip, port)
 		}
 		sc := &ShardConn{
-			Replicas: replicaAddrs,
+			replicas: replicaAddrs,
 		}
-		if err = sc.NextGoodReplica(); err != nil {
+		if _, err = sc.NextGoodReplica(time.Now()); err != nil {
 			return
 		}
 		clusterConn = append(clusterConn, sc)
@@ -138,12 +163,7 @@ func setDBParams(sqlDB *sql.DB) {
 
 func freeClusterConn() {
 	for _, sc := range clusterConn {
-		if sc.DB != nil {
-			if err := health.Health.RemoveReadinessCheck(sc.Dsn); err != nil {
-				util.Logger.Error("health.Health.RemoveReadinessCheck failed", zap.String("dsn", sc.Dsn), zap.Error(err))
-			}
-			sc.DB.Close()
-		}
+		sc.Close()
 	}
 	clusterConn = []*ShardConn{}
 }
@@ -161,10 +181,10 @@ func NumShard() (cnt int) {
 }
 
 // GetShardConn select a clickhouse shard based on batchNum
-func GetShardConn(batchNum int64) (con *ShardConn) {
+func GetShardConn(batchNum int64) (sc *ShardConn) {
 	lock.Lock()
 	defer lock.Unlock()
-	con = clusterConn[batchNum%int64(len(clusterConn))]
+	sc = clusterConn[batchNum%int64(len(clusterConn))]
 	return
 }
 
