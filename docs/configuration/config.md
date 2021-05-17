@@ -121,23 +121,21 @@
     // shardingPolicy is `stripe,<interval>`(requires ShardingKey be numerical) or `hash`(requires ShardingKey be string)
     "shardingPolicy": "",
 
-    // interval of flushing the batch
+    // interval of flushing the batch. Default to 5, max to 10.
     "flushInterval": 5,
-    // batch size to insert into clickhouse. sinker will round upward it to the the nearest 2^n.
+    // batch size to insert into clickhouse. sinker will round upward it to the the nearest 2^n. Default to 262114, max to 1048576.
     "bufferSize": 90000,
-    // min batch size to insert into clickhouse. sinker will round upward it to the the nearest 2^n.
-    "minBufferSize": 1,
-    // estimated avg message size. kafka-go needs this to determize receive buffer size. default to 1000.
+    // estimated avg message size. kafka-go needs this to determize receive buffer size. Default to 1000.
     "msgSizeHint": 1000,
 
     // In the absence of time zone information, interprets the time as in the given location. Default to "Local" (aka /etc/localtime of the machine on which sinker runs)
     "timezone": ""
   },
 
-  // log level, possible value: "debug", "info", "warn", "error", "dpanic", "panic", "fatal"
+  // log level, possible value: "debug", "info", "warn", "error", "dpanic", "panic", "fatal". Default to "info".
   "logLevel": "debug",
 
-  // log output paths, possible value: "stdout", "stderr", relative file path, absoute file path. Log files will be rotated every 100MB, keep 10 old ones.
+  // log output paths, possible value: "stdout", "stderr", relative file path, absoute file path. Log files will be rotated every 100MB, keep 10 old ones. Default to ["stdout"].
   "logPaths": ["stdout", "test_dynamic_schema.log"]
 }
 ```

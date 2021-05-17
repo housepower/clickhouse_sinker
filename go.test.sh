@@ -51,7 +51,7 @@ timeout 30 ./clickhouse_sinker --local-cfg-file docker/test_fixed_schema.json
 timeout 30 ./clickhouse_sinker --local-cfg-file docker/test_auto_schema.json
 timeout 60 ./clickhouse_sinker --local-cfg-file docker/test_dynamic_schema.json
 
-echo "check result"
+echo "check result 1"
 count=`curl "localhost:8123" -d 'select count() from test_fixed_schema'`
 echo "Got test_fixed_schema count => $count"
 [ $count -eq 100000 ] || exit 1
@@ -88,7 +88,7 @@ timeout 30 ./clickhouse_sinker --nacos-addr 127.0.0.1:8848 --nacos-username naco
 timeout 30 ./clickhouse_sinker --nacos-addr 127.0.0.1:8848 --nacos-username nacos --nacos-password nacos --nacos-dataid test_auto_schema
 timeout 30 ./clickhouse_sinker --nacos-addr 127.0.0.1:8848 --nacos-username nacos --nacos-password nacos --nacos-dataid test_dynamic_schema
 
-echo "check result"
+echo "check result 2"
 count=`curl "localhost:8123" -d 'select count() from test_fixed_schema'`
 echo "Got test_fixed_schema count => $count"
 [ $count -eq 100000 ] || exit 1

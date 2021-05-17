@@ -26,15 +26,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/housepower/clickhouse_sinker/config"
 	"github.com/housepower/clickhouse_sinker/health"
 	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/pkg/errors"
 	"github.com/troian/healthcheck"
 	"go.uber.org/zap"
-)
-
-const (
-	BlockSize = 1 << 21 //2097152, two times of the default value
 )
 
 var (
@@ -125,7 +122,7 @@ func InitClusterConn(hosts [][]string, port int, db, username, password, dsnPara
 	// Each shard has a *sql.DB which connects to one replica inside the shard.
 	// "alt_hosts" tolerates replica single-point-failure. However more flexable switching is needed for some cases for example https://github.com/ClickHouse/ClickHouse/issues/24036.
 	dsnTmpl = "tcp://%s" + fmt.Sprintf("?database=%s&username=%s&password=%s&block_size=%d",
-		url.QueryEscape(db), url.QueryEscape(username), url.QueryEscape(password), BlockSize)
+		url.QueryEscape(db), url.QueryEscape(username), url.QueryEscape(password), 2*config.MaxBufferSize)
 	if dsnParams != "" {
 		dsnTmpl += "&" + dsnParams
 	}

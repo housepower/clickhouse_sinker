@@ -64,9 +64,9 @@ func (k *KafkaGo) Init(cfg *config.Config, taskName string, putFn func(msg model
 		GroupID:        k.cfg.Task.ConsumerGroup,
 		Topic:          k.cfg.Task.Topic,
 		StartOffset:    offset,
-		MinBytes:       k.cfg.Task.MinBufferSize * k.cfg.Task.MsgSizeHint,
+		MinBytes:       (k.cfg.Task.BufferSize / 2) * k.cfg.Task.MsgSizeHint,
 		MaxBytes:       k.cfg.Task.BufferSize * k.cfg.Task.MsgSizeHint,
-		MaxWait:        time.Duration(k.cfg.Task.FlushInterval) * time.Second,
+		MaxWait:        time.Duration(3) * time.Second,
 		CommitInterval: time.Second, // flushes commits to Kafka every second
 	}
 	if kfkCfg.TLS.CaCertFiles == "" && kfkCfg.TLS.TrustStoreLocation != "" {

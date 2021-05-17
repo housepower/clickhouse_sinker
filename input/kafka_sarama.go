@@ -127,7 +127,7 @@ func (k *KafkaSarama) Init(cfg *config.Config, taskName string, putFn func(msg m
 	if taskCfg.Earliest {
 		config.Consumer.Offsets.Initial = sarama.OffsetOldest
 	}
-	config.ChannelBufferSize = taskCfg.MinBufferSize
+	config.ChannelBufferSize = 1024
 	cg, err := sarama.NewConsumerGroup(strings.Split(kfkCfg.Brokers, ","), taskCfg.ConsumerGroup, config)
 	if err != nil {
 		return err

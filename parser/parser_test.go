@@ -630,9 +630,9 @@ func TestParseInt(t *testing.T) {
 				uvAct = uint32(uv)
 			case 64:
 				ivExp = i64Exp[i]
-				ivAct = int64(iv)
+				ivAct = iv
 				uvExp = u64Exp[i]
-				uvAct = uint64(uv)
+				uvAct = uv
 			}
 			desc = fmt.Sprintf(`ParseInt("%s", 10, %d)=%d(%v)`, s, bitSize, iv, errors.Unwrap(ivErr))
 			require.Equal(t, ivExp, ivAct, desc)
