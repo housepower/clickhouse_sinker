@@ -44,18 +44,10 @@ var (
 type ShardConn struct {
 	lock     sync.Mutex
 	db       *sql.DB
-	connAt   time.Time
+	dbVer    int
 	dsn      string
 	replicas []string //ip:port list of replicas
 	nextRep  int      //index of next replica
-}
-
-// GetCurReplica returns the current replica connection
-func (sc *ShardConn) GetCurReplica() (db *sql.DB) {
-	sc.lock.Lock()
-	db = sc.db
-	sc.lock.Unlock()
-	return
 }
 
 // Close closes the current replica connection
@@ -72,13 +64,18 @@ func (sc *ShardConn) Close() {
 }
 
 // NextGoodReplica connects to next good replica
-func (sc *ShardConn) NextGoodReplica(failAt time.Time) (db *sql.DB, err error) {
+func (sc *ShardConn) NextGoodReplica(failedVer int) (db *sql.DB, dbVer int, err error) {
 	sc.lock.Lock()
 	defer sc.lock.Unlock()
 	if sc.db != nil {
-		if sc.connAt.After(failAt) {
+		if sc.dbVer > failedVer {
 			// Another goroutine has already done connection.
-			return sc.db, nil
+			// Notice: Why recording failure version instead timestamp?
+			// Consider following scenario:
+			// conn1 = NextGood(0); conn2 = NexGood(0); conn1.Exec failed at ts1;
+			// conn3 = NextGood(ts1); conn2.Exec failed at ts2;
+			// conn4 = NextGood(ts2) will close the good connection and break users.
+			return sc.db, sc.dbVer, nil
 		}
 		if err := health.Health.RemoveReadinessCheck(sc.dsn); err != nil {
 			util.Logger.Warn("health.Health.RemoveReadinessCheck failed", zap.String("dsn", sc.dsn), zap.Error(err))
@@ -103,16 +100,16 @@ func (sc *ShardConn) NextGoodReplica(failAt time.Time) (db *sql.DB, err error) {
 			continue
 		}
 		setDBParams(sqlDB)
-		util.Logger.Info("sql.Open and sqlDB.Ping succeeded", zap.String("dsn", sc.dsn))
+		sc.db = sqlDB
+		sc.dbVer++
+		util.Logger.Info("sql.Open and sqlDB.Ping succeeded", zap.Int("dbVer", sc.dbVer), zap.String("dsn", sc.dsn))
 		if err = health.Health.AddReadinessCheck(sc.dsn, healthcheck.DatabasePingCheck(sqlDB, 30*time.Second)); err != nil {
 			util.Logger.Warn("health.Health.AddReadinessCheck failed", zap.String("dsn", sc.dsn), zap.Error(err))
 		}
-		sc.db = sqlDB
-		sc.connAt = time.Now()
-		return sc.db, nil
+		return sc.db, sc.dbVer, nil
 	}
 	err = errors.Errorf("no good replica among replicas %v since %d", sc.replicas, savedNextRep)
-	return nil, err
+	return nil, sc.dbVer, err
 }
 
 func InitClusterConn(hosts [][]string, port int, db, username, password, dsnParams string, secure, skipVerify bool) (err error) {
@@ -142,7 +139,7 @@ func InitClusterConn(hosts [][]string, port int, db, username, password, dsnPara
 		sc := &ShardConn{
 			replicas: replicaAddrs,
 		}
-		if _, err = sc.NextGoodReplica(time.Now()); err != nil {
+		if _, _, err = sc.NextGoodReplica(0); err != nil {
 			return
 		}
 		clusterConn = append(clusterConn, sc)

@@ -81,7 +81,7 @@ func (c *ClickHouse) Send(batch *model.Batch) {
 }
 
 // Write kvs to clickhouse
-func (c *ClickHouse) write(batch *model.Batch, sc *pool.ShardConn, failAt time.Time) (err error) {
+func (c *ClickHouse) write(batch *model.Batch, sc *pool.ShardConn, dbVer *int) (err error) {
 	var stmt *sql.Stmt
 	var tx *sql.Tx
 	if len(*batch.Rows) == 0 {
@@ -89,7 +89,7 @@ func (c *ClickHouse) write(batch *model.Batch, sc *pool.ShardConn, failAt time.T
 	}
 
 	var conn *sql.DB
-	if conn, err = sc.NextGoodReplica(failAt); err != nil {
+	if conn, *dbVer, err = sc.NextGoodReplica(*dbVer); err != nil {
 		return
 	}
 
@@ -141,10 +141,10 @@ func (c *ClickHouse) loopWrite(batch *model.Batch) {
 	var err error
 	var times int
 	var reconnect bool
-	var failAt time.Time
+	var dbVer int
 	sc := pool.GetShardConn(batch.BatchIdx)
 	for {
-		if err = c.write(batch, sc, failAt); err == nil {
+		if err = c.write(batch, sc, &dbVer); err == nil {
 			if err = batch.Commit(); err == nil {
 				return
 			}
@@ -164,7 +164,6 @@ func (c *ClickHouse) loopWrite(batch *model.Batch) {
 		times++
 		reconnect = shouldReconnect(err)
 		if reconnect && (c.cfg.Clickhouse.RetryTimes <= 0 || times < c.cfg.Clickhouse.RetryTimes) {
-			failAt = time.Now()
 			time.Sleep(10 * time.Second)
 		} else {
 			util.Logger.Fatal("ClickHouse.loopWrite failed", zap.String("task", c.cfg.Task.Name))
@@ -181,7 +180,10 @@ func (c *ClickHouse) Stop() error {
 func (c *ClickHouse) initSchema() (err error) {
 	if c.cfg.Task.AutoSchema {
 		sc := pool.GetShardConn(0)
-		conn := sc.GetCurReplica()
+		var conn *sql.DB
+		if conn, _, err = sc.NextGoodReplica(0); err != nil {
+			return
+		}
 		var rs *sql.Rows
 		if rs, err = conn.Query(fmt.Sprintf(selectSQLTemplate, c.cfg.Clickhouse.DB, c.cfg.Task.TableName)); err != nil {
 			err = errors.Wrapf(err, "")
@@ -304,7 +306,10 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 		}
 	}
 	sc := pool.GetShardConn(0)
-	conn := sc.GetCurReplica()
+	var conn *sql.DB
+	if conn, _, err = sc.NextGoodReplica(0); err != nil {
+		return
+	}
 	for _, query := range queries {
 		util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", taskCfg.Name))
 		if _, err = conn.Exec(query); err != nil {
@@ -319,7 +324,10 @@ func (c *ClickHouse) getDistTbls() (distTbls []string, err error) {
 	taskCfg := &c.cfg.Task
 	chCfg := &c.cfg.Clickhouse
 	sc := pool.GetShardConn(0)
-	conn := sc.GetCurReplica()
+	var conn *sql.DB
+	if conn, _, err = sc.NextGoodReplica(0); err != nil {
+		return
+	}
 	query := fmt.Sprintf(`SELECT name FROM system.tables WHERE engine='Distributed' AND database='%s' AND match(create_table_query, 'Distributed.*\'%s\',\s*\'%s\'')`,
 		chCfg.DB, chCfg.DB, taskCfg.TableName)
 	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", taskCfg.Name))
