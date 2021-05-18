@@ -242,6 +242,9 @@ func (service *Service) put(msg model.InputMessage) {
 			if taskCfg.DynamicSchema.Enable {
 				foundNewKeys = metric.GetNewKeys(&service.knownKeys, &service.newKeys)
 			}
+			// Dumping message and result
+			//util.Logger.Debug("parsed kafka message", zap.Int("partition", msg.Partition), zap.Int64("offset", msg.Offset),
+			//	zap.String("message value", string(msg.Value)), zap.String("row(spew)", spew.Sdump(row)))
 		}
 		// WARNNING: metric.GetXXX may depend on p. Don't call them after p been freed.
 		service.pp.Put(p)

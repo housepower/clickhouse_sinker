@@ -130,7 +130,8 @@ func (pp *Pool) Put(p Parser) {
 	pp.pool.Put(p)
 }
 
-// Detect date format for each key at the first message.
+// Assuming that all values of a field of kafka message has the same layout, and layouts of each field are unrelated.
+// Automatically detect the layout from till the first successful detection and reuse that layout forever.
 // Return time in UTC.
 // Return Epoch if parsing fail.
 func (pp *Pool) ParseDateTime(key string, val string) (t time.Time) {
@@ -138,19 +139,21 @@ func (pp *Pool) ParseDateTime(key string, val string) (t time.Time) {
 	var layout string
 	var lay interface{}
 	var ok bool
+	if val == "" {
+		t = Epoch
+		return
+	}
 	if lay, ok = pp.knownLayouts.Load(key); !ok {
 		t, layout = parseInLocation(val, pp.timeZone)
 		if layout != "" {
 			pp.knownLayouts.Store(key, layout)
 			return
 		}
-		pp.knownLayouts.Store(key, nil)
 	}
-	if lay == nil {
+	if layout, ok = lay.(string); !ok {
 		t = Epoch
 		return
 	}
-	layout, _ = lay.(string)
 	if t, err = time.ParseInLocation(layout, val, pp.timeZone); err != nil {
 		t = Epoch
 		return
