@@ -16,7 +16,7 @@ require (
 	github.com/tidwall/gjson v1.8.0
 	github.com/troian/healthcheck v0.1.4-0.20200127040058-c373fb6a0dc1
 	github.com/valyala/fastjson v1.6.3
-	github.com/xdg/scram v1.0.3
+	github.com/xdg-go/scram v1.0.2
 	go.uber.org/zap v1.16.0
 	golang.org/x/time v0.0.0-20210220033141-f8bda1e9f3ba
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0

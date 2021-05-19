@@ -25,7 +25,7 @@ import (
 
 	"github.com/Shopify/sarama"
 	"github.com/pkg/errors"
-	"github.com/xdg/scram"
+	"github.com/xdg-go/scram"
 	"go.uber.org/zap"
 
 	"github.com/housepower/clickhouse_sinker/config"
