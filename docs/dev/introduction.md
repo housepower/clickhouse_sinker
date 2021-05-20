@@ -264,9 +264,9 @@ Controled by:
 - CLI parameters: `nacos-addr, nacos-username, nacos-password, nacos-namespace-id, nacos-group, nacos-dataid`
 - env variables: `NACOS_ADDR, NACOS_USERNAME, NACOS_PASSWORD, NACOS_NAMESPACE_ID, NACOS_GROUP, NACOS_DATAID`
 
-### Local Files
+### Local Config File
 
-Currently sinker is able to parse local config files at startup, but unable to detect file changes.
+Currently sinker is able to parse local config file at startup, but unable to detect file changes.
 Controled by:
 
 - CLI parameters: `local-cfg-file`
