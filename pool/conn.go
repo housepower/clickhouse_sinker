@@ -37,7 +37,7 @@ import (
 var (
 	lock        sync.Mutex
 	clusterConn []*ShardConn
-	dsnTmpl     string
+	dsnSuffix   string
 )
 
 // ShardConn a datastructure for storing the clickhouse connection
@@ -86,7 +86,7 @@ func (sc *ShardConn) NextGoodReplica(failedVer int) (db *sql.DB, dbVer int, err 
 	savedNextRep := sc.nextRep
 	// try all replicas, including the current one
 	for i := 0; i < len(sc.replicas); i++ {
-		sc.dsn = fmt.Sprintf(dsnTmpl, sc.replicas[sc.nextRep])
+		sc.dsn = fmt.Sprintf("tcp://%s", sc.replicas[sc.nextRep]) + dsnSuffix
 		sc.nextRep = (sc.nextRep + 1) % len(sc.replicas)
 		sqlDB, err := sql.Open("clickhouse", sc.dsn)
 		if err != nil {
@@ -118,13 +118,13 @@ func InitClusterConn(hosts [][]string, port int, db, username, password, dsnPara
 	freeClusterConn()
 	// Each shard has a *sql.DB which connects to one replica inside the shard.
 	// "alt_hosts" tolerates replica single-point-failure. However more flexable switching is needed for some cases for example https://github.com/ClickHouse/ClickHouse/issues/24036.
-	dsnTmpl = "tcp://%s" + fmt.Sprintf("?database=%s&username=%s&password=%s&block_size=%d",
+	dsnSuffix = fmt.Sprintf("?database=%s&username=%s&password=%s&block_size=%d",
 		url.QueryEscape(db), url.QueryEscape(username), url.QueryEscape(password), 2*config.MaxBufferSize)
 	if dsnParams != "" {
-		dsnTmpl += "&" + dsnParams
+		dsnSuffix += "&" + dsnParams
 	}
 	if secure {
-		dsnTmpl += "&secure=true&skip_verify=" + strconv.FormatBool(skipVerify)
+		dsnSuffix += "&secure=true&skip_verify=" + strconv.FormatBool(skipVerify)
 	}
 
 	for _, replicas := range hosts {
