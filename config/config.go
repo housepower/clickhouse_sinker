@@ -142,7 +142,6 @@ type TaskConfig struct {
 
 	FlushInterval int    `json:"flushInterval,omitempty"`
 	BufferSize    int    `json:"bufferSize,omitempty"`
-	MsgSizeHint   int    `json:"msgSizeHint,omitempty"`
 	TimeZone      string `json:"timezone"`
 }
 
@@ -151,7 +150,6 @@ const (
 	defaultFlushInterval      = 5
 	MaxBufferSize             = 1 << 20 //1048576
 	defaultBufferSize         = 1 << 18 //262144
-	defaultMsgSizeHint        = 1000
 	defaultTimeZone           = "Local"
 	defaultLogLevel           = "info"
 	defaultKerberosConfigPath = "/etc/krb5.conf"
@@ -223,9 +221,6 @@ func (cfg *Config) Normallize() (err error) {
 		cfg.Task.BufferSize = MaxBufferSize
 	} else {
 		cfg.Task.BufferSize = 1 << util.GetShift(cfg.Task.BufferSize)
-	}
-	if cfg.Task.MsgSizeHint <= 0 {
-		cfg.Task.MsgSizeHint = defaultMsgSizeHint
 	}
 	if cfg.Task.TimeZone == "" {
 		cfg.Task.TimeZone = defaultTimeZone

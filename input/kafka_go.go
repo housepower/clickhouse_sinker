@@ -64,10 +64,10 @@ func (k *KafkaGo) Init(cfg *config.Config, taskName string, putFn func(msg model
 		GroupID:        k.cfg.Task.ConsumerGroup,
 		Topic:          k.cfg.Task.Topic,
 		StartOffset:    offset,
-		MinBytes:       (k.cfg.Task.BufferSize / 2) * k.cfg.Task.MsgSizeHint,
-		MaxBytes:       k.cfg.Task.BufferSize * k.cfg.Task.MsgSizeHint,
-		MaxWait:        time.Duration(3) * time.Second,
-		CommitInterval: time.Second, // flushes commits to Kafka every second
+		MinBytes:       1,                                     // sarama.Consumer.Fetch.Min
+		MaxBytes:       100 * 1024 * 1024,                     // sarama.MaxResponseSize
+		MaxWait:        time.Duration(250) * time.Millisecond, // sarama.Consumer.MaxWaitTime
+		CommitInterval: time.Second,                           // flushes commits to Kafka every second
 	}
 	if kfkCfg.TLS.CaCertFiles == "" && kfkCfg.TLS.TrustStoreLocation != "" {
 		if kfkCfg.TLS.CaCertFiles, _, err = util.JksToPem(kfkCfg.TLS.TrustStoreLocation, kfkCfg.TLS.TrustStorePassword, false); err != nil {

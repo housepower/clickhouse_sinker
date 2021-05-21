@@ -124,9 +124,7 @@
     // interval of flushing the batch. Default to 5, max to 10.
     "flushInterval": 5,
     // batch size to insert into clickhouse. sinker will round upward it to the the nearest 2^n. Default to 262114, max to 1048576.
-    "bufferSize": 90000,
-    // estimated avg message size. kafka-go needs this to determize receive buffer size. Default to 1000.
-    "msgSizeHint": 1000,
+    "bufferSize": 262114,
 
     // In the absence of time zone information, interprets the time as in the given location. Default to "Local" (aka /etc/localtime of the machine on which sinker runs)
     "timezone": ""
