@@ -134,8 +134,12 @@ func (service *Service) Run(ctx context.Context) {
 	if service.sharder != nil {
 		// schedule a delayed ForceFlush
 		if service.sharder.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(service.cfg.Task.FlushInterval)*time.Second, service.sharder.ForceFlush, nil); err != nil {
-			err = errors.Wrap(err, "")
-			util.Logger.Fatal("scheduling timer failed", zap.String("task", service.cfg.Task.Name), zap.Error(err))
+			if errors.Is(err, goetty.ErrSystemStopped) {
+				util.Logger.Info("Service.Run scheduling timer to a stopped timer wheel")
+			} else {
+				err = errors.Wrap(err, "")
+				util.Logger.Fatal("scheduling timer filed", zap.String("task", service.cfg.Task.Name), zap.Error(err))
+			}
 		}
 	}
 
@@ -191,8 +195,12 @@ func (service *Service) put(msg model.InputMessage) {
 		}
 		// schedule a delayed ForceBatchOrShard
 		if ring.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(taskCfg.FlushInterval)*time.Second, ring.ForceBatchOrShard, nil); err != nil {
-			err = errors.Wrap(err, "")
-			util.Logger.Fatal("scheduling timer failed", zap.String("task", taskCfg.Name), zap.Error(err))
+			if errors.Is(err, goetty.ErrSystemStopped) {
+				util.Logger.Info("Service.put scheduling timer to a stopped timer wheel")
+			} else {
+				err = errors.Wrap(err, "")
+				util.Logger.Fatal("scheduling timer filed", zap.String("task", taskCfg.Name), zap.Error(err))
+			}
 		}
 		service.rings[msg.Partition] = ring
 		service.Unlock()
@@ -263,7 +271,12 @@ func (service *Service) put(msg model.InputMessage) {
 					service.sharder.ForceFlush(nil)
 				}
 				if service.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(taskCfg.FlushInterval)*time.Second, service.changeSchema, nil); err != nil {
-					util.Logger.Fatal("scheduling timer failed", zap.String("task", service.cfg.Task.Name), zap.Error(err))
+					if errors.Is(err, goetty.ErrSystemStopped) {
+						util.Logger.Info("Service.put scheduling timer to a stopped timer wheel")
+					} else {
+						err = errors.Wrap(err, "")
+						util.Logger.Fatal("scheduling timer filed", zap.String("task", taskCfg.Name), zap.Error(err))
+					}
 				}
 			}
 		}

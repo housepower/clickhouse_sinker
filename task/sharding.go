@@ -232,7 +232,11 @@ func (sh *Sharder) doFlush(_ interface{}) {
 	// reschedule the delayed ForceFlush
 	sh.tid.Stop()
 	if sh.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(taskCfg.FlushInterval)*time.Second, sh.ForceFlush, nil); err != nil {
-		err = errors.Wrap(err, "")
-		util.Logger.Fatal("scheduling timer failed", zap.String("task", taskCfg.Name), zap.Error(err))
+		if errors.Is(err, goetty.ErrSystemStopped) {
+			util.Logger.Info("Sharder.doFlush scheduling timer to a stopped timer wheel")
+		} else {
+			err = errors.Wrap(err, "")
+			util.Logger.Fatal("scheduling timer filed", zap.String("task", taskCfg.Name), zap.Error(err))
+		}
 	}
 }
