@@ -65,6 +65,7 @@ var (
 
 	cmdOps      CmdOptions
 	selfIP      string
+	httpAddr    string
 	httpMetrics = promhttp.Handler()
 	runner      *Sinker
 )
@@ -146,6 +147,51 @@ func GenTask(cfg *config.Config) (taskImpl *task.Service) {
 
 func main() {
 	util.Run("clickhouse_sinker", func() error {
+		// Initialize http server for metrics and debug
+		mux := http.NewServeMux()
+		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte(`
+				<html><head><title>ClickHouse Sinker</title></head>
+				<body>
+					<h1>ClickHouse Sinker</h1>
+					<p><a href="/metrics">Metrics</a></p>
+					<p><a href="/ready">Ready</a></p>
+					<p><a href="/ready?full=1">Ready Full</a></p>
+					<p><a href="/live">Live</a></p>
+					<p><a href="/live?full=1">Live Full</a></p>
+					<p><a href="/debug/pprof/">pprof</a></p>
+				</body></html>`))
+		})
+
+		mux.Handle("/metrics", httpMetrics)
+		mux.HandleFunc("/ready", health.Health.ReadyEndpoint) // GET /ready?full=1
+		mux.HandleFunc("/live", health.Health.LiveEndpoint)   // GET /live?full=1
+		mux.HandleFunc("/debug/pprof/", pprof.Index)
+		mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+		mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+		mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+		mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+
+		// cmdOps.HTTPPort=0: let OS choose the listen port, and record the exact metrics URL to log.
+		httpPort := cmdOps.HTTPPort
+		if httpPort != 0 {
+			httpPort = util.GetSpareTCPPort(httpPort)
+		}
+		httpAddr = fmt.Sprintf(":%d", httpPort)
+		listener, err := net.Listen("tcp", httpAddr)
+		if err != nil {
+			util.Logger.Fatal("net.Listen failed", zap.String("httpAddr", httpAddr), zap.Error(err))
+		}
+		httpPort = util.GetNetAddrPort(listener.Addr())
+		httpAddr = fmt.Sprintf("%s:%d", selfIP, httpPort)
+		util.Logger.Info(fmt.Sprintf("Run http server at http://%s/", httpAddr))
+
+		go func() {
+			if err := http.Serve(listener, mux); err != nil {
+				util.Logger.Error("http.ListenAndServe failed", zap.Error(err))
+			}
+		}()
+
 		var rcm config.RemoteConfManager
 		var properties map[string]interface{}
 		if cmdOps.NacosDataID != "" {
@@ -170,50 +216,6 @@ func main() {
 		runner = NewSinker(rcm)
 		return runner.Init()
 	}, func() error {
-		go func() {
-			mux := http.NewServeMux()
-			mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-				_, _ = w.Write([]byte(`
-				<html><head><title>ClickHouse Sinker</title></head>
-				<body>
-					<h1>ClickHouse Sinker</h1>
-					<p><a href="/metrics">Metrics</a></p>
-					<p><a href="/ready">Ready</a></p>
-					<p><a href="/ready?full=1">Ready Full</a></p>
-					<p><a href="/live">Live</a></p>
-					<p><a href="/live?full=1">Live Full</a></p>
-					<p><a href="/debug/pprof/">pprof</a></p>
-				</body></html>`))
-			})
-
-			mux.Handle("/metrics", httpMetrics)
-			mux.HandleFunc("/ready", health.Health.ReadyEndpoint) // GET /ready?full=1
-			mux.HandleFunc("/live", health.Health.LiveEndpoint)   // GET /live?full=1
-
-			mux.HandleFunc("/debug/pprof/", pprof.Index)
-			mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
-			mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
-			mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
-			mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
-
-			// cmdOps.HTTPPort=0: let OS choose the listen port, and record the exact metrics URL to log.
-			httpPort := cmdOps.HTTPPort
-			if httpPort != 0 {
-				httpPort = util.GetSpareTCPPort(httpPort)
-			}
-			httpAddr := fmt.Sprintf(":%d", httpPort)
-			listener, err := net.Listen("tcp", httpAddr)
-			if err != nil {
-				util.Logger.Fatal("net.Listen failed", zap.String("httpAddr", httpAddr), zap.Error(err))
-			}
-			httpPort = util.GetNetAddrPort(listener.Addr())
-			util.Logger.Info(fmt.Sprintf("Run http server at http://%s:%d/", selfIP, httpPort))
-
-			if err := http.Serve(listener, mux); err != nil {
-				util.Logger.Error("http.ListenAndServe failed", zap.Error(err))
-			}
-		}()
-
 		runner.Run()
 		return nil
 	}, func() error {
@@ -249,7 +251,7 @@ func (s *Sinker) Run() {
 	var newCfg *config.Config
 	if cmdOps.PushGatewayAddrs != "" {
 		addrs := strings.Split(cmdOps.PushGatewayAddrs, ",")
-		s.pusher = statistics.NewPusher(addrs, cmdOps.PushInterval)
+		s.pusher = statistics.NewPusher(addrs, cmdOps.PushInterval, httpAddr)
 		if err = s.pusher.Init(); err != nil {
 			return
 		}

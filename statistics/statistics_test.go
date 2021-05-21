@@ -16,32 +16,21 @@ package statistics
 
 import (
 	"context"
-	"net"
+	"fmt"
 	"testing"
 	"time"
 
+	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/stretchr/testify/require"
 )
-
-func TestPusher_IsExternalIP(t *testing.T) {
-	addrs := []string{"172.24.25.1:9091"}
-	interval := 30
-	pusher := NewPusher(addrs, interval)
-
-	external := pusher.IsExternalIP(net.ParseIP("192.168.154.134"))
-	require.Equal(t, false, external, "192.168.154.134 should not be external ip")
-
-	external = pusher.IsExternalIP(net.ParseIP("127.0.0.1"))
-	require.Equal(t, false, external, "127.0.0.1 should not be external ip")
-
-	external = pusher.IsExternalIP(net.ParseIP("43.230.88.7"))
-	require.Equal(t, true, external, "43.230.88.7 should be external ip")
-}
 
 func TestPusher(t *testing.T) {
 	addrs := []string{"172.24.25.1:9091", "172.24.25.2:9091"}
 	interval := 1
-	pusher := NewPusher(addrs, interval)
+	selfIP, _ := util.GetOutboundIP()
+	selfPort := util.GetSpareTCPPort(1024)
+	selfAddr := fmt.Sprintf("%s:%d", selfIP, selfPort)
+	pusher := NewPusher(addrs, interval, selfAddr)
 
 	err := pusher.Init()
 	require.Nilf(t, err, "pusher init failed")

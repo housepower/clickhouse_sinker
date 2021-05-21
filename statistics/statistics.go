@@ -17,7 +17,6 @@ package statistics
 import (
 	"context"
 	"math/rand"
-	"net"
 	"time"
 
 	"github.com/housepower/clickhouse_sinker/util"
@@ -185,11 +184,12 @@ type Pusher struct {
 	cancel       context.CancelFunc
 }
 
-func NewPusher(addrs []string, interval int) *Pusher {
+func NewPusher(addrs []string, interval int, selfAddr string) *Pusher {
 	return &Pusher{
 		pgwAddrs:     addrs,
 		pushInterval: interval,
 		inUseAddr:    -1,
+		instance:     selfAddr,
 	}
 }
 
@@ -201,7 +201,6 @@ func (p *Pusher) Init() error {
 	if len(p.pgwAddrs) == 0 || p.pushInterval <= 0 {
 		return errPgwEmpty
 	}
-	p.instance = p.getInstance()
 	p.reconnect()
 	return nil
 }
@@ -257,40 +256,4 @@ func (p *Pusher) reconnect() {
 		Collector(WritingPoolBacklog).
 		Grouping("instance", p.instance).Format(expfmt.FmtText)
 	p.inUseAddr = nextAddr
-}
-
-func (p *Pusher) getInstance() string {
-	addrs, err := net.InterfaceAddrs()
-	if err != nil {
-		return "unknown"
-	}
-
-	for _, addr := range addrs {
-		if ipnet, ok := addr.(*net.IPNet); ok {
-			if p.IsExternalIP(ipnet.IP) {
-				return ipnet.IP.String()
-			}
-		}
-	}
-	return "unknown"
-}
-
-func (p *Pusher) IsExternalIP(ip net.IP) bool {
-	if ip.IsLoopback() || ip.IsLinkLocalMulticast() || ip.IsLinkLocalUnicast() {
-		return false
-	}
-
-	if ip4 := ip.To4(); ip4 != nil {
-		switch {
-		case ip4[0] == 10:
-			return false
-		case ip4[0] == 172 && ip4[1] >= 16 && ip4[1] <= 31:
-			return false
-		case ip4[0] == 192 && ip4[1] == 168:
-			return false
-		default:
-			return true
-		}
-	}
-	return false
 }
