@@ -123,7 +123,10 @@ func (c *CsvMetric) GetDateTime(key string, nullable bool) (val interface{}) {
 	}
 	s := c.values[idx]
 	if dd, err := strconv.ParseFloat(s, 64); err != nil {
-		val = c.pp.ParseDateTime(key, s)
+		var err error
+		if val, err = c.pp.ParseDateTime(key, s); err != nil {
+			val = Epoch
+		}
 	} else {
 		val = UnixFloat(dd)
 	}
@@ -205,7 +208,10 @@ func (c *CsvMetric) GetArray(key string, typ int) (val interface{}) {
 			case gjson.Number:
 				t = UnixFloat(e.Num)
 			case gjson.String:
-				t = c.pp.ParseDateTime(key, e.Str)
+				var err error
+				if t, err = c.pp.ParseDateTime(key, e.Str); err != nil {
+					t = Epoch
+				}
 			default:
 				t = Epoch
 			}

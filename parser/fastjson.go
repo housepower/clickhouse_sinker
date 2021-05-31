@@ -71,24 +71,22 @@ func (c *FastjsonMetric) GetString(key string, nullable bool) (val interface{}) 
 
 func (c *FastjsonMetric) GetFloat(key string, nullable bool) (val interface{}) {
 	v := c.value.Get(key)
-	if v == nil || v.Type() == fastjson.TypeNull {
-		if nullable {
-			return
-		}
-		val = float64(0.0)
+	if !fjCompatibleFloat(v) {
+		val = getDefaultFloat(nullable)
 		return
 	}
-	val, _ = v.Float64()
+	if val2, err := v.Float64(); err != nil {
+		val = getDefaultFloat(nullable)
+	} else {
+		val = val2
+	}
 	return
 }
 
 func (c *FastjsonMetric) GetInt(key string, nullable bool) (val interface{}) {
 	v := c.value.Get(key)
-	if v == nil || v.Type() == fastjson.TypeNull {
-		if nullable {
-			return
-		}
-		val = int64(0)
+	if !fjCompatibleInt(v) {
+		val = getDefaultInt(nullable)
 		return
 	}
 	switch v.Type() {
@@ -97,18 +95,19 @@ func (c *FastjsonMetric) GetInt(key string, nullable bool) (val interface{}) {
 	case fastjson.TypeFalse:
 		val = int64(0)
 	default:
-		val, _ = v.Int64()
+		if val2, err := v.Int64(); err != nil {
+			val = getDefaultInt(nullable)
+		} else {
+			val = val2
+		}
 	}
 	return
 }
 
 func (c *FastjsonMetric) GetDateTime(key string, nullable bool) (val interface{}) {
 	v := c.value.Get(key)
-	if v == nil || v.Type() == fastjson.TypeNull {
-		if nullable {
-			return
-		}
-		val = Epoch
+	if !fjCompatibleDateTime(v) {
+		val = getDefaultDateTime(nullable)
 		return
 	}
 	var err error
@@ -116,19 +115,21 @@ func (c *FastjsonMetric) GetDateTime(key string, nullable bool) (val interface{}
 	case fastjson.TypeNumber:
 		var f float64
 		if f, err = v.Float64(); err != nil {
-			val = Epoch
+			val = getDefaultDateTime(nullable)
 			return
 		}
 		val = UnixFloat(f)
 	case fastjson.TypeString:
 		var b []byte
 		if b, err = v.StringBytes(); err != nil || len(b) == 0 {
-			val = Epoch
+			val = getDefaultDateTime(nullable)
 			return
 		}
-		val = c.pp.ParseDateTime(key, string(b))
+		if val, err = c.pp.ParseDateTime(key, string(b)); err != nil {
+			val = getDefaultDateTime(nullable)
+		}
 	default:
-		val = Epoch
+		val = getDefaultDateTime(nullable)
 	}
 	return
 }
@@ -192,7 +193,10 @@ func (c *FastjsonMetric) GetArray(key string, typ int) (val interface{}) {
 				if b, err := e.StringBytes(); err != nil || len(b) == 0 {
 					t = Epoch
 				} else {
-					t = c.pp.ParseDateTime(key, string(b))
+					var err error
+					if t, err = c.pp.ParseDateTime(key, string(b)); err != nil {
+						t = Epoch
+					}
 				}
 			default:
 				t = Epoch
@@ -222,6 +226,69 @@ func (c *FastjsonMetric) GetNewKeys(knownKeys *sync.Map, newKeys *sync.Map) (fou
 			}
 		}
 	})
+	return
+}
+
+func fjCompatibleInt(v *fastjson.Value) (ok bool) {
+	if v == nil {
+		return
+	}
+	switch v.Type() {
+	case fastjson.TypeTrue:
+		ok = true
+	case fastjson.TypeFalse:
+		ok = true
+	case fastjson.TypeNumber:
+		ok = true
+	}
+	return
+}
+
+func fjCompatibleFloat(v *fastjson.Value) (ok bool) {
+	if v == nil {
+		return
+	}
+	switch v.Type() {
+	case fastjson.TypeNumber:
+		ok = true
+	}
+	return
+}
+
+func fjCompatibleDateTime(v *fastjson.Value) (ok bool) {
+	if v == nil {
+		return
+	}
+	switch v.Type() {
+	case fastjson.TypeNumber:
+		ok = true
+	case fastjson.TypeString:
+		ok = true
+	}
+	return
+}
+
+func getDefaultInt(nullable bool) (val interface{}) {
+	if nullable {
+		return
+	}
+	val = int64(0)
+	return
+}
+
+func getDefaultFloat(nullable bool) (val interface{}) {
+	if nullable {
+		return
+	}
+	val = float64(0.0)
+	return
+}
+
+func getDefaultDateTime(nullable bool) (val interface{}) {
+	if nullable {
+		return
+	}
+	val = Epoch
 	return
 }
 

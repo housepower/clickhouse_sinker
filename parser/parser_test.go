@@ -214,7 +214,7 @@ func doTestSimple(t *testing.T, method string, testCases []SimpleCase) {
 		for j := range testCases {
 			var v interface{}
 			desc := fmt.Sprintf(`%s %s("%s", %s)`, name, method, testCases[j].Field, strconv.FormatBool(testCases[j].Nullable))
-			if name == "csv" && sliceContains([]string{"GetInt", "GetFloat", "GetDateTime", "GetElasticDateTime"}, method) && sliceContains([]string{"str_int", "str_float"}, testCases[j].Field) {
+			if name == "csv" && (sliceContains([]string{"GetInt", "GetFloat", "GetDateTime", "GetElasticDateTime"}, method) && sliceContains([]string{"str_int", "str_float"}, testCases[j].Field) || testCases[j].Nullable) {
 				log.Printf("%s is known to not compatible with fastjson parser, skipping", desc)
 				continue
 			}
@@ -258,13 +258,13 @@ func TestParserInt(t *testing.T) {
 		{"bool_true", true, int64(1)},
 		{"bool_false", true, int64(0)},
 		{"num_int", true, int64(123)},
-		{"num_float", true, int64(0)},
-		{"str", true, int64(0)},
-		{"str_int", true, int64(0)},
-		{"str_float", true, int64(0)},
-		{"str_date_1", true, int64(0)},
-		{"obj", true, int64(0)},
-		{"array_empty", true, int64(0)},
+		{"num_float", true, nil},
+		{"str", true, nil},
+		{"str_int", true, nil},
+		{"str_float", true, nil},
+		{"str_date_1", true, nil},
+		{"obj", true, nil},
+		{"array_empty", true, nil},
 	}
 	doTestSimple(t, "GetInt", testCases)
 }
@@ -287,16 +287,16 @@ func TestParserFloat(t *testing.T) {
 		// nullable: true
 		{"not_exist", true, nil},
 		{"null", true, nil},
-		{"bool_true", true, 0.0},
-		{"bool_false", true, 0.0},
+		{"bool_true", true, nil},
+		{"bool_false", true, nil},
 		{"num_int", true, 123.0},
 		{"num_float", true, 123.321},
-		{"str", true, 0.0},
-		{"str_int", true, 0.0},
-		{"str_float", true, 0.0},
-		{"str_date_1", true, 0.0},
-		{"obj", true, 0.0},
-		{"array_empty", true, 0.0},
+		{"str", true, nil},
+		{"str_int", true, nil},
+		{"str_float", true, nil},
+		{"str_date_1", true, nil},
+		{"obj", true, nil},
+		{"array_empty", true, nil},
 	}
 	doTestSimple(t, "GetFloat", testCases)
 }
@@ -361,20 +361,20 @@ func TestParserDateTime(t *testing.T) {
 		// nullable: true
 		{"not_exist", true, nil},
 		{"null", true, nil},
-		{"bool_true", true, Epoch},
-		{"bool_false", true, Epoch},
+		{"bool_true", true, nil},
+		{"bool_false", true, nil},
 		{"num_int", true, UnixInt(123)},
 		{"num_float", true, UnixFloat(123.321)},
-		{"str", true, Epoch},
-		{"str_int", true, Epoch},
-		{"str_float", true, Epoch},
+		{"str", true, nil},
+		{"str_int", true, nil},
+		{"str_float", true, nil},
 		{"str_date_1", true, bdLocalDate},
 		{"str_time_rfc3339_1", true, bdUtcSec},
 		{"str_time_rfc3339_2", true, bdShNs},
 		{"str_time_clickhouse_1", true, bdLocalSec},
 		{"str_time_clickhouse_2", true, bdLocalNs},
-		{"obj", true, Epoch},
-		{"array_empty", true, Epoch},
+		{"obj", true, nil},
+		{"array_empty", true, nil},
 	}
 	doTestSimple(t, "GetDateTime", testCases)
 }
@@ -401,20 +401,20 @@ func TestParserElasticDateTime(t *testing.T) {
 		// nullable: true
 		{"not_exist", true, nil},
 		{"null", true, nil},
-		{"bool_true", true, Epoch.Unix()},
-		{"bool_false", true, Epoch.Unix()},
+		{"bool_true", true, nil},
+		{"bool_false", true, nil},
 		{"num_int", true, UnixInt(123).Unix()},
 		{"num_float", true, UnixFloat(123.321).Unix()},
-		{"str", true, Epoch.Unix()},
-		{"str_int", true, Epoch.Unix()},
-		{"str_float", true, Epoch.Unix()},
+		{"str", true, nil},
+		{"str_int", true, nil},
+		{"str_float", true, nil},
 		{"str_date_1", true, bdLocalDate.Unix()},
 		{"str_time_rfc3339_1", true, bdUtcSec.Unix()},
 		{"str_time_rfc3339_2", true, bdShNs.Unix()},
 		{"str_time_clickhouse_1", true, bdLocalSec.Unix()},
 		{"str_time_clickhouse_2", true, bdLocalNs.Unix()},
-		{"obj", true, Epoch.Unix()},
-		{"array_empty", true, Epoch.Unix()},
+		{"obj", true, nil},
+		{"array_empty", true, nil},
 	}
 	doTestSimple(t, "GetElasticDateTime", testCases)
 }

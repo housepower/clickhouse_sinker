@@ -61,7 +61,8 @@ var (
 		"Jan 02, 2006",
 		"Mon Jan 02, 2006",
 	}
-	Epoch = time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
+	Epoch            = time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
+	ErrParseDateTime = errors.Errorf("value doesn't contain DateTime")
 )
 
 // Parse is the Parser interface
@@ -133,32 +134,34 @@ func (pp *Pool) Put(p Parser) {
 // Assuming that all values of a field of kafka message has the same layout, and layouts of each field are unrelated.
 // Automatically detect the layout from till the first successful detection and reuse that layout forever.
 // Return time in UTC.
-// Return Epoch if parsing fail.
-func (pp *Pool) ParseDateTime(key string, val string) (t time.Time) {
-	var err error
+func (pp *Pool) ParseDateTime(key string, val string) (t time.Time, err error) {
 	var layout string
 	var lay interface{}
 	var ok bool
+	var t2 time.Time
 	if val == "" {
-		t = Epoch
+		err = ErrParseDateTime
 		return
 	}
 	if lay, ok = pp.knownLayouts.Load(key); !ok {
-		t, layout = parseInLocation(val, pp.timeZone)
-		if layout != "" {
-			pp.knownLayouts.Store(key, layout)
+		t2, layout = parseInLocation(val, pp.timeZone)
+		if layout == "" {
+			err = ErrParseDateTime
 			return
 		}
+		t = t2
+		pp.knownLayouts.Store(key, layout)
+		return
 	}
 	if layout, ok = lay.(string); !ok {
-		t = Epoch
+		err = ErrParseDateTime
 		return
 	}
-	if t, err = time.ParseInLocation(layout, val, pp.timeZone); err != nil {
-		t = Epoch
+	if t2, err = time.ParseInLocation(layout, val, pp.timeZone); err != nil {
+		err = ErrParseDateTime
 		return
 	}
-	t = t.UTC()
+	t = t2.UTC()
 	return
 }
 

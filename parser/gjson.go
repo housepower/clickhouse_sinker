@@ -64,62 +64,58 @@ func (c *GjsonMetric) GetString(key string, nullable bool) (val interface{}) {
 
 func (c *GjsonMetric) GetFloat(key string, nullable bool) (val interface{}) {
 	r := gjson.Get(c.raw, key)
-	if !r.Exists() || r.Type == gjson.Null {
-		if nullable {
-			return
-		}
-		val = float64(0.0)
+	if !gjCompatibleFloat(r) {
+		val = getDefaultFloat(nullable)
 		return
 	}
 	switch r.Type {
 	case gjson.Number:
 		val = r.Num
 	default:
-		val = float64(0.0)
+		val = getDefaultFloat(nullable)
 	}
 	return
 }
 
 func (c *GjsonMetric) GetInt(key string, nullable bool) (val interface{}) {
 	r := gjson.Get(c.raw, key)
-	if !r.Exists() || r.Type == gjson.Null {
-		if nullable {
-			return
-		}
-		val = int64(0)
+	if !gjCompatibleInt(r) {
+		val = getDefaultInt(nullable)
 		return
 	}
 	switch r.Type {
 	case gjson.True:
 		val = int64(1)
+	case gjson.False:
+		val = int64(0)
 	case gjson.Number:
 		if v := r.Int(); float64(v) != r.Num {
-			val = int64(0)
+			val = getDefaultInt(nullable)
 		} else {
 			val = v
 		}
 	default:
-		val = int64(0)
+		val = getDefaultInt(nullable)
 	}
 	return
 }
 
 func (c *GjsonMetric) GetDateTime(key string, nullable bool) (val interface{}) {
 	r := gjson.Get(c.raw, key)
-	if !r.Exists() || r.Type == gjson.Null {
-		if nullable {
-			return
-		}
-		val = Epoch
+	if !gjCompatibleDateTime(r) {
+		val = getDefaultDateTime(nullable)
 		return
 	}
 	switch r.Type {
 	case gjson.Number:
 		val = UnixFloat(r.Num)
 	case gjson.String:
-		val = c.pp.ParseDateTime(key, r.Str)
+		var err error
+		if val, err = c.pp.ParseDateTime(key, r.Str); err != nil {
+			val = getDefaultDateTime(nullable)
+		}
 	default:
-		val = Epoch
+		val = getDefaultDateTime(nullable)
 	}
 	return
 }
@@ -193,7 +189,10 @@ func (c *GjsonMetric) GetArray(key string, typ int) (val interface{}) {
 			case gjson.Number:
 				t = UnixFloat(e.Num)
 			case gjson.String:
-				t = c.pp.ParseDateTime(key, e.Str)
+				var err error
+				if t, err = c.pp.ParseDateTime(key, e.Str); err != nil {
+					t = Epoch
+				}
 			default:
 				t = Epoch
 			}
@@ -208,4 +207,46 @@ func (c *GjsonMetric) GetArray(key string, typ int) (val interface{}) {
 
 func (c *GjsonMetric) GetNewKeys(knownKeys *sync.Map, newKeys *sync.Map) bool {
 	return false
+}
+
+func gjCompatibleInt(r gjson.Result) (ok bool) {
+	if !r.Exists() {
+		return
+	}
+	switch r.Type {
+	case gjson.True:
+		ok = true
+	case gjson.False:
+		ok = true
+	case gjson.Number:
+		ok = true
+	default:
+	}
+	return
+}
+
+func gjCompatibleFloat(r gjson.Result) (ok bool) {
+	if !r.Exists() {
+		return
+	}
+	switch r.Type {
+	case gjson.Number:
+		ok = true
+	default:
+	}
+	return
+}
+
+func gjCompatibleDateTime(r gjson.Result) (ok bool) {
+	if !r.Exists() {
+		return
+	}
+	switch r.Type {
+	case gjson.Number:
+		ok = true
+	case gjson.String:
+		ok = true
+	default:
+	}
+	return
 }
