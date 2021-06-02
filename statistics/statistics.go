@@ -212,21 +212,27 @@ FOR:
 	for {
 		select {
 		case <-ticker.C:
-			err := p.pusher.Push()
-			if err != nil {
+			if err := p.pusher.Push(); err != nil {
 				err = errors.Wrapf(err, "")
 				util.Logger.Error("pushing metrics failed", zap.Error(err))
 				p.reconnect()
 			}
-		case <-ctx.Done():
-			util.Logger.Warn("metric pusher quit due to context has been canceled")
+		case <-p.ctx.Done():
+			util.Logger.Info("Pusher.Run quit due to context has been canceled")
 			break FOR
 		}
 	}
 }
 
 func (p *Pusher) Stop() {
+	// https://stackoverflow.com/questions/63540280/how-to-set-a-retention-time-for-pushgateway-for-metrics-to-expire
+	// https://github.com/prometheus/pushgateway/issues/19
+	if err := p.pusher.Delete(); err != nil {
+		err = errors.Wrapf(err, "")
+		util.Logger.Error("failed to delete metric group", zap.String("pushgateway", p.pgwAddrs[p.inUseAddr]), zap.String("job", "clickhouse_sinker"), zap.String("instance", p.instance), zap.Error(err))
+	}
 	p.cancel()
+	util.Logger.Info("stopped metric pusher")
 }
 
 func (p *Pusher) reconnect() {
