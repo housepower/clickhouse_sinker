@@ -200,7 +200,7 @@ func (ring *Ring) genBatchOrShard(expNewGroundOff int64) {
 				statistics.RingForceBatchAllGapTotal.WithLabelValues(taskCfg.Name).Inc()
 			}
 		}
-		statistics.RingMsgs.WithLabelValues(taskCfg.Name).Sub(float64(batch.RealSize))
+		statistics.RingMsgs.WithLabelValues(taskCfg.Name).Sub(float64(msgCnt))
 	}
 
 	ring.ringGroundOff = endOff
