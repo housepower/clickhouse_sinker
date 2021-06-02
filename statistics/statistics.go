@@ -229,7 +229,8 @@ func (p *Pusher) Stop() {
 	// https://github.com/prometheus/pushgateway/issues/19
 	if err := p.pusher.Delete(); err != nil {
 		err = errors.Wrapf(err, "")
-		util.Logger.Error("failed to delete metric group", zap.String("pushgateway", p.pgwAddrs[p.inUseAddr]), zap.String("job", "clickhouse_sinker"), zap.String("instance", p.instance), zap.Error(err))
+		util.Logger.Error("failed to delete metric group", zap.String("pushgateway", p.pgwAddrs[p.inUseAddr]),
+			zap.String("job", "clickhouse_sinker"), zap.String("instance", p.instance), zap.Error(err))
 	}
 	p.cancel()
 	util.Logger.Info("stopped metric pusher")

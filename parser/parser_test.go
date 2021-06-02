@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/housepower/clickhouse_sinker/model"
+	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 	"github.com/valyala/fastjson"
@@ -193,6 +194,7 @@ func initMetrics() {
 		}
 		metrics[name] = metric
 	}
+	util.InitLogger("info", []string{"stdout"})
 }
 
 func sliceContains(list []string, target string) bool {
