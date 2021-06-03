@@ -69,7 +69,7 @@ func InitGlobalParsingPool() {
 	} else {
 		maxWorkers = 1
 	}
-	GlobalParsingPool = NewWorkerPool(maxWorkers, 100*runtime.NumCPU())
+	GlobalParsingPool = NewWorkerPool(maxWorkers, 1<<16)
 	Logger.Info("initialized parsing pool", zap.Int("maxWorkers", maxWorkers), zap.Int("queueSize", 100*runtime.NumCPU()))
 }
 
