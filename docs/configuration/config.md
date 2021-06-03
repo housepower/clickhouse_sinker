@@ -1,9 +1,10 @@
 # Config Items
+
 > Here we use json with comments for documentation
 
-```
+```json
 {
-  // clickhouse configs, it's map[string]ClickHouse for multiple clickhouse
+  // ClickHouse config
   "clickhouse": {
     // cluster the ClickHouse node belongs
     "cluster": "test",
@@ -12,32 +13,41 @@
     // it helps data deduplication for ReplicateMergeTree when driver error occurs
     "hosts": [
       [
-        "127.0.0.1"
+        "192.168.101.106",
+        "192.168.101.108"
+      ],
+      [
+        "192.168.102.114",
+        "192.168.101.110"
+      ],
+      [
+        "192.168.102.115"
       ]
     ],
     "port": 9000,
-    "username": "default"
+    "username": "default",
     "password": "",
-    "db": "default",  // database name
+    // database name
+    "db": "default",
     // Whether enable TLS encryption with clickhouse-server
-    secure bool
+    "secure": false,
     // Whether skip verify clickhouse-server cert if secure=true.
-    insecureSkipVerify bool
+    "insecureSkipVerify": false,
     // retryTimes when error occurs in inserting datas
     "retryTimes": 0,
   },
 
-  // kafka configs
+  // Kafka config
   "kafka": {
     "brokers": "127.0.0.1:9093",
     
-    // jave client style security  authentication
+    // jave client style security authentication
     "security":{
         "security.protocol": "SASL_PLAINTEXT",
         "sasl.kerberos.service.name": "kafka",
         "sasl.mechanism":"GSSAPI",
-        "sasl.jaas.config":"com.sun.security.auth.module.Krb5LoginModule required useKeyTab=true storeKey=true debug=true         keyTab=\"/etc/security/mmmtest.keytab\" principal=\"mmm@ALANWANG.COM\";"
-    }
+        "sasl.jaas.config":"com.sun.security.auth.module.Krb5LoginModule required useKeyTab=true storeKey=true debug=true keyTab=\"/etc/security/mmmtest.keytab\" principal=\"mmm@ALANWANG.COM\";"
+    },
 
     // SSL
     "tls": {
@@ -45,10 +55,10 @@
       // Required. It's the CA certificate with which Kafka brokers certs be signed.
       "caCertFiles": "/etc/security/ca-cert",
       // Required if Kafka brokers require client authentication.
-      clientCertFile: "",
+      "clientCertFile": "",
       // Required if and only if ClientCertFile is present.
-      clientKeyFile: "",
-    }
+      "clientKeyFile": "",
+    },
 
     // SASL
     "sasl": {

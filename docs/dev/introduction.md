@@ -48,6 +48,24 @@ Note:
 | Nullable(T)          | NULL          | (The same as T)                     | (The same as T)                       |
 | Array(T)             | []            | (The same as T)                     | (The same as T)                       |
 
+## Benchmark
+
+- ClickHouse cluster: 3 shards, 2 physical hosts in each shard. Each host contains 48 cpu, 256 GB RAM, 12TB HDD RAID5.
+- ZooKeeper cluster: on three hosts of ClickHouse cluster.
+- Kafka cluster: 2 nodes on three hosts of ClickHouse cluster. Share the same zookeeper cluster wich ClickHouse.
+- Kafka topic apache_access_log1: partition 1, replicator factor: 1
+- Kafka topic apache_access_log2: partition 2, replicator factor: 1
+- Kafka topic apache_access_log4: partition 4, replicator factor: 1
+- Generate json messages via kafka_gen_log(https://github.com/housepower/clickhouse_sinker/blob/master/cmd/kafka_gen_log). Messages avg lenght is 754 bytes.
+
+| config     | thoughput(rows/s) | writer total cost   | clickhouse cost per node |
+|-----------------------------|-------------------|---------------|---------------|
+| 1 kafka partition, 1 sinker | 142 K             | 11.0 cpu, 8 GB | 0.3 cpu |
+| 2 kafka partition, 1 sinker | 159 K             | 14.0 cpu, 14 GB | 0.7 cpu |
+| 4 kafka partition, 1 sinker | 25~127 K          | 2~22 cpu, 16 GB | 1 cpu |
+| 2 kafka partition, 2 sinker | 275 K             | 22 cpu, 8 GB | 1.3 cpu |
+| 4 kafka partition, 2 sinker | 301 K             | 25 cpu, 18 GB | 1.5 cpu |
+
 ## Configuration
 
 Refers to how [integration test](https://github.com/housepower/clickhouse_sinker/blob/master/go.test.sh) use the example config. Also refers to [code](https://github.com/housepower/clickhouse_sinker/blob/master/config/config.go) for all config items.
