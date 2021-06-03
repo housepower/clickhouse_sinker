@@ -11,9 +11,13 @@ pre:
 build: pre
 	$(GOBUILD) -ldflags '$(SINKER_LDFLAGS)' -o clickhouse_sinker cmd/clickhouse_sinker/main.go
 	$(GOBUILD) -ldflags '$(SINKER_LDFLAGS)' -o nacos_publish_config cmd/nacos_publish_config/main.go
+	$(GOBUILD) -ldflags '$(SINKER_LDFLAGS)' -o kafka_gen_log cmd/kafka_gen_log/main.go
+	$(GOBUILD) -ldflags '$(SINKER_LDFLAGS)' -o kafka_gen_metric cmd/kafka_gen_metric/main.go
 debug: pre
 	$(GOBUILD) -ldflags '$(SINKER_LDFLAGS)' -gcflags "all=-N -l" -o clickhouse_sinker cmd/clickhouse_sinker/main.go
 	$(GOBUILD) -ldflags '$(SINKER_LDFLAGS)' -gcflags "all=-N -l" -o nacos_publish_config cmd/nacos_publish_config/main.go
+	$(GOBUILD) -ldflags '$(SINKER_LDFLAGS)' -gcflags "all=-N -l" -o kafka_gen_log cmd/kafka_gen_log/main.go
+	$(GOBUILD) -ldflags '$(SINKER_LDFLAGS)' -gcflags "all=-N -l" -o kafka_gen_metric cmd/kafka_gen_metric/main.go
 unittest: pre
 	go test -v ./...
 benchtest: pre
@@ -21,6 +25,6 @@ benchtest: pre
 systest: build
 	bash go.test.sh
 lint:
-	golangci-lint run --issues-exit-code=0 --disable=nakedret,exhaustivestruct,wrapcheck,paralleltest,rowserrcheck,cyclop,scopelint,nilerr,interfacer,funlen,revive
+	golangci-lint run --issues-exit-code=0 --disable=nakedret,exhaustivestruct,wrapcheck,paralleltest,rowserrcheck,cyclop,scopelint,nilerr,interfacer,funlen,revive,tagliatelle
 run: pre
 	go run cmd/clickhouse_sinker/main.go --local-cfg-file docker/test_dynamic_schema.json

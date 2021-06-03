@@ -12,6 +12,7 @@ require (
 	github.com/prometheus/client_golang v1.10.0
 	github.com/prometheus/common v0.24.0
 	github.com/segmentio/kafka-go v0.4.8
+	github.com/sirupsen/logrus v1.6.0
 	github.com/stretchr/testify v1.7.0
 	github.com/tidwall/gjson v1.8.0
 	github.com/troian/healthcheck v0.1.4-0.20200127040058-c373fb6a0dc1

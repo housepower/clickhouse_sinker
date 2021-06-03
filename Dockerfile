@@ -10,6 +10,8 @@ RUN apk --no-cache add ca-certificates tzdata
 RUN echo "UTC" >  /etc/timezone
 COPY --from=builder /app/clickhouse_sinker /usr/local/bin/clickhouse_sinker
 COPY --from=builder /app/nacos_publish_config /usr/local/bin/nacos_publish_config
+COPY --from=builder /app/kafka_gen_log /usr/local/bin/kafka_gen_log
+COPY --from=builder /app/kafka_gen_metric /usr/local/bin/kafka_gen_metric
 
 # clickhouse_sinker gets config from local directory "/etc/clickhouse_sinker" by default.
 # Customize behavior with following env variables:
