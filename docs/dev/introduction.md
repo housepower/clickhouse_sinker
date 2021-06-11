@@ -50,6 +50,8 @@ Note:
 
 ## Benchmark
 
+### clickhouse_sinker
+
 - ClickHouse cluster: 3 shards, 2 physical hosts in each shard. Each host contains 48 cpu, 256 GB RAM, 12TB HDD RAID5.
 - ZooKeeper cluster: on three hosts of ClickHouse cluster.
 - Kafka cluster: 2 nodes on three hosts of ClickHouse cluster. Share the same zookeeper cluster wich ClickHouse.
@@ -65,6 +67,23 @@ Note:
 | 4 kafka partition, 1 sinker | 25~127 K          | 2~22 cpu, 16 GB | 1 cpu |
 | 2 kafka partition, 2 sinker | 275 K             | 22 cpu, 8 GB | 1.3 cpu |
 | 4 kafka partition, 2 sinker | 301 K             | 25 cpu, 18 GB | 1.5 cpu |
+
+### Flink pipeline
+
+Here's the Flink pipeline which moves date from kafka to ClickHouse. The cpu hotspot of the Flink pipeline is JSON decode, and Row.setField.
+
+Kafka Source -> JSON decode -> DateTime formart conversion -> Interger type conversion -> JDBCSinkJob
+
+| config     | thoughput(rows/s) | writer total cost   | clickhouse cost per node |
+|-----------------------------|-------------------|---------------|---------------|
+| 1 kafka partition, pipeline Parallelism: 20 | 44.7 K             | 13.8 cpu, 20 GB | 1.1 cpu |
+
+### Conclusion
+
+- clickhouse_sinker is 3x fast as the Flink pipeline, and cost much less connection and cpu overhead on clickhouse-server.
+- clickhouse_sinker retry other replicas on writing failures.
+- clickhouse_sinker get table schema from ClickHouse. The pipeline need manual config of all fields.
+- clickhouse_sinker detect DateTime format. The pipeline need dedicated steps to do format and type conversion.
 
 ## Configuration
 
