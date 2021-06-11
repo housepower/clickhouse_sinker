@@ -230,7 +230,7 @@ func (g *LogGenerator) getLine() (fp string, lineno int, line string) {
 	}
 }
 
-func (g *LogGenerator) Run(ctx context.Context) {
+func (g *LogGenerator) Run() {
 	toRound := time.Now()
 	// refers to time.Time.Truncate
 	rounded := time.Date(toRound.Year(), toRound.Month(), toRound.Day(), 0, 0, 0, 0, toRound.Location())
@@ -240,7 +240,7 @@ func (g *LogGenerator) Run(ctx context.Context) {
 	config.Version = sarama.V2_1_0_0
 	w, err := sarama.NewAsyncProducer(strings.Split(KafkaBrokers, ","), config)
 	if err != nil {
-		log.Fatal("sarama.NewAsyncProducer failed %+v", err)
+		log.Fatalf("sarama.NewAsyncProducer failed %+v", err)
 	}
 	defer w.Close()
 
@@ -278,7 +278,7 @@ func (g *LogGenerator) Run(ctx context.Context) {
 				Verb:            randElement(ListVerb),
 				Xforwardfor:     "",
 			}
-			wp.Submit(func() {
+			_ = wp.Submit(func() {
 				if b, err = json.Marshal(&logObj); err != nil {
 					err = errors.Wrapf(err, "")
 					log.Fatalf("got error %+v", err)
@@ -327,7 +327,7 @@ log_file_pattern: file name pattern, for example, '^secure.*$'`, os.Args[0], os.
 	if err := g.Init(); err != nil {
 		log.Fatalf("got error %+v", err)
 	}
-	go g.Run(ctx)
+	go g.Run()
 
 	var prevLines, prevSize int64
 	ticker := time.NewTicker(10 * time.Second)

@@ -108,7 +108,7 @@ func randElement(list []string) string {
 	return list[off]
 }
 
-func generate(ctx context.Context) {
+func generate() {
 	toRound := time.Now().Add(time.Duration(-30*24) * time.Hour)
 	// refers to time.Time.Truncate
 	rounded := time.Date(toRound.Year(), toRound.Month(), toRound.Day(), 0, 0, 0, 0, toRound.Location())
@@ -118,7 +118,7 @@ func generate(ctx context.Context) {
 	config.Version = sarama.V2_1_0_0
 	w, err := sarama.NewAsyncProducer(strings.Split(KafkaBrokers, ","), config)
 	if err != nil {
-		log.Fatal("sarama.NewAsyncProducer failed %+v", err)
+		log.Fatalf("sarama.NewAsyncProducer failed %+v", err)
 	}
 	defer w.Close()
 
@@ -153,7 +153,7 @@ func generate(ctx context.Context) {
 						IsMissing:    int32(rand.Intn(1)),
 					}
 
-					wp.Submit(func() {
+					_ = wp.Submit(func() {
 						var b []byte
 						if b, err = json.Marshal(&metric); err != nil {
 							err = errors.Wrapf(err, "")
@@ -198,7 +198,7 @@ topic: for example, sensor_dt_result_online`, os.Args[0], os.Args[0])
 
 	var prevLines, prevSize int64
 	ctx, _ := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
-	go generate(ctx)
+	go generate()
 
 	ticker := time.NewTicker(10 * time.Second)
 LOOP:
