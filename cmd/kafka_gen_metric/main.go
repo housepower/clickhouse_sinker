@@ -39,11 +39,16 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"os/signal"
 	"strings"
+	"sync/atomic"
+	"syscall"
 	"time"
 
+	"github.com/Shopify/sarama"
+	"github.com/google/gops/agent"
+	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/pkg/errors"
-	kafka "github.com/segmentio/kafka-go"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -68,6 +73,9 @@ var (
 		"PrincipalComponentAnalysis",
 		"SingularValueDecomposition",
 		"IndependentComponentAnalysis"}
+
+	gLines int64
+	gSize  int64
 )
 
 type Metric struct {
@@ -100,44 +108,26 @@ func randElement(list []string) string {
 	return list[off]
 }
 
-func generate() (err error) {
+func generate(ctx context.Context) {
 	toRound := time.Now().Add(time.Duration(-30*24) * time.Hour)
 	// refers to time.Time.Truncate
 	rounded := time.Date(toRound.Year(), toRound.Month(), toRound.Day(), 0, 0, 0, 0, toRound.Location())
 
-	// make a writer that produces to topic-A, using the least-bytes distribution
-	w := kafka.NewWriter(kafka.WriterConfig{
-		Brokers:  strings.Split(KafkaBrokers, ","),
-		Topic:    KafkaTopic,
-		Balancer: kafka.CRC32Balancer{},
-		Async:    true,
-		//Logger:   log.StandardLogger(),
-	})
+	wp := util.NewWorkerPool(10, 10000)
+	config := sarama.NewConfig()
+	config.Version = sarama.V2_1_0_0
+	w, err := sarama.NewAsyncProducer(strings.Split(KafkaBrokers, ","), config)
+	if err != nil {
+		log.Fatal("sarama.NewAsyncProducer failed %+v", err)
+	}
 	defer w.Close()
-	ctx := context.Background()
-	var b []byte
-	var lines, size int64
-	var prevLines, prevSize int64
-	var speedLine, speedSize int64
-	var ts, prevTS int64
 
 	for day := 0; ; day++ {
 		tsDay := rounded.Add(time.Duration(24*day) * time.Hour)
 		for step := 0; step < 24*60*60; step++ {
-			timestamp := tsDay.Add(time.Duration(step) * time.Second)
 			for bus := 0; bus < BusinessNum; bus++ {
 				for ins := 0; ins < InstanceNum; ins++ {
-					if lines%1000000 == 0 {
-						ts = time.Now().Unix()
-						if lines != 0 {
-							speedLine = (lines - prevLines) / (ts - prevTS)
-							speedSize = (size - prevSize) / (ts - prevTS)
-						}
-						prevLines = lines
-						prevSize = size
-						prevTS = ts
-						log.Infof("generated %+v lines %+v Bytes, speedLine: %v lines/s, speedSize: %v B/s", lines, size, speedLine, speedSize)
-					}
+					timestamp := tsDay.Add(time.Duration(step) * time.Second)
 					metric := Metric{
 						Time:         timestamp,
 						ItemGUID:     fmt.Sprintf("bus%03d_ins%03d", bus, ins),
@@ -162,16 +152,21 @@ func generate() (err error) {
 						SpikeTag:     int32(rand.Intn(65535)),
 						IsMissing:    int32(rand.Intn(1)),
 					}
-					if b, err = json.Marshal(&metric); err != nil {
-						err = errors.Wrapf(err, "got error")
-						return
-					}
-					if err = w.WriteMessages(ctx, kafka.Message{Key: []byte(metric.ItemGUID), Value: b}); err != nil {
-						err = errors.Wrapf(err, "got error")
-						return
-					}
-					lines++
-					size += int64(len(b))
+
+					wp.Submit(func() {
+						var b []byte
+						if b, err = json.Marshal(&metric); err != nil {
+							err = errors.Wrapf(err, "")
+							log.Fatalf("got error %+v", err)
+						}
+						w.Input() <- &sarama.ProducerMessage{
+							Topic: KafkaTopic,
+							Key:   sarama.StringEncoder(metric.ItemGUID),
+							Value: sarama.ByteEncoder(b),
+						}
+						atomic.AddInt64(&gLines, int64(1))
+						atomic.AddInt64(&gSize, int64(len(b)))
+					})
 				}
 			}
 		}
@@ -184,7 +179,7 @@ func main() {
     %s kakfa_brokers topic
 This util fill some fields with random content, serialize and send to kafka.
 kakfa_brokers: for example, 192.168.102.114:9092,192.168.102.115:9092
-topic: for example, apache_access_log`, os.Args[0], os.Args[0])
+topic: for example, sensor_dt_result_online`, os.Args[0], os.Args[0])
 		log.Infof(usage)
 	}
 	flag.Parse()
@@ -196,7 +191,31 @@ topic: for example, apache_access_log`, os.Args[0], os.Args[0])
 	KafkaBrokers = args[0]
 	KafkaTopic = args[1]
 	log.Infof("KafkaBrokers: %v\nKafkaTopic: %v\nBusinessNum: %v\nInstanceNum: %v\n", KafkaBrokers, KafkaTopic, BusinessNum, InstanceNum)
-	if err := generate(); err != nil {
-		log.Fatalf("got error %+v", err)
+
+	if err := agent.Listen(agent.Options{}); err != nil {
+		log.Fatal(err)
+	}
+
+	var prevLines, prevSize int64
+	ctx, _ := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	go generate(ctx)
+
+	ticker := time.NewTicker(10 * time.Second)
+LOOP:
+	for {
+		select {
+		case <-ctx.Done():
+			log.Infof("quit due to context been canceled")
+			break LOOP
+		case <-ticker.C:
+			var speedLine, speedSize int64
+			if gLines != 0 {
+				speedLine = (gLines - prevLines) / int64(10)
+				speedSize = (gSize - prevSize) / int64(10)
+			}
+			prevLines = gLines
+			prevSize = gSize
+			log.Infof("generated %+v lines, %+v Bytes, speedLine: %v lines/s, speedSize: %v B/s", gLines, gSize, speedLine, speedSize)
+		}
 	}
 }

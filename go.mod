@@ -7,6 +7,7 @@ require (
 	github.com/Shopify/sarama v1.29.0
 	github.com/cespare/xxhash/v2 v2.1.1
 	github.com/fagongzi/goetty v1.7.0
+	github.com/google/gops v0.3.18
 	github.com/nacos-group/nacos-sdk-go v1.0.7
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.10.0

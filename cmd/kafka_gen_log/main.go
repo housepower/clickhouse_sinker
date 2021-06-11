@@ -49,18 +49,15 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
 
+	"github.com/Shopify/sarama"
+	"github.com/google/gops/agent"
+	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/pkg/errors"
-	kafka "github.com/segmentio/kafka-go"
 	log "github.com/sirupsen/logrus"
-)
-
-const (
-	NumGenerators = 1
 )
 
 var (
@@ -238,16 +235,15 @@ func (g *LogGenerator) Run(ctx context.Context) {
 	// refers to time.Time.Truncate
 	rounded := time.Date(toRound.Year(), toRound.Month(), toRound.Day(), 0, 0, 0, 0, toRound.Location())
 
-	// make a writer that produces to topic-A, using the least-bytes distribution
-	w := kafka.NewWriter(kafka.WriterConfig{
-		Brokers:   strings.Split(KafkaBrokers, ","),
-		Topic:     KafkaTopic,
-		Balancer:  kafka.CRC32Balancer{},
-		BatchSize: 1000,
-		Async:     true,
-	})
+	wp := util.NewWorkerPool(10, 10000)
+	config := sarama.NewConfig()
+	config.Version = sarama.V2_1_0_0
+	w, err := sarama.NewAsyncProducer(strings.Split(KafkaBrokers, ","), config)
+	if err != nil {
+		log.Fatal("sarama.NewAsyncProducer failed %+v", err)
+	}
 	defer w.Close()
-	var err error
+
 	var b []byte
 	for day := 0; ; day++ {
 		tsDay := rounded.Add(time.Duration(-24*day) * time.Hour)
@@ -282,16 +278,19 @@ func (g *LogGenerator) Run(ctx context.Context) {
 				Verb:            randElement(ListVerb),
 				Xforwardfor:     "",
 			}
-			if b, err = json.Marshal(&logObj); err != nil {
-				err = errors.Wrapf(err, "")
-				log.Fatalf("got error %+v", err)
-			}
-			if err = w.WriteMessages(ctx, kafka.Message{Key: []byte(logObj.Hostname), Value: b}); err != nil {
-				err = errors.Wrapf(err, "")
-				log.Fatalf("got error %+v", err)
-			}
-			atomic.AddInt64(&g.lines, int64(1))
-			atomic.AddInt64(&g.size, int64(len(b)))
+			wp.Submit(func() {
+				if b, err = json.Marshal(&logObj); err != nil {
+					err = errors.Wrapf(err, "")
+					log.Fatalf("got error %+v", err)
+				}
+				w.Input() <- &sarama.ProducerMessage{
+					Topic: KafkaTopic,
+					Key:   sarama.StringEncoder(logObj.Hostname),
+					Value: sarama.ByteEncoder(b),
+				}
+				atomic.AddInt64(&g.lines, int64(1))
+				atomic.AddInt64(&g.size, int64(len(b)))
+			})
 		}
 	}
 }
@@ -317,36 +316,18 @@ log_file_pattern: file name pattern, for example, '^secure.*$'`, os.Args[0], os.
 	KafkaTopic = args[1]
 	LogfileDir = args[2]
 	LogfilePattern = args[3]
-	log.Infof("KafkaBrokers: %v\nKafkaTopic: %v\nLogfileDir: %v\nLogFilePattern: %v\n\n\n", KafkaBrokers, KafkaTopic, LogfileDir, LogfilePattern)
+	log.Infof("KafkaBrokers: %v\nKafkaTopic: %v\nLogfileDir: %v\nLogFilePattern: %v\n", KafkaBrokers, KafkaTopic, LogfileDir, LogfilePattern)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	go func() {
-		sc := make(chan os.Signal, 1)
-		signal.Notify(sc, syscall.SIGUSR1)
-		for {
-			sig := <-sc
-			switch sig {
-			case syscall.SIGTERM:
-				log.Infof("got signal=<%d>. quit", sig)
-				cancel()
-			}
-		}
-	}()
-
-	wg := sync.WaitGroup{}
-	wg.Add(NumGenerators)
-	var generators []*LogGenerator
-	for i := 0; i < NumGenerators; i++ {
-		g := &LogGenerator{}
-		if err := g.Init(); err != nil {
-			log.Fatalf("got error %+v", err)
-		}
-		go func() {
-			g.Run(ctx)
-			wg.Done()
-		}()
-		generators = append(generators, g)
+	if err := agent.Listen(agent.Options{}); err != nil {
+		log.Fatal(err)
 	}
+
+	ctx, _ := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	g := &LogGenerator{}
+	if err := g.Init(); err != nil {
+		log.Fatalf("got error %+v", err)
+	}
+	go g.Run(ctx)
 
 	var prevLines, prevSize int64
 	ticker := time.NewTicker(10 * time.Second)
@@ -354,18 +335,11 @@ LOOP:
 	for {
 		select {
 		case <-ctx.Done():
+			log.Infof("quit due to context been canceled")
 			break LOOP
 		case <-ticker.C:
-			listL := make([]int64, NumGenerators)
-			listS := make([]int64, NumGenerators)
-			var lines, size int64
 			var speedLine, speedSize int64
-			for i := 0; i < NumGenerators; i++ {
-				g := generators[i]
-				listL[i], listS[i] = g.Stat()
-				lines += listL[i]
-				size += listS[i]
-			}
+			lines, size := g.Stat()
 			if lines != 0 {
 				speedLine = (lines - prevLines) / int64(10)
 				speedSize = (size - prevSize) / int64(10)
@@ -375,5 +349,4 @@ LOOP:
 			log.Infof("generated %+v lines, %+v Bytes, speedLine: %v lines/s, speedSize: %v B/s", lines, size, speedLine, speedSize)
 		}
 	}
-	wg.Wait()
 }
