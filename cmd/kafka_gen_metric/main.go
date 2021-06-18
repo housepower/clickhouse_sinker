@@ -121,6 +121,7 @@ func generate() {
 		log.Fatalf("sarama.NewAsyncProducer failed %+v", err)
 	}
 	defer w.Close()
+	chInput := w.Input()
 
 	for day := 0; ; day++ {
 		tsDay := rounded.Add(time.Duration(24*day) * time.Hour)
@@ -159,7 +160,7 @@ func generate() {
 							err = errors.Wrapf(err, "")
 							log.Fatalf("got error %+v", err)
 						}
-						w.Input() <- &sarama.ProducerMessage{
+						chInput <- &sarama.ProducerMessage{
 							Topic: KafkaTopic,
 							Key:   sarama.StringEncoder(metric.ItemGUID),
 							Value: sarama.ByteEncoder(b),

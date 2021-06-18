@@ -44,7 +44,7 @@ type Batch struct {
 }
 
 //BatchGroup consists of multiple batches.
-//The `before` relationship could be impossilbe if messages of a partition are distributed to multiple batches.
+//The `before` relationship could be impossible if messages of a partition are distributed to multiple batches.
 //So those batches need to be committed after ALL of them have been written to clickhouse.
 type BatchGroup struct {
 	Batchs    []*Batch

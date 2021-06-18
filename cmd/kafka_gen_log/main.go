@@ -243,6 +243,7 @@ func (g *LogGenerator) Run() {
 		log.Fatalf("sarama.NewAsyncProducer failed %+v", err)
 	}
 	defer w.Close()
+	chInput := w.Input()
 
 	var b []byte
 	for day := 0; ; day++ {
@@ -283,7 +284,7 @@ func (g *LogGenerator) Run() {
 					err = errors.Wrapf(err, "")
 					log.Fatalf("got error %+v", err)
 				}
-				w.Input() <- &sarama.ProducerMessage{
+				chInput <- &sarama.ProducerMessage{
 					Topic: KafkaTopic,
 					Key:   sarama.StringEncoder(logObj.Hostname),
 					Value: sarama.ByteEncoder(b),
