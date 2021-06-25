@@ -39,7 +39,6 @@ CREATE TABLE dist_apache_access_log ON CLUSTER abc AS apache_access_log ENGINE =
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"math/rand"
@@ -54,6 +53,7 @@ import (
 	"time"
 
 	"github.com/Shopify/sarama"
+	"github.com/bytedance/sonic"
 	"github.com/google/gops/agent"
 	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/pkg/errors"
@@ -280,7 +280,7 @@ func (g *LogGenerator) Run() {
 				Xforwardfor:     "",
 			}
 			_ = wp.Submit(func() {
-				if b, err = json.Marshal(&logObj); err != nil {
+				if b, err = sonic.Marshal(&logObj); err != nil {
 					err = errors.Wrapf(err, "")
 					log.Fatalf("got error %+v", err)
 				}

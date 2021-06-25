@@ -34,7 +34,6 @@ CREATE TABLE dist_sensor_dt_result_online ON CLUSTER abc AS sensor_dt_result_onl
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"math/rand"
@@ -46,6 +45,7 @@ import (
 	"time"
 
 	"github.com/Shopify/sarama"
+	"github.com/bytedance/sonic"
 	"github.com/google/gops/agent"
 	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/pkg/errors"
@@ -156,7 +156,7 @@ func generate() {
 
 					_ = wp.Submit(func() {
 						var b []byte
-						if b, err = json.Marshal(&metric); err != nil {
+						if b, err = sonic.Marshal(&metric); err != nil {
 							err = errors.Wrapf(err, "")
 							log.Fatalf("got error %+v", err)
 						}

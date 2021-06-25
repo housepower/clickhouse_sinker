@@ -5,6 +5,7 @@ go 1.14
 require (
 	github.com/ClickHouse/clickhouse-go v1.4.5
 	github.com/Shopify/sarama v1.29.0
+	github.com/bytedance/sonic v0.0.0-20210624083732-e9b6634cac5a
 	github.com/cespare/xxhash/v2 v2.1.1
 	github.com/fagongzi/goetty v1.7.0
 	github.com/google/gops v0.3.18
