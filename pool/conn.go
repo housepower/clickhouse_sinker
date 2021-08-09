@@ -51,6 +51,13 @@ type ShardConn struct {
 }
 
 // Close closes the current replica connection
+func (sc *ShardConn) GetDsn() string {
+	sc.lock.Lock()
+	defer sc.lock.Unlock()
+	return sc.dsn
+}
+
+// Close closes the current replica connection
 func (sc *ShardConn) Close() {
 	sc.lock.Lock()
 	defer sc.lock.Unlock()

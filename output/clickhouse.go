@@ -120,10 +120,10 @@ func (c *ClickHouse) write(batch *model.Batch, sc *pool.ShardConn, dbVer *int) (
 	return
 }
 
-func shouldReconnect(err error) bool {
+func shouldReconnect(err error, sc *pool.ShardConn) bool {
 	var exp *clickhouse.Exception
 	if errors.As(err, &exp) {
-		util.Logger.Error("this is an exception from clickhouse-server", zap.Reflect("exception", exp))
+		util.Logger.Error("this is an exception from clickhouse-server", zap.String("dsn", sc.GetDsn()), zap.Reflect("exception", exp))
 		var replicaSpecific bool
 		for _, ec := range replicaSpecificErrorCodes {
 			if ec == exp.Code {
@@ -162,7 +162,7 @@ func (c *ClickHouse) loopWrite(batch *model.Batch) {
 		util.Logger.Error("flush batch failed", zap.String("task", c.cfg.Task.Name), zap.Int("try", times), zap.Error(err))
 		statistics.FlushMsgsErrorTotal.WithLabelValues(c.cfg.Task.Name).Add(float64(batch.RealSize))
 		times++
-		reconnect = shouldReconnect(err)
+		reconnect = shouldReconnect(err, sc)
 		if reconnect && (c.cfg.Clickhouse.RetryTimes <= 0 || times < c.cfg.Clickhouse.RetryTimes) {
 			time.Sleep(10 * time.Second)
 		} else {
