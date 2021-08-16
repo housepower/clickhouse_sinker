@@ -7,7 +7,8 @@ curl "localhost:8123" -d 'CREATE TABLE test_fixed_schema
     `day` Date DEFAULT toDate(time),
     `time` DateTime,
     `name` String,
-    `value` Float64
+    `value` Float64,
+    `price` Decimal32(3)
 )
 ENGINE = MergeTree
 PARTITION BY day
@@ -25,7 +26,8 @@ echo "Got initial row counts => $counts"
 
 now=`date --rfc-3339=ns`
 for i in `seq 1 10000`;do
-    echo "{\"time\" : \"${now}\", \"name\" : \"name$i\", \"value\" : $i }"
+    price=`echo "scale = 3; $i / 1000" | bc -q`
+    echo "{\"time\" : \"${now}\", \"name\" : \"name$i\", \"value\" : $i, \"price\" : $price }"
 done > a.json
 for i in `seq 10001 30000`;do
     echo "{\"time\" : \"${now}\", \"name\" : \"name$i\", \"value\" : $i, \"newkey01\" : $i }"

@@ -27,6 +27,7 @@ Refers to [design](./design.md) for how it works.
 
 - [x] UInt8, UInt16, UInt32, UInt64, Int8, Int16, Int32, Int64
 - [x] Float32, Float64
+- [x] Decimal, Decimal32, Decimal64, Decimal128, Decimal256
 - [x] String, FixedString, LowCardinality(String)
 - [x] Date, DateTime, DateTime64. Assuming that all values of a field of kafka message has the same layout, and layouts of each field are unrelated. Automatically detect the layout from [these date layouts](https://github.com/housepower/clickhouse_sinker/blob/master/parser/parser.go) till the first successful detection and reuse that layout forever.
 - [x] Array(T), where T is one of above basic types
@@ -43,6 +44,7 @@ Note:
 |:--------------------:|:-------------:|:-----------------------------------:|:-------------------------------------:|
 | Int8, Int16, ...     | 0             | Bool, Number                        | Int8 [-128,127], ...                  |
 | Float32, Float64     | 0.0           | Number                              | Float32 [-MaxFloat32,MaxFloat32], ... |
+| Decimal, ...         | 0.0           | Number                              | [decimal-value-ranges](https://clickhouse.tech/docs/en/sql-reference/data-types/decimal/#decimal-value-ranges) |
 | String, ...          | ""            | Bool, Number, String, Object, Array | N/A                                   |
 | Date, DateTime, ...  | EPOCH         | Number, String                      | [EPOCH,MaxUint32_seconds_since_epoch) |
 | Nullable(T)          | NULL          | (The same as T)                     | (The same as T)                       |

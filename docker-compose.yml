@@ -3,11 +3,13 @@ version: '3'
 
 services:
   zookeeper:
-    image: zookeeper:3.4.12
+    image: quay.io/bitnami/zookeeper:3.7.0
     restart: always
     hostname: zookeeper
     ports:
       - "2181:2181"
+    environment:
+      ALLOW_ANONYMOUS_LOGIN: 1
     security_opt:
       - label:disable
   kafka:

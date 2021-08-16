@@ -28,7 +28,7 @@ CREATE TABLE apache_access_log ON CLUSTER abc (
 	userAgent_minor LowCardinality(String),
 	verb LowCardinality(String),
 	xforwardfor LowCardinality(String)
-) ENGINE=ReplicatedMergeTree('/clickhouse/tables/{cluster}/{shard}/default/apache_access_log', '{replica}')
+) ENGINE=ReplicatedMergeTree('/clickhouse/tables/{cluster}/{database}/{table}/{shard}', '{replica}')
 PARTITION BY toYYYYMMDD(timestamp)
 ORDER BY (timestamp, `@hostname`, `@path`, `@lineno`);
 

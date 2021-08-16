@@ -24,7 +24,7 @@ CREATE TABLE sensor_dt_result_online ON CLUSTER abc (
 	season_tag Int32,
 	spike_tag Int32,
 	is_missing Int32
-) ENGINE=ReplicatedMergeTree('/clickhouse/tables/{cluster}/{shard}/{database}/{table}', '{replica}')
+) ENGINE=ReplicatedMergeTree('/clickhouse/tables/{cluster}/{database}/{table}/{shard}', '{replica}')
 PARTITION BY toYYYYMMDD(`@time`)
 ORDER BY (`@time`, `@ItemGUID`, `@MetricName`);
 
