@@ -146,7 +146,7 @@ type TaskConfig struct {
 }
 
 const (
-	maxFlushInterval          = 10
+	maxFlushInterval          = 600
 	defaultFlushInterval      = 5
 	MaxBufferSize             = 1 << 20 //1048576
 	defaultBufferSize         = 1 << 18 //262144
