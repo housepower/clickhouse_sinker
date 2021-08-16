@@ -39,6 +39,7 @@ var _ Inputer = (*KafkaGo)(nil)
 // KafkaGo implements input.Inputer
 type KafkaGo struct {
 	cfg     *config.Config
+	taskCfg *config.TaskConfig
 	r       *kafka.Reader
 	stopped chan struct{}
 	putFn   func(msg model.InputMessage)
@@ -50,19 +51,20 @@ func NewKafkaGo() *KafkaGo {
 }
 
 // Init Initialise the kafka instance with configuration
-func (k *KafkaGo) Init(cfg *config.Config, taskName string, putFn func(msg model.InputMessage)) (err error) {
+func (k *KafkaGo) Init(cfg *config.Config, taskCfg *config.TaskConfig, putFn func(msg model.InputMessage)) (err error) {
 	k.cfg = cfg
+	k.taskCfg = taskCfg
 	kfkCfg := &cfg.Kafka
 	k.stopped = make(chan struct{})
 	k.putFn = putFn
 	offset := kafka.LastOffset
-	if k.cfg.Task.Earliest {
+	if k.taskCfg.Earliest {
 		offset = kafka.FirstOffset
 	}
 	readerCfg := &kafka.ReaderConfig{
 		Brokers:        strings.Split(kfkCfg.Brokers, ","),
-		GroupID:        k.cfg.Task.ConsumerGroup,
-		Topic:          k.cfg.Task.Topic,
+		GroupID:        k.taskCfg.ConsumerGroup,
+		Topic:          k.taskCfg.Topic,
 		StartOffset:    offset,
 		MinBytes:       1024 * 1024,                           // sarama.Consumer.Fetch.Min
 		MaxBytes:       100 * 1024 * 1024,                     // sarama.MaxResponseSize
@@ -129,15 +131,15 @@ LOOP_KAFKA_GO:
 		var msg kafka.Message
 		if msg, err = k.r.FetchMessage(ctx); err != nil {
 			if errors.Is(err, context.Canceled) {
-				util.Logger.Info("Kafka.Run quit due to context has been canceled", zap.String("task", k.cfg.Task.Name))
+				util.Logger.Info("Kafka.Run quit due to context has been canceled", zap.String("task", k.taskCfg.Name))
 				break LOOP_KAFKA_GO
 			} else if errors.Is(err, io.EOF) {
-				util.Logger.Info("Kafka.Run quit due to reader has been closed", zap.String("task", k.cfg.Task.Name))
+				util.Logger.Info("Kafka.Run quit due to reader has been closed", zap.String("task", k.taskCfg.Name))
 				break LOOP_KAFKA_GO
 			} else {
-				statistics.ConsumeMsgsErrorTotal.WithLabelValues(k.cfg.Task.Name).Inc()
+				statistics.ConsumeMsgsErrorTotal.WithLabelValues(k.taskCfg.Name).Inc()
 				err = errors.Wrap(err, "")
-				util.Logger.Error("k.r.FetchMessage failed", zap.String("task", k.cfg.Task.Name), zap.Error(err))
+				util.Logger.Error("k.r.FetchMessage failed", zap.String("task", k.taskCfg.Name), zap.Error(err))
 				continue
 			}
 		}
@@ -174,5 +176,5 @@ func (k *KafkaGo) Stop() error {
 
 // Description of this kafka consumer, which topic it reads from
 func (k *KafkaGo) Description() string {
-	return "kafka consumer of topic " + k.cfg.Task.Topic
+	return "kafka consumer of topic " + k.taskCfg.Topic
 }

@@ -39,6 +39,7 @@ var _ Inputer = (*KafkaSarama)(nil)
 // KafkaSarama implements input.Inputer
 type KafkaSarama struct {
 	cfg     *config.Config
+	taskCfg *config.TaskConfig
 	cg      sarama.ConsumerGroup
 	sess    sarama.ConsumerGroupSession
 	stopped chan struct{}
@@ -59,7 +60,7 @@ func (h MyConsumerGroupHandler) Setup(sess sarama.ConsumerGroupSession) error {
 	return nil
 }
 func (h MyConsumerGroupHandler) Cleanup(_ sarama.ConsumerGroupSession) error {
-	util.Logger.Info("consumer group cleanup", zap.String("task", h.k.cfg.Task.Name), zap.String("consumer group", h.k.cfg.Task.ConsumerGroup))
+	util.Logger.Info("consumer group cleanup", zap.String("task", h.k.taskCfg.Name), zap.String("consumer group", h.k.taskCfg.ConsumerGroup))
 	time.Sleep(5 * time.Second)
 	return nil
 }
@@ -79,10 +80,10 @@ func (h MyConsumerGroupHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, c
 }
 
 // Init Initialise the kafka instance with configuration
-func (k *KafkaSarama) Init(cfg *config.Config, taskName string, putFn func(msg model.InputMessage)) (err error) {
+func (k *KafkaSarama) Init(cfg *config.Config, taskCfg *config.TaskConfig, putFn func(msg model.InputMessage)) (err error) {
 	k.cfg = cfg
+	k.taskCfg = taskCfg
 	kfkCfg := &cfg.Kafka
-	taskCfg := &cfg.Task
 	k.stopped = make(chan struct{})
 	k.putFn = putFn
 	config := sarama.NewConfig()
@@ -138,7 +139,7 @@ func (k *KafkaSarama) Init(cfg *config.Config, taskName string, putFn func(msg m
 
 // kafka main loop
 func (k *KafkaSarama) Run(ctx context.Context) {
-	taskCfg := &k.cfg.Task
+	taskCfg := k.taskCfg
 LOOP_SARAMA:
 	for {
 		handler := MyConsumerGroupHandler{k}
@@ -147,15 +148,15 @@ LOOP_SARAMA:
 		// recreated to get the new claims
 		if err := k.cg.Consume(ctx, []string{taskCfg.Topic}, handler); err != nil {
 			if errors.Is(err, context.Canceled) {
-				util.Logger.Info("Kafka.Run quit due to context has been canceled", zap.String("task", k.cfg.Task.Name))
+				util.Logger.Info("Kafka.Run quit due to context has been canceled", zap.String("task", k.taskCfg.Name))
 				break LOOP_SARAMA
 			} else if errors.Is(err, sarama.ErrClosedConsumerGroup) {
-				util.Logger.Info("Kafka.Run quit due to consumer group has been closed", zap.String("task", k.cfg.Task.Name))
+				util.Logger.Info("Kafka.Run quit due to consumer group has been closed", zap.String("task", k.taskCfg.Name))
 				break LOOP_SARAMA
 			} else {
 				statistics.ConsumeMsgsErrorTotal.WithLabelValues(taskCfg.Name).Inc()
 				err = errors.Wrap(err, "")
-				util.Logger.Error("Kafka.Run got error %+v", zap.String("task", k.cfg.Task.Name), zap.Error(err))
+				util.Logger.Error("Kafka.Run got error %+v", zap.String("task", k.taskCfg.Name), zap.Error(err))
 				continue
 			}
 		}
@@ -175,7 +176,7 @@ func (k *KafkaSarama) Stop() error {
 
 // Description of this kafka consumer, which topic it reads from
 func (k *KafkaSarama) Description() string {
-	return "kafka consumer of topic " + k.cfg.Task.Topic
+	return "kafka consumer of topic " + k.taskCfg.Topic
 }
 
 // Predefined SCRAMClientGeneratorFunc, copied from https://github.com/Shopify/sarama/blob/master/examples/sasl_scram_client/scram_client.go

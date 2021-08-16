@@ -69,12 +69,6 @@ count=`curl "localhost:8123" -d 'SELECT count() FROM test_dynamic_schema'`
 echo "Got test_dynamic_schema count => $count"
 [ $count -eq 100000 ] || exit 1
 
-
-echo "reset kafka consumer-group offsets"
-sudo docker exec kafka kafka-consumer-groups --bootstrap-server localhost:9093 --execute --reset-offsets --group test_fixed_schema --all-topics --to-earliest
-sudo docker exec kafka kafka-consumer-groups --bootstrap-server localhost:9093 --execute --reset-offsets --group test_auto_schema --all-topics --to-earliest
-sudo docker exec kafka kafka-consumer-groups --bootstrap-server localhost:9093 --execute --reset-offsets --group test_dynamic_schema --all-topics --to-earliest
-
 echo "truncate tables"
 curl "localhost:8123" -d 'TRUNCATE TABLE test_fixed_schema'
 curl "localhost:8123" -d 'TRUNCATE TABLE test_auto_schema'
@@ -86,8 +80,13 @@ echo "publish clickhouse_sinker config"
 ./nacos_publish_config --nacos-addr 127.0.0.1:8848 --nacos-username nacos --nacos-password nacos  --nacos-dataid test_dynamic_schema --local-cfg-file docker/test_dynamic_schema.json
 
 echo "start clickhouse_sinker to consume"
+sudo docker exec kafka kafka-consumer-groups --bootstrap-server localhost:9093 --execute --reset-offsets --group test_fixed_schema --all-topics --to-earliest
 timeout 30 ./clickhouse_sinker --nacos-addr 127.0.0.1:8848 --nacos-username nacos --nacos-password nacos --nacos-dataid test_fixed_schema
+
+sudo docker exec kafka kafka-consumer-groups --bootstrap-server localhost:9093 --execute --reset-offsets --group test_auto_schema --all-topics --to-earliest
 timeout 30 ./clickhouse_sinker --nacos-addr 127.0.0.1:8848 --nacos-username nacos --nacos-password nacos --nacos-dataid test_auto_schema
+
+sudo docker exec kafka kafka-consumer-groups --bootstrap-server localhost:9093 --execute --reset-offsets --group test_dynamic_schema --all-topics --to-earliest
 timeout 30 ./clickhouse_sinker --nacos-addr 127.0.0.1:8848 --nacos-username nacos --nacos-password nacos --nacos-dataid test_dynamic_schema
 
 echo "check result 2"

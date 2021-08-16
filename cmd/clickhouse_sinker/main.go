@@ -30,9 +30,7 @@ import (
 
 	"github.com/housepower/clickhouse_sinker/config"
 	"github.com/housepower/clickhouse_sinker/health"
-	"github.com/housepower/clickhouse_sinker/input"
-	"github.com/housepower/clickhouse_sinker/output"
-	"github.com/housepower/clickhouse_sinker/parser"
+	"github.com/housepower/clickhouse_sinker/pool"
 	"github.com/housepower/clickhouse_sinker/statistics"
 	"github.com/housepower/clickhouse_sinker/task"
 	"github.com/housepower/clickhouse_sinker/util"
@@ -135,16 +133,6 @@ func init() {
 	selfIP = ip.String()
 }
 
-// GenTask generate a task via config
-func GenTask(cfg *config.Config) (taskImpl *task.Service) {
-	taskCfg := &cfg.Task
-	ck := output.NewClickHouse(cfg)
-	pp, _ := parser.NewParserPool(taskCfg.Parser, taskCfg.CsvFormat, taskCfg.Delimiter, taskCfg.TimeZone)
-	inputer := input.NewInputer(taskCfg.KafkaClient)
-	taskImpl = task.NewTaskService(inputer, ck, pp, cfg)
-	return
-}
-
 func main() {
 	util.Run("clickhouse_sinker", func() error {
 		// Initialize http server for metrics and debug
@@ -227,8 +215,9 @@ func main() {
 // Sinker object maintains number of task for each partition
 type Sinker struct {
 	curCfg *config.Config
+	numCfg int
 	pusher *statistics.Pusher
-	task   *task.Service
+	tasks  map[string]*task.Service
 	rcm    config.RemoteConfManager
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -237,7 +226,7 @@ type Sinker struct {
 // NewSinker get an instance of sinker with the task list
 func NewSinker(rcm config.RemoteConfManager) *Sinker {
 	ctx, cancel := context.WithCancel(context.Background())
-	s := &Sinker{rcm: rcm, ctx: ctx, cancel: cancel}
+	s := &Sinker{tasks: make(map[string]*task.Service), rcm: rcm, ctx: ctx, cancel: cancel}
 	return s
 }
 
@@ -264,7 +253,7 @@ func (s *Sinker) Run() {
 				return
 			}
 		} else {
-			util.Logger.Fatal("expect --local-cfg-file or --local-cfg-dir")
+			util.Logger.Fatal("expect --local-cfg-file or --nacos-dataid")
 			return
 		}
 		if err = newCfg.Normallize(); err != nil {
@@ -301,22 +290,32 @@ func (s *Sinker) Run() {
 
 // Close shutdown task
 func (s *Sinker) Close() {
-	// Stop task gracefully. Wait until all flying data be processed (write to CH and commit to Kafka).
+	// 1. Stop tasks gracefully. Wait until all flying data be processed (write to CH and commit to Kafka).
+	s.stopAllTasks()
+	// 2. Stop Sinker.Run main loop
+	s.cancel()
+	// 3. Stop pusher
+	if s.pusher != nil {
+		s.pusher.Stop()
+		s.pusher = nil
+	}
+}
+
+func (s *Sinker) stopAllTasks() {
+	for taskName, task := range s.tasks {
+		task.NotifyStop()
+		delete(s.tasks, taskName)
+	}
 	util.Logger.Info("stopping parsing pool")
 	util.GlobalParsingPool.StopWait()
 	util.Logger.Info("stopping writing pool")
 	util.GlobalWritingPool.StopWait()
 	util.Logger.Info("stopping timer wheel")
 	util.GlobalTimerWheel.Stop()
-	if s.task != nil {
-		s.task.Stop()
-		s.task = nil
+	for taskName, task := range s.tasks {
+		task.Stop()
+		delete(s.tasks, taskName)
 	}
-	if s.pusher != nil {
-		s.pusher.Stop()
-		s.pusher = nil
-	}
-	s.cancel()
 }
 
 func (s *Sinker) applyConfig(newCfg *config.Config) (err error) {
@@ -324,7 +323,7 @@ func (s *Sinker) applyConfig(newCfg *config.Config) (err error) {
 	if s.curCfg == nil {
 		// The first time invoking of applyConfig
 		err = s.applyFirstConfig(newCfg)
-	} else if !reflect.DeepEqual(newCfg.Clickhouse, s.curCfg.Clickhouse) || !reflect.DeepEqual(newCfg.Kafka, s.curCfg.Kafka) || !reflect.DeepEqual(newCfg.Task, s.curCfg.Task) {
+	} else if !reflect.DeepEqual(newCfg.Clickhouse, s.curCfg.Clickhouse) || !reflect.DeepEqual(newCfg.Kafka, s.curCfg.Kafka) || !reflect.DeepEqual(newCfg.Tasks, s.curCfg.Tasks) {
 		err = s.applyAnotherConfig(newCfg)
 	}
 	return
@@ -332,35 +331,47 @@ func (s *Sinker) applyConfig(newCfg *config.Config) (err error) {
 
 func (s *Sinker) applyFirstConfig(newCfg *config.Config) (err error) {
 	util.Logger.Info("going to apply the first config", zap.Reflect("config", newCfg))
-	// 1. Start goroutine pools.
+
+	// 1. Initialize clickhouse connections
+	chCfg := &newCfg.Clickhouse
+	if err = pool.InitClusterConn(chCfg.Hosts, chCfg.Port, chCfg.DB, chCfg.Username, chCfg.Password, chCfg.DsnParams, chCfg.Secure, chCfg.InsecureSkipVerify); err != nil {
+		return
+	}
+
+	// 2. Start goroutine pools.
 	util.InitGlobalTimerWheel()
 	util.InitGlobalParsingPool()
 	util.InitGlobalWritingPool(len(newCfg.Clickhouse.Hosts))
 
-	// 2. Generate, initialize and run task
-	s.task = GenTask(newCfg)
-	if err = s.task.Init(); err != nil {
-		return
+	// 3. Generate, initialize and run task
+	for _, taskCfg := range newCfg.Tasks {
+		task := task.NewTaskService(newCfg, taskCfg)
+		if err = task.Init(); err != nil {
+			return
+		}
+		s.tasks[taskCfg.Name] = task
+	}
+	for _, task := range s.tasks {
+		go task.Run(s.ctx)
 	}
 	s.curCfg = newCfg
-	go s.task.Run(s.ctx)
 	return
 }
 
 func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
-	util.Logger.Info("going to apply another config", zap.Reflect("config", newCfg))
+	util.Logger.Info("going to apply another config", zap.Int("number", s.numCfg), zap.Reflect("config", newCfg))
+	s.numCfg++
 
-	if !reflect.DeepEqual(newCfg.Kafka, s.curCfg.Kafka) || !reflect.DeepEqual(newCfg.Clickhouse, s.curCfg.Clickhouse) || !reflect.DeepEqual(newCfg.Task, s.curCfg.Task) {
-		// 1. Stop task gracefully. Wait until all flying data be processed (write to CH and commit to Kafka).
-		util.Logger.Info("stopping parsing pool")
-		util.GlobalParsingPool.StopWait()
-		util.Logger.Info("stopping writing pool")
-		util.GlobalWritingPool.StopWait()
-		util.Logger.Info("stopping timer wheel")
-		util.GlobalTimerWheel.Stop()
-		s.task.Stop()
+	if !reflect.DeepEqual(newCfg.Kafka, s.curCfg.Kafka) || !reflect.DeepEqual(newCfg.Clickhouse, s.curCfg.Clickhouse) {
+		// 1. Stop tasks gracefully. Wait until all flying data be processed (write to CH and commit to Kafka).
+		s.stopAllTasks()
+		// 2. Initialize clickhouse connections.
+		chCfg := &newCfg.Clickhouse
+		if err = pool.InitClusterConn(chCfg.Hosts, chCfg.Port, chCfg.DB, chCfg.Username, chCfg.Password, chCfg.DsnParams, chCfg.Secure, chCfg.InsecureSkipVerify); err != nil {
+			return
+		}
 
-		// 2. Restart goroutine pools.
+		// 3. Restart goroutine pools.
 		util.Logger.Info("restarting parsing, writing and timer pool")
 		util.InitGlobalTimerWheel()
 		util.GlobalParsingPool.Restart()
@@ -368,14 +379,65 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 		util.GlobalWritingPool.Restart()
 		util.Logger.Info("resized parsing pool", zap.Int("maxWorkers", len(newCfg.Clickhouse.Hosts)))
 
-		// 3. Generate, initialize and run task
-		s.task = GenTask(newCfg)
-		if err = s.task.Init(); err != nil {
-			return
+		// 4. Generate, initialize and run tasks.
+		for _, taskCfg := range newCfg.Tasks {
+			task := task.NewTaskService(newCfg, taskCfg)
+			if err = task.Init(); err != nil {
+				return
+			}
+			s.tasks[taskCfg.Name] = task
 		}
-		// Record the new config
-		s.curCfg = newCfg
-		go s.task.Run(s.ctx)
+		for _, task := range s.tasks {
+			go task.Run(s.ctx)
+		}
+	} else if !reflect.DeepEqual(newCfg.Tasks, s.curCfg.Tasks) {
+		//1. Find tasks need to stop.
+		var tasksToStop []string
+		curCfgTasks := make(map[string]*config.TaskConfig)
+		newCfgTasks := make(map[string]*config.TaskConfig)
+		for _, taskCfg := range s.curCfg.Tasks {
+			curCfgTasks[taskCfg.Name] = taskCfg
+		}
+		for _, taskCfg := range newCfg.Tasks {
+			newCfgTasks[taskCfg.Name] = taskCfg
+		}
+		for taskName := range s.tasks {
+			curTaskCfg := curCfgTasks[taskName]
+			newTaskCfg, ok := newCfgTasks[taskName]
+			if !ok || !reflect.DeepEqual(newTaskCfg, curTaskCfg) {
+				tasksToStop = append(tasksToStop, taskName)
+			}
+		}
+		// 2. Stop tasks in parallel found at the previous step.
+		for _, taskName := range tasksToStop {
+			task := s.tasks[taskName]
+			task.NotifyStop()
+		}
+		for _, taskName := range tasksToStop {
+			task := s.tasks[taskName]
+			task.Stop()
+			delete(s.tasks, taskName)
+		}
+		// 3. Initailize tasks which are new or their config differ.
+		var newTasks []*task.Service
+		for taskName, taskCfg := range newCfgTasks {
+			if _, ok := s.tasks[taskName]; ok {
+				continue
+			}
+			task := task.NewTaskService(newCfg, taskCfg)
+			if err = task.Init(); err != nil {
+				return
+			}
+			s.tasks[taskName] = task
+			newTasks = append(newTasks, task)
+		}
+
+		// 4. Start new tasks. We don't do it at step 3 in order to avoid goroutine leak due to errors raised by later steps.
+		for _, task := range newTasks {
+			go task.Run(s.ctx)
+		}
 	}
+	// Record the new config
+	s.curCfg = newCfg
 	return
 }

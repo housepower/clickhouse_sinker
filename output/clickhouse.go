@@ -49,34 +49,29 @@ var (
 
 // ClickHouse is an output service consumers from kafka messages
 type ClickHouse struct {
-	Dims []*model.ColumnWithType
-	Dms  []string
-	// Table Configs
-	cfg *config.Config
-
+	Dims       []*model.ColumnWithType
+	Dms        []string
+	cfg        *config.Config
+	taskCfg    *config.TaskConfig
 	prepareSQL string
 }
 
 // NewClickHouse new a clickhouse instance
-func NewClickHouse(cfg *config.Config) *ClickHouse {
-	return &ClickHouse{cfg: cfg}
+func NewClickHouse(cfg *config.Config, taskCfg *config.TaskConfig) *ClickHouse {
+	return &ClickHouse{cfg: cfg, taskCfg: taskCfg}
 }
 
 // Init the clickhouse intance
 func (c *ClickHouse) Init() (err error) {
-	chCfg := &c.cfg.Clickhouse
-	if err = pool.InitClusterConn(chCfg.Hosts, chCfg.Port, chCfg.DB, chCfg.Username, chCfg.Password, chCfg.DsnParams, chCfg.Secure, chCfg.InsecureSkipVerify); err != nil {
-		return
-	}
 	return c.initSchema()
 }
 
 // Send a batch to clickhouse
 func (c *ClickHouse) Send(batch *model.Batch) {
-	statistics.WritingPoolBacklog.WithLabelValues(c.cfg.Task.Name).Inc()
+	statistics.WritingPoolBacklog.WithLabelValues(c.taskCfg.Name).Inc()
 	_ = util.GlobalWritingPool.Submit(func() {
 		c.loopWrite(batch)
-		statistics.WritingPoolBacklog.WithLabelValues(c.cfg.Task.Name).Dec()
+		statistics.WritingPoolBacklog.WithLabelValues(c.taskCfg.Name).Dec()
 	})
 }
 
@@ -116,7 +111,7 @@ func (c *ClickHouse) write(batch *model.Batch, sc *pool.ShardConn, dbVer *int) (
 		err = errors.Wrapf(err, "tx.Commit")
 		return
 	}
-	statistics.FlushMsgsTotal.WithLabelValues(c.cfg.Task.Name).Add(float64(batch.RealSize))
+	statistics.FlushMsgsTotal.WithLabelValues(c.taskCfg.Name).Add(float64(batch.RealSize))
 	return
 }
 
@@ -150,42 +145,36 @@ func (c *ClickHouse) loopWrite(batch *model.Batch) {
 			}
 			// Note: kafka_go and sarama commit give different error when context is cancceled.
 			if errors.Is(err, context.Canceled) || errors.Is(err, io.ErrClosedPipe) {
-				util.Logger.Info("ClickHouse.loopWrite quit due to the context has been cancelled", zap.String("task", c.cfg.Task.Name))
+				util.Logger.Info("ClickHouse.loopWrite quit due to the context has been cancelled", zap.String("task", c.taskCfg.Name))
 				return
 			}
-			util.Logger.Fatal("committing offset failed with permanent error %+v", zap.String("task", c.cfg.Task.Name), zap.Error(err))
+			util.Logger.Fatal("committing offset failed with permanent error %+v", zap.String("task", c.taskCfg.Name), zap.Error(err))
 		}
 		if errors.Is(err, context.Canceled) {
-			util.Logger.Info("ClickHouse.loopWrite quit due to the context has been cancelled", zap.String("task", c.cfg.Task.Name))
+			util.Logger.Info("ClickHouse.loopWrite quit due to the context has been cancelled", zap.String("task", c.taskCfg.Name))
 			return
 		}
-		util.Logger.Error("flush batch failed", zap.String("task", c.cfg.Task.Name), zap.Int("try", times), zap.Error(err))
-		statistics.FlushMsgsErrorTotal.WithLabelValues(c.cfg.Task.Name).Add(float64(batch.RealSize))
+		util.Logger.Error("flush batch failed", zap.String("task", c.taskCfg.Name), zap.Int("try", times), zap.Error(err))
+		statistics.FlushMsgsErrorTotal.WithLabelValues(c.taskCfg.Name).Add(float64(batch.RealSize))
 		times++
 		reconnect = shouldReconnect(err, sc)
 		if reconnect && (c.cfg.Clickhouse.RetryTimes <= 0 || times < c.cfg.Clickhouse.RetryTimes) {
 			time.Sleep(10 * time.Second)
 		} else {
-			util.Logger.Fatal("ClickHouse.loopWrite failed", zap.String("task", c.cfg.Task.Name))
+			util.Logger.Fatal("ClickHouse.loopWrite failed", zap.String("task", c.taskCfg.Name))
 		}
 	}
 }
 
-// Stop free clickhouse connections
-func (c *ClickHouse) Stop() error {
-	pool.FreeClusterConn()
-	return nil
-}
-
 func (c *ClickHouse) initSchema() (err error) {
-	if c.cfg.Task.AutoSchema {
+	if c.taskCfg.AutoSchema {
 		sc := pool.GetShardConn(0)
 		var conn *sql.DB
 		if conn, _, err = sc.NextGoodReplica(0); err != nil {
 			return
 		}
 		var rs *sql.Rows
-		if rs, err = conn.Query(fmt.Sprintf(selectSQLTemplate, c.cfg.Clickhouse.DB, c.cfg.Task.TableName)); err != nil {
+		if rs, err = conn.Query(fmt.Sprintf(selectSQLTemplate, c.cfg.Clickhouse.DB, c.taskCfg.TableName)); err != nil {
 			err = errors.Wrapf(err, "")
 			return err
 		}
@@ -199,18 +188,18 @@ func (c *ClickHouse) initSchema() (err error) {
 				return err
 			}
 			typ = lowCardinalityRegexp.ReplaceAllString(typ, "$1")
-			if !util.StringContains(c.cfg.Task.ExcludeColumns, name) && defaultKind != "MATERIALIZED" {
+			if !util.StringContains(c.taskCfg.ExcludeColumns, name) && defaultKind != "MATERIALIZED" {
 				tp, nullable := model.WhichType(typ)
 				c.Dims = append(c.Dims, &model.ColumnWithType{Name: name, Type: tp, Nullable: nullable, SourceName: util.GetSourceName(name)})
 			}
 		}
 		if len(c.Dims) == 0 {
-			err = errors.Errorf("Table %s.%s doesn't exist", c.cfg.Clickhouse.DB, c.cfg.Task.TableName)
+			err = errors.Errorf("Table %s.%s doesn't exist", c.cfg.Clickhouse.DB, c.taskCfg.TableName)
 			return
 		}
 	} else {
 		c.Dims = make([]*model.ColumnWithType, 0)
-		for _, dim := range c.cfg.Task.Dims {
+		for _, dim := range c.taskCfg.Dims {
 			tp, nullable := model.WhichType(dim.Type)
 			c.Dims = append(c.Dims, &model.ColumnWithType{
 				Name:       dim.Name,
@@ -231,17 +220,17 @@ func (c *ClickHouse) initSchema() (err error) {
 	for i := range params {
 		params[i] = "?"
 	}
-	c.prepareSQL = "INSERT INTO " + c.cfg.Clickhouse.DB + "." + c.cfg.Task.TableName + " (" + strings.Join(quotedDms, ",") + ") " +
+	c.prepareSQL = "INSERT INTO " + c.cfg.Clickhouse.DB + "." + c.taskCfg.TableName + " (" + strings.Join(quotedDms, ",") + ") " +
 		"VALUES (" + strings.Join(params, ",") + ")"
 
-	util.Logger.Info(fmt.Sprintf("Prepare sql=> %s", c.prepareSQL), zap.String("task", c.cfg.Task.Name))
+	util.Logger.Info(fmt.Sprintf("Prepare sql=> %s", c.prepareSQL), zap.String("task", c.taskCfg.Name))
 	return nil
 }
 
 func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 	var queries []string
 	var onCluster string
-	taskCfg := &c.cfg.Task
+	taskCfg := c.taskCfg
 	chCfg := &c.cfg.Clickhouse
 	if chCfg.Cluster != "" {
 		onCluster = fmt.Sprintf("ON CLUSTER %s", chCfg.Cluster)
@@ -321,7 +310,7 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 }
 
 func (c *ClickHouse) getDistTbls() (distTbls []string, err error) {
-	taskCfg := &c.cfg.Task
+	taskCfg := c.taskCfg
 	chCfg := &c.cfg.Clickhouse
 	sc := pool.GetShardConn(0)
 	var conn *sql.DB

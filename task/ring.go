@@ -33,7 +33,7 @@ type Ring struct {
 
 func (ring *Ring) PutElem(msgRow model.MsgRow) {
 	var err error
-	taskCfg := &ring.service.cfg.Task
+	taskCfg := ring.service.taskCfg
 	msgOffset := msgRow.Msg.Offset
 	ring.mux.Lock()
 	defer ring.mux.Unlock()
@@ -82,7 +82,7 @@ type OffsetRange struct {
 
 func (ring *Ring) ForceBatchOrShard(arg interface{}) {
 	var newMsg *model.InputMessage
-	taskCfg := &ring.service.cfg.Task
+	taskCfg := ring.service.taskCfg
 	select {
 	case <-ring.service.ctx.Done():
 		util.Logger.Error("Ring.ForceBatchOrShard quit due to the context has been canceled", zap.String("task", taskCfg.Name))
@@ -144,7 +144,7 @@ func (ring *Ring) genBatchOrShard(expNewGroundOff int64) {
 	if expNewGroundOff <= ring.ringGroundOff {
 		return
 	}
-	taskCfg := &ring.service.cfg.Task
+	taskCfg := ring.service.taskCfg
 	var gaps []OffsetRange
 	var msgCnt, parseErrs int
 	endOff := (ring.ringGroundOff | int64(1<<ring.batchSizeShift-1)) + 1

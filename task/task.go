@@ -49,6 +49,7 @@ type Service struct {
 	clickhouse *output.ClickHouse
 	pp         *parser.Pool
 	cfg        *config.Config
+	taskCfg    *config.TaskConfig
 	dims       []*model.ColumnWithType
 
 	knownKeys  sync.Map
@@ -65,20 +66,25 @@ type Service struct {
 }
 
 // NewTaskService creates an instance of new tasks with kafka, clickhouse and paser instances
-func NewTaskService(inputer input.Inputer, clickhouse *output.ClickHouse, pp *parser.Pool, cfg *config.Config) *Service {
+func NewTaskService(cfg *config.Config, taskCfg *config.TaskConfig) *Service {
+	ck := output.NewClickHouse(cfg, taskCfg)
+	pp, _ := parser.NewParserPool(taskCfg.Parser, taskCfg.CsvFormat, taskCfg.Delimiter, taskCfg.TimeZone)
+	inputer := input.NewInputer(taskCfg.KafkaClient)
 	return &Service{
 		stopped:    make(chan struct{}),
 		inputer:    inputer,
-		clickhouse: clickhouse,
+		clickhouse: ck,
 		started:    false,
 		pp:         pp,
 		cfg:        cfg,
+		taskCfg:    taskCfg,
 	}
 }
 
 // Init initializes the kafak and clickhouse task associated with this service
 func (service *Service) Init() (err error) {
-	util.Logger.Info("task initializing", zap.String("task", service.cfg.Task.Name))
+	taskCfg := service.taskCfg
+	util.Logger.Info("task initializing", zap.String("task", taskCfg.Name))
 	if err = service.clickhouse.Init(); err != nil {
 		return
 	}
@@ -90,24 +96,23 @@ func (service *Service) Init() (err error) {
 	service.limiter3 = rate.NewLimiter(rate.Every(10*time.Second), 1)
 
 	service.rings = make([]*Ring, 0)
-	if service.cfg.Task.ShardingKey != "" {
+	if taskCfg.ShardingKey != "" {
 		if service.sharder, err = NewSharder(service); err != nil {
 			return
 		}
 	}
 
-	if err = service.inputer.Init(service.cfg, service.cfg.Task.Name, service.put); err != nil {
+	if err = service.inputer.Init(service.cfg, taskCfg, service.put); err != nil {
 		return
 	}
 
-	taskCfg := &service.cfg.Task
 	if taskCfg.DynamicSchema.Enable {
 		maxDims := math.MaxInt16
-		if service.cfg.Task.DynamicSchema.MaxDims > 0 {
+		if taskCfg.DynamicSchema.MaxDims > 0 {
 			maxDims = taskCfg.DynamicSchema.MaxDims
 		}
 		if maxDims <= len(service.dims) {
-			service.cfg.Task.DynamicSchema.Enable = false
+			taskCfg.DynamicSchema.Enable = false
 			util.Logger.Warn(fmt.Sprintf("disabled DynamicSchema since the number of columns reaches upper limit %d", maxDims), zap.String("task", taskCfg.Name))
 		} else {
 			for _, dim := range service.dims {
@@ -126,19 +131,20 @@ func (service *Service) Init() (err error) {
 // Run starts the task
 func (service *Service) Run(ctx context.Context) {
 	var err error
+	taskCfg := service.taskCfg
 	service.started = true
 	service.parentCtx = ctx
 	service.ctx, service.cancel = context.WithCancel(ctx)
-	util.Logger.Info("task started", zap.String("task", service.cfg.Task.Name))
+	util.Logger.Info("task started", zap.String("task", taskCfg.Name))
 	go service.inputer.Run(service.ctx)
 	if service.sharder != nil {
 		// schedule a delayed ForceFlush
-		if service.sharder.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(service.cfg.Task.FlushInterval)*time.Second, service.sharder.ForceFlush, nil); err != nil {
+		if service.sharder.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(taskCfg.FlushInterval)*time.Second, service.sharder.ForceFlush, nil); err != nil {
 			if errors.Is(err, goetty.ErrSystemStopped) {
 				util.Logger.Info("Service.Run scheduling timer to a stopped timer wheel")
 			} else {
 				err = errors.Wrap(err, "")
-				util.Logger.Fatal("scheduling timer filed", zap.String("task", service.cfg.Task.Name), zap.Error(err))
+				util.Logger.Fatal("scheduling timer filed", zap.String("task", taskCfg.Name), zap.Error(err))
 			}
 		}
 	}
@@ -150,7 +156,7 @@ LOOP:
 			break LOOP
 		case batch := <-service.batchChan:
 			if err := service.flush(batch); err != nil {
-				util.Logger.Fatal("service.flush failed", zap.String("task", service.cfg.Task.Name), zap.Error(err))
+				util.Logger.Fatal("service.flush failed", zap.String("task", taskCfg.Name), zap.Error(err))
 			}
 		}
 	}
@@ -158,12 +164,12 @@ LOOP:
 }
 
 func (service *Service) fnCommit(partition int, offset int64) error {
-	msg := model.InputMessage{Topic: service.cfg.Task.Topic, Partition: partition, Offset: offset}
+	msg := model.InputMessage{Topic: service.taskCfg.Topic, Partition: partition, Offset: offset}
 	return service.inputer.CommitMessages(service.ctx, &msg)
 }
 
 func (service *Service) put(msg model.InputMessage) {
-	taskCfg := &service.cfg.Task
+	taskCfg := service.taskCfg
 	statistics.ConsumeMsgsTotal.WithLabelValues(taskCfg.Name).Inc()
 	// ensure ring for this message exist
 	service.Lock()
@@ -219,7 +225,7 @@ func (service *Service) put(msg model.InputMessage) {
 			return
 		}
 		if msg.Offset >= ringGroundOff+ring.ringCap && atomic.LoadInt32(&service.cntNewKeys) == 0 {
-			statistics.RingMsgsOffTooLargeErrorTotal.WithLabelValues(service.cfg.Task.Name).Inc()
+			statistics.RingMsgsOffTooLargeErrorTotal.WithLabelValues(taskCfg.Name).Inc()
 			if service.limiter3.Allow() {
 				util.Logger.Warn(fmt.Sprintf("got a message(topic %v, partition %d, offset %v) right to the range [%v, %v)",
 					msg.Topic, msg.Partition, msg.Offset, ring.ringGroundOff, ring.ringGroundOff+ring.ringCap), zap.String("task", taskCfg.Name))
@@ -243,7 +249,7 @@ func (service *Service) put(msg model.InputMessage) {
 			statistics.ParseMsgsErrorTotal.WithLabelValues(taskCfg.Name).Inc()
 			if service.limiter1.Allow() {
 				util.Logger.Error(fmt.Sprintf("failed to parse message(topic %v, partition %d, offset %v)",
-					msg.Topic, msg.Partition, msg.Offset), zap.String("message value", string(msg.Value)), zap.String("task", service.cfg.Task.Name), zap.Error(err))
+					msg.Topic, msg.Partition, msg.Offset), zap.String("message value", string(msg.Value)), zap.String("task", taskCfg.Name), zap.Error(err))
 			}
 		} else {
 			row = model.MetricToRow(metric, msg, service.dims)
@@ -300,7 +306,7 @@ func (service *Service) flush(batch *model.Batch) (err error) {
 
 func (service *Service) changeSchema(arg interface{}) {
 	var err error
-	taskCfg := &service.cfg.Task
+	taskCfg := service.taskCfg
 	// change schema
 	if err = service.clickhouse.ChangeSchema(&service.newKeys); err != nil {
 		util.Logger.Fatal("clickhouse.ChangeSchema failed", zap.String("task", taskCfg.Name), zap.Error(err))
@@ -313,9 +319,16 @@ func (service *Service) changeSchema(arg interface{}) {
 	go service.Run(service.parentCtx)
 }
 
+// NotifyStop notify task to stop, This is non-blocking.
+func (service *Service) NotifyStop() {
+	taskCfg := service.taskCfg
+	util.Logger.Info("notified stopping task service...", zap.String("task", taskCfg.Name))
+	service.cancel()
+}
+
 // Stop stop kafka and clickhouse client. This is blocking.
 func (service *Service) Stop() {
-	taskCfg := &service.cfg.Task
+	taskCfg := service.taskCfg
 	if !service.started {
 		util.Logger.Info("stopped a already stopped task service", zap.String("task", taskCfg.Name))
 		return
@@ -326,9 +339,6 @@ func (service *Service) Stop() {
 		util.Logger.Fatal("service.inputer.Stop failed", zap.Error(err))
 	}
 	util.Logger.Info("stopped input", zap.String("task", taskCfg.Name))
-
-	_ = service.clickhouse.Stop()
-	util.Logger.Info("stopped output", zap.String("task", taskCfg.Name))
 
 	if service.sharder != nil {
 		service.sharder.tid.Stop()

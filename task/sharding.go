@@ -114,7 +114,7 @@ type Sharder struct {
 func NewSharder(service *Service) (sh *Sharder, err error) {
 	var policy *ShardingPolicy
 	ckNum := pool.NumShard()
-	taskCfg := &service.cfg.Task
+	taskCfg := service.taskCfg
 	if policy, err = NewShardingPolicy(taskCfg.ShardingKey, taskCfg.ShardingPolicy, service.clickhouse.Dms, ckNum); err != nil {
 		return
 	}
@@ -141,7 +141,7 @@ func (sh *Sharder) PutElems(partition int, ringBuf []model.MsgRow, begOff, endOf
 	defer sh.mux.Unlock()
 	var gaps []OffsetRange
 	var parseErrs int
-	taskCfg := &sh.service.cfg.Task
+	taskCfg := sh.service.taskCfg
 	gapBegOff := int64(-1)
 	for i := begOff; i < endOff; i++ {
 		msgRow := &ringBuf[i&(ringCap-1)]
@@ -204,7 +204,7 @@ func (sh *Sharder) doFlush(_ interface{}) {
 	var err error
 	var msgCnt int
 	var batches []*model.Batch
-	taskCfg := &sh.service.cfg.Task
+	taskCfg := sh.service.taskCfg
 	for i, rows := range sh.msgBuf {
 		realSize := len(*rows)
 		if realSize > 0 {

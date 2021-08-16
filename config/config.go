@@ -38,7 +38,8 @@ type RemoteConfManager interface {
 type Config struct {
 	Kafka      KafkaConfig
 	Clickhouse ClickHouseConfig
-	Task       TaskConfig
+	Task       *TaskConfig
+	Tasks      []*TaskConfig
 	LogLevel   string
 	LogPaths   []string
 }
@@ -172,7 +173,7 @@ func ParseLocalCfgFile(cfgPath string) (cfg *Config, err error) {
 
 // normallize and validate configuration
 func (cfg *Config) Normallize() (err error) {
-	if len(cfg.Clickhouse.Hosts) == 0 || cfg.Kafka.Brokers == "" || cfg.Task.Name == "" {
+	if len(cfg.Clickhouse.Hosts) == 0 || cfg.Kafka.Brokers == "" {
 		err = errors.Errorf("invalid configuration")
 		return
 	}
@@ -194,41 +195,47 @@ func (cfg *Config) Normallize() (err error) {
 		cfg.Clickhouse.RetryTimes = 0
 	}
 
-	if cfg.Kafka.Sasl.Enable && cfg.Kafka.Sasl.Username == "" {
-		//kafka-go doesn't support SASL/GSSAPI(Kerberos). https://github.com/segmentio/kafka-go/issues/539
-		cfg.Task.KafkaClient = "sarama"
-	} else if cfg.Task.KafkaClient == "" {
-		cfg.Task.KafkaClient = "kafka-go"
+	if cfg.Task != nil {
+		cfg.Tasks = append(cfg.Tasks, cfg.Task)
+		cfg.Task = nil
 	}
-	if cfg.Task.Parser == "" || cfg.Task.Parser == "json" {
-		cfg.Task.Parser = "fastjson"
-	}
-
-	for i := range cfg.Task.Dims {
-		if cfg.Task.Dims[i].SourceName == "" {
-			cfg.Task.Dims[i].SourceName = util.GetSourceName(cfg.Task.Dims[i].Name)
+	for _, taskCfg := range cfg.Tasks {
+		if cfg.Kafka.Sasl.Enable && cfg.Kafka.Sasl.Username == "" {
+			//kafka-go doesn't support SASL/GSSAPI(Kerberos). https://github.com/segmentio/kafka-go/issues/539
+			taskCfg.KafkaClient = "sarama"
+		} else if taskCfg.KafkaClient == "" {
+			taskCfg.KafkaClient = "kafka-go"
 		}
-	}
+		if taskCfg.Parser == "" || taskCfg.Parser == "json" {
+			taskCfg.Parser = "fastjson"
+		}
 
-	if cfg.Task.FlushInterval <= 0 {
-		cfg.Task.FlushInterval = defaultFlushInterval
-	} else if cfg.Task.FlushInterval > maxFlushInterval {
-		cfg.Task.FlushInterval = maxFlushInterval
-	}
-	if cfg.Task.BufferSize <= 0 {
-		cfg.Task.BufferSize = defaultBufferSize
-	} else if cfg.Task.BufferSize > MaxBufferSize {
-		cfg.Task.BufferSize = MaxBufferSize
-	} else {
-		cfg.Task.BufferSize = 1 << util.GetShift(cfg.Task.BufferSize)
-	}
-	if cfg.Task.TimeZone == "" {
-		cfg.Task.TimeZone = defaultTimeZone
-	}
-	if cfg.Task.DynamicSchema.Enable {
-		if cfg.Task.Parser != "fastjson" {
-			err = errors.Errorf("Parser %s doesn't support DynamicSchema", cfg.Task.Parser)
-			return
+		for i := range taskCfg.Dims {
+			if taskCfg.Dims[i].SourceName == "" {
+				taskCfg.Dims[i].SourceName = util.GetSourceName(taskCfg.Dims[i].Name)
+			}
+		}
+
+		if taskCfg.FlushInterval <= 0 {
+			taskCfg.FlushInterval = defaultFlushInterval
+		} else if taskCfg.FlushInterval > maxFlushInterval {
+			taskCfg.FlushInterval = maxFlushInterval
+		}
+		if taskCfg.BufferSize <= 0 {
+			taskCfg.BufferSize = defaultBufferSize
+		} else if taskCfg.BufferSize > MaxBufferSize {
+			taskCfg.BufferSize = MaxBufferSize
+		} else {
+			taskCfg.BufferSize = 1 << util.GetShift(taskCfg.BufferSize)
+		}
+		if taskCfg.TimeZone == "" {
+			taskCfg.TimeZone = defaultTimeZone
+		}
+		if taskCfg.DynamicSchema.Enable {
+			if taskCfg.Parser != "fastjson" {
+				err = errors.Errorf("Parser %s doesn't support DynamicSchema", taskCfg.Parser)
+				return
+			}
 		}
 	}
 	switch strings.ToLower(cfg.LogLevel) {

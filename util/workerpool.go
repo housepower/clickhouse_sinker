@@ -46,8 +46,8 @@ func NewWorkerPool(maxWorkers int, queueSize int) *WorkerPool {
 }
 
 var (
-	// ErrorStopped when stopped
-	ErrorStopped = errors.New("WorkerPool already stopped")
+	// ErrStopped when stopped
+	ErrStopped = errors.New("WorkerPool already stopped")
 )
 
 func (w *WorkerPool) wokerFunc() {
@@ -95,7 +95,7 @@ func (w *WorkerPool) Resize(maxWorkers int) {
 // Submit will block regardless if there is no free workers.
 func (w *WorkerPool) Submit(fn func()) (err error) {
 	if atomic.LoadUint32(&w.state) == StateStopped {
-		return ErrorStopped
+		return ErrStopped
 	}
 
 	w.Lock()

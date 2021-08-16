@@ -148,7 +148,7 @@ var (
 )
 
 var initialize sync.Once
-var initErr error
+var errInit error
 var names = []string{"fastjson", "gjson", "csv"}
 var metrics map[string]model.Metric
 
@@ -188,8 +188,8 @@ func initMetrics() {
 			sample = jsonSample
 		}
 		parser = pp.Get()
-		if metric, initErr = parser.Parse(sample); initErr != nil {
-			msg := fmt.Sprintf("parser.Parse failed: %+v\n", initErr)
+		if metric, errInit = parser.Parse(sample); errInit != nil {
+			msg := fmt.Sprintf("parser.Parse failed: %+v\n", errInit)
 			panic(msg)
 		}
 		metrics[name] = metric
@@ -209,7 +209,7 @@ func sliceContains(list []string, target string) bool {
 func doTestSimple(t *testing.T, method string, testCases []SimpleCase) {
 	t.Helper()
 	initialize.Do(initMetrics)
-	require.Nil(t, initErr)
+	require.Nil(t, errInit)
 	for i := range names {
 		name := names[i]
 		metric := metrics[name]
@@ -423,7 +423,7 @@ func TestParserElasticDateTime(t *testing.T) {
 
 func TestParserArray(t *testing.T) {
 	initialize.Do(initMetrics)
-	require.Nil(t, initErr)
+	require.Nil(t, errInit)
 
 	testCases := []ArrayCase{
 		{"not_exist", model.Float, []float64{}},
