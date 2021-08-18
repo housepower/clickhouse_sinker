@@ -42,12 +42,13 @@ var (
 
 // ShardConn a datastructure for storing the clickhouse connection
 type ShardConn struct {
-	lock     sync.Mutex
-	db       *sql.DB
-	dbVer    int
-	dsn      string
-	replicas []string //ip:port list of replicas
-	nextRep  int      //index of next replica
+	lock         sync.Mutex
+	db           *sql.DB
+	dbVer        int
+	dsn          string
+	replicas     []string //ip:port list of replicas
+	maxOpenConns int
+	nextRep      int //index of next replica
 }
 
 // Close closes the current replica connection
@@ -106,7 +107,12 @@ func (sc *ShardConn) NextGoodReplica(failedVer int) (db *sql.DB, dbVer int, err 
 			util.Logger.Warn("sqlDB.Ping failed", zap.String("dsn", sc.dsn), zap.Error(err))
 			continue
 		}
-		setDBParams(sqlDB)
+
+		// WARN: clickHouse-server creates a thread for each TCP/HTTP connection.
+		// If the number of sinkers is close to clickhouse max_concurrent_queries(default 100), user queries could be blocked or refused.
+		sqlDB.SetMaxOpenConns(sc.maxOpenConns)
+		sqlDB.SetMaxIdleConns(0)
+		sqlDB.SetConnMaxIdleTime(10 * time.Second)
 		sc.db = sqlDB
 		sc.dbVer++
 		util.Logger.Info("sql.Open and sqlDB.Ping succeeded", zap.Int("dbVer", sc.dbVer), zap.String("dsn", sc.dsn))
@@ -119,7 +125,7 @@ func (sc *ShardConn) NextGoodReplica(failedVer int) (db *sql.DB, dbVer int, err 
 	return nil, sc.dbVer, err
 }
 
-func InitClusterConn(hosts [][]string, port int, db, username, password, dsnParams string, secure, skipVerify bool) (err error) {
+func InitClusterConn(hosts [][]string, port int, db, username, password, dsnParams string, secure, skipVerify bool, maxOpenConns int) (err error) {
 	lock.Lock()
 	defer lock.Unlock()
 	freeClusterConn()
@@ -144,7 +150,8 @@ func InitClusterConn(hosts [][]string, port int, db, username, password, dsnPara
 			replicaAddrs[i] = fmt.Sprintf("%s:%d", ip, port)
 		}
 		sc := &ShardConn{
-			replicas: replicaAddrs,
+			replicas:     replicaAddrs,
+			maxOpenConns: maxOpenConns,
 		}
 		if _, _, err = sc.NextGoodReplica(0); err != nil {
 			return
@@ -152,14 +159,6 @@ func InitClusterConn(hosts [][]string, port int, db, username, password, dsnPara
 		clusterConn = append(clusterConn, sc)
 	}
 	return
-}
-
-// TODO: ClickHouse creates a thread for each TCP/HTTP connection.
-// If the number of sinkers is close to clickhouse max_concurrent_queries(default 100), user queries could be blocked or refused.
-func setDBParams(sqlDB *sql.DB) {
-	sqlDB.SetMaxOpenConns(1)
-	sqlDB.SetMaxIdleConns(0)
-	sqlDB.SetConnMaxIdleTime(10 * time.Second)
 }
 
 func freeClusterConn() {

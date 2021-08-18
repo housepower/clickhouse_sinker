@@ -334,14 +334,14 @@ func (s *Sinker) applyFirstConfig(newCfg *config.Config) (err error) {
 
 	// 1. Initialize clickhouse connections
 	chCfg := &newCfg.Clickhouse
-	if err = pool.InitClusterConn(chCfg.Hosts, chCfg.Port, chCfg.DB, chCfg.Username, chCfg.Password, chCfg.DsnParams, chCfg.Secure, chCfg.InsecureSkipVerify); err != nil {
+	if err = pool.InitClusterConn(chCfg.Hosts, chCfg.Port, chCfg.DB, chCfg.Username, chCfg.Password, chCfg.DsnParams, chCfg.Secure, chCfg.InsecureSkipVerify, chCfg.MaxOpenConns); err != nil {
 		return
 	}
 
 	// 2. Start goroutine pools.
 	util.InitGlobalTimerWheel()
 	util.InitGlobalParsingPool()
-	util.InitGlobalWritingPool(len(newCfg.Clickhouse.Hosts))
+	util.InitGlobalWritingPool(len(chCfg.Hosts) * chCfg.MaxOpenConns)
 
 	// 3. Generate, initialize and run task
 	for _, taskCfg := range newCfg.Tasks {
@@ -367,7 +367,7 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 		s.stopAllTasks()
 		// 2. Initialize clickhouse connections.
 		chCfg := &newCfg.Clickhouse
-		if err = pool.InitClusterConn(chCfg.Hosts, chCfg.Port, chCfg.DB, chCfg.Username, chCfg.Password, chCfg.DsnParams, chCfg.Secure, chCfg.InsecureSkipVerify); err != nil {
+		if err = pool.InitClusterConn(chCfg.Hosts, chCfg.Port, chCfg.DB, chCfg.Username, chCfg.Password, chCfg.DsnParams, chCfg.Secure, chCfg.InsecureSkipVerify, chCfg.MaxOpenConns); err != nil {
 			return
 		}
 
@@ -375,7 +375,7 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 		util.Logger.Info("restarting parsing, writing and timer pool")
 		util.InitGlobalTimerWheel()
 		util.GlobalParsingPool.Restart()
-		util.GlobalWritingPool.Resize(len(newCfg.Clickhouse.Hosts))
+		util.GlobalWritingPool.Resize(len(newCfg.Clickhouse.Hosts) * newCfg.Clickhouse.MaxOpenConns)
 		util.GlobalWritingPool.Restart()
 		util.Logger.Info("resized parsing pool", zap.Int("maxWorkers", len(newCfg.Clickhouse.Hosts)))
 

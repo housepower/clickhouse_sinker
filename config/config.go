@@ -102,7 +102,8 @@ type ClickHouseConfig struct {
 	// Whether skip verify clickhouse-server cert
 	InsecureSkipVerify bool
 
-	RetryTimes int //<=0 means retry infinitely
+	RetryTimes   int //<=0 means retry infinitely
+	MaxOpenConns int
 }
 
 // Task configuration parameters
@@ -147,13 +148,14 @@ type TaskConfig struct {
 }
 
 const (
-	maxFlushInterval          = 600
-	defaultFlushInterval      = 5
 	MaxBufferSize             = 1 << 20 //1048576
 	defaultBufferSize         = 1 << 18 //262144
+	maxFlushInterval          = 600
+	defaultFlushInterval      = 5
 	defaultTimeZone           = "Local"
 	defaultLogLevel           = "info"
 	defaultKerberosConfigPath = "/etc/krb5.conf"
+	defaultMaxOpenConns       = 1
 )
 
 func ParseLocalCfgFile(cfgPath string) (cfg *Config, err error) {
@@ -193,6 +195,9 @@ func (cfg *Config) Normallize() (err error) {
 	}
 	if cfg.Clickhouse.RetryTimes < 0 {
 		cfg.Clickhouse.RetryTimes = 0
+	}
+	if cfg.Clickhouse.MaxOpenConns < 0 {
+		cfg.Clickhouse.MaxOpenConns = defaultMaxOpenConns
 	}
 
 	if cfg.Task != nil {
