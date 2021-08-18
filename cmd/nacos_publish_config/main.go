@@ -17,6 +17,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"os"
 	"reflect"
 	"time"
@@ -24,6 +25,7 @@ import (
 	_ "github.com/ClickHouse/clickhouse-go"
 	"github.com/housepower/clickhouse_sinker/config"
 	"github.com/housepower/clickhouse_sinker/util"
+	"github.com/jinzhu/copier"
 	"go.uber.org/zap"
 )
 
@@ -42,6 +44,7 @@ var (
 		`nacos data id`)
 
 	localCfgFile = flag.String("local-cfg-file", "/etc/clickhouse_sinker.json", "local config file")
+	replicas     = flag.Int("replicas", 1, "replicate each task to multiple ones with the same config except task name, consumer group and table name")
 )
 
 // Empty is not valid namespaceID
@@ -72,6 +75,17 @@ func PublishSinkerConfig() {
 	if err = cfg.Normallize(); err != nil {
 		util.Logger.Fatal("cfg.Normallize failed", zap.Error(err))
 		return
+	}
+	tasks := cfg.Tasks
+	for i := 1; i < *replicas; i++ {
+		for j := 0; j < len(tasks); j++ {
+			taskCfg := &config.TaskConfig{}
+			copier.Copy(taskCfg, tasks[j])
+			taskCfg.Name = fmt.Sprintf("%s_r%d", taskCfg.Name, i)
+			taskCfg.ConsumerGroup = fmt.Sprintf("%s_r%d", taskCfg.ConsumerGroup, i)
+			taskCfg.TableName = fmt.Sprintf("%s_r%d", taskCfg.TableName, i)
+			cfg.Tasks = append(cfg.Tasks, taskCfg)
+		}
 	}
 
 	ncm := config.NacosConfManager{}
