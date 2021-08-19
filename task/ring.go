@@ -69,7 +69,7 @@ func (ring *Ring) PutElem(msgRow model.MsgRow) {
 			if errors.Is(err, goetty.ErrSystemStopped) {
 				util.Logger.Info("Ring.PutElem scheduling timer to a stopped timer wheel", zap.String("task", taskCfg.Name), zap.Error(err))
 			} else {
-				util.Logger.Fatal("scheduling timer filed", zap.String("task", taskCfg.Name), zap.Error(err))
+				util.Logger.Fatal("scheduling timer failed", zap.String("task", taskCfg.Name), zap.Error(err))
 			}
 		}
 	}
@@ -94,7 +94,9 @@ func (ring *Ring) ForceBatchOrShard(arg interface{}) {
 	defer ring.mux.Unlock()
 	if arg != nil {
 		newMsg, _ = arg.(*model.InputMessage)
-		util.Logger.Warn(fmt.Sprintf("Ring.ForceBatchOrShard partition %d message range [%d, %d)", newMsg.Partition, ring.ringGroundOff, newMsg.Offset), zap.String("task", taskCfg.Name))
+		if newMsg.Offset > ring.ringGroundOff {
+			util.Logger.Warn(fmt.Sprintf("Ring.ForceBatchOrShard partition %d message range [%d, %d)", newMsg.Partition, ring.ringGroundOff, newMsg.Offset), zap.String("task", taskCfg.Name))
+		}
 	}
 	if !ring.isIdle {
 		if newMsg == nil {

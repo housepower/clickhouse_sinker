@@ -281,7 +281,7 @@ func (service *Service) put(msg model.InputMessage) {
 						util.Logger.Info("Service.put scheduling timer to a stopped timer wheel")
 					} else {
 						err = errors.Wrap(err, "")
-						util.Logger.Fatal("scheduling timer filed", zap.String("task", taskCfg.Name), zap.Error(err))
+						util.Logger.Fatal("scheduling timer failed", zap.String("task", taskCfg.Name), zap.Error(err))
 					}
 				}
 			}
