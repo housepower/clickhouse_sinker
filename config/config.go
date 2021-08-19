@@ -196,7 +196,7 @@ func (cfg *Config) Normallize() (err error) {
 	if cfg.Clickhouse.RetryTimes < 0 {
 		cfg.Clickhouse.RetryTimes = 0
 	}
-	if cfg.Clickhouse.MaxOpenConns < 0 {
+	if cfg.Clickhouse.MaxOpenConns <= 0 {
 		cfg.Clickhouse.MaxOpenConns = defaultMaxOpenConns
 	}
 
