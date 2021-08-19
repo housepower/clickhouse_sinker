@@ -161,6 +161,7 @@ LOOP_SARAMA:
 			}
 		}
 	}
+	k.stopped <- struct{}{}
 }
 
 func (k *KafkaSarama) CommitMessages(ctx context.Context, msg *model.InputMessage) error {
@@ -171,6 +172,7 @@ func (k *KafkaSarama) CommitMessages(ctx context.Context, msg *model.InputMessag
 // Stop kafka consumer and close all connections
 func (k *KafkaSarama) Stop() error {
 	k.cg.Close()
+	<-k.stopped
 	return nil
 }
 

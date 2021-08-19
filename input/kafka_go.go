@@ -152,6 +152,7 @@ LOOP_KAFKA_GO:
 			Timestamp: &msg.Time,
 		})
 	}
+	k.stopped <- struct{}{}
 }
 
 func (k *KafkaGo) CommitMessages(ctx context.Context, msg *model.InputMessage) (err error) {
@@ -170,6 +171,7 @@ func (k *KafkaGo) CommitMessages(ctx context.Context, msg *model.InputMessage) (
 func (k *KafkaGo) Stop() error {
 	if k.r != nil {
 		k.r.Close()
+		<-k.stopped
 	}
 	return nil
 }
