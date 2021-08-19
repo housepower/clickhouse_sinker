@@ -45,6 +45,7 @@ var (
 
 	localCfgFile = flag.String("local-cfg-file", "/etc/clickhouse_sinker.json", "local config file")
 	replicas     = flag.Int("replicas", 1, "replicate each task to multiple ones with the same config except task name, consumer group and table name")
+	maxOpenConns = flag.Int("max-open-conns", 0, "max open connections per shard")
 )
 
 // Empty is not valid namespaceID
@@ -86,6 +87,9 @@ func PublishSinkerConfig() {
 			taskCfg.TableName = fmt.Sprintf("%s_r%d", taskCfg.TableName, i)
 			cfg.Tasks = append(cfg.Tasks, taskCfg)
 		}
+	}
+	if *maxOpenConns > 0 {
+		cfg.Clickhouse.MaxOpenConns = *maxOpenConns
 	}
 
 	ncm := config.NacosConfManager{}
