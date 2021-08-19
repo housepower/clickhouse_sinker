@@ -302,16 +302,16 @@ func (s *Sinker) Close() {
 }
 
 func (s *Sinker) stopAllTasks() {
-	for taskName, task := range s.tasks {
-		task.NotifyStop()
-		delete(s.tasks, taskName)
-	}
 	util.Logger.Info("stopping parsing pool")
 	util.GlobalParsingPool.StopWait()
 	util.Logger.Info("stopping writing pool")
 	util.GlobalWritingPool.StopWait()
 	util.Logger.Info("stopping timer wheel")
 	util.GlobalTimerWheel.Stop()
+	for taskName, task := range s.tasks {
+		task.NotifyStop()
+		delete(s.tasks, taskName)
+	}
 	for taskName, task := range s.tasks {
 		task.Stop()
 		delete(s.tasks, taskName)
