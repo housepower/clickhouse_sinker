@@ -308,9 +308,8 @@ func (s *Sinker) stopAllTasks() {
 	util.GlobalWritingPool.StopWait()
 	util.Logger.Info("stopping timer wheel")
 	util.GlobalTimerWheel.Stop()
-	for taskName, task := range s.tasks {
+	for _, task := range s.tasks {
 		task.NotifyStop()
-		delete(s.tasks, taskName)
 	}
 	for taskName, task := range s.tasks {
 		task.Stop()
@@ -373,6 +372,7 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 
 		// 3. Restart goroutine pools.
 		util.Logger.Info("restarting parsing, writing and timer pool")
+		util.GlobalTimerWheel = nil
 		util.InitGlobalTimerWheel()
 		util.GlobalParsingPool.Restart()
 		util.GlobalWritingPool.Resize(len(newCfg.Clickhouse.Hosts) * newCfg.Clickhouse.MaxOpenConns)
