@@ -79,12 +79,7 @@ func InitGlobalWritingPool(maxWorkers int) {
 	if GlobalWritingPool != nil {
 		return
 	}
-	queueSize := runtime.NumCPU()
-	if queueSize < 3 {
-		queueSize = 3
-	} else if queueSize > 100 {
-		queueSize = 100
-	}
+	queueSize := 1000
 	GlobalWritingPool = NewWorkerPool(maxWorkers, queueSize)
 	Logger.Info("initialized writing pool", zap.Int("maxWorkers", maxWorkers), zap.Int("queueSize", queueSize))
 }

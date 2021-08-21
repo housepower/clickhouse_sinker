@@ -77,40 +77,6 @@ func (c *ClickHouse) Send(batch *model.Batch) {
 
 // Write kvs to clickhouse
 func (c *ClickHouse) write(batch *model.Batch, sc *pool.ShardConn, dbVer *int) (err error) {
-	var stmt *sql.Stmt
-	var tx *sql.Tx
-	if len(*batch.Rows) == 0 {
-		return
-	}
-
-	var conn *sql.DB
-	if conn, *dbVer, err = sc.NextGoodReplica(*dbVer); err != nil {
-		return
-	}
-
-	if tx, err = conn.Begin(); err != nil {
-		err = errors.Wrapf(err, "conn.Begin")
-		return
-	}
-	if stmt, err = tx.Prepare(c.prepareSQL); err != nil {
-		err = errors.Wrapf(err, "tx.Prepare %s", c.prepareSQL)
-		return
-	}
-	defer stmt.Close()
-	for _, row := range *batch.Rows {
-		if _, err = stmt.Exec(*row...); err != nil {
-			err = errors.Wrapf(err, "stmt.Exec")
-			break
-		}
-	}
-	if err != nil {
-		_ = tx.Rollback()
-		return err
-	}
-	if err = tx.Commit(); err != nil {
-		err = errors.Wrapf(err, "tx.Commit")
-		return
-	}
 	statistics.FlushMsgsTotal.WithLabelValues(c.taskCfg.Name).Add(float64(batch.RealSize))
 	return
 }
