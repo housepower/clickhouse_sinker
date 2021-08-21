@@ -375,9 +375,10 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 		util.GlobalTimerWheel = nil
 		util.InitGlobalTimerWheel()
 		util.GlobalParsingPool.Restart()
-		util.GlobalWritingPool.Resize(len(newCfg.Clickhouse.Hosts) * newCfg.Clickhouse.MaxOpenConns)
+		maxWorkers := len(newCfg.Clickhouse.Hosts) * newCfg.Clickhouse.MaxOpenConns
+		util.GlobalWritingPool.Resize(maxWorkers)
 		util.GlobalWritingPool.Restart()
-		util.Logger.Info("resized parsing pool", zap.Int("maxWorkers", len(newCfg.Clickhouse.Hosts)))
+		util.Logger.Info("resized writing pool", zap.Int("maxWorkers", maxWorkers))
 
 		// 4. Generate, initialize and run tasks.
 		for _, taskCfg := range newCfg.Tasks {
