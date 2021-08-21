@@ -61,15 +61,11 @@ func InitGlobalParsingPool() {
 	if GlobalParsingPool != nil {
 		return
 	}
-	maxWorkers := 10
-	if runtime.NumCPU() >= 2 {
-		if maxWorkers > runtime.NumCPU()/2 {
-			maxWorkers = runtime.NumCPU() / 2
-		}
-	} else {
+	maxWorkers := runtime.NumCPU() * 2 / 3
+	if maxWorkers < 1 {
 		maxWorkers = 1
 	}
-	queueSize := 1 << 16
+	queueSize := 1 << 20
 	GlobalParsingPool = NewWorkerPool(maxWorkers, queueSize)
 	Logger.Info("initialized parsing pool", zap.Int("maxWorkers", maxWorkers), zap.Int("queueSize", queueSize))
 }
