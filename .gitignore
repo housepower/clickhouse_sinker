@@ -8,7 +8,6 @@ package-lock.json
 *.log
 .idea
 *.bin
-.goreleaser.yml
 dist
 vendor
 

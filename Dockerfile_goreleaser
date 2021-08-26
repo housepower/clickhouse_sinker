@@ -1,12 +1,10 @@
 FROM alpine:latest
 RUN apk --no-cache add ca-certificates tzdata
 RUN echo "UTC" >  /etc/timezone
-ADD clickhouse_sinker /usr/local/bin/clickhouse_sinker
-ADD nacos_publish_config /usr/local/bin/nacos_publish_config
-ADD kafka_gen_log /usr/local/bin/kafka_gen_log
-ADD kafka_gen_metric /usr/local/bin/kafka_gen_metric
+ADD dist/clickhouse_sinker_linux_amd64/clickhouse_sinker /usr/local/bin/clickhouse_sinker
+ADD dist/nacos_publish_config_linux_amd64/nacos_publish_config /usr/local/bin/nacos_publish_config
 
-# clickhouse_sinker gets config from local directory "/etc/clickhouse_sinker" by default.
+# clickhouse_sinker gets config from local file "/etc/clickhouse_sinker.json" by default.
 # Customize behavior with following env variables:
 # - V
 # - HTTP_PORT

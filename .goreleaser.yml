@@ -27,17 +27,6 @@ builds:
       - arm64
     main: cmd/nacos_publish_config/main.go
     binary: nacos_publish_config
-dockers:
-  -
-    binaries:
-    - clickhouse_sinker
-    - nacos_publish_config
-    goos: linux
-    goarch: amd64
-    dockerfile: Dockerfile_goreleaser
-    image_templates:
-      - quay.io/housepower/clickhouse_sinker:latest
-      - quay.io/housepower/clickhouse_sinker:{{ .Tag }}
 archives:
   - replacements:
       darwin: Darwin

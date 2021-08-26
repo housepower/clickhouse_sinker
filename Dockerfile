@@ -13,7 +13,7 @@ COPY --from=builder /app/nacos_publish_config /usr/local/bin/nacos_publish_confi
 COPY --from=builder /app/kafka_gen_log /usr/local/bin/kafka_gen_log
 COPY --from=builder /app/kafka_gen_metric /usr/local/bin/kafka_gen_metric
 
-# clickhouse_sinker gets config from local directory "/etc/clickhouse_sinker" by default.
+# clickhouse_sinker gets config from local file "/etc/clickhouse_sinker.json" by default.
 # Customize behavior with following env variables:
 # - V
 # - HTTP_PORT
