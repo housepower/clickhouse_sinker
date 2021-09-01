@@ -24,6 +24,7 @@ import (
 
 	_ "github.com/ClickHouse/clickhouse-go"
 	"github.com/housepower/clickhouse_sinker/config"
+	cm "github.com/housepower/clickhouse_sinker/config_manager"
 	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/jinzhu/copier"
 	"go.uber.org/zap"
@@ -94,7 +95,7 @@ func PublishSinkerConfig() {
 		cfg.Clickhouse.MaxOpenConns = *maxOpenConns
 	}
 
-	ncm := config.NacosConfManager{}
+	ncm := cm.NacosConfManager{}
 	properties := getProperties()
 	if err = ncm.Init(properties); err != nil {
 		util.Logger.Fatal("ncm.Init failed", zap.Error(err))
@@ -116,7 +117,7 @@ func PublishSinkerConfig() {
 }
 
 func main() {
-	util.InitLogger("info", []string{"stdout"})
+	util.InitLogger([]string{"stdout"})
 	flag.Parse()
 	PublishSinkerConfig()
 }

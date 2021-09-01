@@ -194,7 +194,7 @@ func initMetrics() {
 		}
 		metrics[name] = metric
 	}
-	util.InitLogger("info", []string{"stdout"})
+	util.InitLogger([]string{"stdout"})
 }
 
 func sliceContains(list []string, target string) bool {

@@ -170,7 +170,7 @@ func (c *ClickHouse) loopWrite(batch *model.Batch) {
 				util.Logger.Warn("Batch.Commit failed due to the context has been cancelled", zap.String("task", c.taskCfg.Name))
 				return
 			}
-			util.Logger.Fatal("Batch.Commit failed with permanent error %+v", zap.String("task", c.taskCfg.Name), zap.Error(err))
+			util.Logger.Fatal("Batch.Commit failed with permanent error", zap.String("task", c.taskCfg.Name), zap.Error(err))
 		}
 		if errors.Is(err, context.Canceled) {
 			util.Logger.Info("ClickHouse.write failed due to the context has been cancelled", zap.String("task", c.taskCfg.Name))

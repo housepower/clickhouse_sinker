@@ -25,7 +25,7 @@ import (
 )
 
 func TestPusher(t *testing.T) {
-	util.InitLogger("debug", []string{"stdout"})
+	util.InitLogger([]string{"stdout"})
 	addrs := []string{"172.24.25.1:9091", "172.24.25.2:9091"}
 	interval := 1
 	selfIP, _ := util.GetOutboundIP()

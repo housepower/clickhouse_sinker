@@ -25,23 +25,14 @@ import (
 	"github.com/pkg/errors"
 )
 
-// RemoteConfManager can be implemented by many backends: Nacos, Consul, etcd, ZooKeeper...
-type RemoteConfManager interface {
-	Init(properties map[string]interface{}) error
-	// GetConfig fetchs the config. The manager shall not reference the returned Config object after call.
-	GetConfig() (conf *Config, err error)
-	// PublishConfig publishs the config.
-	PublishConfig(conf *Config) (err error)
-}
-
 // Config struct used for different configurations use
 type Config struct {
 	Kafka      KafkaConfig
 	Clickhouse ClickHouseConfig
 	Task       *TaskConfig
 	Tasks      []*TaskConfig
+	Assignment Assignment
 	LogLevel   string
-	LogPaths   []string
 }
 
 // KafkaConfig configuration parameters
@@ -147,6 +138,13 @@ type TaskConfig struct {
 	TimeZone      string `json:"timezone"`
 }
 
+type Assignment struct {
+	Version   int
+	UpdatedAt int64               // timestamp when created
+	UpdatedBy string              // leader instance
+	Map       map[string][]string // map instance to a list of task_name
+}
+
 const (
 	MaxBufferSize             = 1 << 20 //1048576
 	defaultBufferSize         = 1 << 18 //262144
@@ -248,9 +246,6 @@ func (cfg *Config) Normallize() (err error) {
 	default:
 		cfg.LogLevel = defaultLogLevel
 	}
-	if len(cfg.LogPaths) == 0 {
-		cfg.LogPaths = []string{"stdout"}
-	}
 	return
 }
 
@@ -335,6 +330,18 @@ func (cfg *Config) convertKfkSecurity() {
 			}
 		}
 	}
+}
+
+func (cfg *Config) IsAssigned(instance, task string) (assigned bool) {
+	if taskNames, ok := cfg.Assignment.Map[instance]; ok {
+		for _, taskName := range taskNames {
+			if taskName == task {
+				assigned = true
+				return
+			}
+		}
+	}
+	return
 }
 
 func readConfig(config string) map[string]string {

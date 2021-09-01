@@ -44,7 +44,7 @@ var (
 	GlobalParsingPool *WorkerPool          //for all tasks' parsing, cpu intensive
 	GlobalWritingPool *WorkerPool          //the all tasks' writing ClickHouse, cpu-net balance
 	Logger            *zap.Logger
-	logLevel          string
+	logAtomLevel      zap.AtomicLevel
 	logPaths          []string
 )
 
@@ -249,16 +249,12 @@ func JksToPem(jksPath, jksPassword string, overwrite bool) (certPemPath, keyPemP
 	return
 }
 
-func InitLogger(newLogLevel string, newLogPaths []string) {
-	if logLevel == newLogLevel && reflect.DeepEqual(logPaths, newLogPaths) {
+func InitLogger(newLogPaths []string) {
+	if reflect.DeepEqual(logPaths, newLogPaths) {
 		return
 	}
-	logLevel = newLogLevel
+	logAtomLevel = zap.NewAtomicLevel()
 	logPaths = newLogPaths
-	var lvl zapcore.Level
-	if err := lvl.Set(logLevel); err != nil {
-		lvl = zap.InfoLevel
-	}
 	var syncers []zapcore.WriteSyncer
 	for _, p := range logPaths {
 		switch p {
@@ -281,7 +277,17 @@ func InitLogger(newLogLevel string, newLogPaths []string) {
 	core := zapcore.NewCore(
 		zapcore.NewJSONEncoder(cfg),
 		zapcore.NewMultiWriteSyncer(syncers...),
-		lvl,
+		logAtomLevel,
 	)
 	Logger = zap.New(core, zap.AddStacktrace(zap.ErrorLevel))
+}
+
+func SetLogLevel(newLogLevel string) {
+	if Logger != nil {
+		var lvl zapcore.Level
+		if err := lvl.Set(newLogLevel); err != nil {
+			lvl = zap.InfoLevel
+		}
+		logAtomLevel.SetLevel(lvl)
+	}
 }

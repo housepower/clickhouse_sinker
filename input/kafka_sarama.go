@@ -90,12 +90,29 @@ func (h MyConsumerGroupHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, c
 func (k *KafkaSarama) Init(cfg *config.Config, taskCfg *config.TaskConfig, putFn func(msg model.InputMessage), cleanupFn func()) (err error) {
 	k.cfg = cfg
 	k.taskCfg = taskCfg
-	kfkCfg := &cfg.Kafka
 	k.stopped = make(chan struct{})
 	k.putFn = putFn
 	k.cleanupFn = cleanupFn
-	config := sarama.NewConfig()
-	if config.Version, err = sarama.ParseKafkaVersion(kfkCfg.Version); err != nil {
+	kfkCfg := &cfg.Kafka
+	sarCfg, err := GetSaramaConfig(&cfg.Kafka)
+	if err != nil {
+		return err
+	}
+	if taskCfg.Earliest {
+		sarCfg.Consumer.Offsets.Initial = sarama.OffsetOldest
+	}
+	cg, err := sarama.NewConsumerGroup(strings.Split(kfkCfg.Brokers, ","), taskCfg.ConsumerGroup, sarCfg)
+	if err != nil {
+		return err
+	}
+	//sarama.Logger, _ = zap.NewStdLogAt(util.Logger.With(zap.String("name", "sarama")), zapcore.DebugLevel)
+	k.cg = cg
+	return nil
+}
+
+func GetSaramaConfig(kfkCfg *config.KafkaConfig) (sarCfg *sarama.Config, err error) {
+	sarCfg = sarama.NewConfig()
+	if sarCfg.Version, err = sarama.ParseKafkaVersion(kfkCfg.Version); err != nil {
 		err = errors.Wrapf(err, "")
 		return
 	}
@@ -110,40 +127,31 @@ func (k *KafkaSarama) Init(cfg *config.Config, taskCfg *config.TaskConfig, putFn
 		}
 	}
 	if kfkCfg.TLS.Enable {
-		config.Net.TLS.Enable = true
-		if config.Net.TLS.Config, err = util.NewTLSConfig(kfkCfg.TLS.CaCertFiles, kfkCfg.TLS.ClientCertFile, kfkCfg.TLS.ClientKeyFile, kfkCfg.TLS.EndpIdentAlgo == ""); err != nil {
+		sarCfg.Net.TLS.Enable = true
+		if sarCfg.Net.TLS.Config, err = util.NewTLSConfig(kfkCfg.TLS.CaCertFiles, kfkCfg.TLS.ClientCertFile, kfkCfg.TLS.ClientKeyFile, kfkCfg.TLS.EndpIdentAlgo == ""); err != nil {
 			return
 		}
 	}
 	// check for authentication
 	if kfkCfg.Sasl.Enable {
-		config.Net.SASL.Enable = true
-		if config.Version.IsAtLeast(sarama.V1_0_0_0) {
-			config.Net.SASL.Version = sarama.SASLHandshakeV1
+		sarCfg.Net.SASL.Enable = true
+		if sarCfg.Version.IsAtLeast(sarama.V1_0_0_0) {
+			sarCfg.Net.SASL.Version = sarama.SASLHandshakeV1
 		}
-		config.Net.SASL.Mechanism = (sarama.SASLMechanism)(kfkCfg.Sasl.Mechanism)
-		switch config.Net.SASL.Mechanism {
+		sarCfg.Net.SASL.Mechanism = (sarama.SASLMechanism)(kfkCfg.Sasl.Mechanism)
+		switch sarCfg.Net.SASL.Mechanism {
 		case "SCRAM-SHA-256":
-			config.Net.SASL.SCRAMClientGeneratorFunc = func() sarama.SCRAMClient { return &XDGSCRAMClient{HashGeneratorFcn: SHA256} }
+			sarCfg.Net.SASL.SCRAMClientGeneratorFunc = func() sarama.SCRAMClient { return &XDGSCRAMClient{HashGeneratorFcn: SHA256} }
 		case "SCRAM-SHA-512":
-			config.Net.SASL.SCRAMClientGeneratorFunc = func() sarama.SCRAMClient { return &XDGSCRAMClient{HashGeneratorFcn: SHA256} }
+			sarCfg.Net.SASL.SCRAMClientGeneratorFunc = func() sarama.SCRAMClient { return &XDGSCRAMClient{HashGeneratorFcn: SHA256} }
 		default:
 		}
-		config.Net.SASL.User = kfkCfg.Sasl.Username
-		config.Net.SASL.Password = kfkCfg.Sasl.Password
-		config.Net.SASL.GSSAPI = kfkCfg.Sasl.GSSAPI
+		sarCfg.Net.SASL.User = kfkCfg.Sasl.Username
+		sarCfg.Net.SASL.Password = kfkCfg.Sasl.Password
+		sarCfg.Net.SASL.GSSAPI = kfkCfg.Sasl.GSSAPI
 	}
-	if taskCfg.Earliest {
-		config.Consumer.Offsets.Initial = sarama.OffsetOldest
-	}
-	config.ChannelBufferSize = 1024
-	cg, err := sarama.NewConsumerGroup(strings.Split(kfkCfg.Brokers, ","), taskCfg.ConsumerGroup, config)
-	if err != nil {
-		return err
-	}
-	//sarama.Logger, _ = zap.NewStdLogAt(util.Logger.With(zap.String("name", "sarama")), zapcore.DebugLevel)
-	k.cg = cg
-	return nil
+	sarCfg.ChannelBufferSize = 1024
+	return
 }
 
 // kafka main loop
