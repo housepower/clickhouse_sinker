@@ -25,6 +25,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go"
@@ -54,11 +55,17 @@ type ClickHouse struct {
 	cfg        *config.Config
 	taskCfg    *config.TaskConfig
 	prepareSQL string
+	stopped    int32
+	numFlying  int32
+	mux        sync.Mutex
+	taskDone   *sync.Cond
 }
 
 // NewClickHouse new a clickhouse instance
 func NewClickHouse(cfg *config.Config, taskCfg *config.TaskConfig) *ClickHouse {
-	return &ClickHouse{cfg: cfg, taskCfg: taskCfg}
+	ck := &ClickHouse{cfg: cfg, taskCfg: taskCfg}
+	ck.taskDone = sync.NewCond(&ck.mux)
+	return ck
 }
 
 // Init the clickhouse intance
@@ -66,11 +73,32 @@ func (c *ClickHouse) Init() (err error) {
 	return c.initSchema()
 }
 
+// Stop drains flying batchs
+func (c *ClickHouse) Stop() {
+	atomic.StoreInt32(&c.stopped, 1)
+	c.mux.Lock()
+	defer c.mux.Unlock()
+	for atomic.LoadInt32(&c.numFlying) != 0 {
+		c.taskDone.Wait()
+	}
+	return
+}
+
 // Send a batch to clickhouse
 func (c *ClickHouse) Send(batch *model.Batch) {
+	if atomic.LoadInt32(&c.stopped) != 0 {
+		return
+	}
+	atomic.AddInt32(&c.numFlying, 1)
 	statistics.WritingPoolBacklog.WithLabelValues(c.taskCfg.Name).Inc()
 	_ = util.GlobalWritingPool.Submit(func() {
 		c.loopWrite(batch)
+		numFlying := atomic.AddInt32(&c.numFlying, -1)
+		if numFlying == 0 {
+			c.mux.Lock()
+			c.taskDone.Signal()
+			c.mux.Unlock()
+		}
 		statistics.WritingPoolBacklog.WithLabelValues(c.taskCfg.Name).Dec()
 	})
 }
@@ -139,19 +167,23 @@ func (c *ClickHouse) loopWrite(batch *model.Batch) {
 	var dbVer int
 	sc := pool.GetShardConn(batch.BatchIdx)
 	for {
+		if atomic.LoadInt32(&c.stopped) != 0 {
+			util.Logger.Info("ClickHouse.loopWrite quit due to stopped be true", zap.String("task", c.taskCfg.Name))
+			return
+		}
 		if err = c.write(batch, sc, &dbVer); err == nil {
 			if err = batch.Commit(); err == nil {
 				return
 			}
 			// Note: kafka_go and sarama commit give different error when context is cancceled.
 			if errors.Is(err, context.Canceled) || errors.Is(err, io.ErrClosedPipe) {
-				util.Logger.Info("ClickHouse.loopWrite quit due to the context has been cancelled", zap.String("task", c.taskCfg.Name))
+				util.Logger.Warn("Batch.Commit failed due to the context has been cancelled", zap.String("task", c.taskCfg.Name))
 				return
 			}
-			util.Logger.Fatal("committing offset failed with permanent error %+v", zap.String("task", c.taskCfg.Name), zap.Error(err))
+			util.Logger.Fatal("Batch.Commit failed with permanent error %+v", zap.String("task", c.taskCfg.Name), zap.Error(err))
 		}
 		if errors.Is(err, context.Canceled) {
-			util.Logger.Info("ClickHouse.loopWrite quit due to the context has been cancelled", zap.String("task", c.taskCfg.Name))
+			util.Logger.Info("ClickHouse.write failed due to the context has been cancelled", zap.String("task", c.taskCfg.Name))
 			return
 		}
 		util.Logger.Error("flush batch failed", zap.String("task", c.taskCfg.Name), zap.Int("try", times), zap.Error(err))

@@ -304,10 +304,6 @@ func (s *Sinker) Close() {
 func (s *Sinker) stopAllTasks() {
 	util.Logger.Info("stopping parsing pool")
 	util.GlobalParsingPool.StopWait()
-	util.Logger.Info("stopping writing pool")
-	util.GlobalWritingPool.StopWait()
-	util.Logger.Info("stopping timer wheel")
-	util.GlobalTimerWheel.Stop()
 	for _, task := range s.tasks {
 		task.NotifyStop()
 	}
@@ -315,6 +311,10 @@ func (s *Sinker) stopAllTasks() {
 		task.Stop()
 		delete(s.tasks, taskName)
 	}
+	util.Logger.Info("stopping timer wheel")
+	util.GlobalTimerWheel.Stop()
+	util.Logger.Info("stopping writing pool")
+	util.GlobalWritingPool.StopWait()
 }
 
 func (s *Sinker) applyConfig(newCfg *config.Config) (err error) {

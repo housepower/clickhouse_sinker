@@ -85,7 +85,7 @@ func (ring *Ring) ForceBatchOrShard(arg interface{}) {
 	taskCfg := ring.service.taskCfg
 	select {
 	case <-ring.service.ctx.Done():
-		util.Logger.Error("Ring.ForceBatchOrShard quit due to the context has been canceled", zap.String("task", taskCfg.Name))
+		util.Logger.Warn("Ring.ForceBatchOrShard quit due to the context has been canceled", zap.String("task", taskCfg.Name))
 		return
 	default:
 	}
@@ -133,7 +133,7 @@ func (ring *Ring) ForceBatchOrShard(arg interface{}) {
 	var err error
 	if ring.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(taskCfg.FlushInterval)*time.Second, ring.ForceBatchOrShard, nil); err != nil {
 		if errors.Is(err, goetty.ErrSystemStopped) {
-			util.Logger.Info("Ring.ForceBatchOrShard scheduling timer to a stopped timer wheel", zap.String("task", taskCfg.Name), zap.Error(err))
+			util.Logger.Warn("Ring.ForceBatchOrShard scheduling timer to a stopped timer wheel", zap.String("task", taskCfg.Name), zap.Error(err))
 		} else {
 			err = errors.Wrap(err, "")
 			util.Logger.Fatal("scheduling timer filed", zap.String("task", taskCfg.Name), zap.Error(err))

@@ -153,6 +153,7 @@ LOOP:
 	for {
 		select {
 		case <-service.ctx.Done():
+			util.Logger.Info("Service.Run quit due to context has been canceled", zap.String("task", service.taskCfg.Name))
 			break LOOP
 		case batch := <-service.batchChan:
 			if err := service.flush(batch); err != nil {
@@ -165,7 +166,7 @@ LOOP:
 
 func (service *Service) fnCommit(partition int, offset int64) error {
 	msg := model.InputMessage{Topic: service.taskCfg.Topic, Partition: partition, Offset: offset}
-	return service.inputer.CommitMessages(service.ctx, &msg)
+	return service.inputer.CommitMessages(service.parentCtx, &msg)
 }
 
 func (service *Service) put(msg model.InputMessage) {
@@ -335,6 +336,8 @@ func (service *Service) Stop() {
 	}
 	util.Logger.Info("stopping task service...", zap.String("task", taskCfg.Name))
 	service.cancel()
+	service.clickhouse.Stop()
+	util.Logger.Info("stopped output", zap.String("task", taskCfg.Name))
 	if err := service.inputer.Stop(); err != nil {
 		util.Logger.Fatal("service.inputer.Stop failed", zap.Error(err))
 	}
