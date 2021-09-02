@@ -73,6 +73,11 @@ func (c *ClickHouse) Init() (err error) {
 	return c.initSchema()
 }
 
+// NotifyStop notify loopWrite to quit
+func (c *ClickHouse) NotifyStop() {
+	atomic.StoreInt32(&c.stopped, 1)
+}
+
 // Stop drains flying batchs
 func (c *ClickHouse) Stop() {
 	atomic.StoreInt32(&c.stopped, 1)

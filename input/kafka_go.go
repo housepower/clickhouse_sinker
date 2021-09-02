@@ -131,15 +131,15 @@ LOOP_KAFKA_GO:
 		var msg kafka.Message
 		if msg, err = k.r.FetchMessage(ctx); err != nil {
 			if errors.Is(err, context.Canceled) {
-				util.Logger.Info("Kafka.Run quit due to context has been canceled", zap.String("task", k.taskCfg.Name))
+				util.Logger.Info("KafkaGo.Run quit due to context has been canceled", zap.String("task", k.taskCfg.Name))
 				break LOOP_KAFKA_GO
 			} else if errors.Is(err, io.EOF) {
-				util.Logger.Info("Kafka.Run quit due to reader has been closed", zap.String("task", k.taskCfg.Name))
+				util.Logger.Info("KafkaGo.Run quit due to reader has been closed", zap.String("task", k.taskCfg.Name))
 				break LOOP_KAFKA_GO
 			} else {
 				statistics.ConsumeMsgsErrorTotal.WithLabelValues(k.taskCfg.Name).Inc()
 				err = errors.Wrap(err, "")
-				util.Logger.Error("k.r.FetchMessage failed", zap.String("task", k.taskCfg.Name), zap.Error(err))
+				util.Logger.Error("kafka.Reader.FetchMessage failed", zap.String("task", k.taskCfg.Name), zap.Error(err))
 				continue
 			}
 		}

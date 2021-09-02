@@ -148,15 +148,15 @@ LOOP_SARAMA:
 		// recreated to get the new claims
 		if err := k.cg.Consume(ctx, []string{taskCfg.Topic}, handler); err != nil {
 			if errors.Is(err, context.Canceled) {
-				util.Logger.Info("Kafka.Run quit due to context has been canceled", zap.String("task", k.taskCfg.Name))
+				util.Logger.Info("KafkaSarama.Run quit due to context has been canceled", zap.String("task", k.taskCfg.Name))
 				break LOOP_SARAMA
 			} else if errors.Is(err, sarama.ErrClosedConsumerGroup) {
-				util.Logger.Info("Kafka.Run quit due to consumer group has been closed", zap.String("task", k.taskCfg.Name))
+				util.Logger.Info("KafkaSarama.Run quit due to consumer group has been closed", zap.String("task", k.taskCfg.Name))
 				break LOOP_SARAMA
 			} else {
 				statistics.ConsumeMsgsErrorTotal.WithLabelValues(taskCfg.Name).Inc()
 				err = errors.Wrap(err, "")
-				util.Logger.Error("Kafka.Run got error %+v", zap.String("task", k.taskCfg.Name), zap.Error(err))
+				util.Logger.Error("sarama.ConsumerGroup.Consume failed", zap.String("task", k.taskCfg.Name), zap.Error(err))
 				continue
 			}
 		}

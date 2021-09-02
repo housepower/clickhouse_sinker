@@ -410,6 +410,8 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 			}
 		}
 		// 2. Stop tasks in parallel found at the previous step.
+		// They must drain flying batchs as quickly as possible to allow another clickhouse_sinker
+		// instance take over partitions safely.
 		for _, taskName := range tasksToStop {
 			task := s.tasks[taskName]
 			task.NotifyStop()

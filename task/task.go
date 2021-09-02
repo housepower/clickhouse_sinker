@@ -166,7 +166,7 @@ LOOP:
 
 func (service *Service) fnCommit(partition int, offset int64) error {
 	msg := model.InputMessage{Topic: service.taskCfg.Topic, Partition: partition, Offset: offset}
-	return service.inputer.CommitMessages(service.parentCtx, &msg)
+	return service.inputer.CommitMessages(context.Background(), &msg)
 }
 
 func (service *Service) put(msg model.InputMessage) {
@@ -325,6 +325,7 @@ func (service *Service) NotifyStop() {
 	taskCfg := service.taskCfg
 	util.Logger.Info("notified stopping task service...", zap.String("task", taskCfg.Name))
 	service.cancel()
+	service.clickhouse.NotifyStop()
 }
 
 // Stop stop kafka and clickhouse client. This is blocking.
