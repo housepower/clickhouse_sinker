@@ -38,12 +38,13 @@ var _ Inputer = (*KafkaSarama)(nil)
 
 // KafkaSarama implements input.Inputer
 type KafkaSarama struct {
-	cfg     *config.Config
-	taskCfg *config.TaskConfig
-	cg      sarama.ConsumerGroup
-	sess    sarama.ConsumerGroupSession
-	stopped chan struct{}
-	putFn   func(msg model.InputMessage)
+	cfg       *config.Config
+	taskCfg   *config.TaskConfig
+	cg        sarama.ConsumerGroup
+	sess      sarama.ConsumerGroupSession
+	stopped   chan struct{}
+	putFn     func(msg model.InputMessage)
+	cleanupFn func()
 }
 
 // NewKafkaSarama get instance of kafka reader
@@ -59,9 +60,11 @@ func (h MyConsumerGroupHandler) Setup(sess sarama.ConsumerGroupSession) error {
 	h.k.sess = sess
 	return nil
 }
+
 func (h MyConsumerGroupHandler) Cleanup(_ sarama.ConsumerGroupSession) error {
-	util.Logger.Info("consumer group cleanup", zap.String("task", h.k.taskCfg.Name), zap.String("consumer group", h.k.taskCfg.ConsumerGroup))
-	time.Sleep(5 * time.Second)
+	begin := time.Now()
+	h.k.cleanupFn()
+	util.Logger.Info("consumer group cleanup", zap.String("task", h.k.taskCfg.Name), zap.String("consumer group", h.k.taskCfg.ConsumerGroup), zap.Int32("generation id", h.k.sess.GenerationID()), zap.Duration("cost", time.Since(begin)))
 	return nil
 }
 
@@ -80,12 +83,13 @@ func (h MyConsumerGroupHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, c
 }
 
 // Init Initialise the kafka instance with configuration
-func (k *KafkaSarama) Init(cfg *config.Config, taskCfg *config.TaskConfig, putFn func(msg model.InputMessage)) (err error) {
+func (k *KafkaSarama) Init(cfg *config.Config, taskCfg *config.TaskConfig, putFn func(msg model.InputMessage), cleanupFn func()) (err error) {
 	k.cfg = cfg
 	k.taskCfg = taskCfg
 	kfkCfg := &cfg.Kafka
 	k.stopped = make(chan struct{})
 	k.putFn = putFn
+	k.cleanupFn = cleanupFn
 	config := sarama.NewConfig()
 	if config.Version, err = sarama.ParseKafkaVersion(kfkCfg.Version); err != nil {
 		err = errors.Wrapf(err, "")

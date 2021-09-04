@@ -35,6 +35,8 @@
     "insecureSkipVerify": false,
     // retryTimes when error occurs in inserting datas
     "retryTimes": 0,
+    // max open connections with each clickhouse node. default to 1.
+    "maxOpenConns": 1
   },
 
   // Kafka config
@@ -57,7 +59,7 @@
       // Required if Kafka brokers require client authentication.
       "clientCertFile": "",
       // Required if and only if ClientCertFile is present.
-      "clientKeyFile": "",
+      "clientKeyFile": ""
     },
 
     // SASL
@@ -90,6 +92,8 @@
 
   "task": {
     "name": "test_dynamic_schema",
+    // kafka client, possible values: sarama, kafka-go. (defaults to sarama)
+    "kafkaClient": "sarama",
     // kafka topic
     "topic": "topic",
     // kafka consume from earliest or latest
@@ -106,16 +110,26 @@
     // columns of the table
     "dims": [
       {
-        "name": "day",
-        "type": "Date",
-        "sourceName": "day"
+        // column name
+        "name": "timestamp",
+        // column type
+        "type": "DateTime"
       },
-      ...
+      {
+        "name": "name",
+        "type": "String"
+      },
+      {
+        "name": "value",
+        "type": "Float32",
+        // json field name. This must be specified if it doesn't match with the column name.
+        "sourcename": "val"
+      }
     ],
 
-    // if it's specified, the schema will be auto mapped from clickhouse,
+    // if it's specified, clickhouse_sinker will detect table schema instead of using the fixed schema given by "dims".
     "autoSchema" : true,
-    // "this columns will be excluded by insert SQL "
+    // these columns will be excluded from the detected table schema. This takes effect only if "autoSchema" is true.
     "excludeColumns": []
 
     // (experiment feature) detect new fields and their type, and add columns to the ClickHouse table accordingly. This feature requires parser be "fastjson", and support following ClickHouse data types: Int64, Float64, String.
@@ -131,7 +145,7 @@
     // shardingPolicy is `stripe,<interval>`(requires ShardingKey be numerical) or `hash`(requires ShardingKey be string)
     "shardingPolicy": "",
 
-    // interval of flushing the batch. Default to 5, max to 10.
+    // interval of flushing the batch. Default to 5, max to 600.
     "flushInterval": 5,
     // batch size to insert into clickhouse. sinker will round upward it to the the nearest 2^n. Default to 262114, max to 1048576.
     "bufferSize": 262114,

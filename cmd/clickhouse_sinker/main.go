@@ -26,6 +26,7 @@ import (
 	"os"
 	"reflect"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/housepower/clickhouse_sinker/config"
@@ -290,11 +291,9 @@ func (s *Sinker) Run() {
 
 // Close shutdown task
 func (s *Sinker) Close() {
-	// 1. Stop tasks gracefully. Wait until all flying data be processed (write to CH and commit to Kafka).
+	// 1. Stop tasks gracefully.
 	s.stopAllTasks()
-	// 2. Stop Sinker.Run main loop
-	s.cancel()
-	// 3. Stop pusher
+	// 2. Stop pusher
 	if s.pusher != nil {
 		s.pusher.Stop()
 		s.pusher = nil
@@ -302,15 +301,20 @@ func (s *Sinker) Close() {
 }
 
 func (s *Sinker) stopAllTasks() {
-	util.Logger.Info("stopping parsing pool")
-	util.GlobalParsingPool.StopWait()
-	for _, task := range s.tasks {
-		task.NotifyStop()
+	var wg sync.WaitGroup
+	for _, tsk := range s.tasks {
+		wg.Add(1)
+		go func(tsk *task.Service) {
+			tsk.Stop()
+			wg.Done()
+		}(tsk)
 	}
-	for taskName, task := range s.tasks {
-		task.Stop()
+	wg.Wait()
+	for taskName := range s.tasks {
 		delete(s.tasks, taskName)
 	}
+	util.Logger.Info("stopping parsing pool")
+	util.GlobalParsingPool.StopWait()
 	util.Logger.Info("stopping timer wheel")
 	util.GlobalTimerWheel.Stop()
 	util.Logger.Info("stopping writing pool")
@@ -412,13 +416,16 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 		// 2. Stop tasks in parallel found at the previous step.
 		// They must drain flying batchs as quickly as possible to allow another clickhouse_sinker
 		// instance take over partitions safely.
+		var wg sync.WaitGroup
 		for _, taskName := range tasksToStop {
-			task := s.tasks[taskName]
-			task.NotifyStop()
+			wg.Add(1)
+			go func(tsk *task.Service) {
+				tsk.Stop()
+				wg.Done()
+			}(s.tasks[taskName])
 		}
+		wg.Wait()
 		for _, taskName := range tasksToStop {
-			task := s.tasks[taskName]
-			task.Stop()
 			delete(s.tasks, taskName)
 		}
 		// 3. Initailize tasks which are new or their config differ.

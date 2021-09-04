@@ -55,7 +55,6 @@ type ClickHouse struct {
 	cfg        *config.Config
 	taskCfg    *config.TaskConfig
 	prepareSQL string
-	stopped    int32
 	numFlying  int32
 	mux        sync.Mutex
 	taskDone   *sync.Cond
@@ -73,27 +72,17 @@ func (c *ClickHouse) Init() (err error) {
 	return c.initSchema()
 }
 
-// NotifyStop notify loopWrite to quit
-func (c *ClickHouse) NotifyStop() {
-	atomic.StoreInt32(&c.stopped, 1)
-}
-
-// Stop drains flying batchs
-func (c *ClickHouse) Stop() {
-	atomic.StoreInt32(&c.stopped, 1)
+// Drain drains flying batchs
+func (c *ClickHouse) Drain() {
 	c.mux.Lock()
 	defer c.mux.Unlock()
 	for atomic.LoadInt32(&c.numFlying) != 0 {
 		c.taskDone.Wait()
 	}
-	return
 }
 
 // Send a batch to clickhouse
 func (c *ClickHouse) Send(batch *model.Batch) {
-	if atomic.LoadInt32(&c.stopped) != 0 {
-		return
-	}
 	atomic.AddInt32(&c.numFlying, 1)
 	statistics.WritingPoolBacklog.WithLabelValues(c.taskCfg.Name).Inc()
 	_ = util.GlobalWritingPool.Submit(func() {
@@ -172,10 +161,6 @@ func (c *ClickHouse) loopWrite(batch *model.Batch) {
 	var dbVer int
 	sc := pool.GetShardConn(batch.BatchIdx)
 	for {
-		if atomic.LoadInt32(&c.stopped) != 0 {
-			util.Logger.Info("ClickHouse.loopWrite quit due to stopped be true", zap.String("task", c.taskCfg.Name))
-			return
-		}
 		if err = c.write(batch, sc, &dbVer); err == nil {
 			if err = batch.Commit(); err == nil {
 				return

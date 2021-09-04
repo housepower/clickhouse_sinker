@@ -3,6 +3,7 @@ package task
 import (
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/fagongzi/goetty"
@@ -156,7 +157,18 @@ func (ring *Ring) genBatchOrShard(expNewGroundOff int64) {
 	if endOff > ring.ringCeilingOff {
 		endOff = ring.ringCeilingOff
 	}
-	if ring.service.sharder != nil {
+	if atomic.LoadUint32(&ring.service.state) != util.StateRunning {
+		for i := ring.ringGroundOff; i < endOff; i++ {
+			msgRow := &ring.ringBuf[i&(ring.ringCap-1)]
+			if msgRow.Msg != nil {
+				msgCnt++
+			}
+		}
+		util.Logger.Info(fmt.Sprintf("discarded a batch for topic %v patittion %d, offset [%d,%d), messages %d", taskCfg.Topic, ring.partition, ring.ringGroundOff, endOff, msgCnt),
+			zap.String("task", taskCfg.Name))
+		statistics.RingMsgs.WithLabelValues(taskCfg.Name).Sub(float64(msgCnt))
+		return
+	} else if ring.service.sharder != nil {
 		msgCnt = ring.service.sharder.PutElems(ring.partition, ring.ringBuf, ring.ringGroundOff, endOff, ring.ringCap)
 		statistics.RingMsgs.WithLabelValues(taskCfg.Name).Sub(float64(msgCnt))
 	} else {
@@ -189,13 +201,13 @@ func (ring *Ring) genBatchOrShard(expNewGroundOff int64) {
 		}
 
 		if batch.RealSize > 0 {
-			util.Logger.Debug(fmt.Sprintf("going to flush a batch for topic %v patittion %d, offset %d, messages %d, gaps: %+v, parse errors: %d", taskCfg.Topic, ring.partition, endOff-1,
+			util.Logger.Debug(fmt.Sprintf("going to flush a batch for topic %v patittion %d, offset [%d,%d), messages %d, gaps: %+v, parse errors: %d", taskCfg.Topic, ring.partition, ring.ringGroundOff, endOff,
 				batch.RealSize, gaps, parseErrs),
 				zap.String("task", taskCfg.Name))
 
 			batch.BatchIdx = (endOff - 1) >> ring.batchSizeShift
 			ring.batchSys.CreateBatchGroupSingle(batch, ring.partition, endOff-1)
-			ring.service.batchChan <- batch
+			ring.service.Flush(batch)
 			if gaps == nil {
 				statistics.RingNormalBatchsTotal.WithLabelValues(taskCfg.Name).Inc()
 			} else {

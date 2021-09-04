@@ -205,11 +205,11 @@ func (cfg *Config) Normallize() (err error) {
 		cfg.Task = nil
 	}
 	for _, taskCfg := range cfg.Tasks {
-		if cfg.Kafka.Sasl.Enable && cfg.Kafka.Sasl.Username == "" {
-			//kafka-go doesn't support SASL/GSSAPI(Kerberos). https://github.com/segmentio/kafka-go/issues/539
+		if taskCfg.KafkaClient == "" || (cfg.Kafka.Sasl.Enable && cfg.Kafka.Sasl.Username == "") {
+			// known limitations of kafka-go:
+			// - The Reader API is too high-level. There's no generation cleanup callback which sarama provides.
+			// - Doesn't support SASL/GSSAPI(Kerberos). https://github.com/segmentio/kafka-go/issues/539
 			taskCfg.KafkaClient = "sarama"
-		} else if taskCfg.KafkaClient == "" {
-			taskCfg.KafkaClient = "kafka-go"
 		}
 		if taskCfg.Parser == "" || taskCfg.Parser == "json" {
 			taskCfg.Parser = "fastjson"

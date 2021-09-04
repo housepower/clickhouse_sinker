@@ -370,8 +370,9 @@ Kafka release history is at [here](https://kafka.apache.org/downloads). Kafka br
 
 - Sarama guarantees compatibility [with Kafka 2.6 through 2.8](https://github.com/Shopify/sarama/blob/master/README.md#compatibility-and-api-stability).
 - Sarama [has tied it's protocol usage to the Version field in Config](https://github.com/Shopify/sarama/issues/1732).
+- Sarama consumer API provides generation cleanup callback. This ensures `exactly once` when consumer-group rebalance occur.
 
 ### Conclusion
 
-- Neither Kafka-go nor sarama is mature as Java clients. You need to try both if clickhouse_sinker fails to connect with Kafka.
+- Sarama is better than kafka-go, though neither is as mature as the officaial Kafka Java client. You need to try both if clickhouse_sinker fails to connect with Kafka.
 - Our experience is sarama can't work well with new kafka server if set its `Config.Version` to "0.11.0.0". So we suggest `KafkaConfig.Version` in clickhouse_sinker config matchs the Kafka server.

@@ -40,7 +40,6 @@ import (
 type Service struct {
 	sync.Mutex
 
-	parentCtx  context.Context
 	ctx        context.Context
 	cancel     context.CancelFunc
 	started    bool
@@ -57,12 +56,15 @@ type Service struct {
 	cntNewKeys int32 // size of newKeys
 	tid        goetty.Timeout
 
-	rings     []*Ring
-	sharder   *Sharder
-	batchChan chan *model.Batch
-	limiter1  *rate.Limiter
-	limiter2  *rate.Limiter
-	limiter3  *rate.Limiter
+	rings    []*Ring
+	sharder  *Sharder
+	limiter1 *rate.Limiter
+	limiter2 *rate.Limiter
+	limiter3 *rate.Limiter
+
+	state     uint32
+	numFlying int32
+	taskDone  *sync.Cond
 }
 
 // NewTaskService creates an instance of new tasks with kafka, clickhouse and paser instances
@@ -85,12 +87,13 @@ func NewTaskService(cfg *config.Config, taskCfg *config.TaskConfig) *Service {
 func (service *Service) Init() (err error) {
 	taskCfg := service.taskCfg
 	util.Logger.Info("task initializing", zap.String("task", taskCfg.Name))
+	service.numFlying = 0
+	service.taskDone = sync.NewCond(service)
 	if err = service.clickhouse.Init(); err != nil {
 		return
 	}
 
 	service.dims = service.clickhouse.Dims
-	service.batchChan = make(chan *model.Batch, 32)
 	service.limiter1 = rate.NewLimiter(rate.Every(10*time.Second), 1)
 	service.limiter2 = rate.NewLimiter(rate.Every(10*time.Second), 1)
 	service.limiter3 = rate.NewLimiter(rate.Every(10*time.Second), 1)
@@ -102,7 +105,7 @@ func (service *Service) Init() (err error) {
 		}
 	}
 
-	if err = service.inputer.Init(service.cfg, taskCfg, service.put); err != nil {
+	if err = service.inputer.Init(service.cfg, taskCfg, service.put, service.drain); err != nil {
 		return
 	}
 
@@ -133,10 +136,8 @@ func (service *Service) Run(ctx context.Context) {
 	var err error
 	taskCfg := service.taskCfg
 	service.started = true
-	service.parentCtx = ctx
-	service.ctx, service.cancel = context.WithCancel(ctx)
+	service.ctx = ctx
 	util.Logger.Info("task started", zap.String("task", taskCfg.Name))
-	go service.inputer.Run(service.ctx)
 	if service.sharder != nil {
 		// schedule a delayed ForceFlush
 		if service.sharder.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(taskCfg.FlushInterval)*time.Second, service.sharder.ForceFlush, nil); err != nil {
@@ -148,19 +149,7 @@ func (service *Service) Run(ctx context.Context) {
 			}
 		}
 	}
-
-LOOP:
-	for {
-		select {
-		case <-service.ctx.Done():
-			util.Logger.Info("Service.Run quit due to context has been canceled", zap.String("task", service.taskCfg.Name))
-			break LOOP
-		case batch := <-service.batchChan:
-			if err := service.flush(batch); err != nil {
-				util.Logger.Fatal("service.flush failed", zap.String("task", taskCfg.Name), zap.Error(err))
-			}
-		}
-	}
+	service.inputer.Run(service.ctx)
 	service.stopped <- struct{}{}
 }
 
@@ -237,12 +226,21 @@ func (service *Service) put(msg model.InputMessage) {
 	}
 
 	// submit message to a goroutine pool
+	atomic.AddInt32(&service.numFlying, 1)
 	statistics.ParsingPoolBacklog.WithLabelValues(taskCfg.Name).Inc()
 	_ = util.GlobalParsingPool.Submit(func() {
 		var row *model.Row
 		var foundNewKeys bool
 		var metric model.Metric
-		defer statistics.ParsingPoolBacklog.WithLabelValues(taskCfg.Name).Dec()
+		defer func() {
+			numFlying := atomic.AddInt32(&service.numFlying, -1)
+			if numFlying == 0 {
+				service.Lock()
+				service.taskDone.Signal()
+				service.Unlock()
+			}
+			statistics.ParsingPoolBacklog.WithLabelValues(taskCfg.Name).Dec()
+		}()
 		p := service.pp.Get()
 		metric, err = p.Parse(msg.Value)
 		// WARNNING: Always PutElem even if there's parsing error, so that this message can be acked to Kafka and skipped writing to ClickHouse.
@@ -297,7 +295,30 @@ func (service *Service) put(msg model.InputMessage) {
 	})
 }
 
-func (service *Service) flush(batch *model.Batch) (err error) {
+// drain ensure we have completeted procession(discard or write&commit) for all received messages, and cleared service state.
+// assumes service.put() not be invoked during drain().
+func (service *Service) drain() {
+	atomic.StoreUint32(&service.state, util.StateStopped)
+	defer atomic.StoreUint32(&service.state, util.StateRunning)
+	service.Lock()
+	for service.numFlying != 0 {
+		service.taskDone.Wait()
+	}
+	for _, ring := range service.rings {
+		if ring != nil {
+			ring.ForceBatchOrShard(nil)
+			ring.tid.Stop()
+		}
+	}
+	service.rings = make([]*Ring, 0)
+	service.Unlock()
+	if service.sharder != nil {
+		service.sharder.ForceFlush(nil)
+	}
+	service.clickhouse.Drain()
+}
+
+func (service *Service) Flush(batch *model.Batch) (err error) {
 	if (len(*batch.Rows)) == 0 {
 		return batch.Commit()
 	}
@@ -317,15 +338,7 @@ func (service *Service) changeSchema(arg interface{}) {
 	if err = service.Init(); err != nil {
 		util.Logger.Fatal("service.Init failed", zap.String("task", taskCfg.Name), zap.Error(err))
 	}
-	go service.Run(service.parentCtx)
-}
-
-// NotifyStop notify task to stop, This is non-blocking.
-func (service *Service) NotifyStop() {
-	taskCfg := service.taskCfg
-	util.Logger.Info("notified stopping task service...", zap.String("task", taskCfg.Name))
-	service.cancel()
-	service.clickhouse.NotifyStop()
+	go service.Run(service.ctx)
 }
 
 // Stop stop kafka and clickhouse client. This is blocking.
@@ -336,9 +349,6 @@ func (service *Service) Stop() {
 		return
 	}
 	util.Logger.Info("stopping task service...", zap.String("task", taskCfg.Name))
-	service.cancel()
-	service.clickhouse.Stop()
-	util.Logger.Info("stopped output", zap.String("task", taskCfg.Name))
 	if err := service.inputer.Stop(); err != nil {
 		util.Logger.Fatal("service.inputer.Stop failed", zap.Error(err))
 	}
@@ -347,13 +357,11 @@ func (service *Service) Stop() {
 	if service.sharder != nil {
 		service.sharder.tid.Stop()
 	}
-	for _, ring := range service.rings {
-		if ring != nil {
-			ring.tid.Stop()
-		}
-	}
 	service.tid.Stop()
 	util.Logger.Info("stopped internal timers", zap.String("task", taskCfg.Name))
+
+	service.drain()
+	util.Logger.Info("drained flying messages", zap.String("task", taskCfg.Name))
 
 	if service.started {
 		<-service.stopped

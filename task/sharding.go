@@ -184,8 +184,8 @@ func (sh *Sharder) PutElems(partition int, ringBuf []model.MsgRow, begOff, endOf
 			maxBatchSize = batchSize
 		}
 	}
-	util.Logger.Debug(fmt.Sprintf("sharded a batch for topic %v patittion %d, offset %d, messages %d, gaps: %+v, parse errors: %d",
-		taskCfg.Topic, partition, endOff-1, msgCnt, gaps, parseErrs),
+	util.Logger.Debug(fmt.Sprintf("sharded a batch for topic %v patittion %d, offset [%d, %d), messages %d, gaps: %+v, parse errors: %d",
+		taskCfg.Topic, partition, begOff, endOff, msgCnt, gaps, parseErrs),
 		zap.String("task", taskCfg.Name))
 	if maxBatchSize >= taskCfg.BufferSize {
 		sh.doFlush(nil)
@@ -224,7 +224,7 @@ func (sh *Sharder) doFlush(_ interface{}) {
 		sh.offsets = sh.offsets[:0]
 		// ALL batches in a group shall be populated before sending any one to next stage.
 		for _, batch := range batches {
-			sh.service.batchChan <- batch
+			sh.service.Flush(batch)
 		}
 		statistics.ShardMsgs.WithLabelValues(taskCfg.Name).Sub(float64(msgCnt))
 	}

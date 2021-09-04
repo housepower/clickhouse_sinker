@@ -51,7 +51,7 @@ func NewKafkaGo() *KafkaGo {
 }
 
 // Init Initialise the kafka instance with configuration
-func (k *KafkaGo) Init(cfg *config.Config, taskCfg *config.TaskConfig, putFn func(msg model.InputMessage)) (err error) {
+func (k *KafkaGo) Init(cfg *config.Config, taskCfg *config.TaskConfig, putFn func(msg model.InputMessage), cleanupFn func()) (err error) {
 	k.cfg = cfg
 	k.taskCfg = taskCfg
 	kfkCfg := &cfg.Kafka
