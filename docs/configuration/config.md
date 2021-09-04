@@ -85,7 +85,7 @@
     },
 
     // kafka version, if you use sarama, the version must be specified
-    "version": "2.2.1"
+    "version": "2.6.0"
   },
 
   "task": {

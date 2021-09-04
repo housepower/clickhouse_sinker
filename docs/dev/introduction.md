@@ -103,7 +103,7 @@ An example kafka config:
   "kafka": {
     "brokers": "192.168.31.64:9092",
     "@version": "Required if you use sarama. It's the the Kafka server version.",
-    "version": "2.2.1"
+    "version": "2.6.0"
   }
 ```
 
@@ -114,7 +114,7 @@ An example kafka config:
 ```json
   "kafka": {
     "brokers": "192.168.31.64:9093",
-    "version": "2.2.1",
+    "version": "2.6.0",
     "tls": {
       "enable": true,
       "@trustStoreLocation": "ssl.truststore.location which kafka-console-consumer.sh uses",
@@ -132,7 +132,7 @@ Or if you have extracted certificates from JKS, use the following config:
 ```json
   "kafka": {
     "brokers": "192.168.31.64:9093",
-    "version": "2.2.1",
+    "version": "2.6.0",
     "tls": {
       "enable": true,
       "@caCertFiles": "Required. It's the CA certificate with which Kafka brokers certs be signed. This cert is added to kafka.client.truststore.jks which kafka-console-consumer.sh uses",
@@ -169,7 +169,7 @@ An example kafka config:
   "kafka": {
     "brokers": "192.168.31.64:9092",
     "@version": "Required if you use sarama. It's the the Kafka server version.",
-    "version": "2.2.1"
+    "version": "2.6.0"
   }
 ```
 
@@ -180,7 +180,7 @@ An example kafka config:
 ```json
   "kafka": {
     "brokers": "192.168.31.64:9094",
-    "version": "2.2.1",
+    "version": "2.6.0",
     "sasl": {
       "enable": true,
       "mechanism": "PLAIN",
@@ -211,7 +211,7 @@ An example kafka config:
 ```json
   "kafka": {
     "brokers": "192.168.31.64:9094",
-    "version": "2.2.1",
+    "version": "2.6.0",
     "sasl": {
       "enable": true,
       "@mechanism": "SCRAM-SHA-256 or SCRAM-SHA-512",
@@ -243,7 +243,7 @@ An example kafka config:
 ```json
   "kafka": {
     "brokers": "192.168.31.64:9094",
-    "version": "2.2.1",
+    "version": "2.6.0",
     "sasl": {
       "enable": true,
       "mechanism": "GSSAPI",
@@ -359,7 +359,7 @@ type RemoteConfManager interface {
 
 ## Kafka Compatibility
 
-Kafka broker [exposes versions of various APIs it supports since 0.10.0.0](https://kafka.apache.org/protocol#api_versions).
+Kafka release history is at [here](https://kafka.apache.org/downloads). Kafka broker [exposes versions of various APIs it supports since 0.10.0.0](https://kafka.apache.org/protocol#api_versions).
 
 ### Kafka-go
 
@@ -368,7 +368,7 @@ Kafka broker [exposes versions of various APIs it supports since 0.10.0.0](https
 
 ### Sarama
 
-- Sarama guarantees compatibility [with Kafka 2.4 through 2.6](https://github.com/Shopify/sarama/blob/master/README.md#compatibility-and-api-stability).
+- Sarama guarantees compatibility [with Kafka 2.6 through 2.8](https://github.com/Shopify/sarama/blob/master/README.md#compatibility-and-api-stability).
 - Sarama [has tied it's protocol usage to the Version field in Config](https://github.com/Shopify/sarama/issues/1732).
 
 ### Conclusion
