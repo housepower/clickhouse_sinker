@@ -96,7 +96,9 @@ func (ring *Ring) ForceBatchOrShard(arg interface{}) {
 	if arg != nil {
 		newMsg, _ = arg.(*model.InputMessage)
 		if newMsg.Offset > ring.ringGroundOff {
-			util.Logger.Warn(fmt.Sprintf("Ring.ForceBatchOrShard partition %d message range [%d, %d)", newMsg.Partition, ring.ringGroundOff, newMsg.Offset), zap.String("task", taskCfg.Name))
+			util.Logger.Warn(fmt.Sprintf("Ring.ForceBatchOrShard partition %d message range [%d, %d)",
+				newMsg.Partition, ring.ringGroundOff, newMsg.Offset),
+				zap.String("task", taskCfg.Name))
 		}
 	}
 	if !ring.isIdle {
@@ -201,8 +203,8 @@ func (ring *Ring) genBatchOrShard(expNewGroundOff int64) {
 		}
 
 		if batch.RealSize > 0 {
-			util.Logger.Debug(fmt.Sprintf("going to flush a batch for topic %v patittion %d, offset [%d,%d), messages %d, gaps: %+v, parse errors: %d", taskCfg.Topic, ring.partition, ring.ringGroundOff, endOff,
-				batch.RealSize, gaps, parseErrs),
+			util.Logger.Debug(fmt.Sprintf("going to flush a batch for topic %v patittion %d, offset [%d,%d), messages %d, gaps: %+v, parse errors: %d",
+				taskCfg.Topic, ring.partition, ring.ringGroundOff, endOff, batch.RealSize, gaps, parseErrs),
 				zap.String("task", taskCfg.Name))
 
 			batch.BatchIdx = (endOff - 1) >> ring.batchSizeShift

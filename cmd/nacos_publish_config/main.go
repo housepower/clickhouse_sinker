@@ -81,7 +81,9 @@ func PublishSinkerConfig() {
 	for i := 1; i < *replicas; i++ {
 		for j := 0; j < len(tasks); j++ {
 			taskCfg := &config.TaskConfig{}
-			copier.Copy(taskCfg, tasks[j])
+			if err = copier.Copy(taskCfg, tasks[j]); err != nil {
+				util.Logger.Fatal("copier.Copy failed", zap.Error(err))
+			}
 			taskCfg.Name = fmt.Sprintf("%s_r%d", taskCfg.Name, i)
 			taskCfg.ConsumerGroup = fmt.Sprintf("%s_r%d", taskCfg.ConsumerGroup, i)
 			taskCfg.TableName = fmt.Sprintf("%s_r%d", taskCfg.TableName, i)

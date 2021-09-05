@@ -64,7 +64,11 @@ func (h MyConsumerGroupHandler) Setup(sess sarama.ConsumerGroupSession) error {
 func (h MyConsumerGroupHandler) Cleanup(_ sarama.ConsumerGroupSession) error {
 	begin := time.Now()
 	h.k.cleanupFn()
-	util.Logger.Info("consumer group cleanup", zap.String("task", h.k.taskCfg.Name), zap.String("consumer group", h.k.taskCfg.ConsumerGroup), zap.Int32("generation id", h.k.sess.GenerationID()), zap.Duration("cost", time.Since(begin)))
+	util.Logger.Info("consumer group cleanup",
+		zap.String("task", h.k.taskCfg.Name),
+		zap.String("consumer group", h.k.taskCfg.ConsumerGroup),
+		zap.Int32("generation id", h.k.sess.GenerationID()),
+		zap.Duration("cost", time.Since(begin)))
 	return nil
 }
 

@@ -337,7 +337,8 @@ func (s *Sinker) applyFirstConfig(newCfg *config.Config) (err error) {
 
 	// 1. Initialize clickhouse connections
 	chCfg := &newCfg.Clickhouse
-	if err = pool.InitClusterConn(chCfg.Hosts, chCfg.Port, chCfg.DB, chCfg.Username, chCfg.Password, chCfg.DsnParams, chCfg.Secure, chCfg.InsecureSkipVerify, chCfg.MaxOpenConns); err != nil {
+	if err = pool.InitClusterConn(chCfg.Hosts, chCfg.Port, chCfg.DB, chCfg.Username, chCfg.Password,
+		chCfg.DsnParams, chCfg.Secure, chCfg.InsecureSkipVerify, chCfg.MaxOpenConns); err != nil {
 		return
 	}
 
@@ -370,7 +371,8 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 		s.stopAllTasks()
 		// 2. Initialize clickhouse connections.
 		chCfg := &newCfg.Clickhouse
-		if err = pool.InitClusterConn(chCfg.Hosts, chCfg.Port, chCfg.DB, chCfg.Username, chCfg.Password, chCfg.DsnParams, chCfg.Secure, chCfg.InsecureSkipVerify, chCfg.MaxOpenConns); err != nil {
+		if err = pool.InitClusterConn(chCfg.Hosts, chCfg.Port, chCfg.DB, chCfg.Username, chCfg.Password,
+			chCfg.DsnParams, chCfg.Secure, chCfg.InsecureSkipVerify, chCfg.MaxOpenConns); err != nil {
 			return
 		}
 

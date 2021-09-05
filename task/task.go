@@ -41,7 +41,6 @@ type Service struct {
 	sync.Mutex
 
 	ctx        context.Context
-	cancel     context.CancelFunc
 	started    bool
 	stopped    chan struct{}
 	inputer    input.Inputer
