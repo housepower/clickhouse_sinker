@@ -14,6 +14,7 @@ import (
 
 var (
 	rowsPool sync.Pool
+	FakedRow Row = make([]interface{}, 0)
 )
 
 // MsgWithMeta abstract messages
@@ -48,7 +49,7 @@ type Batch struct {
 //So those batches need to be committed after ALL of them have been written to clickhouse.
 type BatchGroup struct {
 	Batchs    []*Batch
-	Offsets   []int64
+	Offsets   map[int]int64
 	Sys       *BatchSys
 	PendWrite int32 //how many batches in this group are pending to wirte to ClickHouse
 }
@@ -76,12 +77,10 @@ LOOP:
 		}
 		// commit the whole group
 		for j, off := range grp.Offsets {
-			if off >= 0 {
-				if err := bs.fnCommit(j, off); err != nil {
-					return err
-				}
-				statistics.ConsumeOffsets.WithLabelValues(bs.taskCfg.Name, bs.taskCfg.Topic, strconv.Itoa(j)).Set(float64(off))
+			if err := bs.fnCommit(j, off); err != nil {
+				return err
 			}
+			statistics.ConsumeOffsets.WithLabelValues(bs.taskCfg.Name, bs.taskCfg.Topic, strconv.Itoa(j)).Set(float64(off))
 		}
 		eNext := e.Next()
 		bs.groups.Remove(e)
@@ -94,23 +93,20 @@ func (bs *BatchSys) CreateBatchGroupSingle(batch *Batch, partition int, offset i
 	bg := &BatchGroup{
 		Sys:       bs,
 		Batchs:    []*Batch{batch},
-		Offsets:   make([]int64, partition+1),
+		Offsets:   make(map[int]int64),
 		PendWrite: 1,
 	}
 	bg.Batchs[0].Group = bg
-	for i := 0; i < partition; i++ {
-		bg.Offsets[i] = -1
-	}
 	bg.Offsets[partition] = offset
 	bs.mux.Lock()
 	bs.groups.PushBack(bg)
 	bs.mux.Unlock()
 }
 
-func (bs *BatchSys) CreateBatchGroupMulti(batches []*Batch, offsets []int64) {
+func (bs *BatchSys) CreateBatchGroupMulti(batches []*Batch, offsets map[int]int64) {
 	bg := &BatchGroup{Sys: bs, PendWrite: int32(len(batches))}
 	bg.Batchs = append(bg.Batchs, batches...)
-	bg.Offsets = append(bg.Offsets, offsets...)
+	bg.Offsets = offsets
 	for _, batch := range bg.Batchs {
 		batch.Group = bg
 	}

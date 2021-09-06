@@ -17,8 +17,10 @@ import (
 
 type Ring struct {
 	mux              sync.Mutex //protect ring*
+	available        *sync.Cond
 	ringBuf          []model.MsgRow
 	ringCap          int64 //message is allowed to insert into the ring if its offset in inside [ringGroundOff, ringGroundOff+ringCap)
+	ringCapMask      int64
 	ringGroundOff    int64 //min message offset inside the ring
 	ringCeilingOff   int64 //1 + max message offset inside the ring
 	ringFilledOffset int64 //every message which's offset inside range [ringGroundOff, ringFilledOffset) is in the ring
@@ -32,38 +34,48 @@ type Ring struct {
 	service *Service
 }
 
-func (ring *Ring) PutElem(msgRow model.MsgRow) {
-	var err error
-	taskCfg := ring.service.taskCfg
-	msgOffset := msgRow.Msg.Offset
-	ring.mux.Lock()
-	defer ring.mux.Unlock()
-	if msgOffset < ring.ringFilledOffset {
-		return
-	}
-	// ring.mux is locked at this point
+// assumes ring.mux is locked
+func (ring *Ring) QuitIdle() {
 	if ring.isIdle {
 		ring.idleCnt = 0
 		ring.isIdle = false
 		ring.ringBuf = make([]model.MsgRow, ring.ringCap)
-		util.Logger.Info(fmt.Sprintf("topic %s partition %d became busy", taskCfg.Topic, ring.partition), zap.String("task", taskCfg.Name))
+	}
+}
+
+// assumes ring.mux is locked, and msg.Offset is in range [ring.ringGroundOff, ring.ringGroundOff+ring.ringCap)
+func (ring *Ring) PutMsgNolock(msg *model.InputMessage) {
+	ring.QuitIdle()
+	ring.ringBuf[msg.Offset&ring.ringCapMask].Msg = msg
+	statistics.RingMsgs.WithLabelValues(ring.service.taskCfg.Name).Inc()
+}
+
+func (ring *Ring) PutElem(msgRow model.MsgRow) {
+	var err error
+	taskCfg := ring.service.taskCfg
+	msgOffset := msgRow.Msg.Offset
+	pMsgRow := &ring.ringBuf[msgOffset&ring.ringCapMask]
+	ring.mux.Lock()
+	defer ring.mux.Unlock()
+	if msgOffset < ring.ringFilledOffset || pMsgRow.Msg != msgRow.Msg {
+		return
 	}
 	// assert(msgOffset < ring.ringGroundOff + ring.ringCap)
 	if msgOffset >= ring.ringCeilingOff {
 		ring.ringCeilingOff = msgOffset + 1
 	}
 
-	if ring.service.sharder != nil && msgRow.Row != nil {
+	pMsgRow.Row = msgRow.Row
+	if ring.service.sharder != nil && msgRow.Row != &model.FakedRow {
 		if msgRow.Shard, err = ring.service.sharder.Calc(msgRow.Row); err != nil {
 			util.Logger.Fatal("shard number calculation failed", zap.String("task", taskCfg.Name), zap.Error(err))
 		}
+		pMsgRow.Shard = msgRow.Shard
 	}
-	statistics.RingMsgs.WithLabelValues(taskCfg.Name).Inc()
-	ring.ringBuf[msgOffset&(ring.ringCap-1)] = msgRow
-	for ; ring.ringFilledOffset < ring.ringCeilingOff && ring.ringBuf[ring.ringFilledOffset&(ring.ringCap-1)].Msg != nil; ring.ringFilledOffset++ {
+	for ; ring.ringFilledOffset < ring.ringCeilingOff && ring.ringBuf[ring.ringFilledOffset&(ring.ringCapMask)].Row != nil; ring.ringFilledOffset++ {
 	}
 	if (ring.ringFilledOffset >> ring.batchSizeShift) != (ring.ringGroundOff >> ring.batchSizeShift) {
-		ring.genBatchOrShard(ring.ringFilledOffset)
+		ring.genBatchOrShard()
 		// reschedule the delayed ForceBatchOrShard
 		ring.tid.Stop()
 		if ring.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(taskCfg.FlushInterval)*time.Second, ring.ForceBatchOrShard, nil); err != nil {
@@ -76,58 +88,69 @@ func (ring *Ring) PutElem(msgRow model.MsgRow) {
 	}
 }
 
-type OffsetRange struct {
-	Begin int64 //inclusive
-	End   int64 //exclusive
-}
-
-func (ring *Ring) ForceBatchOrShard(arg interface{}) {
-	var newMsg *model.InputMessage
+func (ring *Ring) MakeRoom(newMsg *model.InputMessage) {
+	// assert(!ring.isIdle)
 	taskCfg := ring.service.taskCfg
-	select {
-	case <-ring.service.ctx.Done():
-		util.Logger.Warn("Ring.ForceBatchOrShard quit due to the context has been canceled", zap.String("task", taskCfg.Name))
-		return
-	default:
-	}
-
 	ring.mux.Lock()
 	defer ring.mux.Unlock()
-	if arg != nil {
-		newMsg, _ = arg.(*model.InputMessage)
-		if newMsg.Offset > ring.ringGroundOff {
-			util.Logger.Warn(fmt.Sprintf("Ring.ForceBatchOrShard partition %d message range [%d, %d)",
-				newMsg.Partition, ring.ringGroundOff, newMsg.Offset),
-				zap.String("task", taskCfg.Name))
+	statistics.RingForceBatchAllTotal.WithLabelValues(taskCfg.Name).Inc()
+	ring.idleCnt = 0
+	prevMsgOff := newMsg.Offset - 1
+	if newMsg.Offset != ring.ringGroundOff+ring.ringCap ||
+		ring.ringBuf[prevMsgOff&ring.ringCapMask].Msg == nil {
+		var msgCnt int
+		for off := ring.ringGroundOff; off < ring.ringGroundOff+ring.ringCap; off++ {
+			msgRow := &ring.ringBuf[off&ring.ringCapMask]
+			if msgRow.Msg != nil {
+				msgCnt++
+			}
+			msgRow.Msg = nil
+			msgRow.Row = nil
 		}
+		util.Logger.Info(fmt.Sprintf("Ring.MakeRoom discarded %d messages for topic %v patittion %d, offset [%d,%d)",
+			msgCnt, taskCfg.Topic, ring.partition, ring.ringGroundOff, ring.ringGroundOff+ring.ringCap),
+			zap.String("task", taskCfg.Name))
+		ring.ringGroundOff = newMsg.Offset
+		ring.ringFilledOffset = newMsg.Offset
+		ring.ringCeilingOff = newMsg.Offset
+	} else {
+		for ; prevMsgOff > ring.ringGroundOff && ring.ringBuf[(prevMsgOff-1)&ring.ringCapMask].Msg != nil; prevMsgOff-- {
+		}
+		// assert(ring.ringFilledOffset < prevMsgOff)
+		var msgCnt int
+		for off := ring.ringGroundOff; off < prevMsgOff; off++ {
+			msgRow := &ring.ringBuf[off&ring.ringCapMask]
+			if msgRow.Msg != nil {
+				msgCnt++
+			}
+			msgRow.Msg = nil
+			msgRow.Row = nil
+		}
+		util.Logger.Info(fmt.Sprintf("Ring.MakeRoom discarded %d messages for topic %v patittion %d, offset [%d,%d)",
+			msgCnt, taskCfg.Topic, ring.partition, ring.ringGroundOff, prevMsgOff),
+			zap.String("task", taskCfg.Name))
+		ring.ringGroundOff = prevMsgOff
+		ring.ringFilledOffset = newMsg.Offset
+		ring.ringCeilingOff = newMsg.Offset
 	}
+}
+
+func (ring *Ring) ForceBatchOrShard(_ interface{}) {
+	taskCfg := ring.service.taskCfg
+	ring.mux.Lock()
+	defer ring.mux.Unlock()
 	if !ring.isIdle {
-		if newMsg == nil {
-			if ring.ringFilledOffset > ring.ringGroundOff {
-				ring.genBatchOrShard(ring.ringFilledOffset)
-				ring.idleCnt = 0
-			} else if ring.ringGroundOff == ring.ringCeilingOff {
-				ring.idleCnt++
-				if ring.idleCnt >= 2 {
-					ring.idleCnt = 0
-					ring.isIdle = true
-					ring.ringBuf = nil
-					util.Logger.Info(fmt.Sprintf("topic %s partition %d became idle", taskCfg.Topic, ring.partition), zap.String("task", taskCfg.Name))
-				}
-			}
-		} else {
-			statistics.RingForceBatchAllTotal.WithLabelValues(taskCfg.Name).Inc()
-		LOOP:
-			for {
-				ring.genBatchOrShard(ring.ringCeilingOff)
-				if ring.ringGroundOff == ring.ringCeilingOff {
-					break LOOP
-				}
-			}
-			ring.ringGroundOff = newMsg.Offset
-			ring.ringFilledOffset = newMsg.Offset
-			ring.ringCeilingOff = newMsg.Offset
+		if ring.ringFilledOffset > ring.ringGroundOff {
+			ring.genBatchOrShard()
 			ring.idleCnt = 0
+		} else if ring.ringGroundOff == ring.ringCeilingOff {
+			ring.idleCnt++
+			if ring.idleCnt >= 2 {
+				ring.idleCnt = 0
+				ring.isIdle = true
+				ring.ringBuf = nil
+				util.Logger.Info(fmt.Sprintf("topic %s partition %d became idle", taskCfg.Topic, ring.partition), zap.String("task", taskCfg.Name))
+			}
 		}
 	}
 
@@ -144,83 +167,54 @@ func (ring *Ring) ForceBatchOrShard(arg interface{}) {
 	}
 }
 
+// generate a batch for messages [ring.ringGroundOff, ring.ringFilledOffset)
 // assume ring.mux is locked
-func (ring *Ring) genBatchOrShard(expNewGroundOff int64) {
-	if expNewGroundOff <= ring.ringGroundOff {
-		return
-	}
+func (ring *Ring) genBatchOrShard() {
 	taskCfg := ring.service.taskCfg
-	var gaps []OffsetRange
-	var msgCnt, parseErrs int
-	endOff := (ring.ringGroundOff | int64(1<<ring.batchSizeShift-1)) + 1
-	if endOff > expNewGroundOff {
-		endOff = expNewGroundOff
-	}
-	if endOff > ring.ringCeilingOff {
-		endOff = ring.ringCeilingOff
-	}
+	var parseErrs int
+	endOff := ring.ringFilledOffset
+	msgCnt := endOff - ring.ringGroundOff
 	if atomic.LoadUint32(&ring.service.state) != util.StateRunning {
-		for i := ring.ringGroundOff; i < endOff; i++ {
-			msgRow := &ring.ringBuf[i&(ring.ringCap-1)]
-			if msgRow.Msg != nil {
-				msgCnt++
-			}
-		}
-		util.Logger.Info(fmt.Sprintf("discarded a batch for topic %v patittion %d, offset [%d,%d), messages %d", taskCfg.Topic, ring.partition, ring.ringGroundOff, endOff, msgCnt),
+		util.Logger.Info(fmt.Sprintf("Ring.genBatchOrShard discarded a batch for topic %v patittion %d, offset [%d,%d), messages %d",
+			taskCfg.Topic, ring.partition, ring.ringGroundOff, endOff, msgCnt),
 			zap.String("task", taskCfg.Name))
 		statistics.RingMsgs.WithLabelValues(taskCfg.Name).Sub(float64(msgCnt))
 		return
 	} else if ring.service.sharder != nil {
-		msgCnt = ring.service.sharder.PutElems(ring.partition, ring.ringBuf, ring.ringGroundOff, endOff, ring.ringCap)
+		ring.service.sharder.PutElems(ring.partition, ring.ringBuf, ring.ringGroundOff, endOff, ring.ringCapMask)
 		statistics.RingMsgs.WithLabelValues(taskCfg.Name).Sub(float64(msgCnt))
 	} else {
-		gapBegOff := int64(-1)
 		batch := model.NewBatch()
 		for i := ring.ringGroundOff; i < endOff; i++ {
-			msgRow := &ring.ringBuf[i&(ring.ringCap-1)]
-			if msgRow.Msg != nil {
-				msgCnt++
-				//assert msg.Offset==i
-				if gapBegOff >= 0 {
-					gaps = append(gaps, OffsetRange{Begin: gapBegOff, End: i})
-					gapBegOff = -1
-				}
-				if msgRow.Row != nil {
-					*batch.Rows = append(*batch.Rows, msgRow.Row)
-				} else {
-					parseErrs++
-				}
-			} else if gapBegOff < 0 {
-				gapBegOff = i
+			msgRow := &ring.ringBuf[i&(ring.ringCapMask)]
+			if msgRow.Row != &model.FakedRow {
+				*batch.Rows = append(*batch.Rows, msgRow.Row)
+			} else {
+				parseErrs++
 			}
 			msgRow.Msg = nil
 			msgRow.Row = nil
 			msgRow.Shard = -1
 		}
 		batch.RealSize = len(*batch.Rows)
-		if gapBegOff >= 0 {
-			gaps = append(gaps, OffsetRange{Begin: gapBegOff, End: endOff})
-		}
 
 		if batch.RealSize > 0 {
-			util.Logger.Debug(fmt.Sprintf("going to flush a batch for topic %v patittion %d, offset [%d,%d), messages %d, gaps: %+v, parse errors: %d",
-				taskCfg.Topic, ring.partition, ring.ringGroundOff, endOff, batch.RealSize, gaps, parseErrs),
+			util.Logger.Debug(fmt.Sprintf("going to flush a batch for topic %v patittion %d, offset [%d,%d), messages %d, parse errors: %d",
+				taskCfg.Topic, ring.partition, ring.ringGroundOff, endOff, batch.RealSize, parseErrs),
 				zap.String("task", taskCfg.Name))
 
 			batch.BatchIdx = (endOff - 1) >> ring.batchSizeShift
 			ring.batchSys.CreateBatchGroupSingle(batch, ring.partition, endOff-1)
 			ring.service.Flush(batch)
-			if gaps == nil {
-				statistics.RingNormalBatchsTotal.WithLabelValues(taskCfg.Name).Inc()
-			} else {
-				statistics.RingForceBatchAllGapTotal.WithLabelValues(taskCfg.Name).Inc()
-			}
+			statistics.RingNormalBatchsTotal.WithLabelValues(taskCfg.Name).Inc()
 		}
 		statistics.RingMsgs.WithLabelValues(taskCfg.Name).Sub(float64(msgCnt))
 	}
 
 	ring.ringGroundOff = endOff
+	//util.Logger.Debug(fmt.Sprintf("genBatchOrShard changed ring %p ringGroundOff to %d", ring, ring.ringGroundOff))
 	if ring.ringFilledOffset < ring.ringGroundOff {
 		ring.ringFilledOffset = ring.ringGroundOff
 	}
+	ring.available.Signal()
 }

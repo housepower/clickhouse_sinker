@@ -3,7 +3,7 @@ version: '3'
 
 services:
   zookeeper:
-    image: quay.io/bitnami/zookeeper:3.7.0
+    image: zookeeper:3.7.0
     restart: always
     hostname: zookeeper
     ports:
@@ -13,7 +13,7 @@ services:
     security_opt:
       - label:disable
   kafka:
-    image: confluentinc/cp-kafka:5.0.1-1
+    image: confluentinc/cp-kafka:6.1.1
     container_name: kafka
     restart: always
     hostname: kafka

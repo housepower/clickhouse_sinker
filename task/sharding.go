@@ -107,7 +107,7 @@ type Sharder struct {
 	ckNum    int
 	mux      sync.Mutex
 	msgBuf   []*model.Rows
-	offsets  []int64
+	offsets  map[int]int64
 	tid      goetty.Timeout
 }
 
@@ -124,7 +124,7 @@ func NewSharder(service *Service) (sh *Sharder, err error) {
 		batchSys: model.NewBatchSys(taskCfg, service.fnCommit),
 		ckNum:    ckNum,
 		msgBuf:   make([]*model.Rows, ckNum),
-		offsets:  make([]int64, 0),
+		offsets:  make(map[int]int64),
 	}
 	for i := 0; i < ckNum; i++ {
 		sh.msgBuf[i] = model.GetRows()
@@ -136,47 +136,31 @@ func (sh *Sharder) Calc(row *model.Row) (int, error) {
 	return sh.policy.Calc(row)
 }
 
-func (sh *Sharder) PutElems(partition int, ringBuf []model.MsgRow, begOff, endOff, ringCap int64) (msgCnt int) {
+func (sh *Sharder) PutElems(partition int, ringBuf []model.MsgRow, begOff, endOff, ringCapMask int64) {
+	if begOff <= endOff {
+		return
+	}
+	msgCnt := endOff - begOff
 	sh.mux.Lock()
 	defer sh.mux.Unlock()
-	var gaps []OffsetRange
 	var parseErrs int
 	taskCfg := sh.service.taskCfg
-	gapBegOff := int64(-1)
 	for i := begOff; i < endOff; i++ {
-		msgRow := &ringBuf[i&(ringCap-1)]
-		if msgRow.Msg != nil {
-			msgCnt++
-			//assert msg.Offset==i
-			if msgRow.Row != nil {
-				rows := sh.msgBuf[msgRow.Shard]
-				*rows = append(*rows, msgRow.Row)
-			} else {
-				parseErrs++
-			}
-			if gapBegOff >= 0 {
-				gaps = append(gaps, OffsetRange{Begin: gapBegOff, End: i})
-				gapBegOff = -1
-			}
-		} else if gapBegOff < 0 {
-			gapBegOff = i
+		msgRow := &ringBuf[i&ringCapMask]
+		//assert msg.Offset==i
+		if msgRow.Row != &model.FakedRow {
+			rows := sh.msgBuf[msgRow.Shard]
+			*rows = append(*rows, msgRow.Row)
+		} else {
+			parseErrs++
 		}
 		msgRow.Msg = nil
 		msgRow.Row = nil
 		msgRow.Shard = -1
 	}
-	if gapBegOff >= 0 {
-		gaps = append(gaps, OffsetRange{Begin: gapBegOff, End: endOff})
-	}
 
-	gap := partition + 1 - len(sh.offsets)
-	for i := 0; i < gap; i++ {
-		sh.offsets = append(sh.offsets, -1)
-	}
-	if msgCnt > 0 {
-		sh.offsets[partition] = endOff - 1
-		statistics.ShardMsgs.WithLabelValues(taskCfg.Name).Add(float64(msgCnt))
-	}
+	sh.offsets[partition] = endOff - 1
+	statistics.ShardMsgs.WithLabelValues(taskCfg.Name).Add(float64(msgCnt))
 	var maxBatchSize int
 	for i := 0; i < sh.ckNum; i++ {
 		batchSize := len(*sh.msgBuf[i])
@@ -184,13 +168,12 @@ func (sh *Sharder) PutElems(partition int, ringBuf []model.MsgRow, begOff, endOf
 			maxBatchSize = batchSize
 		}
 	}
-	util.Logger.Debug(fmt.Sprintf("sharded a batch for topic %v patittion %d, offset [%d, %d), messages %d, gaps: %+v, parse errors: %d",
-		taskCfg.Topic, partition, begOff, endOff, msgCnt, gaps, parseErrs),
+	util.Logger.Debug(fmt.Sprintf("sharded a batch for topic %v patittion %d, offset [%d, %d), messages %d, parse errors: %d",
+		taskCfg.Topic, partition, begOff, endOff, msgCnt, parseErrs),
 		zap.String("task", taskCfg.Name))
 	if maxBatchSize >= taskCfg.BufferSize {
 		sh.doFlush(nil)
 	}
-	return
 }
 
 func (sh *Sharder) ForceFlush(arg interface{}) {
@@ -221,7 +204,7 @@ func (sh *Sharder) doFlush(_ interface{}) {
 	if msgCnt > 0 {
 		util.Logger.Debug(fmt.Sprintf("going to flush batch group for topic %v, offsets %+v, messages %d", taskCfg.Topic, sh.offsets, msgCnt), zap.String("task", taskCfg.Name))
 		sh.batchSys.CreateBatchGroupMulti(batches, sh.offsets)
-		sh.offsets = sh.offsets[:0]
+		sh.offsets = make(map[int]int64)
 		// ALL batches in a group shall be populated before sending any one to next stage.
 		for _, batch := range batches {
 			sh.service.Flush(batch)

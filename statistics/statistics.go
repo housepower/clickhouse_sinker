@@ -88,13 +88,6 @@ var (
 		},
 		[]string{"task"},
 	)
-	RingForceBatchAllGapTotal = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: prefix + "ring_force_batch_all_gap_total",
-			Help: "total num of force batch_all generated with some offset gap",
-		},
-		[]string{"task"},
-	)
 	FlushMsgsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: prefix + "flush_msgs_total",
@@ -162,7 +155,6 @@ func init() {
 	prometheus.MustRegister(RingNormalBatchsTotal)
 	prometheus.MustRegister(RingForceBatchsTotal)
 	prometheus.MustRegister(RingForceBatchAllTotal)
-	prometheus.MustRegister(RingForceBatchAllGapTotal)
 	prometheus.MustRegister(FlushMsgsTotal)
 	prometheus.MustRegister(FlushMsgsErrorTotal)
 	prometheus.MustRegister(ConsumeOffsets)
@@ -253,7 +245,6 @@ func (p *Pusher) reconnect() {
 		Collector(RingNormalBatchsTotal).
 		Collector(RingForceBatchsTotal).
 		Collector(RingForceBatchAllTotal).
-		Collector(RingForceBatchAllGapTotal).
 		Collector(FlushMsgsTotal).
 		Collector(FlushMsgsErrorTotal).
 		Collector(ConsumeOffsets).

@@ -59,7 +59,6 @@ type Service struct {
 	sharder  *Sharder
 	limiter1 *rate.Limiter
 	limiter2 *rate.Limiter
-	limiter3 *rate.Limiter
 
 	state     uint32
 	numFlying int32
@@ -67,11 +66,11 @@ type Service struct {
 }
 
 // NewTaskService creates an instance of new tasks with kafka, clickhouse and paser instances
-func NewTaskService(cfg *config.Config, taskCfg *config.TaskConfig) *Service {
+func NewTaskService(cfg *config.Config, taskCfg *config.TaskConfig) (service *Service) {
 	ck := output.NewClickHouse(cfg, taskCfg)
 	pp, _ := parser.NewParserPool(taskCfg.Parser, taskCfg.CsvFormat, taskCfg.Delimiter, taskCfg.TimeZone)
 	inputer := input.NewInputer(taskCfg.KafkaClient)
-	return &Service{
+	service = &Service{
 		stopped:    make(chan struct{}),
 		inputer:    inputer,
 		clickhouse: ck,
@@ -80,6 +79,8 @@ func NewTaskService(cfg *config.Config, taskCfg *config.TaskConfig) *Service {
 		cfg:        cfg,
 		taskCfg:    taskCfg,
 	}
+	service.taskDone = sync.NewCond(service)
+	return
 }
 
 // Init initializes the kafak and clickhouse task associated with this service
@@ -87,7 +88,7 @@ func (service *Service) Init() (err error) {
 	taskCfg := service.taskCfg
 	util.Logger.Info("task initializing", zap.String("task", taskCfg.Name))
 	service.numFlying = 0
-	service.taskDone = sync.NewCond(service)
+	atomic.StoreUint32(&service.state, util.StateRunning)
 	if err = service.clickhouse.Init(); err != nil {
 		return
 	}
@@ -95,7 +96,6 @@ func (service *Service) Init() (err error) {
 	service.dims = service.clickhouse.Dims
 	service.limiter1 = rate.NewLimiter(rate.Every(10*time.Second), 1)
 	service.limiter2 = rate.NewLimiter(rate.Every(10*time.Second), 1)
-	service.limiter3 = rate.NewLimiter(rate.Every(10*time.Second), 1)
 
 	service.rings = make([]*Ring, 0)
 	if taskCfg.ShardingKey != "" {
@@ -158,6 +158,9 @@ func (service *Service) fnCommit(partition int, offset int64) error {
 }
 
 func (service *Service) put(msg model.InputMessage) {
+	if atomic.LoadUint32(&service.state) != util.StateRunning {
+		return
+	}
 	taskCfg := service.taskCfg
 	statistics.ConsumeMsgsTotal.WithLabelValues(taskCfg.Name).Inc()
 	// ensure ring for this message exist
@@ -178,6 +181,7 @@ func (service *Service) put(msg model.InputMessage) {
 		ring := &Ring{
 			ringBuf:          make([]model.MsgRow, ringCap),
 			ringCap:          ringCap,
+			ringCapMask:      ringCap - 1,
 			ringGroundOff:    msg.Offset,
 			ringCeilingOff:   msg.Offset,
 			ringFilledOffset: msg.Offset,
@@ -188,6 +192,8 @@ func (service *Service) put(msg model.InputMessage) {
 			batchSys:         model.NewBatchSys(taskCfg, service.fnCommit),
 			service:          service,
 		}
+		ring.available = sync.NewCond(&ring.mux)
+		ring.PutMsgNolock(&msg)
 		// schedule a delayed ForceBatchOrShard
 		if ring.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(taskCfg.FlushInterval)*time.Second, ring.ForceBatchOrShard, nil); err != nil {
 			if errors.Is(err, goetty.ErrSystemStopped) {
@@ -201,26 +207,37 @@ func (service *Service) put(msg model.InputMessage) {
 		service.Unlock()
 	} else {
 		service.Unlock()
-		var ringGroundOff, ringFilledOffset int64
 		ring.mux.Lock()
-		ringGroundOff, ringFilledOffset = ring.ringGroundOff, ring.ringFilledOffset
-		ring.mux.Unlock()
-		if msg.Offset < ringFilledOffset {
+		ring.QuitIdle()
+		if msg.Offset < ring.ringFilledOffset {
 			statistics.RingMsgsOffTooSmallErrorTotal.WithLabelValues(taskCfg.Name).Inc()
 			if service.limiter2.Allow() {
 				util.Logger.Warn(fmt.Sprintf("got a message(topic %v, partition %d, offset %v) left to %v",
-					msg.Topic, msg.Partition, msg.Offset, ringFilledOffset), zap.String("task", taskCfg.Name))
+					msg.Topic, msg.Partition, msg.Offset, ring.ringFilledOffset), zap.String("task", taskCfg.Name))
 			}
+			ring.mux.Unlock()
 			return
-		}
-		if msg.Offset >= ringGroundOff+ring.ringCap && atomic.LoadInt32(&service.cntNewKeys) == 0 {
-			statistics.RingMsgsOffTooLargeErrorTotal.WithLabelValues(taskCfg.Name).Inc()
-			if service.limiter3.Allow() {
-				util.Logger.Warn(fmt.Sprintf("got a message(topic %v, partition %d, offset %v) right to the range [%v, %v)",
-					msg.Topic, msg.Partition, msg.Offset, ring.ringGroundOff, ring.ringGroundOff+ring.ringCap), zap.String("task", taskCfg.Name))
+		} else if msg.Offset < ring.ringGroundOff+ring.ringCap {
+			ring.PutMsgNolock(&msg)
+			ring.mux.Unlock()
+		} else {
+			prevMsgOff := msg.Offset - 1
+			for msg.Offset == ring.ringGroundOff+ring.ringCap && ring.ringBuf[prevMsgOff&ring.ringCapMask].Msg != nil {
+				// wait ring.PutElem to make room
+				ring.available.Wait()
 			}
-			time.Sleep(1 * time.Second)
-			ring.ForceBatchOrShard(&msg)
+			if msg.Offset == ring.ringGroundOff || (msg.Offset < ring.ringGroundOff+ring.ringCap && ring.ringBuf[prevMsgOff&ring.ringCapMask].Msg != nil) {
+				ring.PutMsgNolock(&msg)
+				ring.mux.Unlock()
+			} else {
+				// discard messages to make room
+				ring.mux.Unlock()
+				statistics.RingMsgsOffTooLargeErrorTotal.WithLabelValues(taskCfg.Name).Inc()
+				util.Logger.Warn(fmt.Sprintf("got a message(topic %v, partition %d, offset %v) which's previous one is absent in ring offsets [%v, %v)",
+					msg.Topic, msg.Partition, msg.Offset, ring.ringGroundOff, ring.ringGroundOff+ring.ringCap), zap.String("task", taskCfg.Name))
+				ring.MakeRoom(&msg)
+				ring.PutMsgNolock(&msg)
+			}
 		}
 	}
 
@@ -244,6 +261,7 @@ func (service *Service) put(msg model.InputMessage) {
 		metric, err = p.Parse(msg.Value)
 		// WARNNING: Always PutElem even if there's parsing error, so that this message can be acked to Kafka and skipped writing to ClickHouse.
 		if err != nil {
+			row = &model.FakedRow
 			statistics.ParseMsgsErrorTotal.WithLabelValues(taskCfg.Name).Inc()
 			if service.limiter1.Allow() {
 				util.Logger.Error(fmt.Sprintf("failed to parse message(topic %v, partition %d, offset %v)",
@@ -295,10 +313,10 @@ func (service *Service) put(msg model.InputMessage) {
 }
 
 // drain ensure we have completeted procession(discard or write&commit) for all received messages, and cleared service state.
-// assumes service.put() not be invoked during drain().
 func (service *Service) drain() {
+	savedState := atomic.LoadUint32(&service.state)
 	atomic.StoreUint32(&service.state, util.StateStopped)
-	defer atomic.StoreUint32(&service.state, util.StateRunning)
+	defer atomic.StoreUint32(&service.state, savedState)
 	service.Lock()
 	for service.numFlying != 0 {
 		service.taskDone.Wait()
@@ -348,10 +366,7 @@ func (service *Service) Stop() {
 		return
 	}
 	util.Logger.Info("stopping task service...", zap.String("task", taskCfg.Name))
-	if err := service.inputer.Stop(); err != nil {
-		util.Logger.Fatal("service.inputer.Stop failed", zap.Error(err))
-	}
-	util.Logger.Info("stopped input", zap.String("task", taskCfg.Name))
+	atomic.StoreUint32(&service.state, util.StateStopped)
 
 	if service.sharder != nil {
 		service.sharder.tid.Stop()
@@ -362,8 +377,15 @@ func (service *Service) Stop() {
 	service.drain()
 	util.Logger.Info("drained flying messages", zap.String("task", taskCfg.Name))
 
+	// Note: inputer needs be stopped *after* drain() since a closed kafka-go client cannot commit offsets.
+	if err := service.inputer.Stop(); err != nil {
+		util.Logger.Fatal("service.inputer.Stop failed", zap.Error(err))
+	}
+	util.Logger.Info("stopped input", zap.String("task", taskCfg.Name))
+
 	if service.started {
 		<-service.stopped
 	}
+	service.started = false
 	util.Logger.Info("stopped", zap.String("task", taskCfg.Name))
 }
