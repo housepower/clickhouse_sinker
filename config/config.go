@@ -180,7 +180,7 @@ func (cfg *Config) Normallize() (err error) {
 		return
 	}
 	if cfg.Kafka.Version == "" {
-		cfg.Kafka.Version = "2.6.0"
+		cfg.Kafka.Version = "2.5.0"
 	}
 
 	cfg.convertKfkSecurity()

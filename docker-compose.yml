@@ -13,7 +13,7 @@ services:
     security_opt:
       - label:disable
   kafka:
-    image: confluentinc/cp-kafka:6.1.1
+    image: confluentinc/cp-kafka:5.5.0
     container_name: kafka
     restart: always
     hostname: kafka
