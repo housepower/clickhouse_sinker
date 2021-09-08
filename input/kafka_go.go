@@ -66,10 +66,13 @@ func (k *KafkaGo) Init(cfg *config.Config, taskCfg *config.TaskConfig, putFn fun
 		GroupID:        k.taskCfg.ConsumerGroup,
 		Topic:          k.taskCfg.Topic,
 		StartOffset:    offset,
-		MinBytes:       1024 * 1024,                           // sarama.Consumer.Fetch.Min
-		MaxBytes:       100 * 1024 * 1024,                     // sarama.MaxResponseSize
-		MaxWait:        time.Duration(100) * time.Millisecond, // sarama.Consumer.MaxWaitTime
-		CommitInterval: time.Second,                           // flushes commits to Kafka every second
+		MinBytes:       1024 * 1024,                           // sarama.Config.Consumer.Fetch.Min
+		MaxBytes:       100 * 1024 * 1024,                     // sarama.Config.MaxResponseSize
+		MaxWait:        time.Duration(100) * time.Millisecond, // sarama.Config.Consumer.MaxWaitTime
+		CommitInterval: time.Second,                           // sarama.Config.Consumer.Offsets.AutoCommit.Interval
+		// PartitionWatchInterval is only used when GroupID is set and WatchPartitionChanges is set.
+		PartitionWatchInterval: 600 * time.Second, // sarama.Config.Metadata.RefreshFrequency
+		WatchPartitionChanges:  true,
 	}
 	if kfkCfg.TLS.CaCertFiles == "" && kfkCfg.TLS.TrustStoreLocation != "" {
 		if kfkCfg.TLS.CaCertFiles, _, err = util.JksToPem(kfkCfg.TLS.TrustStoreLocation, kfkCfg.TLS.TrustStorePassword, false); err != nil {
