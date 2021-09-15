@@ -141,6 +141,7 @@ func (k *KafkaSarama) Init(cfg *config.Config, taskCfg *config.TaskConfig, putFn
 	if err != nil {
 		return err
 	}
+	//sarama.Logger, _ = zap.NewStdLogAt(util.Logger.With(zap.String("name", "sarama")), zapcore.DebugLevel)
 	k.cg = cg
 	return nil
 }
