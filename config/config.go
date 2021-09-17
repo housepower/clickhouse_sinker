@@ -85,6 +85,8 @@ type KafkaConfig struct {
 			DisablePAFXFAST    bool
 		}
 	}
+
+	SchemaRegistryURL string
 }
 
 // ClickHouseConfig configuration parameters

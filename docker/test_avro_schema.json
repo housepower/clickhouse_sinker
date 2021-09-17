@@ -1,0 +1,60 @@
+{
+  "clickhouse": {
+    "hosts": [
+      [
+        "127.0.0.1"
+      ]
+    ],
+    "port": 9000,
+    "db": "default",
+    "username": "default",
+    "password": "",
+    "retryTimes": 0
+  },
+  "kafka": {
+    "brokers": "flA5zuV.westeurope.azure.confluent.cloud:9092",
+    "version": "2.5.0",
+    "schemaRegistryURL": "https://qSPB1MoFE0XE:RgTnTRlOc6B0WdnWsn7kjlaOhwduj3JqATt6zRBKbCPVrtTxjcGiKNyQR0BxSaHP@flA5z[uV.europe-west3.gcp.confluent.cloud",
+    "sasl": {
+      "mechanism": "PLAIN",
+      "username": "6ZXJ8Ze3w6RDwBO0XceXGIPH5DYrjlUf",
+      "password": "7vxAQCLOU1HJr4sGfo4wDshPGFggxTrJCRg7eLioSwrqHAKrtf"
+    },
+    "security":{
+      "protocol": "SASL_SSL"
+    }
+  },
+  "task": {
+    "name": "test_avro_schema",
+    "kafkaClient": "avro",
+    "topic": "cloudia.debezium.all_tables",
+    "consumerGroup": "test_avro_schema",
+    "parser": "gjson",
+    "tableName": "queue",
+    "dims": [
+      {
+        "name": "Id",
+        "type": "Int32",
+        "sourcename": "before.cloudia\\.debezium\\.all_tables\\.Value.id"
+      },
+      {
+        "name": "Title",
+        "type": "String",
+        "sourcename": "before.cloudia\\.debezium\\.all_tables\\.Value.title.string"
+      },
+      {
+        "name": "Note",
+        "type": "String",
+        "sourcename": "before.cloudia\\.debezium\\.all_tables\\.Value.note.string"
+      },
+      {
+        "name": "Table",
+        "type": "String",
+        "sourcename": "source.table"
+      }
+    ],
+    "bufferSize": 50000
+  },
+  "logLevel": "debug",
+  "logPaths": ["stdout", "test_avro_schema.log"]
+}

@@ -7,16 +7,20 @@ require (
 	github.com/Shopify/sarama v1.29.1
 	github.com/bytedance/sonic v0.0.0-20210624083732-e9b6634cac5a
 	github.com/cespare/xxhash/v2 v2.1.2
+	github.com/confluentinc/confluent-kafka-go v1.6.1
 	github.com/fagongzi/goetty v1.7.0
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/google/gops v0.3.18
 	github.com/jinzhu/copier v0.3.2
 	github.com/klauspost/compress v1.13.5 // indirect
+	github.com/linkedin/goavro/v2 v2.10.0
+	github.com/mycujoo/go-kafka-avro/v2 v2.0.0
 	github.com/nacos-group/nacos-sdk-go v1.0.7
 	github.com/pierrec/lz4 v2.6.1+incompatible // indirect
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.11.0
 	github.com/prometheus/common v0.26.0
+	github.com/riferrei/srclient v0.4.0
 	github.com/segmentio/kafka-go v0.4.17
 	github.com/sirupsen/logrus v1.6.0
 	github.com/smartystreets/goconvey v1.6.4 // indirect
