@@ -3,7 +3,7 @@ SINKER_LDFLAGS += -X "main.date=$(shell date --iso-8601=s)"
 SINKER_LDFLAGS += -X "main.commit=$(shell git rev-parse HEAD)"
 SINKER_LDFLAGS += -X "main.builtBy=$(shell echo `whoami`@`hostname`)"
 
-GO        := CGO_ENABLED=0 go
+GO        := CGO_ENABLED=1 go
 GOBUILD   := $(GO) build $(BUILD_FLAG)
 
 pre:

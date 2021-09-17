@@ -93,8 +93,6 @@ LOOP_ARMO:
 		native, _, _ := schema.Codec().NativeFromBinary(msg.Value[5:])
 		value, _ := schema.Codec().TextualFromNative(nil, native)
 
-		util.Logger.Debug("List of ", zap.String("LIST: ", string(value)))
-
 		k.putFn(model.InputMessage{
 			Topic:     *msg.TopicPartition.Topic,
 			Partition: int(msg.TopicPartition.Partition),
