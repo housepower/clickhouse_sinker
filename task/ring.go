@@ -225,5 +225,5 @@ func (ring *Ring) genBatchOrShard() {
 	if ring.ringFilledOffset < ring.ringGroundOff {
 		ring.ringFilledOffset = ring.ringGroundOff
 	}
-	ring.available.Signal()
+	ring.available.Broadcast()
 }

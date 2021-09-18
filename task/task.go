@@ -237,19 +237,21 @@ func (service *Service) put(msg model.InputMessage) {
 	}
 
 	// submit message to a goroutine pool
-	atomic.AddInt32(&service.numFlying, 1)
+	service.Lock()
+	service.numFlying++
+	service.Unlock()
 	statistics.ParsingPoolBacklog.WithLabelValues(taskCfg.Name).Inc()
 	_ = util.GlobalParsingPool.Submit(func() {
 		var row *model.Row
 		var foundNewKeys bool
 		var metric model.Metric
 		defer func() {
-			numFlying := atomic.AddInt32(&service.numFlying, -1)
-			if numFlying == 0 {
-				service.Lock()
-				service.taskDone.Signal()
-				service.Unlock()
+			service.Lock()
+			service.numFlying--
+			if service.numFlying == 0 {
+				service.taskDone.Broadcast()
 			}
+			service.Unlock()
 			statistics.ParsingPoolBacklog.WithLabelValues(taskCfg.Name).Dec()
 		}()
 		p := service.pp.Get()

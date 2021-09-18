@@ -25,7 +25,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go"
@@ -75,24 +74,26 @@ func (c *ClickHouse) Init() (err error) {
 // Drain drains flying batchs
 func (c *ClickHouse) Drain() {
 	c.mux.Lock()
-	defer c.mux.Unlock()
-	for atomic.LoadInt32(&c.numFlying) != 0 {
+	for c.numFlying != 0 {
 		c.taskDone.Wait()
 	}
+	c.mux.Unlock()
 }
 
 // Send a batch to clickhouse
 func (c *ClickHouse) Send(batch *model.Batch) {
-	atomic.AddInt32(&c.numFlying, 1)
+	c.mux.Lock()
+	c.numFlying++
+	c.mux.Unlock()
 	statistics.WritingPoolBacklog.WithLabelValues(c.taskCfg.Name).Inc()
 	_ = util.GlobalWritingPool.Submit(func() {
 		c.loopWrite(batch)
-		numFlying := atomic.AddInt32(&c.numFlying, -1)
-		if numFlying == 0 {
-			c.mux.Lock()
-			c.taskDone.Signal()
-			c.mux.Unlock()
+		c.mux.Lock()
+		c.numFlying--
+		if c.numFlying == 0 {
+			c.taskDone.Broadcast()
 		}
+		c.mux.Unlock()
 		statistics.WritingPoolBacklog.WithLabelValues(c.taskCfg.Name).Dec()
 	})
 }
