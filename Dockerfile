@@ -16,6 +16,8 @@ COPY --from=builder /app/kafka_gen_metric /usr/local/bin/kafka_gen_metric
 # clickhouse_sinker gets config from local file "/etc/clickhouse_sinker.json" by default.
 # Customize behavior with following env variables:
 # - V
+# - LOG_LEVEL
+# - LOG_PATHS
 # - HTTP_PORT
 # - METRIC_PUSH_GATEWAY_ADDRS
 # - PUSH_INTERVAL
@@ -26,6 +28,7 @@ COPY --from=builder /app/kafka_gen_metric /usr/local/bin/kafka_gen_metric
 # - NACOS_NAMESPACE_ID
 # - NACOS_GROUP
 # - NACOS_DATAID
+# - NACOS_SERVICE_NAME
 # See cmd/clickhouse_sinker/main.go for details.
 
 ENTRYPOINT ["/usr/local/bin/clickhouse_sinker"]
