@@ -40,6 +40,14 @@ func (ring *Ring) QuitIdle() {
 		ring.idleCnt = 0
 		ring.isIdle = false
 		ring.ringBuf = make([]model.MsgRow, ring.ringCap)
+		var err error
+		if ring.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(ring.service.taskCfg.FlushInterval)*time.Second, ring.ForceBatchOrShard, nil); err != nil {
+			if errors.Is(err, goetty.ErrSystemStopped) {
+				util.Logger.Info("Ring.QuitIdle scheduling timer to a stopped timer wheel", zap.String("task", ring.service.taskCfg.Name), zap.Error(err))
+			} else {
+				util.Logger.Fatal("scheduling timer failed", zap.String("task", ring.service.taskCfg.Name), zap.Error(err))
+			}
+		}
 	}
 }
 
@@ -139,10 +147,21 @@ func (ring *Ring) ForceBatchOrShard(_ interface{}) {
 	taskCfg := ring.service.taskCfg
 	ring.mux.Lock()
 	defer ring.mux.Unlock()
+	ring.tid.Stop()
 	if !ring.isIdle {
 		if ring.ringFilledOffset > ring.ringGroundOff {
 			ring.genBatchOrShard()
 			ring.idleCnt = 0
+			// reschedule the delayed ForceBatchOrShard
+			var err error
+			if ring.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(taskCfg.FlushInterval)*time.Second, ring.ForceBatchOrShard, nil); err != nil {
+				if errors.Is(err, goetty.ErrSystemStopped) {
+					util.Logger.Warn("Ring.ForceBatchOrShard scheduling timer to a stopped timer wheel", zap.String("task", taskCfg.Name), zap.Error(err))
+				} else {
+					err = errors.Wrap(err, "")
+					util.Logger.Fatal("scheduling timer filed", zap.String("task", taskCfg.Name), zap.Error(err))
+				}
+			}
 		} else if ring.ringGroundOff == ring.ringCeilingOff {
 			ring.idleCnt++
 			if ring.idleCnt >= 2 {
@@ -151,18 +170,6 @@ func (ring *Ring) ForceBatchOrShard(_ interface{}) {
 				ring.ringBuf = nil
 				util.Logger.Info(fmt.Sprintf("topic %s partition %d became idle", taskCfg.Topic, ring.partition), zap.String("task", taskCfg.Name))
 			}
-		}
-	}
-
-	// reschedule the delayed ForceBatchOrShard
-	ring.tid.Stop()
-	var err error
-	if ring.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(taskCfg.FlushInterval)*time.Second, ring.ForceBatchOrShard, nil); err != nil {
-		if errors.Is(err, goetty.ErrSystemStopped) {
-			util.Logger.Warn("Ring.ForceBatchOrShard scheduling timer to a stopped timer wheel", zap.String("task", taskCfg.Name), zap.Error(err))
-		} else {
-			err = errors.Wrap(err, "")
-			util.Logger.Fatal("scheduling timer filed", zap.String("task", taskCfg.Name), zap.Error(err))
 		}
 	}
 }
@@ -178,11 +185,14 @@ func (ring *Ring) genBatchOrShard() {
 		util.Logger.Info(fmt.Sprintf("Ring.genBatchOrShard discarded a batch for topic %v patittion %d, offset [%d,%d), messages %d",
 			taskCfg.Topic, ring.partition, ring.ringGroundOff, endOff, msgCnt),
 			zap.String("task", taskCfg.Name))
-		statistics.RingMsgs.WithLabelValues(taskCfg.Name).Sub(float64(msgCnt))
-		return
+		for i := ring.ringGroundOff; i < endOff; i++ {
+			msgRow := &ring.ringBuf[i&(ring.ringCapMask)]
+			msgRow.Msg = nil
+			msgRow.Row = nil
+			msgRow.Shard = -1
+		}
 	} else if ring.service.sharder != nil {
 		ring.service.sharder.PutElems(ring.partition, ring.ringBuf, ring.ringGroundOff, endOff, ring.ringCapMask)
-		statistics.RingMsgs.WithLabelValues(taskCfg.Name).Sub(float64(msgCnt))
 	} else {
 		batch := model.NewBatch()
 		for i := ring.ringGroundOff; i < endOff; i++ {
@@ -208,9 +218,8 @@ func (ring *Ring) genBatchOrShard() {
 			ring.service.Flush(batch)
 			statistics.RingNormalBatchsTotal.WithLabelValues(taskCfg.Name).Inc()
 		}
-		statistics.RingMsgs.WithLabelValues(taskCfg.Name).Sub(float64(msgCnt))
 	}
-
+	statistics.RingMsgs.WithLabelValues(taskCfg.Name).Sub(float64(msgCnt))
 	ring.ringGroundOff = endOff
 	//util.Logger.Debug(fmt.Sprintf("genBatchOrShard changed ring %p ringGroundOff to %d", ring, ring.ringGroundOff))
 	if ring.ringFilledOffset < ring.ringGroundOff {
