@@ -12,7 +12,7 @@ Refers to [design](./design.md) for how it works.
 - Uses native ClickHouse client-server TCP protocol, with higher performance than HTTP.
 - Easy to use and deploy, you don't need write any hard code, just care about the configuration file
 - Support multiple parsers: fastjson(recommended), gjson, csv.
-- Support multiple Kafka client: kafka-go(recommended), sarama.
+- Support multiple Kafka client: sarama(recommended), kafka-go.
 - Support multiple Kafka security mechanisms: SSL, SASL/PLAIN, SASL/SCRAM, SASL/GSSAPI and combinations of them.
 - Bulk insert (by config `bufferSize` and `flushInterval`).
 - Parse messages concurrently.
