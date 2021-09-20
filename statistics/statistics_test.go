@@ -15,7 +15,6 @@ limitations under the License.
 package statistics
 
 import (
-	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -36,8 +35,7 @@ func TestPusher(t *testing.T) {
 	err := pusher.Init()
 	require.Nilf(t, err, "pusher init failed")
 
-	ctx := context.Background()
-	go pusher.Run(ctx)
+	go pusher.Run()
 	time.Sleep(10 * time.Second)
 	pusher.Stop()
 }

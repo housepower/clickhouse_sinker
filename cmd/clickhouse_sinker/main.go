@@ -25,6 +25,7 @@ import (
 	"net/http/pprof"
 	"os"
 	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -236,19 +237,26 @@ func main() {
 
 // Sinker object maintains number of task for each partition
 type Sinker struct {
-	curCfg *config.Config
-	numCfg int
-	pusher *statistics.Pusher
-	tasks  map[string]*task.Service
-	rcm    cm.RemoteConfManager
-	ctx    context.Context
-	cancel context.CancelFunc
+	curCfg  *config.Config
+	numCfg  int
+	pusher  *statistics.Pusher
+	tasks   map[string]*task.Service
+	rcm     cm.RemoteConfManager
+	ctx     context.Context
+	cancel  context.CancelFunc
+	stopped chan struct{}
 }
 
 // NewSinker get an instance of sinker with the task list
 func NewSinker(rcm cm.RemoteConfManager) *Sinker {
 	ctx, cancel := context.WithCancel(context.Background())
-	s := &Sinker{tasks: make(map[string]*task.Service), rcm: rcm, ctx: ctx, cancel: cancel}
+	s := &Sinker{
+		tasks:   make(map[string]*task.Service),
+		rcm:     rcm,
+		ctx:     ctx,
+		cancel:  cancel,
+		stopped: make(chan struct{}),
+	}
 	return s
 }
 
@@ -256,17 +264,20 @@ func (s *Sinker) Init() (err error) {
 	return
 }
 
-// Run rull task in different go routines
+// Run is the mainloop to get and apply config
 func (s *Sinker) Run() {
 	var err error
 	var newCfg *config.Config
+	defer func() {
+		s.stopped <- struct{}{}
+	}()
 	if cmdOps.PushGatewayAddrs != "" {
 		addrs := strings.Split(cmdOps.PushGatewayAddrs, ",")
 		s.pusher = statistics.NewPusher(addrs, cmdOps.PushInterval, httpAddr)
 		if err = s.pusher.Init(); err != nil {
 			return
 		}
-		go s.pusher.Run(s.ctx)
+		go s.pusher.Run()
 	}
 	if s.rcm == nil {
 		if _, err = os.Stat(cmdOps.LocalCfgFile); err == nil {
@@ -289,11 +300,12 @@ func (s *Sinker) Run() {
 		<-s.ctx.Done()
 	} else {
 		if cmdOps.NacosServiceName != "" {
-			go s.rcm.Run(s.ctx)
+			go s.rcm.Run()
 		}
 		for {
 			select {
 			case <-s.ctx.Done():
+				util.Logger.Info("Sinker.Run quit due to context has been canceled")
 				return
 			case <-time.After(10 * time.Second):
 				if newCfg, err = s.rcm.GetConfig(); err != nil {
@@ -315,13 +327,17 @@ func (s *Sinker) Run() {
 
 // Close shutdown task
 func (s *Sinker) Close() {
-	// 1. Stop tasks gracefully.
-	s.stopAllTasks()
-	// 2. Stop rcm
+	// 1. Stop rcm
 	if s.rcm != nil {
 		s.rcm.Stop()
+		s.rcm = nil
 	}
-	// 3. Stop pusher
+	// 2. Quit Run mainloop
+	s.cancel()
+	<-s.stopped
+	// 3. Stop tasks gracefully.
+	s.stopAllTasks()
+	// 4. Stop pusher
 	if s.pusher != nil {
 		s.pusher.Stop()
 		s.pusher = nil
@@ -341,18 +357,19 @@ func (s *Sinker) stopAllTasks() {
 	for taskName := range s.tasks {
 		delete(s.tasks, taskName)
 	}
-	util.Logger.Info("stopping parsing pool")
+	util.Logger.Info("stopped all tasks")
 	if util.GlobalParsingPool != nil {
 		util.GlobalParsingPool.StopWait()
 	}
-	util.Logger.Info("stopping timer wheel")
+	util.Logger.Info("stopped parsing pool")
 	if util.GlobalTimerWheel != nil {
 		util.GlobalTimerWheel.Stop()
 	}
-	util.Logger.Info("stopping writing pool")
+	util.Logger.Info("stopped timer wheel")
 	if util.GlobalWritingPool != nil {
 		util.GlobalWritingPool.StopWait()
 	}
+	util.Logger.Info("stopped writing pool")
 }
 
 func (s *Sinker) applyConfig(newCfg *config.Config) (err error) {
@@ -371,7 +388,6 @@ func (s *Sinker) applyConfig(newCfg *config.Config) (err error) {
 
 func (s *Sinker) applyFirstConfig(newCfg *config.Config) (err error) {
 	util.Logger.Info("going to apply the first config", zap.Reflect("config", newCfg))
-
 	// 1. Initialize clickhouse connections
 	chCfg := &newCfg.Clickhouse
 	if err = pool.InitClusterConn(chCfg.Hosts, chCfg.Port, chCfg.DB, chCfg.Username, chCfg.Password,
@@ -396,16 +412,15 @@ func (s *Sinker) applyFirstConfig(newCfg *config.Config) (err error) {
 		s.tasks[taskCfg.Name] = task
 	}
 	for _, task := range s.tasks {
-		go task.Run(s.ctx)
+		go task.Run()
 	}
 	s.curCfg = newCfg
+	util.Logger.Info("applied the first config")
 	return
 }
 
 func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 	util.Logger.Info("going to apply another config", zap.Int("number", s.numCfg), zap.Reflect("config", newCfg))
-	s.numCfg++
-
 	if !reflect.DeepEqual(newCfg.Kafka, s.curCfg.Kafka) || !reflect.DeepEqual(newCfg.Clickhouse, s.curCfg.Clickhouse) {
 		// 1. Stop tasks gracefully. Wait until all flying data be processed (write to CH and commit to Kafka).
 		s.stopAllTasks()
@@ -427,6 +442,7 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 		util.Logger.Info("resized writing pool", zap.Int("maxWorkers", maxWorkers))
 
 		// 4. Generate, initialize and run tasks.
+		var tasksToStart []string
 		for _, taskCfg := range newCfg.Tasks {
 			if cmdOps.NacosServiceName != "" && !newCfg.IsAssigned(httpAddr, taskCfg.Name) {
 				continue
@@ -435,11 +451,14 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 			if err = task.Init(); err != nil {
 				return
 			}
+			tasksToStart = append(tasksToStart, taskCfg.Name)
 			s.tasks[taskCfg.Name] = task
 		}
 		for _, task := range s.tasks {
-			go task.Run(s.ctx)
+			go task.Run()
 		}
+		sort.Strings(tasksToStart)
+		util.Logger.Info("started tasks", zap.Reflect("tasks", tasksToStart))
 	} else if !reflect.DeepEqual(newCfg.Tasks, s.curCfg.Tasks) || !reflect.DeepEqual(newCfg.Assignment.Map, s.curCfg.Assignment.Map) {
 		//1. Find tasks need to stop.
 		var tasksToStop []string
@@ -461,6 +480,7 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 				tasksToStop = append(tasksToStop, taskName)
 			}
 		}
+		sort.Strings(tasksToStop)
 		// 2. Stop tasks in parallel found at the previous step.
 		// They must drain flying batchs as quickly as possible to allow another clickhouse_sinker
 		// instance take over partitions safely.
@@ -476,7 +496,9 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 		for _, taskName := range tasksToStop {
 			delete(s.tasks, taskName)
 		}
+		util.Logger.Info("stopped tasks", zap.Reflect("tasks", tasksToStop))
 		// 3. Initailize tasks which are new or their config differ.
+		var tasksToStart []string
 		var newTasks []*task.Service
 		for taskName, taskCfg := range newCfgTasks {
 			if _, ok := s.tasks[taskName]; ok {
@@ -487,15 +509,20 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 				return
 			}
 			s.tasks[taskName] = task
+			tasksToStart = append(tasksToStart, taskName)
 			newTasks = append(newTasks, task)
 		}
 
 		// 4. Start new tasks. We don't do it at step 3 in order to avoid goroutine leak due to errors raised by later steps.
 		for _, task := range newTasks {
-			go task.Run(s.ctx)
+			go task.Run()
 		}
+		sort.Strings(tasksToStart)
+		util.Logger.Info("started tasks", zap.Reflect("tasks", tasksToStart))
 	}
 	// Record the new config
 	s.curCfg = newCfg
+	util.Logger.Info("applied another config", zap.Int("number", s.numCfg))
+	s.numCfg++
 	return
 }

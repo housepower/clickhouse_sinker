@@ -1,8 +1,6 @@
 package rcm
 
 import (
-	"context"
-
 	"github.com/housepower/clickhouse_sinker/config"
 )
 
@@ -16,6 +14,6 @@ type RemoteConfManager interface {
 	Deregister(ip string, port int) (err error)
 
 	// Assignment loop
-	Run(ctx context.Context)
+	Run()
 	Stop()
 }

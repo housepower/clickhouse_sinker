@@ -267,6 +267,7 @@ func InitLogger(newLogPaths []string) {
 				Filename:   p,
 				MaxSize:    100, // megabytes
 				MaxBackups: 10,
+				LocalTime:  true,
 			})
 			syncers = append(syncers, writeFile)
 		}

@@ -41,6 +41,8 @@ type KafkaGo struct {
 	cfg     *config.Config
 	taskCfg *config.TaskConfig
 	r       *kafka.Reader
+	ctx     context.Context
+	cancel  context.CancelFunc
 	stopped chan struct{}
 	putFn   func(msg model.InputMessage)
 }
@@ -55,6 +57,7 @@ func (k *KafkaGo) Init(cfg *config.Config, taskCfg *config.TaskConfig, putFn fun
 	k.cfg = cfg
 	k.taskCfg = taskCfg
 	kfkCfg := &cfg.Kafka
+	k.ctx, k.cancel = context.WithCancel(context.Background())
 	k.stopped = make(chan struct{})
 	k.putFn = putFn
 	offset := kafka.LastOffset
@@ -127,12 +130,12 @@ func (k *KafkaGo) Init(cfg *config.Config, taskCfg *config.TaskConfig, putFn fun
 }
 
 // kafka main loop
-func (k *KafkaGo) Run(ctx context.Context) {
+func (k *KafkaGo) Run() {
 LOOP_KAFKA_GO:
 	for {
 		var err error
 		var msg kafka.Message
-		if msg, err = k.r.FetchMessage(ctx); err != nil {
+		if msg, err = k.r.FetchMessage(k.ctx); err != nil {
 			if errors.Is(err, context.Canceled) {
 				util.Logger.Info("KafkaGo.Run quit due to context has been canceled", zap.String("task", k.taskCfg.Name))
 				break LOOP_KAFKA_GO
@@ -158,8 +161,8 @@ LOOP_KAFKA_GO:
 	k.stopped <- struct{}{}
 }
 
-func (k *KafkaGo) CommitMessages(ctx context.Context, msg *model.InputMessage) (err error) {
-	if err = k.r.CommitMessages(ctx, kafka.Message{
+func (k *KafkaGo) CommitMessages(msg *model.InputMessage) (err error) {
+	if err = k.r.CommitMessages(context.Background(), kafka.Message{
 		Topic:     msg.Topic,
 		Partition: msg.Partition,
 		Offset:    msg.Offset,
@@ -172,10 +175,9 @@ func (k *KafkaGo) CommitMessages(ctx context.Context, msg *model.InputMessage) (
 
 // Stop kafka consumer and close all connections
 func (k *KafkaGo) Stop() error {
-	if k.r != nil {
-		k.r.Close()
-		<-k.stopped
-	}
+	k.cancel()
+	k.r.Close()
+	<-k.stopped
 	return nil
 }
 

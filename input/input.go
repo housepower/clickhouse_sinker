@@ -1,7 +1,6 @@
 package input
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/housepower/clickhouse_sinker/config"
@@ -17,9 +16,9 @@ const (
 
 type Inputer interface {
 	Init(cfg *config.Config, taskCfg *config.TaskConfig, putFn func(msg model.InputMessage), cleanupFn func()) error
-	Run(ctx context.Context)
+	Run()
 	Stop() error
-	CommitMessages(ctx context.Context, message *model.InputMessage) error
+	CommitMessages(message *model.InputMessage) error
 }
 
 func NewInputer(typ string) Inputer {

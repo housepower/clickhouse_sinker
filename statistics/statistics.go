@@ -175,6 +175,7 @@ type Pusher struct {
 	instance     string
 	ctx          context.Context
 	cancel       context.CancelFunc
+	stopped      chan struct{}
 }
 
 func NewPusher(addrs []string, interval int, selfAddr string) *Pusher {
@@ -183,6 +184,7 @@ func NewPusher(addrs []string, interval int, selfAddr string) *Pusher {
 		pushInterval: interval,
 		inUseAddr:    -1,
 		instance:     selfAddr,
+		stopped:      make(chan struct{}),
 	}
 }
 
@@ -195,11 +197,11 @@ func (p *Pusher) Init() error {
 		return errPgwEmpty
 	}
 	p.reconnect()
+	p.ctx, p.cancel = context.WithCancel(context.Background())
 	return nil
 }
 
-func (p *Pusher) Run(ctx context.Context) {
-	p.ctx, p.cancel = context.WithCancel(ctx)
+func (p *Pusher) Run() {
 	ticker := time.NewTicker(time.Second * time.Duration(p.pushInterval))
 FOR:
 	for {
@@ -215,9 +217,12 @@ FOR:
 			break FOR
 		}
 	}
+	p.stopped <- struct{}{}
 }
 
 func (p *Pusher) Stop() {
+	p.cancel()
+	<-p.stopped
 	// https://stackoverflow.com/questions/63540280/how-to-set-a-retention-time-for-pushgateway-for-metrics-to-expire
 	// https://github.com/prometheus/pushgateway/issues/19
 	if err := p.pusher.Delete(); err != nil {
@@ -225,7 +230,6 @@ func (p *Pusher) Stop() {
 		util.Logger.Error("failed to delete metric group", zap.String("pushgateway", p.pgwAddrs[p.inUseAddr]),
 			zap.String("job", "clickhouse_sinker"), zap.String("instance", p.instance), zap.Error(err))
 	}
-	p.cancel()
 	util.Logger.Info("stopped metric pusher")
 }
 

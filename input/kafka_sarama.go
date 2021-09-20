@@ -42,6 +42,8 @@ type KafkaSarama struct {
 	taskCfg   *config.TaskConfig
 	cg        sarama.ConsumerGroup
 	sess      sarama.ConsumerGroupSession
+	ctx       context.Context
+	cancel    context.CancelFunc
 	stopped   chan struct{}
 	putFn     func(msg model.InputMessage)
 	cleanupFn func()
@@ -90,6 +92,7 @@ func (h MyConsumerGroupHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, c
 func (k *KafkaSarama) Init(cfg *config.Config, taskCfg *config.TaskConfig, putFn func(msg model.InputMessage), cleanupFn func()) (err error) {
 	k.cfg = cfg
 	k.taskCfg = taskCfg
+	k.ctx, k.cancel = context.WithCancel(context.Background())
 	k.stopped = make(chan struct{})
 	k.putFn = putFn
 	k.cleanupFn = cleanupFn
@@ -155,7 +158,7 @@ func GetSaramaConfig(kfkCfg *config.KafkaConfig) (sarCfg *sarama.Config, err err
 }
 
 // kafka main loop
-func (k *KafkaSarama) Run(ctx context.Context) {
+func (k *KafkaSarama) Run() {
 	taskCfg := k.taskCfg
 LOOP_SARAMA:
 	for {
@@ -163,7 +166,7 @@ LOOP_SARAMA:
 		// `Consume` should be called inside an infinite loop, when a
 		// server-side rebalance happens, the consumer session will need to be
 		// recreated to get the new claims
-		if err := k.cg.Consume(ctx, []string{taskCfg.Topic}, handler); err != nil {
+		if err := k.cg.Consume(k.ctx, []string{taskCfg.Topic}, handler); err != nil {
 			if errors.Is(err, context.Canceled) {
 				util.Logger.Info("KafkaSarama.Run quit due to context has been canceled", zap.String("task", k.taskCfg.Name))
 				break LOOP_SARAMA
@@ -181,13 +184,14 @@ LOOP_SARAMA:
 	k.stopped <- struct{}{}
 }
 
-func (k *KafkaSarama) CommitMessages(ctx context.Context, msg *model.InputMessage) error {
+func (k *KafkaSarama) CommitMessages(msg *model.InputMessage) error {
 	k.sess.MarkOffset(msg.Topic, int32(msg.Partition), msg.Offset+1, "")
 	return nil
 }
 
 // Stop kafka consumer and close all connections
 func (k *KafkaSarama) Stop() error {
+	k.cancel()
 	k.cg.Close()
 	<-k.stopped
 	return nil

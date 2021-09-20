@@ -38,6 +38,7 @@ type NacosConfManager struct {
 	// state of assignment loop
 	ctx      context.Context
 	cancel   context.CancelFunc
+	stopped  chan struct{}
 	mux      sync.Mutex //protect curInsts, curCfg, curVer
 	curInsts []string
 	curCfg   *config.Config
@@ -116,6 +117,8 @@ func (ncm *NacosConfManager) Init(properties map[string]interface{}) (err error)
 	if pop, ok := properties["serviceName"]; ok {
 		ncm.serviceName, _ = pop.(string)
 	}
+	ncm.ctx, ncm.cancel = context.WithCancel(context.Background())
+	ncm.stopped = make(chan struct{})
 	return
 }
 
@@ -188,9 +191,8 @@ func (ncm *NacosConfManager) Deregister(ip string, port int) (err error) {
 	return
 }
 
-func (ncm *NacosConfManager) Run(ctx context.Context) {
+func (ncm *NacosConfManager) Run() {
 	var err error
-	ncm.ctx, ncm.cancel = context.WithCancel(ctx)
 
 	// Assign the first time
 	util.Logger.Debug("assign first")
@@ -218,10 +220,12 @@ func (ncm *NacosConfManager) Run(ctx context.Context) {
 	}
 
 	// Assign regularly to handle lag change
+LOOP_FOR:
 	for {
 		select {
 		case <-ncm.ctx.Done():
-			return
+			util.Logger.Info("NacosConfManager.Run quit due to context has been canceled")
+			break LOOP_FOR
 		case <-time.After(5 * time.Minute):
 			util.Logger.Debug("assign triggered by 5 min timer")
 			if err := ncm.assign(); err != nil {
@@ -229,12 +233,12 @@ func (ncm *NacosConfManager) Run(ctx context.Context) {
 			}
 		}
 	}
+	ncm.stopped <- struct{}{}
 }
 
 func (ncm *NacosConfManager) Stop() {
-	if ncm.cancel != nil {
-		ncm.cancel()
-	}
+	ncm.cancel()
+	<-ncm.stopped
 	var err error
 	configParam := vo.ConfigParam{
 		DataId:   ncm.dataID,

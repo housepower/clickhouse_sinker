@@ -16,7 +16,6 @@ limitations under the License.
 package task
 
 import (
-	"context"
 	"fmt"
 	"math"
 	"sync"
@@ -39,8 +38,6 @@ import (
 // TaskService holds the configuration for each task
 type Service struct {
 	sync.Mutex
-
-	ctx        context.Context
 	started    bool
 	stopped    chan struct{}
 	inputer    input.Inputer
@@ -131,12 +128,10 @@ func (service *Service) Init() (err error) {
 }
 
 // Run starts the task
-func (service *Service) Run(ctx context.Context) {
+func (service *Service) Run() {
 	var err error
 	taskCfg := service.taskCfg
 	service.started = true
-	service.ctx = ctx
-	util.Logger.Info("task started", zap.String("task", taskCfg.Name))
 	if service.sharder != nil {
 		// schedule a delayed ForceFlush
 		if service.sharder.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(taskCfg.FlushInterval)*time.Second, service.sharder.ForceFlush, nil); err != nil {
@@ -148,13 +143,13 @@ func (service *Service) Run(ctx context.Context) {
 			}
 		}
 	}
-	service.inputer.Run(service.ctx)
+	service.inputer.Run()
 	service.stopped <- struct{}{}
 }
 
 func (service *Service) fnCommit(partition int, offset int64) error {
 	msg := model.InputMessage{Topic: service.taskCfg.Topic, Partition: partition, Offset: offset}
-	return service.inputer.CommitMessages(context.Background(), &msg)
+	return service.inputer.CommitMessages(&msg)
 }
 
 func (service *Service) put(msg model.InputMessage) {
@@ -355,7 +350,7 @@ func (service *Service) changeSchema(arg interface{}) {
 	if err = service.Init(); err != nil {
 		util.Logger.Fatal("service.Init failed", zap.String("task", taskCfg.Name), zap.Error(err))
 	}
-	go service.Run(service.ctx)
+	go service.Run()
 }
 
 // Stop stop kafka and clickhouse client. This is blocking.
@@ -365,27 +360,27 @@ func (service *Service) Stop() {
 		util.Logger.Info("stopped a already stopped task service", zap.String("task", taskCfg.Name))
 		return
 	}
-	util.Logger.Info("stopping task service...", zap.String("task", taskCfg.Name))
+	util.Logger.Debug("stopping task service...", zap.String("task", taskCfg.Name))
 	atomic.StoreUint32(&service.state, util.StateStopped)
 
 	if service.sharder != nil {
 		service.sharder.tid.Stop()
 	}
 	service.tid.Stop()
-	util.Logger.Info("stopped internal timers", zap.String("task", taskCfg.Name))
+	util.Logger.Debug("stopped internal timers", zap.String("task", taskCfg.Name))
 
 	service.drain()
-	util.Logger.Info("drained flying messages", zap.String("task", taskCfg.Name))
+	util.Logger.Debug("drained flying messages", zap.String("task", taskCfg.Name))
 
 	// Note: inputer needs be stopped *after* drain() since a closed kafka-go client cannot commit offsets.
 	if err := service.inputer.Stop(); err != nil {
 		util.Logger.Fatal("service.inputer.Stop failed", zap.Error(err))
 	}
-	util.Logger.Info("stopped input", zap.String("task", taskCfg.Name))
+	util.Logger.Debug("stopped input", zap.String("task", taskCfg.Name))
 
 	if service.started {
 		<-service.stopped
 	}
 	service.started = false
-	util.Logger.Info("stopped", zap.String("task", taskCfg.Name))
+	util.Logger.Debug("stopped task", zap.String("task", taskCfg.Name))
 }
