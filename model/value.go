@@ -77,6 +77,17 @@ func WhichType(typ string) (dataType int, nullable bool) {
 		dataType, nullable = ti.Type, ti.Nullable
 		return
 	}
+	
+	//handle FixedString(N) clickhouse type
+	fixedString := strings.HasPrefix(typ, "FixedString(")
+	if fixedString {
+	    ti, ok := typeInfo["String"]
+	    if ok {
+	        dataType, nullable = ti.Type, ti.Nullable
+		return
+	    }
+	}
+	
 	nullable = strings.HasPrefix(typ, "Nullable(")
 	if nullable {
 		typ = typ[len("Nullable(") : len(typ)-1]
