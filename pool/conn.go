@@ -108,8 +108,8 @@ func (sc *ShardConn) NextGoodReplica(failedVer int) (db *sql.DB, dbVer int, err 
 			continue
 		}
 
-		// WARN: clickHouse-server creates a thread for each TCP/HTTP connection.
-		// If the number of sinkers is close to clickhouse max_concurrent_queries(default 100), user queries could be blocked or refused.
+		// WARN:
+		// If the number of concurrent INSERT is close to clickhouse max_concurrent_queries(default 100), user queries could fail due to the limit.
 		sqlDB.SetMaxOpenConns(sc.maxOpenConns)
 		sqlDB.SetMaxIdleConns(0)
 		sqlDB.SetConnMaxIdleTime(10 * time.Second)
