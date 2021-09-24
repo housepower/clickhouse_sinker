@@ -20,6 +20,7 @@ import (
 	"crypto/tls"
 	"io"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/pkg/errors"
@@ -43,7 +44,7 @@ type KafkaGo struct {
 	r       *kafka.Reader
 	ctx     context.Context
 	cancel  context.CancelFunc
-	stopped chan struct{}
+	wgRun   sync.WaitGroup
 	putFn   func(msg model.InputMessage)
 }
 
@@ -58,7 +59,6 @@ func (k *KafkaGo) Init(cfg *config.Config, taskCfg *config.TaskConfig, putFn fun
 	k.taskCfg = taskCfg
 	kfkCfg := &cfg.Kafka
 	k.ctx, k.cancel = context.WithCancel(context.Background())
-	k.stopped = make(chan struct{})
 	k.putFn = putFn
 	offset := kafka.LastOffset
 	if k.taskCfg.Earliest {
@@ -131,6 +131,8 @@ func (k *KafkaGo) Init(cfg *config.Config, taskCfg *config.TaskConfig, putFn fun
 
 // kafka main loop
 func (k *KafkaGo) Run() {
+	k.wgRun.Add(1)
+	defer k.wgRun.Done()
 LOOP_KAFKA_GO:
 	for {
 		var err error
@@ -158,7 +160,6 @@ LOOP_KAFKA_GO:
 			Timestamp: &msg.Time,
 		})
 	}
-	k.stopped <- struct{}{}
 }
 
 func (k *KafkaGo) CommitMessages(msg *model.InputMessage) (err error) {
@@ -177,7 +178,7 @@ func (k *KafkaGo) CommitMessages(msg *model.InputMessage) (err error) {
 func (k *KafkaGo) Stop() error {
 	k.cancel()
 	k.r.Close()
-	<-k.stopped
+	k.wgRun.Wait()
 	return nil
 }
 

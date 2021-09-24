@@ -38,7 +38,7 @@ type NacosConfManager struct {
 	// state of assignment loop
 	ctx      context.Context
 	cancel   context.CancelFunc
-	stopped  chan struct{}
+	wg       sync.WaitGroup
 	mux      sync.Mutex //protect curInsts, curCfg, curVer
 	curInsts []string
 	curCfg   *config.Config
@@ -118,7 +118,6 @@ func (ncm *NacosConfManager) Init(properties map[string]interface{}) (err error)
 		ncm.serviceName, _ = pop.(string)
 	}
 	ncm.ctx, ncm.cancel = context.WithCancel(context.Background())
-	ncm.stopped = make(chan struct{})
 	return
 }
 
@@ -193,7 +192,8 @@ func (ncm *NacosConfManager) Deregister(ip string, port int) (err error) {
 
 func (ncm *NacosConfManager) Run() {
 	var err error
-
+	ncm.wg.Add(1)
+	defer ncm.wg.Done()
 	// Assign the first time
 	util.Logger.Debug("assign first")
 	if err = ncm.assign(); err != nil {
@@ -233,12 +233,11 @@ LOOP_FOR:
 			}
 		}
 	}
-	ncm.stopped <- struct{}{}
 }
 
 func (ncm *NacosConfManager) Stop() {
 	ncm.cancel()
-	<-ncm.stopped
+	ncm.wg.Wait()
 	var err error
 	configParam := vo.ConfigParam{
 		DataId:   ncm.dataID,

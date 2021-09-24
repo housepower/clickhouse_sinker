@@ -38,8 +38,6 @@ import (
 // TaskService holds the configuration for each task
 type Service struct {
 	sync.Mutex
-	started    bool
-	stopped    chan struct{}
 	inputer    input.Inputer
 	clickhouse *output.ClickHouse
 	pp         *parser.Pool
@@ -57,6 +55,7 @@ type Service struct {
 	limiter1 *rate.Limiter
 	limiter2 *rate.Limiter
 
+	wgRun     sync.WaitGroup
 	state     uint32
 	numFlying int32
 	taskDone  *sync.Cond
@@ -68,10 +67,8 @@ func NewTaskService(cfg *config.Config, taskCfg *config.TaskConfig) (service *Se
 	pp, _ := parser.NewParserPool(taskCfg.Parser, taskCfg.CsvFormat, taskCfg.Delimiter, taskCfg.TimeZone)
 	inputer := input.NewInputer(taskCfg.KafkaClient)
 	service = &Service{
-		stopped:    make(chan struct{}),
 		inputer:    inputer,
 		clickhouse: ck,
-		started:    false,
 		pp:         pp,
 		cfg:        cfg,
 		taskCfg:    taskCfg,
@@ -130,8 +127,9 @@ func (service *Service) Init() (err error) {
 // Run starts the task
 func (service *Service) Run() {
 	var err error
+	service.wgRun.Add(1)
+	defer service.wgRun.Done()
 	taskCfg := service.taskCfg
-	service.started = true
 	if service.sharder != nil {
 		// schedule a delayed ForceFlush
 		if service.sharder.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(taskCfg.FlushInterval)*time.Second, service.sharder.ForceFlush, nil); err != nil {
@@ -144,7 +142,6 @@ func (service *Service) Run() {
 		}
 	}
 	service.inputer.Run()
-	service.stopped <- struct{}{}
 }
 
 func (service *Service) fnCommit(partition int, offset int64) error {
@@ -358,10 +355,7 @@ func (service *Service) changeSchema(arg interface{}) {
 // Stop stop kafka and clickhouse client. This is blocking.
 func (service *Service) Stop() {
 	taskCfg := service.taskCfg
-	if !service.started {
-		util.Logger.Info("stopped a already stopped task service", zap.String("task", taskCfg.Name))
-		return
-	}
+
 	util.Logger.Debug("stopping task service...", zap.String("task", taskCfg.Name))
 	atomic.StoreUint32(&service.state, util.StateStopped)
 
@@ -380,9 +374,6 @@ func (service *Service) Stop() {
 	}
 	util.Logger.Debug("stopped input", zap.String("task", taskCfg.Name))
 
-	if service.started {
-		<-service.stopped
-	}
-	service.started = false
+	service.wgRun.Wait()
 	util.Logger.Debug("stopped task", zap.String("task", taskCfg.Name))
 }

@@ -21,6 +21,7 @@ import (
 	"crypto/sha512"
 	"hash"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Shopify/sarama"
@@ -44,7 +45,7 @@ type KafkaSarama struct {
 	sess      sarama.ConsumerGroupSession
 	ctx       context.Context
 	cancel    context.CancelFunc
-	stopped   chan struct{}
+	wgRun     sync.WaitGroup
 	putFn     func(msg model.InputMessage)
 	cleanupFn func()
 }
@@ -93,7 +94,6 @@ func (k *KafkaSarama) Init(cfg *config.Config, taskCfg *config.TaskConfig, putFn
 	k.cfg = cfg
 	k.taskCfg = taskCfg
 	k.ctx, k.cancel = context.WithCancel(context.Background())
-	k.stopped = make(chan struct{})
 	k.putFn = putFn
 	k.cleanupFn = cleanupFn
 	kfkCfg := &cfg.Kafka
@@ -159,6 +159,8 @@ func GetSaramaConfig(kfkCfg *config.KafkaConfig) (sarCfg *sarama.Config, err err
 
 // kafka main loop
 func (k *KafkaSarama) Run() {
+	k.wgRun.Add(1)
+	defer k.wgRun.Done()
 	taskCfg := k.taskCfg
 LOOP_SARAMA:
 	for {
@@ -181,7 +183,6 @@ LOOP_SARAMA:
 			}
 		}
 	}
-	k.stopped <- struct{}{}
 }
 
 func (k *KafkaSarama) CommitMessages(msg *model.InputMessage) error {
@@ -193,7 +194,7 @@ func (k *KafkaSarama) CommitMessages(msg *model.InputMessage) error {
 func (k *KafkaSarama) Stop() error {
 	k.cancel()
 	k.cg.Close()
-	<-k.stopped
+	k.wgRun.Wait()
 	return nil
 }
 
