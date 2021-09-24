@@ -77,17 +77,6 @@ func WhichType(typ string) (dataType int, nullable bool) {
 		dataType, nullable = ti.Type, ti.Nullable
 		return
 	}
-	
-	//handle FixedString(N) clickhouse type
-	fixedString := strings.HasPrefix(typ, "FixedString(")
-	if fixedString {
-	    ti, ok := typeInfo["String"]
-	    if ok {
-	        dataType, nullable = ti.Type, ti.Nullable
-		return
-	    }
-	}
-	
 	nullable = strings.HasPrefix(typ, "Nullable(")
 	if nullable {
 		typ = typ[len("Nullable(") : len(typ)-1]
@@ -101,6 +90,11 @@ func WhichType(typ string) (dataType int, nullable bool) {
 		dataType = Float
 	} else if strings.HasPrefix(typ, "Array(Decimal") {
 		dataType = FloatArray
+		nullable = false
+	} else if strings.HasPrefix(typ, "FixedString") {
+		dataType = String
+	} else if strings.HasPrefix(typ, "Array(FixedString") {
+		dataType = StringArray
 		nullable = false
 	} else {
 		util.Logger.Fatal(fmt.Sprintf("LOGIC ERROR: unsupported ClickHouse data type %v", typ))
@@ -119,10 +113,10 @@ func init() {
 	for _, t := range []string{"Float32", "Float64"} {
 		primTypeInfo[t] = TypeInfo{Type: Float, Nullable: false}
 	}
-	for _, t := range []string{"String", "FixedString"} {
+	for _, t := range []string{"String"} {
 		primTypeInfo[t] = TypeInfo{Type: String, Nullable: false}
 	}
-	for _, t := range []string{"Date", "DateTime", "DateTime64"} {
+	for _, t := range []string{"Date", "DateTime"} {
 		primTypeInfo[t] = TypeInfo{Type: DateTime, Nullable: false}
 	}
 	primTypeInfo["ElasticDateTime"] = TypeInfo{Type: ElasticDateTime, Nullable: false}
