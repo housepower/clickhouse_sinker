@@ -155,9 +155,6 @@
   },
 
   // log level, possible value: "debug", "info", "warn", "error", "dpanic", "panic", "fatal". Default to "info".
-  "logLevel": "debug",
-
-  // log output paths, possible value: "stdout", "stderr", relative file path, absoute file path. Log files will be rotated every 100MB, keep 10 old ones. Default to ["stdout"].
-  "logPaths": ["stdout", "test_dynamic_schema.log"]
+  "logLevel": "debug"
 }
 ```

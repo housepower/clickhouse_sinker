@@ -32,6 +32,5 @@
     },
     "bufferSize": 50000
   },
-  "logLevel": "debug",
-  "logPaths": ["stdout", "test_dynamic_schema.log"]
+  "logLevel": "debug"
 }
