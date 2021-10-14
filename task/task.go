@@ -38,12 +38,13 @@ import (
 // TaskService holds the configuration for each task
 type Service struct {
 	sync.Mutex
-	inputer    input.Inputer
-	clickhouse *output.ClickHouse
-	pp         *parser.Pool
-	cfg        *config.Config
-	taskCfg    *config.TaskConfig
-	dims       []*model.ColumnWithType
+	inputer     input.Inputer
+	clickhouse  *output.ClickHouse
+	pp          *parser.Pool
+	cfg         *config.Config
+	taskCfg     *config.TaskConfig
+	dims        []*model.ColumnWithType
+	idxSeriesID int
 
 	knownKeys  sync.Map
 	newKeys    sync.Map
@@ -273,7 +274,7 @@ func (service *Service) put(msg model.InputMessage) {
 					msg.Topic, msg.Partition, msg.Offset), zap.String("message value", string(msg.Value)), zap.String("task", taskCfg.Name), zap.Error(err))
 			}
 		} else {
-			row = model.MetricToRow(metric, msg, service.dims)
+			row = model.MetricToRow(metric, msg, service.dims, service.idxSeriesID)
 			if taskCfg.DynamicSchema.Enable {
 				foundNewKeys = metric.GetNewKeys(&service.knownKeys, &service.newKeys)
 			}

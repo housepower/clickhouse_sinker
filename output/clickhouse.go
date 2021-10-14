@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go"
+	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/housepower/clickhouse_sinker/config"
 	"github.com/housepower/clickhouse_sinker/model"
 	"github.com/housepower/clickhouse_sinker/pool"
@@ -51,9 +52,13 @@ var (
 type ClickHouse struct {
 	Dims       []*model.ColumnWithType
 	Dms        []string
+	IdxSerID   int
+	idxLabels  []int
 	cfg        *config.Config
 	taskCfg    *config.TaskConfig
 	prepareSQL string
+	promSerSQL string
+	bmSeries   *roaring64.Bitmap
 	numFlying  int32
 	mux        sync.Mutex
 	taskDone   *sync.Cond
@@ -98,29 +103,19 @@ func (c *ClickHouse) Send(batch *model.Batch) {
 	})
 }
 
-// Write kvs to clickhouse
-func (c *ClickHouse) write(batch *model.Batch, sc *pool.ShardConn, dbVer *int) (err error) {
+func writeRows(prepareSQL string, rows model.Rows, conn *sql.DB) (err error) {
 	var stmt *sql.Stmt
 	var tx *sql.Tx
-	if len(*batch.Rows) == 0 {
-		return
-	}
-
-	var conn *sql.DB
-	if conn, *dbVer, err = sc.NextGoodReplica(*dbVer); err != nil {
-		return
-	}
-
 	if tx, err = conn.Begin(); err != nil {
-		err = errors.Wrapf(err, "conn.Begin")
+		err = errors.Wrapf(err, "conn.Begin %s", prepareSQL)
 		return
 	}
-	if stmt, err = tx.Prepare(c.prepareSQL); err != nil {
-		err = errors.Wrapf(err, "tx.Prepare %s", c.prepareSQL)
+	if stmt, err = tx.Prepare(prepareSQL); err != nil {
+		err = errors.Wrapf(err, "tx.Prepare %s", prepareSQL)
 		return
 	}
 	defer stmt.Close()
-	for _, row := range *batch.Rows {
+	for _, row := range rows {
 		if _, err = stmt.Exec(*row...); err != nil {
 			err = errors.Wrapf(err, "stmt.Exec")
 			break
@@ -134,6 +129,58 @@ func (c *ClickHouse) write(batch *model.Batch, sc *pool.ShardConn, dbVer *int) (
 		err = errors.Wrapf(err, "tx.Commit")
 		return
 	}
+	return
+}
+
+// Write a batch to clickhouse
+func (c *ClickHouse) write(batch *model.Batch, sc *pool.ShardConn, dbVer *int) (err error) {
+	if len(*batch.Rows) == 0 {
+		return
+	}
+	var conn *sql.DB
+	if conn, *dbVer, err = sc.NextGoodReplica(*dbVer); err != nil {
+		return
+	}
+
+	if err = writeRows(c.prepareSQL, *batch.Rows, conn); err != nil {
+		return
+	}
+	if c.IdxSerID >= 0 {
+		var seriesRows model.Rows
+		var labels []string
+		c.mux.Lock()
+		for _, row := range *batch.Rows {
+			seriesID := (*row)[c.IdxSerID].(uint64)
+			if !c.bmSeries.Contains(seriesID) {
+				seriesRow := make(model.Row, 2+len(c.idxLabels)) //__series_id, lables, ...
+				if labels == nil {
+					labels = make([]string, len(c.idxLabels))
+				}
+				seriesRow[0] = seriesID
+				for i, idxLabel := range c.idxLabels {
+					seriesRow[2+i] = (*row)[idxLabel]
+					labelKey := c.Dims[idxLabel].Name
+					labelVal := (*row)[idxLabel].(string)
+					labels[i] = fmt.Sprintf(`"%s": "%s"`, labelKey, labelVal)
+				}
+				seriesRow[1] = fmt.Sprintf("{%s}", strings.Join(labels, ", "))
+				seriesRows = append(seriesRows, &seriesRow)
+			}
+		}
+		c.mux.Unlock()
+		if len(seriesRows) != 0 {
+			if err = writeRows(c.promSerSQL, seriesRows, conn); err != nil {
+				return
+			}
+			c.mux.Lock()
+			for _, seriesRow := range seriesRows {
+				seriesID := (*seriesRow)[0].(uint64)
+				c.bmSeries.Add(seriesID)
+			}
+			c.mux.Unlock()
+		}
+	}
+
 	statistics.FlushMsgsTotal.WithLabelValues(c.taskCfg.Name).Add(float64(batch.RealSize))
 	return
 }
@@ -245,8 +292,15 @@ func (c *ClickHouse) initSchema() (err error) {
 	}
 	c.prepareSQL = "INSERT INTO " + c.cfg.Clickhouse.DB + "." + c.taskCfg.TableName + " (" + strings.Join(quotedDms, ",") + ") " +
 		"VALUES (" + strings.Join(params, ",") + ")"
-
 	util.Logger.Info(fmt.Sprintf("Prepare sql=> %s", c.prepareSQL), zap.String("task", c.taskCfg.Name))
+
+	c.IdxSerID = -1
+	for i, dim := range c.Dims {
+		if dim.Name == "__series_id" {
+			c.IdxSerID = i
+		}
+	}
+
 	return nil
 }
 

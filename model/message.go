@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/cespare/xxhash/v2"
 	"github.com/housepower/clickhouse_sinker/config"
 	"github.com/housepower/clickhouse_sinker/statistics"
 )
@@ -166,10 +167,16 @@ func PutRow(r *Row) {
 	rowPool.Put(r)
 }
 
-func MetricToRow(metric Metric, msg InputMessage, dims []*ColumnWithType) (row *Row) {
+func MetricToRow(metric Metric, msg InputMessage, dims []*ColumnWithType, idxSeriesID int) (row *Row) {
 	row = GetRow()
-	for _, dim := range dims {
-		if strings.HasPrefix(dim.Name, "__kafka") {
+	var dig *xxhash.Digest
+	if idxSeriesID >= 0 {
+		dig = xxhash.New()
+	}
+	for i, dim := range dims {
+		if i == idxSeriesID {
+			*row = append(*row, uint64(0))
+		} else if strings.HasPrefix(dim.Name, "__kafka") {
 			if strings.HasSuffix(dim.Name, "_topic") {
 				*row = append(*row, msg.Topic)
 			} else if strings.HasSuffix(dim.Name, "_partition") {
@@ -180,7 +187,16 @@ func MetricToRow(metric Metric, msg InputMessage, dims []*ColumnWithType) (row *
 		} else {
 			val := GetValueByType(metric, dim)
 			*row = append(*row, val)
+			if idxSeriesID >= 0 && dim.Type == String && val != nil {
+				dig.WriteString("###")
+				dig.WriteString(dim.Name)
+				dig.WriteString("###")
+				dig.WriteString(val.(string))
+			}
 		}
+	}
+	if idxSeriesID >= 0 {
+		(*row)[idxSeriesID] = dig.Sum64()
 	}
 	return
 }
