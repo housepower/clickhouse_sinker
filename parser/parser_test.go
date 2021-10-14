@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"strconv"
 	"strings"
 	"sync"
@@ -27,6 +28,7 @@ import (
 
 	"github.com/housepower/clickhouse_sinker/model"
 	"github.com/housepower/clickhouse_sinker/util"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 	"github.com/valyala/fastjson"
@@ -54,11 +56,11 @@ var jsonSample = []byte(`{
 	"array_bool": [true,false],
 	"array_num_int_1": [0, 255, 256, 65535, 65536, 4294967295, 4294967296, 18446744073709551615, 18446744073709551616],
 	"array_num_int_2": [-9223372036854775808, -2147483649, -2147483648, -32769, -32768, -129, -128, 0, 127, 128, 32767, 32768, 2147483647, 2147483648, 9223372036854775807],
-	"array_num_float": [4.940656458412465441765687928682213723651e-324, 1.401298464324817070923729583289916131280e-45, 0.0, 3.40282346638528859811704183484516925440e+38, 1.797693134862315708145274237317043567981e+308],
+	"array_num_float": [4.940656458412465441765687928682213723651e-324, 1.401298464324817070923729583289916131280e-45, 0.0, 3.40282346638528859811704183484516925440e+38, 1.797693134862315708145274237317043567981e+308, -inf, +inf],
 	"array_str": ["aa","bb","cc"],
 	"array_str_int_1": ["0", "255", "256", "65535", "65536", "4294967295", "4294967296", "18446744073709551615", "18446744073709551616"],
 	"array_str_int_2": ["-9223372036854775808", "-2147483649", "-2147483648", "-32769", "-32768", "-129", "-128", "0", "127", "128", "32767", "32768", "2147483647", "2147483648", "9223372036854775807"],
-	"array_str_float": ["4.940656458412465441765687928682213723651e-324", "1.401298464324817070923729583289916131280e-45", "0.0", "3.40282346638528859811704183484516925440e+38", "1.797693134862315708145274237317043567981e+308"],
+	"array_str_float": ["4.940656458412465441765687928682213723651e-324", "1.401298464324817070923729583289916131280e-45", "0.0", "3.40282346638528859811704183484516925440e+38", "1.797693134862315708145274237317043567981e+308", "-inf", "+inf"],
 	"array_str_date_1": ["2009-07-13","2009-07-14","2009-07-15"],
 	"array_str_date_2": ["13/07/2009","14/07/2009","15/07/2009"],
 	"array_str_time_rfc3339": ["2009-07-13T09:07:13Z", "2009-07-13T09:07:13+08:00", "2009-07-13T09:07:13.123Z", "2009-07-13T09:07:13.123+08:00"],
@@ -213,11 +215,12 @@ func doTestSimple(t *testing.T, method string, testCases []SimpleCase) {
 	for i := range names {
 		name := names[i]
 		metric := metrics[name]
+		var skipped []string
 		for j := range testCases {
 			var v interface{}
-			desc := fmt.Sprintf(`%s %s("%s", %s)`, name, method, testCases[j].Field, strconv.FormatBool(testCases[j].Nullable))
+			desc := fmt.Sprintf(`%s.%s("%s", %s)`, name, method, testCases[j].Field, strconv.FormatBool(testCases[j].Nullable))
 			if name == "csv" && (sliceContains([]string{"GetInt", "GetFloat", "GetDateTime", "GetElasticDateTime"}, method) && sliceContains([]string{"str_int", "str_float"}, testCases[j].Field) || testCases[j].Nullable) {
-				log.Printf("%s is known to not compatible with fastjson parser, skipping", desc)
+				skipped = append(skipped, desc)
 				continue
 			}
 			switch method {
@@ -235,6 +238,9 @@ func doTestSimple(t *testing.T, method string, testCases []SimpleCase) {
 				panic("error!")
 			}
 			require.Equal(t, testCases[j].ExpVal, v, desc)
+		}
+		if skipped != nil {
+			log.Printf("Skipped %d cases incompatible with fastjson parser: %v\n", len(skipped), strings.Join(skipped, ", "))
 		}
 	}
 }
@@ -460,10 +466,10 @@ func TestParserArray(t *testing.T) {
 		{"array_num_int_2", model.String, []string{"-9223372036854775808", "-2147483649", "-2147483648", "-32769", "-32768", "-129", "-128", "0", "127", "128", "32767", "32768", "2147483647", "2147483648", "9223372036854775807"}},
 		{"array_num_int_2", model.DateTime, []time.Time{Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, UnixInt(127), UnixInt(128), UnixInt(32767), UnixInt(32768), UnixInt(2147483647), UnixInt(2147483648), UnixInt(9223372036854775807)}},
 
-		{"array_num_float", model.Int, []int64{0, 0, 0, 0, 0}},
-		{"array_num_float", model.Float, []float64{4.940656458412465441765687928682213723651e-324, 1.401298464324817070923729583289916131280e-45, 0.0, 3.40282346638528859811704183484516925440e+38, 1.797693134862315708145274237317043567981e+308}},
-		{"array_num_float", model.String, []string{"4.940656458412465441765687928682213723651e-324", "1.401298464324817070923729583289916131280e-45", "0.0", "3.40282346638528859811704183484516925440e+38", "1.797693134862315708145274237317043567981e+308"}},
-		{"array_num_float", model.DateTime, []time.Time{Epoch, Epoch, Epoch, UnixFloat(3.40282346638528859811704183484516925440e+38), UnixFloat(1.797693134862315708145274237317043567981e+308)}},
+		{"array_num_float", model.Int, []int64{0, 0, 0, 0, 0, 0, 0}},
+		{"array_num_float", model.Float, []float64{4.940656458412465441765687928682213723651e-324, 1.401298464324817070923729583289916131280e-45, 0.0, 3.40282346638528859811704183484516925440e+38, 1.797693134862315708145274237317043567981e+308, math.Inf(-1), math.Inf(1)}},
+		{"array_num_float", model.String, []string{"4.940656458412465441765687928682213723651e-324", "1.401298464324817070923729583289916131280e-45", "0.0", "3.40282346638528859811704183484516925440e+38", "1.797693134862315708145274237317043567981e+308", "-inf", "+inf"}},
+		{"array_num_float", model.DateTime, []time.Time{Epoch, Epoch, Epoch, UnixFloat(3.40282346638528859811704183484516925440e+38), UnixFloat(1.797693134862315708145274237317043567981e+308), UnixFloat(math.Inf(-1)), UnixFloat(math.Inf(1))}},
 
 		{"array_str", model.Int, []int64{0, 0, 0}},
 		{"array_str", model.Float, []float64{0.0, 0.0, 0.0}},
@@ -480,10 +486,10 @@ func TestParserArray(t *testing.T) {
 		{"array_str_int_2", model.String, []string{"-9223372036854775808", "-2147483649", "-2147483648", "-32769", "-32768", "-129", "-128", "0", "127", "128", "32767", "32768", "2147483647", "2147483648", "9223372036854775807"}},
 		{"array_str_int_2", model.DateTime, []time.Time{Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch}},
 
-		{"array_str_float", model.Int, []int64{0, 0, 0, 0, 0}},
-		{"array_str_float", model.Float, []float64{0, 0, 0, 0, 0}},
-		{"array_str_float", model.String, []string{"4.940656458412465441765687928682213723651e-324", "1.401298464324817070923729583289916131280e-45", "0.0", "3.40282346638528859811704183484516925440e+38", "1.797693134862315708145274237317043567981e+308"}},
-		{"array_str_float", model.DateTime, []time.Time{Epoch, Epoch, Epoch, Epoch, Epoch}},
+		{"array_str_float", model.Int, []int64{0, 0, 0, 0, 0, 0, 0}},
+		{"array_str_float", model.Float, []float64{0, 0, 0, 0, 0, 0, 0}},
+		{"array_str_float", model.String, []string{"4.940656458412465441765687928682213723651e-324", "1.401298464324817070923729583289916131280e-45", "0.0", "3.40282346638528859811704183484516925440e+38", "1.797693134862315708145274237317043567981e+308", "-inf", "+inf"}},
+		{"array_str_float", model.DateTime, []time.Time{Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch}},
 
 		{"array_str_date_1", model.DateTime, []time.Time{bdLocalDate, bdLocalDate.Add(24 * time.Hour), bdLocalDate.Add(48 * time.Hour)}},
 		{"array_str_date_2", model.DateTime, []time.Time{bdLocalDate, bdLocalDate.Add(24 * time.Hour), bdLocalDate.Add(48 * time.Hour)}},
@@ -494,15 +500,20 @@ func TestParserArray(t *testing.T) {
 	for i := range names {
 		name := names[i]
 		metric := metrics[name]
+		var skipped []string
 		for j := range testCases {
-			if name == "csv" && testCases[j].Field == "array_obj" {
-				// csv parser doesn't support object array yet.
+			var v interface{}
+			desc := fmt.Sprintf(`%s.GetArray("%s", %d)`, name, testCases[j].Field, testCases[j].Type)
+			if (name == "gjson" && testCases[j].Field == "array_num_float") ||
+				(name == "csv" && sliceContains([]string{"array_num_float", "array_str_float"}, testCases[j].Field)) {
+				skipped = append(skipped, desc)
 				continue
 			}
-			var v interface{}
-			desc := fmt.Sprintf(`%s GetArray("%s", %d)`, name, testCases[j].Field, testCases[j].Type)
 			v = metric.GetArray(testCases[j].Field, testCases[j].Type)
-			require.Equal(t, testCases[j].ExpVal, v, desc)
+			assert.Equal(t, testCases[j].ExpVal, v, desc)
+		}
+		if skipped != nil {
+			log.Printf("Skipped %d cases incompatible with fastjson parser: %v\n", len(skipped), strings.Join(skipped, ", "))
 		}
 	}
 }
