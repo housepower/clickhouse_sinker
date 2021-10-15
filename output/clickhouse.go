@@ -119,21 +119,19 @@ func (c *ClickHouse) write(batch *model.Batch, sc *pool.ShardConn, dbVer *int) (
 	}
 	if c.IdxSerID >= 0 {
 		var seriesRows model.Rows
-		var labels []string
 		c.mux.Lock()
 		for _, row := range *batch.Rows {
 			seriesID := (*row)[c.IdxSerID].(uint64)
 			if !c.bmSeries.Contains(seriesID) {
 				seriesRow := make(model.Row, 2+len(c.idxLabels)) //__series_id, lables, ...
-				if labels == nil {
-					labels = make([]string, len(c.idxLabels))
-				}
+				labels := make([]string, 0)
 				seriesRow[0] = seriesID
 				for i, idxLabel := range c.idxLabels {
 					seriesRow[2+i] = (*row)[idxLabel]
 					labelKey := c.Dims[idxLabel].Name
-					labelVal := (*row)[idxLabel].(string)
-					labels[i] = fmt.Sprintf(`"%s": "%s"`, labelKey, labelVal)
+					if labelVal, ok := (*row)[idxLabel].(string); ok {
+						labels = append(labels, fmt.Sprintf(`"%s": "%s"`, labelKey, labelVal))
+					}
 				}
 				seriesRow[1] = fmt.Sprintf("{%s}", strings.Join(labels, ", "))
 				seriesRows = append(seriesRows, &seriesRow)
@@ -193,8 +191,15 @@ func (c *ClickHouse) loopWrite(batch *model.Batch) {
 }
 
 func (c *ClickHouse) initBmSeries(conn *sql.DB) (err error) {
-	c.bmSeries = roaring64.New()
-	allSeriesSQL := fmt.Sprintf("SELECT __series_id FROM %s.dist_%s", c.cfg.Clickhouse.DB, c.seriesTbl)
+	var seriesDistTbls []string
+	if seriesDistTbls, err = c.getDistTbls(c.seriesTbl); err != nil {
+		return
+	}
+	if seriesDistTbls == nil {
+		err = errors.Wrapf(err, "Please create distributed table for %s", c.seriesTbl)
+		return
+	}
+	allSeriesSQL := fmt.Sprintf("SELECT __series_id FROM %s.%s", c.cfg.Clickhouse.DB, seriesDistTbls[0])
 	var rs *sql.Rows
 	var seriesID uint64
 	if rs, err = conn.Query(allSeriesSQL); err != nil {
@@ -202,6 +207,7 @@ func (c *ClickHouse) initBmSeries(conn *sql.DB) (err error) {
 		return err
 	}
 	defer rs.Close()
+	c.bmSeries = roaring64.New()
 	for rs.Next() {
 		if err = rs.Scan(&seriesID); err != nil {
 			err = errors.Wrapf(err, "")
@@ -209,6 +215,7 @@ func (c *ClickHouse) initBmSeries(conn *sql.DB) (err error) {
 		}
 		c.bmSeries.Add(seriesID)
 	}
+	util.Logger.Info(fmt.Sprintf("loaded %d series from %v", c.bmSeries.GetCardinality(), c.seriesTbl), zap.String("task", c.taskCfg.Name))
 	return
 }
 
@@ -250,24 +257,22 @@ func (c *ClickHouse) initSchema() (err error) {
 			// Check the series table schema
 			c.seriesTbl = c.taskCfg.TableName + "_series"
 			var seriesDims []*model.ColumnWithType
-			if seriesDims, err = getDims(c.cfg.Clickhouse.DB, c.taskCfg.TableName, c.taskCfg.ExcludeColumns, conn); err != nil {
+			if seriesDims, err = getDims(c.cfg.Clickhouse.DB, c.seriesTbl, nil, conn); err != nil {
 				if errors.Is(err, ErrTblNotExist) {
 					err = errors.Wrapf(err, "Please create table %s(and distributed table) with the following columns: %s", c.seriesTbl, expSeriesDms)
 					return
 				}
 				return
 			}
-			if len(seriesDims) != 2+len(c.idxLabels) {
-				err = errors.Errorf("Missed %d columns in %s. Please modify table %s(and distributed table) to the following columns: %s", 2+len(c.idxLabels)-len(seriesDims), c.seriesTbl, c.seriesTbl, expSeriesDms)
-				return
-			}
-			for i, idxLabel := range c.idxLabels {
-				dim := c.Dims[idxLabel]
-				seriesDim := seriesDims[i]
-				if seriesDim.Name != dim.Name || seriesDim.Type != model.String {
-					err = errors.Errorf("Column %s(#%d) in %s doesn't math expection. Please modify table %s(and distributed table) to the following columns: %s", seriesDim.Name, i, c.seriesTbl, c.seriesTbl, expSeriesDms)
+			for i, expDim := range expSeriesDims {
+				if i < len(seriesDims) && (seriesDims[i].Name != expDim.Name || seriesDims[i].Type != expDim.Type) {
+					err = errors.Errorf("Column #%d of %s expect to be {%s, %v}, actual {%s, %v}. Please modify table %s(and distributed table) to the following columns: %s", i, expDim.Name, expDim.Type, seriesDims[i].Name, seriesDims[i].Type, c.seriesTbl, c.seriesTbl, expSeriesDms)
 					return
 				}
+			}
+			if len(seriesDims) != len(expSeriesDims) {
+				err = errors.Errorf("Columns number of %s expect to be %d, actual %d. Please modify table %s(and distributed table) to the following columns: %s", c.seriesTbl, len(expSeriesDims), len(seriesDims), c.seriesTbl, c.seriesTbl, expSeriesDms)
+				return
 			}
 			// Generate SQL for series INSERT
 			var params = make([]string, len(c.Dims))
@@ -407,8 +412,8 @@ func (c *ClickHouse) getDistTbls(table string) (distTbls []string, err error) {
 	if conn, _, err = sc.NextGoodReplica(0); err != nil {
 		return
 	}
-	query := fmt.Sprintf(`SELECT name FROM system.tables WHERE engine='Distributed' AND database='%s' AND match(create_table_query, 'Distributed.*\'%s\',\s*\'%s\'')`,
-		chCfg.DB, chCfg.DB, table)
+	query := fmt.Sprintf(`SELECT name FROM system.tables WHERE engine='Distributed' AND database='%s' AND match(create_table_query, 'Distributed\(\'%s\', \'%s\', \'%s\'\)')`,
+		chCfg.DB, chCfg.Cluster, chCfg.DB, table)
 	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", taskCfg.Name))
 
 	var rows *sql.Rows

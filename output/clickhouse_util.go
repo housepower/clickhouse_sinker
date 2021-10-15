@@ -80,7 +80,7 @@ func getDims(database, table string, excludedColumns []string, conn *sql.DB) (di
 		}
 	}
 	if len(dims) == 0 {
-		err = errors.Wrapf(ErrTblNotExist, "")
+		err = errors.Wrapf(ErrTblNotExist, "%s.%s", database, table)
 		return
 	}
 	return

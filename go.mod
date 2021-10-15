@@ -4,6 +4,7 @@ go 1.14
 
 require (
 	github.com/ClickHouse/clickhouse-go v1.4.7
+	github.com/RoaringBitmap/roaring v0.9.4
 	github.com/Shopify/sarama v1.29.1
 	github.com/bytedance/sonic v0.0.0-20210624083732-e9b6634cac5a
 	github.com/cespare/xxhash/v2 v2.1.2
