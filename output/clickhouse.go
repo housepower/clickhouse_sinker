@@ -27,7 +27,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ClickHouse/clickhouse-go"
 	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/housepower/clickhouse_sinker/config"
 	"github.com/housepower/clickhouse_sinker/model"
@@ -39,6 +38,7 @@ import (
 )
 
 var (
+	ErrTblNotExist       = errors.Errorf("table doesn't exist")
 	selectSQLTemplate    = `select name, type, default_kind from system.columns where database = '%s' and table = '%s'`
 	lowCardinalityRegexp = regexp.MustCompile(`LowCardinality\((.+)\)`)
 
@@ -58,6 +58,7 @@ type ClickHouse struct {
 	taskCfg    *config.TaskConfig
 	prepareSQL string
 	promSerSQL string
+	seriesTbl  string
 	bmSeries   *roaring64.Bitmap
 	numFlying  int32
 	mux        sync.Mutex
@@ -101,35 +102,6 @@ func (c *ClickHouse) Send(batch *model.Batch) {
 		c.mux.Unlock()
 		statistics.WritingPoolBacklog.WithLabelValues(c.taskCfg.Name).Dec()
 	})
-}
-
-func writeRows(prepareSQL string, rows model.Rows, conn *sql.DB) (err error) {
-	var stmt *sql.Stmt
-	var tx *sql.Tx
-	if tx, err = conn.Begin(); err != nil {
-		err = errors.Wrapf(err, "conn.Begin %s", prepareSQL)
-		return
-	}
-	if stmt, err = tx.Prepare(prepareSQL); err != nil {
-		err = errors.Wrapf(err, "tx.Prepare %s", prepareSQL)
-		return
-	}
-	defer stmt.Close()
-	for _, row := range rows {
-		if _, err = stmt.Exec(*row...); err != nil {
-			err = errors.Wrapf(err, "stmt.Exec")
-			break
-		}
-	}
-	if err != nil {
-		_ = tx.Rollback()
-		return err
-	}
-	if err = tx.Commit(); err != nil {
-		err = errors.Wrapf(err, "tx.Commit")
-		return
-	}
-	return
 }
 
 // Write a batch to clickhouse
@@ -185,22 +157,6 @@ func (c *ClickHouse) write(batch *model.Batch, sc *pool.ShardConn, dbVer *int) (
 	return
 }
 
-func shouldReconnect(err error, sc *pool.ShardConn) bool {
-	var exp *clickhouse.Exception
-	if errors.As(err, &exp) {
-		util.Logger.Error("this is an exception from clickhouse-server", zap.String("dsn", sc.GetDsn()), zap.Reflect("exception", exp))
-		var replicaSpecific bool
-		for _, ec := range replicaSpecificErrorCodes {
-			if ec == exp.Code {
-				replicaSpecific = true
-				break
-			}
-		}
-		return replicaSpecific
-	}
-	return true
-}
-
 // LoopWrite will dead loop to write the records
 func (c *ClickHouse) loopWrite(batch *model.Batch) {
 	var err error
@@ -236,36 +192,94 @@ func (c *ClickHouse) loopWrite(batch *model.Batch) {
 	}
 }
 
+func (c *ClickHouse) initBmSeries(conn *sql.DB) (err error) {
+	c.bmSeries = roaring64.New()
+	allSeriesSQL := fmt.Sprintf("SELECT __series_id FROM %s.dist_%s", c.cfg.Clickhouse.DB, c.seriesTbl)
+	var rs *sql.Rows
+	var seriesID uint64
+	if rs, err = conn.Query(allSeriesSQL); err != nil {
+		err = errors.Wrapf(err, "")
+		return err
+	}
+	defer rs.Close()
+	for rs.Next() {
+		if err = rs.Scan(&seriesID); err != nil {
+			err = errors.Wrapf(err, "")
+			return err
+		}
+		c.bmSeries.Add(seriesID)
+	}
+	return
+}
+
 func (c *ClickHouse) initSchema() (err error) {
+	c.IdxSerID = -1
 	if c.taskCfg.AutoSchema {
 		sc := pool.GetShardConn(0)
 		var conn *sql.DB
 		if conn, _, err = sc.NextGoodReplica(0); err != nil {
 			return
 		}
-		var rs *sql.Rows
-		if rs, err = conn.Query(fmt.Sprintf(selectSQLTemplate, c.cfg.Clickhouse.DB, c.taskCfg.TableName)); err != nil {
-			err = errors.Wrapf(err, "")
-			return err
-		}
-		defer rs.Close()
-
-		c.Dims = make([]*model.ColumnWithType, 0, 10)
-		var name, typ, defaultKind string
-		for rs.Next() {
-			if err = rs.Scan(&name, &typ, &defaultKind); err != nil {
-				err = errors.Wrapf(err, "")
-				return err
-			}
-			typ = lowCardinalityRegexp.ReplaceAllString(typ, "$1")
-			if !util.StringContains(c.taskCfg.ExcludeColumns, name) && defaultKind != "MATERIALIZED" {
-				tp, nullable := model.WhichType(typ)
-				c.Dims = append(c.Dims, &model.ColumnWithType{Name: name, Type: tp, Nullable: nullable, SourceName: util.GetSourceName(name)})
-			}
-		}
-		if len(c.Dims) == 0 {
-			err = errors.Errorf("Table %s.%s doesn't exist", c.cfg.Clickhouse.DB, c.taskCfg.TableName)
+		if c.Dims, err = getDims(c.cfg.Clickhouse.DB, c.taskCfg.TableName, c.taskCfg.ExcludeColumns, conn); err != nil {
 			return
+		}
+		for i, dim := range c.Dims {
+			if dim.Name == "__series_id" {
+				c.IdxSerID = i
+			}
+		}
+		if c.IdxSerID >= 0 {
+			expSeriesDims := []*model.ColumnWithType{
+				{Name: "__series_id", Type: model.Int},
+				{Name: "labels", Type: model.String},
+			}
+			expSeriesDms := "__series_id UInt64, labels String"
+			expSeriesDmsQuoted := []string{"__series_id", "labels"}
+			for i, dim := range c.Dims {
+				if dim.Type == model.String {
+					c.idxLabels = append(c.idxLabels, i)
+					expSeriesDims = append(expSeriesDims, dim)
+					if dim.Nullable {
+						expSeriesDms += fmt.Sprintf(", `%s` Nullable(String)", dim.Name)
+					} else {
+						expSeriesDms += fmt.Sprintf(", `%s` String", dim.Name)
+					}
+					expSeriesDmsQuoted = append(expSeriesDmsQuoted, fmt.Sprintf("`%s`", dim.Name))
+				}
+			}
+			// Check the series table schema
+			c.seriesTbl = c.taskCfg.TableName + "_series"
+			var seriesDims []*model.ColumnWithType
+			if seriesDims, err = getDims(c.cfg.Clickhouse.DB, c.taskCfg.TableName, c.taskCfg.ExcludeColumns, conn); err != nil {
+				if errors.Is(err, ErrTblNotExist) {
+					err = errors.Wrapf(err, "Please create table %s(and distributed table) with the following columns: %s", c.seriesTbl, expSeriesDms)
+					return
+				}
+				return
+			}
+			if len(seriesDims) != 2+len(c.idxLabels) {
+				err = errors.Errorf("Missed %d columns in %s. Please modify table %s(and distributed table) to the following columns: %s", 2+len(c.idxLabels)-len(seriesDims), c.seriesTbl, c.seriesTbl, expSeriesDms)
+				return
+			}
+			for i, idxLabel := range c.idxLabels {
+				dim := c.Dims[idxLabel]
+				seriesDim := seriesDims[i]
+				if seriesDim.Name != dim.Name || seriesDim.Type != model.String {
+					err = errors.Errorf("Column %s(#%d) in %s doesn't math expection. Please modify table %s(and distributed table) to the following columns: %s", seriesDim.Name, i, c.seriesTbl, c.seriesTbl, expSeriesDms)
+					return
+				}
+			}
+			// Generate SQL for series INSERT
+			var params = make([]string, len(c.Dims))
+			for i := range params {
+				params[i] = "?"
+			}
+			c.promSerSQL = "INSERT INTO " + c.cfg.Clickhouse.DB + "." + c.seriesTbl + " (" + strings.Join(expSeriesDmsQuoted, ",") + ") " +
+				"VALUES (" + strings.Join(params, ",") + ")"
+			// Initialize bmSeries
+			if err = c.initBmSeries(conn); err != nil {
+				return
+			}
 		}
 	} else {
 		c.Dims = make([]*model.ColumnWithType, 0)
@@ -293,14 +307,6 @@ func (c *ClickHouse) initSchema() (err error) {
 	c.prepareSQL = "INSERT INTO " + c.cfg.Clickhouse.DB + "." + c.taskCfg.TableName + " (" + strings.Join(quotedDms, ",") + ") " +
 		"VALUES (" + strings.Join(params, ",") + ")"
 	util.Logger.Info(fmt.Sprintf("Prepare sql=> %s", c.prepareSQL), zap.String("task", c.taskCfg.Name))
-
-	c.IdxSerID = -1
-	for i, dim := range c.Dims {
-		if dim.Name == "__series_id" {
-			c.IdxSerID = i
-		}
-	}
-
 	return nil
 }
 
@@ -329,8 +335,9 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 			return false
 		}
 		strKey, _ := key.(string)
+		intVal := value.(int)
 		var strVal string
-		switch value.(int) {
+		switch intVal {
 		case model.Int:
 			strVal = "Nullable(Int64)"
 		case model.Float:
@@ -353,6 +360,10 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 		}
 		query := fmt.Sprintf("ALTER TABLE %s.%s %s ADD COLUMN IF NOT EXISTS `%s` %s", chCfg.DB, taskCfg.TableName, onCluster, strKey, strVal)
 		queries = append(queries, query)
+		if c.IdxSerID >= 0 && intVal == model.String {
+			query := fmt.Sprintf("ALTER TABLE %s.%s %s ADD COLUMN IF NOT EXISTS `%s` %s", chCfg.DB, c.seriesTbl, onCluster, strKey, strVal)
+			queries = append(queries, query)
+		}
 		return true
 	})
 	if err != nil {
@@ -360,15 +371,17 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 	}
 	sort.Strings(queries)
 	if chCfg.Cluster != "" {
-		var distTbls []string
-		if distTbls, err = c.getDistTbls(); err != nil {
-			return
-		}
-		for _, distTbl := range distTbls {
-			queries = append(queries, fmt.Sprintf("DROP TABLE IF EXISTS %s.%s %s", chCfg.DB, distTbl, onCluster))
-			queries = append(queries, fmt.Sprintf("CREATE TABLE %s.%s %s AS %s ENGINE = Distributed(%s, %s, %s);",
-				chCfg.DB, distTbl, onCluster, taskCfg.TableName,
-				chCfg.Cluster, chCfg.DB, taskCfg.TableName))
+		for _, table := range []string{taskCfg.TableName, c.seriesTbl} {
+			var distTbls []string
+			if distTbls, err = c.getDistTbls(table); err != nil {
+				return
+			}
+			for _, distTbl := range distTbls {
+				queries = append(queries, fmt.Sprintf("DROP TABLE IF EXISTS %s.%s %s", chCfg.DB, distTbl, onCluster))
+				queries = append(queries, fmt.Sprintf("CREATE TABLE %s.%s %s AS %s ENGINE = Distributed(%s, %s, %s);",
+					chCfg.DB, distTbl, onCluster, table,
+					chCfg.Cluster, chCfg.DB, table))
+			}
 		}
 	}
 	sc := pool.GetShardConn(0)
@@ -386,7 +399,7 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 	return
 }
 
-func (c *ClickHouse) getDistTbls() (distTbls []string, err error) {
+func (c *ClickHouse) getDistTbls(table string) (distTbls []string, err error) {
 	taskCfg := c.taskCfg
 	chCfg := &c.cfg.Clickhouse
 	sc := pool.GetShardConn(0)
@@ -395,7 +408,7 @@ func (c *ClickHouse) getDistTbls() (distTbls []string, err error) {
 		return
 	}
 	query := fmt.Sprintf(`SELECT name FROM system.tables WHERE engine='Distributed' AND database='%s' AND match(create_table_query, 'Distributed.*\'%s\',\s*\'%s\'')`,
-		chCfg.DB, chCfg.DB, taskCfg.TableName)
+		chCfg.DB, chCfg.DB, table)
 	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", taskCfg.Name))
 
 	var rows *sql.Rows
