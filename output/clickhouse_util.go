@@ -86,6 +86,24 @@ func getDims(database, table string, excludedColumns []string, conn *sql.DB) (di
 	return
 }
 
+func recreateDistTbls(cluster, database, table string, distTbls []string, conn *sql.DB) (err error) {
+	var queries []string
+	for _, distTbl := range distTbls {
+		queries = append(queries, fmt.Sprintf("DROP TABLE IF EXISTS %s.%s ON CLUSTER %s", database, distTbl, cluster))
+		queries = append(queries, fmt.Sprintf("CREATE TABLE %s.%s ON CLUSTER %s AS %s ENGINE = Distributed(%s, %s, %s);",
+			database, distTbl, cluster, table,
+			cluster, database, table))
+	}
+	for _, query := range queries {
+		util.Logger.Info(fmt.Sprintf("executing sql=> %s", query))
+		if _, err = conn.Exec(query); err != nil {
+			err = errors.Wrapf(err, "")
+			return
+		}
+	}
+	return
+}
+
 func isReplicated(database, table string, conn *sql.DB) (yes bool, err error) {
 	var rs *sql.Rows
 	if rs, err = conn.Query(fmt.Sprintf("SHOW CREATE TABLE %s.%s", database, table)); err != nil {
