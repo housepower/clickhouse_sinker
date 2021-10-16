@@ -147,6 +147,7 @@ func (ring *Ring) ForceBatchOrShard(_ interface{}) {
 	taskCfg := ring.service.taskCfg
 	ring.mux.Lock()
 	defer ring.mux.Unlock()
+	defer ring.available.Broadcast()
 	ring.tid.Stop()
 	if !ring.isIdle {
 		if ring.ringFilledOffset > ring.ringGroundOff {

@@ -88,6 +88,7 @@ func (service *Service) Init() (err error) {
 	}
 
 	service.dims = service.clickhouse.Dims
+	service.idxSerID = service.clickhouse.IdxSerID
 	service.limiter1 = rate.NewLimiter(rate.Every(10*time.Second), 1)
 	service.limiter2 = rate.NewLimiter(rate.Every(10*time.Second), 1)
 
@@ -214,9 +215,19 @@ func (service *Service) put(msg model.InputMessage) {
 			ring.mux.Unlock()
 		} else {
 			prevMsgOff := msg.Offset - 1
-			for msg.Offset == ring.ringGroundOff+ring.ringCap && ring.ringBuf[prevMsgOff&ring.ringCapMask].Msg != nil {
-				// wait ring.PutElem to make room
+			for atomic.LoadUint32(&service.state) == util.StateRunning && !ring.isIdle && msg.Offset == ring.ringGroundOff+ring.ringCap && ring.ringBuf[prevMsgOff&ring.ringCapMask].Msg != nil {
+				// wait ring.PutElem/ring.ForceBatchOrShard to make room
+				util.Logger.Debug(fmt.Sprintf("got a message(topic %v, partition %d, offset %v) while the ring is full, waiting...",
+					msg.Topic, msg.Partition, msg.Offset), zap.String("task", taskCfg.Name))
 				ring.available.Wait()
+				util.Logger.Debug(fmt.Sprintf("got a message(topic %v, partition %d, offset %v) while the ring is full, wake-up",
+					msg.Topic, msg.Partition, msg.Offset), zap.String("task", taskCfg.Name))
+			}
+			if atomic.LoadUint32(&service.state) != util.StateRunning || ring.isIdle {
+				util.Logger.Debug(fmt.Sprintf("got a message(topic %v, partition %d, offset %v) while the ring.isIdle %v, service.state %v",
+					msg.Topic, msg.Partition, msg.Offset, ring.isIdle, atomic.LoadUint32(&service.state)), zap.String("task", taskCfg.Name))
+				ring.mux.Unlock()
+				return
 			}
 			if msg.Offset == ring.ringGroundOff || (msg.Offset < ring.ringGroundOff+ring.ringCap && ring.ringBuf[prevMsgOff&ring.ringCapMask].Msg != nil) {
 				ring.PutMsgNolock(&msg)
@@ -318,7 +329,6 @@ func (service *Service) drain() {
 	for _, ring := range service.rings {
 		if ring != nil {
 			ring.ForceBatchOrShard(nil)
-			ring.tid.Stop()
 		}
 	}
 	service.rings = make([]*Ring, 0)
