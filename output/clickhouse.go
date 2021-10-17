@@ -215,8 +215,117 @@ func (c *ClickHouse) initBmSeries(conn *sql.DB) (err error) {
 	return
 }
 
-func (c *ClickHouse) initSchema() (err error) {
+func (c *ClickHouse) initSeriesSchema(conn *sql.DB) (err error) {
 	chCfg := &c.cfg.Clickhouse
+	// Check distributed series table
+	c.idxLabels = nil
+	c.seriesTbl = c.taskCfg.TableName + "_series"
+	var onCluster string
+	if chCfg.Cluster != "" {
+		onCluster = fmt.Sprintf("ON CLUSTER %s", chCfg.Cluster)
+		if c.distSeriesTbls, err = c.getDistTbls(c.seriesTbl); err != nil {
+			return
+		}
+		if c.distSeriesTbls == nil {
+			err = errors.Errorf("Please create distributed table for %s.", c.seriesTbl)
+			return
+		}
+	}
+	// Check the series table schema
+	expSeriesDims := []*model.ColumnWithType{
+		{Name: "__series_id", Type: model.Int},
+		{Name: "labels", Type: model.String},
+	}
+	var seriesDims []*model.ColumnWithType
+	if seriesDims, err = getDims(c.cfg.Clickhouse.DB, c.seriesTbl, nil, conn); err != nil {
+		if errors.Is(err, ErrTblNotExist) {
+			err = errors.Wrapf(err, "Please create series table for %s.%s", c.cfg.Clickhouse.DB, c.taskCfg.TableName)
+			return
+		}
+		return
+	}
+	var badFirst bool
+	if len(seriesDims) < len(expSeriesDims) {
+		badFirst = true
+	} else {
+		for i := range expSeriesDims {
+			if seriesDims[i].Name != expSeriesDims[i].Name ||
+				seriesDims[i].Type != expSeriesDims[i].Type {
+				badFirst = true
+				break
+			}
+		}
+	}
+	if badFirst {
+		err = errors.Errorf(`First two columns of %s are expect to be "__series_id UInt64, labels String".`, c.seriesTbl)
+		return
+	}
+	for i, serDim := range seriesDims {
+		if i < 2 {
+			continue
+		}
+		idxLabel := -1
+		for j, dim := range c.Dims {
+			if serDim.Name == dim.Name && serDim.Type == dim.Type {
+				idxLabel = j
+				break
+			}
+		}
+		if idxLabel < 0 {
+			err = errors.Errorf("Column %s exists in %s but not in %s", serDim.Name, c.seriesTbl, c.taskCfg.TableName)
+			return
+		}
+		c.idxLabels = append(c.idxLabels, idxLabel)
+	}
+	// Add missed columns to the series table
+	var missedLabels []string
+	for i, dim := range c.Dims {
+		if dim.Type != model.String {
+			continue
+		}
+		var found bool
+		for _, serDim := range seriesDims {
+			if serDim.Name == dim.Name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			c.idxLabels = append(c.idxLabels, i)
+			seriesDims = append(seriesDims, dim)
+			missedLabels = append(missedLabels, dim.Name)
+		}
+	}
+	if missedLabels != nil {
+		for _, key := range missedLabels {
+			query := fmt.Sprintf("ALTER TABLE %s.%s %s ADD COLUMN IF NOT EXISTS `%s` Nullable(String)", chCfg.DB, c.seriesTbl, onCluster, key)
+			util.Logger.Info(fmt.Sprintf("executing sql=> %s", query))
+			if _, err = conn.Exec(query); err != nil {
+				err = errors.Wrapf(err, query)
+				return
+			}
+		}
+		if err = recreateDistTbls(chCfg.Cluster, chCfg.DB, c.seriesTbl, c.distSeriesTbls, conn); err != nil {
+			return
+		}
+	}
+	// Generate SQL for series INSERT
+	serDimsQuoted := make([]string, len(seriesDims))
+	params := make([]string, len(seriesDims))
+	for i, serDim := range seriesDims {
+		serDimsQuoted[i] = fmt.Sprintf("`%s`", serDim.Name)
+		params[i] = "?"
+	}
+	c.promSerSQL = "INSERT INTO " + c.cfg.Clickhouse.DB + "." + c.seriesTbl + " (" + strings.Join(serDimsQuoted, ",") + ") " +
+		"VALUES (" + strings.Join(params, ",") + ")"
+	// Initialize bmSeries
+	if err = c.initBmSeries(conn); err != nil {
+		return
+	}
+	return
+}
+
+func (c *ClickHouse) initSchema() (err error) {
 	c.IdxSerID = -1
 	if c.taskCfg.AutoSchema {
 		sc := pool.GetShardConn(0)
@@ -233,108 +342,7 @@ func (c *ClickHouse) initSchema() (err error) {
 			}
 		}
 		if c.IdxSerID >= 0 {
-			// Check distributed series table
-			c.idxLabels = nil
-			c.seriesTbl = c.taskCfg.TableName + "_series"
-			var onCluster string
-			if chCfg.Cluster != "" {
-				onCluster = fmt.Sprintf("ON CLUSTER %s", chCfg.Cluster)
-				if c.distSeriesTbls, err = c.getDistTbls(c.seriesTbl); err != nil {
-					return
-				}
-				if c.distSeriesTbls == nil {
-					err = errors.Errorf("Please create distributed table for %s.", c.seriesTbl)
-					return
-				}
-			}
-			// Check the series table schema
-			expSeriesDims := []*model.ColumnWithType{
-				{Name: "__series_id", Type: model.Int},
-				{Name: "labels", Type: model.String},
-			}
-			var seriesDims []*model.ColumnWithType
-			if seriesDims, err = getDims(c.cfg.Clickhouse.DB, c.seriesTbl, nil, conn); err != nil {
-				if errors.Is(err, ErrTblNotExist) {
-					err = errors.Wrapf(err, "Please create series table for %s", c.cfg.Clickhouse.DB, c.taskCfg.TableName)
-					return
-				}
-				return
-			}
-			var badFirst bool
-			if len(seriesDims) < len(expSeriesDims) {
-				badFirst = true
-			} else {
-				for i := range expSeriesDims {
-					if seriesDims[i].Name != expSeriesDims[i].Name ||
-						seriesDims[i].Type != expSeriesDims[i].Type {
-						badFirst = true
-						break
-					}
-				}
-			}
-			if badFirst {
-				err = errors.Errorf(`First two columns of %s are expect to be "__series_id UInt64, labels String".`, c.seriesTbl)
-				return
-			}
-			for i, serDim := range seriesDims {
-				if i < 2 {
-					continue
-				}
-				idxLabel := -1
-				for j, dim := range c.Dims {
-					if serDim.Name == dim.Name && serDim.Type == dim.Type {
-						idxLabel = j
-						break
-					}
-				}
-				if idxLabel < 0 {
-					err = errors.Errorf("Column %s exists in %s but not in %s", serDim.Name, c.seriesTbl, c.taskCfg.TableName)
-					return
-				}
-				c.idxLabels = append(c.idxLabels, idxLabel)
-			}
-			// Add missed columns to the series table
-			var missedLabels []string
-			for i, dim := range c.Dims {
-				if dim.Type != model.String {
-					continue
-				}
-				var found bool
-				for _, serDim := range seriesDims {
-					if serDim.Name == dim.Name {
-						found = true
-						break
-					}
-				}
-				if !found {
-					c.idxLabels = append(c.idxLabels, i)
-					seriesDims = append(seriesDims, dim)
-					missedLabels = append(missedLabels, dim.Name)
-				}
-			}
-			if missedLabels != nil {
-				for _, key := range missedLabels {
-					query := fmt.Sprintf("ALTER TABLE %s.%s %s ADD COLUMN IF NOT EXISTS `%s` Nullable(String)", chCfg.DB, c.seriesTbl, onCluster, key)
-					util.Logger.Info(fmt.Sprintf("executing sql=> %s", query))
-					if _, err = conn.Exec(query); err != nil {
-						err = errors.Wrapf(err, query)
-						return
-					}
-				}
-				recreateDistTbls(chCfg.Cluster, chCfg.DB, c.seriesTbl, c.distSeriesTbls, conn)
-			}
-
-			// Generate SQL for series INSERT
-			serDimsQuoted := make([]string, len(seriesDims))
-			params := make([]string, len(seriesDims))
-			for i, serDim := range seriesDims {
-				serDimsQuoted[i] = fmt.Sprintf("`%s`", serDim.Name)
-				params[i] = "?"
-			}
-			c.promSerSQL = "INSERT INTO " + c.cfg.Clickhouse.DB + "." + c.seriesTbl + " (" + strings.Join(serDimsQuoted, ",") + ") " +
-				"VALUES (" + strings.Join(params, ",") + ")"
-			// Initialize bmSeries
-			if err = c.initBmSeries(conn); err != nil {
+			if err = c.initSeriesSchema(conn); err != nil {
 				return
 			}
 		}

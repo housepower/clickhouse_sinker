@@ -3,7 +3,6 @@ package output
 import (
 	"database/sql"
 	"fmt"
-	"regexp"
 
 	"github.com/ClickHouse/clickhouse-go"
 	"github.com/housepower/clickhouse_sinker/model"
@@ -100,30 +99,6 @@ func recreateDistTbls(cluster, database, table string, distTbls []string, conn *
 			err = errors.Wrapf(err, "")
 			return
 		}
-	}
-	return
-}
-
-func isReplicated(database, table string, conn *sql.DB) (yes bool, err error) {
-	var rs *sql.Rows
-	if rs, err = conn.Query(fmt.Sprintf("SHOW CREATE TABLE %s.%s", database, table)); err != nil {
-		err = errors.Wrapf(err, "")
-		return
-	}
-	defer rs.Close()
-	var statement string
-	var matched bool
-	for rs.Next() {
-		if err = rs.Scan(&statement); err != nil {
-			err = errors.Wrapf(err, "")
-			return
-		}
-		if matched, err = regexp.Match(`ENGINE\s*=\s*Replicated`, []byte(statement)); err != nil {
-			err = errors.Wrapf(err, "")
-			return
-		}
-		yes = matched
-		return
 	}
 	return
 }

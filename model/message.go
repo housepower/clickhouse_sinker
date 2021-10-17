@@ -188,10 +188,10 @@ func MetricToRow(metric Metric, msg InputMessage, dims []*ColumnWithType, idxSer
 			val := GetValueByType(metric, dim)
 			*row = append(*row, val)
 			if idxSeriesID >= 0 && dim.Type == String && val != nil {
-				dig.WriteString("###")
-				dig.WriteString(dim.Name)
-				dig.WriteString("###")
-				dig.WriteString(val.(string))
+				_, _ = dig.WriteString("###")
+				_, _ = dig.WriteString(dim.Name)
+				_, _ = dig.WriteString("###")
+				_, _ = dig.WriteString(val.(string))
 			}
 		}
 	}
