@@ -108,6 +108,38 @@ func (c *ClickHouse) Send(batch *model.Batch) {
 	})
 }
 
+func (c *ClickHouse) writeSeries(rows model.Rows, conn *sql.DB) (err error) {
+	var seriesRows model.Rows
+	if c.IdxSerID < 0 {
+		return
+	}
+	c.mux.Lock()
+	for _, row := range rows {
+		seriesID := (*row)[c.IdxSerID].(uint64)
+		if c.bmSeries.CheckedAdd(seriesID) {
+			seriesRow := make(model.Row, 2+len(c.idxLabels)) //__series_id, lables, ...
+			labels := make([]string, 0)
+			seriesRow[0] = seriesID
+			for i, idxLabel := range c.idxLabels {
+				seriesRow[2+i] = (*row)[idxLabel]
+				labelKey := c.Dims[idxLabel].Name
+				if labelVal, ok := (*row)[idxLabel].(string); ok {
+					labels = append(labels, fmt.Sprintf(`"%s": "%s"`, labelKey, labelVal))
+				}
+			}
+			seriesRow[1] = fmt.Sprintf("{%s}", strings.Join(labels, ", "))
+			seriesRows = append(seriesRows, &seriesRow)
+		}
+	}
+	c.mux.Unlock()
+	if len(seriesRows) != 0 {
+		if err = writeRows(c.promSerSQL, seriesRows, conn); err != nil {
+			return
+		}
+	}
+	return
+}
+
 // Write a batch to clickhouse
 func (c *ClickHouse) write(batch *model.Batch, sc *pool.ShardConn, dbVer *int) (err error) {
 	if len(*batch.Rows) == 0 {
@@ -121,32 +153,8 @@ func (c *ClickHouse) write(batch *model.Batch, sc *pool.ShardConn, dbVer *int) (
 	if err = writeRows(c.prepareSQL, *batch.Rows, conn); err != nil {
 		return
 	}
-	if c.IdxSerID >= 0 {
-		var seriesRows model.Rows
-		c.mux.Lock()
-		for _, row := range *batch.Rows {
-			seriesID := (*row)[c.IdxSerID].(uint64)
-			if c.bmSeries.CheckedAdd(seriesID) {
-				seriesRow := make(model.Row, 2+len(c.idxLabels)) //__series_id, lables, ...
-				labels := make([]string, 0)
-				seriesRow[0] = seriesID
-				for i, idxLabel := range c.idxLabels {
-					seriesRow[2+i] = (*row)[idxLabel]
-					labelKey := c.Dims[idxLabel].Name
-					if labelVal, ok := (*row)[idxLabel].(string); ok {
-						labels = append(labels, fmt.Sprintf(`"%s": "%s"`, labelKey, labelVal))
-					}
-				}
-				seriesRow[1] = fmt.Sprintf("{%s}", strings.Join(labels, ", "))
-				seriesRows = append(seriesRows, &seriesRow)
-			}
-		}
-		c.mux.Unlock()
-		if len(seriesRows) != 0 {
-			if err = writeRows(c.promSerSQL, seriesRows, conn); err != nil {
-				return
-			}
-		}
+	if err = c.writeSeries(*batch.Rows, conn); err != nil {
+		return
 	}
 
 	statistics.FlushMsgsTotal.WithLabelValues(c.taskCfg.Name).Add(float64(batch.RealSize))
@@ -189,10 +197,15 @@ func (c *ClickHouse) loopWrite(batch *model.Batch) {
 }
 
 func (c *ClickHouse) initBmSeries(conn *sql.DB) (err error) {
-	allSeriesSQL := fmt.Sprintf("SELECT __series_id FROM %s.%s", c.cfg.Clickhouse.DB, c.distSeriesTbls[0])
+	var query string
+	if c.cfg.Clickhouse.Cluster != "" {
+		query = fmt.Sprintf("SELECT __series_id FROM %s.%s", c.cfg.Clickhouse.DB, c.distSeriesTbls[0])
+	} else {
+		query = fmt.Sprintf("SELECT __series_id FROM %s.%s", c.cfg.Clickhouse.DB, c.seriesTbl)
+	}
 	var rs *sql.Rows
 	var seriesID uint64
-	if rs, err = conn.Query(allSeriesSQL); err != nil {
+	if rs, err = conn.Query(query); err != nil {
 		err = errors.Wrapf(err, "")
 		return err
 	}
@@ -209,21 +222,11 @@ func (c *ClickHouse) initBmSeries(conn *sql.DB) (err error) {
 	return
 }
 
-func (c *ClickHouse) initSeriesSchema(conn *sql.DB) (err error) {
+func (c *ClickHouse) recoverSeriesSchema(conn *sql.DB) (err error) {
 	chCfg := &c.cfg.Clickhouse
-	// Check distributed series table
-	c.idxLabels = nil
-	c.seriesTbl = c.taskCfg.TableName + "_series"
 	var onCluster string
 	if chCfg.Cluster != "" {
 		onCluster = fmt.Sprintf("ON CLUSTER %s", chCfg.Cluster)
-		if c.distSeriesTbls, err = c.getDistTbls(c.seriesTbl); err != nil {
-			return
-		}
-		if c.distSeriesTbls == nil {
-			err = errors.Errorf("Please create distributed table for %s.", c.seriesTbl)
-			return
-		}
 	}
 	// Check the series table schema
 	expSeriesDims := []*model.ColumnWithType{
@@ -303,6 +306,7 @@ func (c *ClickHouse) initSeriesSchema(conn *sql.DB) (err error) {
 			return
 		}
 	}
+
 	// Generate SQL for series INSERT
 	serDimsQuoted := make([]string, len(seriesDims))
 	params := make([]string, len(seriesDims))
@@ -312,15 +316,115 @@ func (c *ClickHouse) initSeriesSchema(conn *sql.DB) (err error) {
 	}
 	c.promSerSQL = "INSERT INTO " + c.cfg.Clickhouse.DB + "." + c.seriesTbl + " (" + strings.Join(serDimsQuoted, ",") + ") " +
 		"VALUES (" + strings.Join(params, ",") + ")"
+	return
+}
+
+func (c *ClickHouse) recoverSeriesData(conn *sql.DB) (err error) {
+	chCfg := &c.cfg.Clickhouse
+	sel := make([]string, len(c.Dims))
+	for i, dim := range c.Dims {
+		if i == c.IdxSerID {
+			sel[i] = dim.Name
+		} else {
+			sel[i] = fmt.Sprintf("any(`%s`)", dim.Name)
+		}
+	}
+	var query string
+	if chCfg.Cluster != "" {
+		query = fmt.Sprintf(`SELECT %s FROM %s.%s WHERE __series_id GLOBAL NOT IN (SELECT __series_id FROM %s.%s) GROUP BY __series_id`, strings.Join(sel, ", "), chCfg.DB, c.distMetricTbls[0], chCfg.DB, c.distSeriesTbls[0])
+	} else {
+		query = fmt.Sprintf(`SELECT %s FROM %s.%s WHERE __series_id NOT IN (SELECT __series_id FROM %s.%s) GROUP BY __series_id`, strings.Join(sel, ", "), chCfg.DB, c.taskCfg.TableName, chCfg.DB, c.seriesTbl)
+	}
+	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query))
+	rowsMissed := make(model.Rows, 0)
+	var rs *sql.Rows
+	if rs, err = conn.Query(query); err != nil {
+		err = errors.Wrapf(err, "")
+		return err
+	}
+	defer rs.Close()
+	var cnt int
+	rowPtr := make(model.Row, len(c.Dims))
+	for rs.Next() {
+		row := make(model.Row, len(c.Dims))
+		for i, dim := range c.Dims {
+			switch dim.Type {
+			case model.Int:
+				row[i] = uint64(0)
+			case model.Float:
+				row[i] = float64(0.0)
+			case model.DateTime, model.ElasticDateTime:
+				row[i] = time.Time{}
+			case model.String:
+				row[i] = sql.NullString{}
+			default:
+			}
+			rowPtr[i] = &row[i]
+		}
+		if err = rs.Scan(rowPtr...); err != nil {
+			err = errors.Wrapf(err, "")
+			return err
+		}
+		rowsMissed = append(rowsMissed, &row)
+		if len(rowsMissed) >= c.taskCfg.BufferSize {
+			if err = c.writeSeries(rowsMissed, conn); err != nil {
+				return
+			}
+			cnt += len(rowsMissed)
+			rowsMissed = rowsMissed[:0]
+		}
+	}
+	if err = c.writeSeries(rowsMissed, conn); err != nil {
+		return
+	}
+	cnt += len(rowsMissed)
+	util.Logger.Info(fmt.Sprintf("recovered %d series to %s", cnt, c.seriesTbl), zap.String("task", c.taskCfg.Name))
+	return
+}
+
+func (c *ClickHouse) initSeriesSchema(conn *sql.DB) (err error) {
+	chCfg := &c.cfg.Clickhouse
+	c.IdxSerID = -1
+	for i, dim := range c.Dims {
+		if dim.Name == "__series_id" {
+			c.IdxSerID = i
+		}
+	}
+	if c.IdxSerID < 0 {
+		return
+	}
+	// Check distributed series table
+	c.idxLabels = nil
+	c.seriesTbl = c.taskCfg.TableName + "_series"
+	if chCfg.Cluster != "" {
+		if c.distSeriesTbls, err = c.getDistTbls(c.seriesTbl); err != nil {
+			return
+		}
+		if c.distSeriesTbls == nil {
+			err = errors.Errorf("Please create distributed table for %s.", c.seriesTbl)
+			return
+		}
+	}
 	// Initialize bmSeries
 	if err = c.initBmSeries(conn); err != nil {
 		return
 	}
+	// Recover series table columns
+	if err = c.recoverSeriesSchema(conn); err != nil {
+		return
+	}
+	// Recover series to the series table
+	if err = c.recoverSeriesData(conn); err != nil {
+		return
+	}
+
 	return
 }
 
 func (c *ClickHouse) initSchema() (err error) {
-	c.IdxSerID = -1
+	if c.distMetricTbls, err = c.getDistTbls(c.taskCfg.TableName); err != nil {
+		return
+	}
 	if c.taskCfg.AutoSchema {
 		sc := pool.GetShardConn(0)
 		var conn *sql.DB
@@ -330,15 +434,8 @@ func (c *ClickHouse) initSchema() (err error) {
 		if c.Dims, err = getDims(c.cfg.Clickhouse.DB, c.taskCfg.TableName, c.taskCfg.ExcludeColumns, conn); err != nil {
 			return
 		}
-		for i, dim := range c.Dims {
-			if dim.Name == "__series_id" {
-				c.IdxSerID = i
-			}
-		}
-		if c.IdxSerID >= 0 {
-			if err = c.initSeriesSchema(conn); err != nil {
-				return
-			}
+		if err = c.initSeriesSchema(conn); err != nil {
+			return
 		}
 	} else {
 		c.Dims = make([]*model.ColumnWithType, 0)
@@ -353,9 +450,6 @@ func (c *ClickHouse) initSchema() (err error) {
 		}
 	}
 	// Generate SQL for INSERT
-	if c.distMetricTbls, err = c.getDistTbls(c.taskCfg.TableName); err != nil {
-		return
-	}
 	c.Dms = make([]string, 0, len(c.Dims))
 	quotedDms := make([]string, 0, len(c.Dims))
 	for _, d := range c.Dims {
