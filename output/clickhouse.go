@@ -344,7 +344,6 @@ func (c *ClickHouse) recoverSeriesData(conn *sql.DB) (err error) {
 		return err
 	}
 	defer rs.Close()
-	var cnt int
 	rowPtr := make(model.Row, len(c.Dims))
 	for rs.Next() {
 		row := make(model.Row, len(c.Dims))
@@ -367,19 +366,12 @@ func (c *ClickHouse) recoverSeriesData(conn *sql.DB) (err error) {
 			return err
 		}
 		rowsMissed = append(rowsMissed, &row)
-		if len(rowsMissed) >= c.taskCfg.BufferSize {
-			if err = c.writeSeries(rowsMissed, conn); err != nil {
-				return
-			}
-			cnt += len(rowsMissed)
-			rowsMissed = rowsMissed[:0]
-		}
 	}
+	rs.Close() //rows need be closed before executing another sql
 	if err = c.writeSeries(rowsMissed, conn); err != nil {
 		return
 	}
-	cnt += len(rowsMissed)
-	util.Logger.Info(fmt.Sprintf("recovered %d series to %s", cnt, c.seriesTbl), zap.String("task", c.taskCfg.Name))
+	util.Logger.Info(fmt.Sprintf("recovered %d series to %s", len(rowsMissed), c.seriesTbl), zap.String("task", c.taskCfg.Name))
 	return
 }
 
