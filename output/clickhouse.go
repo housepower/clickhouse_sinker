@@ -320,7 +320,6 @@ func (c *ClickHouse) recoverSeriesSchema(conn *sql.DB) (err error) {
 }
 
 func (c *ClickHouse) recoverSeriesData(conn *sql.DB) (err error) {
-	chCfg := &c.cfg.Clickhouse
 	sel := make([]string, len(c.Dims))
 	for i, dim := range c.Dims {
 		if i == c.IdxSerID {
@@ -330,10 +329,12 @@ func (c *ClickHouse) recoverSeriesData(conn *sql.DB) (err error) {
 		}
 	}
 	var query string
-	if chCfg.Cluster != "" {
-		query = fmt.Sprintf(`SELECT %s FROM %s.%s WHERE __series_id GLOBAL NOT IN (SELECT __series_id FROM %s.%s) GROUP BY __series_id`, strings.Join(sel, ", "), chCfg.DB, c.distMetricTbls[0], chCfg.DB, c.distSeriesTbls[0])
+	if chCfg := &c.cfg.Clickhouse; chCfg.Cluster != "" {
+		query = fmt.Sprintf(`SELECT %s FROM %s.%s WHERE __series_id GLOBAL NOT IN (SELECT __series_id FROM %s.%s) GROUP BY __series_id`,
+			strings.Join(sel, ", "), chCfg.DB, c.distMetricTbls[0], chCfg.DB, c.distSeriesTbls[0])
 	} else {
-		query = fmt.Sprintf(`SELECT %s FROM %s.%s WHERE __series_id NOT IN (SELECT __series_id FROM %s.%s) GROUP BY __series_id`, strings.Join(sel, ", "), chCfg.DB, c.taskCfg.TableName, chCfg.DB, c.seriesTbl)
+		query = fmt.Sprintf(`SELECT %s FROM %s.%s WHERE __series_id NOT IN (SELECT __series_id FROM %s.%s) GROUP BY __series_id`,
+			strings.Join(sel, ", "), chCfg.DB, c.taskCfg.TableName, chCfg.DB, c.seriesTbl)
 	}
 	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query))
 	rowsMissed := make(model.Rows, 0)
@@ -383,7 +384,6 @@ func (c *ClickHouse) recoverSeriesData(conn *sql.DB) (err error) {
 }
 
 func (c *ClickHouse) initSeriesSchema(conn *sql.DB) (err error) {
-	chCfg := &c.cfg.Clickhouse
 	c.IdxSerID = -1
 	for i, dim := range c.Dims {
 		if dim.Name == "__series_id" {
@@ -396,7 +396,7 @@ func (c *ClickHouse) initSeriesSchema(conn *sql.DB) (err error) {
 	// Check distributed series table
 	c.idxLabels = nil
 	c.seriesTbl = c.taskCfg.TableName + "_series"
-	if chCfg.Cluster != "" {
+	if chCfg := &c.cfg.Clickhouse; chCfg.Cluster != "" {
 		if c.distSeriesTbls, err = c.getDistTbls(c.seriesTbl); err != nil {
 			return
 		}
@@ -417,7 +417,6 @@ func (c *ClickHouse) initSeriesSchema(conn *sql.DB) (err error) {
 	if err = c.recoverSeriesData(conn); err != nil {
 		return
 	}
-
 	return
 }
 

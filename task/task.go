@@ -151,10 +151,7 @@ func (service *Service) fnCommit(partition int, offset int64) error {
 	return service.inputer.CommitMessages(&msg)
 }
 
-func (service *Service) put(msg model.InputMessage) {
-	if atomic.LoadUint32(&service.state) != util.StateRunning {
-		return
-	}
+func (service *Service) putToRing(msg *model.InputMessage) (ok bool) {
 	taskCfg := service.taskCfg
 	statistics.ConsumeMsgsTotal.WithLabelValues(taskCfg.Name).Inc()
 	// ensure ring for this message exist
@@ -187,7 +184,7 @@ func (service *Service) put(msg model.InputMessage) {
 			service:          service,
 		}
 		ring.available = sync.NewCond(&ring.mux)
-		ring.PutMsgNolock(&msg)
+		ring.PutMsgNolock(msg)
 		// schedule a delayed ForceBatchOrShard
 		if ring.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(taskCfg.FlushInterval)*time.Second, ring.ForceBatchOrShard, nil); err != nil {
 			if errors.Is(err, goetty.ErrSystemStopped) {
@@ -199,6 +196,7 @@ func (service *Service) put(msg model.InputMessage) {
 		}
 		service.rings[msg.Partition] = ring
 		service.Unlock()
+		ok = true
 	} else {
 		service.Unlock()
 		ring.mux.Lock()
@@ -210,13 +208,14 @@ func (service *Service) put(msg model.InputMessage) {
 					msg.Topic, msg.Partition, msg.Offset, ring.ringFilledOffset), zap.String("task", taskCfg.Name))
 			}
 			ring.mux.Unlock()
-			return
 		} else if msg.Offset < ring.ringGroundOff+ring.ringCap {
-			ring.PutMsgNolock(&msg)
+			ring.PutMsgNolock(msg)
 			ring.mux.Unlock()
+			ok = true
 		} else {
 			prevMsgOff := msg.Offset - 1
-			for atomic.LoadUint32(&service.state) == util.StateRunning && !ring.isIdle && msg.Offset == ring.ringGroundOff+ring.ringCap && ring.ringBuf[prevMsgOff&ring.ringCapMask].Msg != nil {
+			for atomic.LoadUint32(&service.state) == util.StateRunning && !ring.isIdle &&
+				msg.Offset == ring.ringGroundOff+ring.ringCap && ring.ringBuf[prevMsgOff&ring.ringCapMask].Msg != nil {
 				// wait ring.PutElem/ring.ForceBatchOrShard to make room
 				util.Logger.Debug(fmt.Sprintf("got a message(topic %v, partition %d, offset %v) while the ring is full, waiting...",
 					msg.Topic, msg.Partition, msg.Offset), zap.String("task", taskCfg.Name))
@@ -228,29 +227,40 @@ func (service *Service) put(msg model.InputMessage) {
 				util.Logger.Debug(fmt.Sprintf("got a message(topic %v, partition %d, offset %v) while the ring.isIdle %v, service.state %v",
 					msg.Topic, msg.Partition, msg.Offset, ring.isIdle, atomic.LoadUint32(&service.state)), zap.String("task", taskCfg.Name))
 				ring.mux.Unlock()
-				return
-			}
-			if msg.Offset == ring.ringGroundOff || (msg.Offset < ring.ringGroundOff+ring.ringCap && ring.ringBuf[prevMsgOff&ring.ringCapMask].Msg != nil) {
-				ring.PutMsgNolock(&msg)
+			} else if msg.Offset == ring.ringGroundOff || (msg.Offset < ring.ringGroundOff+ring.ringCap && ring.ringBuf[prevMsgOff&ring.ringCapMask].Msg != nil) {
+				ring.PutMsgNolock(msg)
 				ring.mux.Unlock()
+				ok = true
 			} else {
 				// discard messages to make room
 				ring.mux.Unlock()
 				statistics.RingMsgsOffTooLargeErrorTotal.WithLabelValues(taskCfg.Name).Inc()
 				util.Logger.Warn(fmt.Sprintf("got a message(topic %v, partition %d, offset %v) which's previous one is absent in ring offsets [%v, %v)",
 					msg.Topic, msg.Partition, msg.Offset, ring.ringGroundOff, ring.ringGroundOff+ring.ringCap), zap.String("task", taskCfg.Name))
-				ring.MakeRoom(&msg)
-				ring.PutMsgNolock(&msg)
+				ring.MakeRoom(msg)
+				ring.PutMsgNolock(msg)
+				ok = true
 			}
 		}
 	}
+	return
+}
 
-	// submit message to a goroutine pool
+func (service *Service) put(msg *model.InputMessage) {
+	if atomic.LoadUint32(&service.state) != util.StateRunning {
+		return
+	}
+	if !service.putToRing(msg) {
+		return
+	}
+	// submit message to the parsing pool
+	taskCfg := service.taskCfg
 	service.Lock()
 	service.numFlying++
 	service.Unlock()
 	statistics.ParsingPoolBacklog.WithLabelValues(taskCfg.Name).Inc()
 	_ = util.GlobalParsingPool.Submit(func() {
+		var err error
 		var row *model.Row
 		var foundNewKeys bool
 		var metric model.Metric
@@ -313,7 +323,7 @@ func (service *Service) put(msg model.InputMessage) {
 			service.Lock()
 			ring = service.rings[msg.Partition]
 			service.Unlock()
-			ring.PutElem(model.MsgRow{Msg: &msg, Row: row})
+			ring.PutElem(model.MsgRow{Msg: msg, Row: row})
 		}
 	})
 }

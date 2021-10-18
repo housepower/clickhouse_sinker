@@ -15,7 +15,7 @@ const (
 )
 
 type Inputer interface {
-	Init(cfg *config.Config, taskCfg *config.TaskConfig, putFn func(msg model.InputMessage), cleanupFn func()) error
+	Init(cfg *config.Config, taskCfg *config.TaskConfig, putFn func(msg *model.InputMessage), cleanupFn func()) error
 	Run()
 	Stop() error
 	CommitMessages(message *model.InputMessage) error

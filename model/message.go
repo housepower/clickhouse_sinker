@@ -167,7 +167,7 @@ func PutRow(r *Row) {
 	rowPool.Put(r)
 }
 
-func MetricToRow(metric Metric, msg InputMessage, dims []*ColumnWithType, idxSeriesID int) (row *Row) {
+func MetricToRow(metric Metric, msg *InputMessage, dims []*ColumnWithType, idxSeriesID int) (row *Row) {
 	row = GetRow()
 	var dig *xxhash.Digest
 	if idxSeriesID >= 0 {

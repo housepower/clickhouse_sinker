@@ -45,7 +45,7 @@ type KafkaGo struct {
 	ctx     context.Context
 	cancel  context.CancelFunc
 	wgRun   sync.WaitGroup
-	putFn   func(msg model.InputMessage)
+	putFn   func(msg *model.InputMessage)
 }
 
 // NewKafkaGo get instance of kafka reader
@@ -54,7 +54,7 @@ func NewKafkaGo() *KafkaGo {
 }
 
 // Init Initialise the kafka instance with configuration
-func (k *KafkaGo) Init(cfg *config.Config, taskCfg *config.TaskConfig, putFn func(msg model.InputMessage), cleanupFn func()) (err error) {
+func (k *KafkaGo) Init(cfg *config.Config, taskCfg *config.TaskConfig, putFn func(msg *model.InputMessage), cleanupFn func()) (err error) {
 	k.cfg = cfg
 	k.taskCfg = taskCfg
 	kfkCfg := &cfg.Kafka
@@ -151,7 +151,7 @@ LOOP_KAFKA_GO:
 				continue
 			}
 		}
-		k.putFn(model.InputMessage{
+		k.putFn(&model.InputMessage{
 			Topic:     msg.Topic,
 			Partition: msg.Partition,
 			Key:       msg.Key,

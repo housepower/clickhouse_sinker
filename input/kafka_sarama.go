@@ -46,7 +46,7 @@ type KafkaSarama struct {
 	ctx       context.Context
 	cancel    context.CancelFunc
 	wgRun     sync.WaitGroup
-	putFn     func(msg model.InputMessage)
+	putFn     func(msg *model.InputMessage)
 	cleanupFn func()
 }
 
@@ -77,7 +77,7 @@ func (h MyConsumerGroupHandler) Cleanup(_ sarama.ConsumerGroupSession) error {
 
 func (h MyConsumerGroupHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
 	for msg := range claim.Messages() {
-		h.k.putFn(model.InputMessage{
+		h.k.putFn(&model.InputMessage{
 			Topic:     msg.Topic,
 			Partition: int(msg.Partition),
 			Key:       msg.Key,
@@ -90,7 +90,7 @@ func (h MyConsumerGroupHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, c
 }
 
 // Init Initialise the kafka instance with configuration
-func (k *KafkaSarama) Init(cfg *config.Config, taskCfg *config.TaskConfig, putFn func(msg model.InputMessage), cleanupFn func()) (err error) {
+func (k *KafkaSarama) Init(cfg *config.Config, taskCfg *config.TaskConfig, putFn func(msg *model.InputMessage), cleanupFn func()) (err error) {
 	k.cfg = cfg
 	k.taskCfg = taskCfg
 	k.ctx, k.cancel = context.WithCancel(context.Background())
