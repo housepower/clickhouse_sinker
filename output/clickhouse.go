@@ -126,7 +126,7 @@ func (c *ClickHouse) write(batch *model.Batch, sc *pool.ShardConn, dbVer *int) (
 		c.mux.Lock()
 		for _, row := range *batch.Rows {
 			seriesID := (*row)[c.IdxSerID].(uint64)
-			if !c.bmSeries.Contains(seriesID) {
+			if c.bmSeries.CheckedAdd(seriesID) {
 				seriesRow := make(model.Row, 2+len(c.idxLabels)) //__series_id, lables, ...
 				labels := make([]string, 0)
 				seriesRow[0] = seriesID
@@ -146,12 +146,6 @@ func (c *ClickHouse) write(batch *model.Batch, sc *pool.ShardConn, dbVer *int) (
 			if err = writeRows(c.promSerSQL, seriesRows, conn); err != nil {
 				return
 			}
-			c.mux.Lock()
-			for _, seriesRow := range seriesRows {
-				seriesID := (*seriesRow)[0].(uint64)
-				c.bmSeries.Add(seriesID)
-			}
-			c.mux.Unlock()
 		}
 	}
 
