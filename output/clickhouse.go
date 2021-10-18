@@ -424,16 +424,13 @@ func (c *ClickHouse) initSchema() (err error) {
 	if c.distMetricTbls, err = c.getDistTbls(c.taskCfg.TableName); err != nil {
 		return
 	}
+	sc := pool.GetShardConn(0)
+	var conn *sql.DB
+	if conn, _, err = sc.NextGoodReplica(0); err != nil {
+		return
+	}
 	if c.taskCfg.AutoSchema {
-		sc := pool.GetShardConn(0)
-		var conn *sql.DB
-		if conn, _, err = sc.NextGoodReplica(0); err != nil {
-			return
-		}
 		if c.Dims, err = getDims(c.cfg.Clickhouse.DB, c.taskCfg.TableName, c.taskCfg.ExcludeColumns, conn); err != nil {
-			return
-		}
-		if err = c.initSeriesSchema(conn); err != nil {
 			return
 		}
 	} else {
@@ -447,6 +444,9 @@ func (c *ClickHouse) initSchema() (err error) {
 				SourceName: dim.SourceName,
 			})
 		}
+	}
+	if err = c.initSeriesSchema(conn); err != nil {
+		return
 	}
 	// Generate SQL for INSERT
 	c.Dms = make([]string, 0, len(c.Dims))

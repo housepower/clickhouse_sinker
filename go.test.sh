@@ -4,14 +4,13 @@ echo "create tables"
 curl "localhost:8123" -d 'DROP TABLE IF EXISTS test_fixed_schema'
 curl "localhost:8123" -d 'CREATE TABLE test_fixed_schema
 (
-    `day` Date DEFAULT toDate(time),
-    `time` DateTime,
-    `name` String,
-    `value` Float64,
-    `price` Decimal32(3)
+    time DateTime,
+    name String,
+    value Float64,
+    price Decimal32(3) DEFAULT(9.9)
 )
 ENGINE = MergeTree
-PARTITION BY day
+PARTITION BY toYYYYMMDD(time)
 ORDER BY (time, name)'
 
 curl "localhost:8123" -d 'DROP TABLE IF EXISTS test_auto_schema'
