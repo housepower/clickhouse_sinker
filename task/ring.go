@@ -175,12 +175,16 @@ func (ring *Ring) ForceBatchOrShard(_ interface{}) {
 	}
 }
 
-// generate a batch for messages [ring.ringGroundOff, ring.ringFilledOffset)
+// generate a batch for messages [ring.ringGroundOff, ring.ringFilledOffset), respect batchSize boundary
 // assume ring.mux is locked
 func (ring *Ring) genBatchOrShard() {
 	taskCfg := ring.service.taskCfg
 	var parseErrs int
-	endOff := ring.ringFilledOffset
+	// Respect batchSize boundary
+	endOff := ((ring.ringGroundOff >> ring.batchSizeShift) + 1) << ring.batchSizeShift
+	if endOff > ring.ringFilledOffset {
+		endOff = ring.ringFilledOffset
+	}
 	msgCnt := endOff - ring.ringGroundOff
 	if atomic.LoadUint32(&ring.service.state) != util.StateRunning {
 		util.Logger.Info(fmt.Sprintf("Ring.genBatchOrShard discarded a batch for topic %v patittion %d, offset [%d,%d), messages %d",
@@ -214,7 +218,7 @@ func (ring *Ring) genBatchOrShard() {
 				taskCfg.Topic, ring.partition, ring.ringGroundOff, endOff, batch.RealSize, parseErrs),
 				zap.String("task", taskCfg.Name))
 
-			batch.BatchIdx = (endOff - 1) >> ring.batchSizeShift
+			batch.BatchIdx = ring.ringGroundOff >> ring.batchSizeShift
 			ring.batchSys.CreateBatchGroupSingle(batch, ring.partition, endOff-1)
 			ring.service.Flush(batch)
 			statistics.RingNormalBatchsTotal.WithLabelValues(taskCfg.Name).Inc()
