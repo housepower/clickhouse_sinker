@@ -39,13 +39,14 @@ var _ Inputer = (*KafkaGo)(nil)
 
 // KafkaGo implements input.Inputer
 type KafkaGo struct {
-	cfg     *config.Config
-	taskCfg *config.TaskConfig
-	r       *kafka.Reader
-	ctx     context.Context
-	cancel  context.CancelFunc
-	wgRun   sync.WaitGroup
-	putFn   func(msg *model.InputMessage)
+	cfg       *config.Config
+	taskCfg   *config.TaskConfig
+	r         *kafka.Reader
+	ctx       context.Context
+	cancel    context.CancelFunc
+	wgRun     sync.WaitGroup
+	putFn     func(msg *model.InputMessage)
+	cleanupFn func()
 }
 
 // NewKafkaGo get instance of kafka reader
@@ -60,6 +61,7 @@ func (k *KafkaGo) Init(cfg *config.Config, taskCfg *config.TaskConfig, putFn fun
 	kfkCfg := &cfg.Kafka
 	k.ctx, k.cancel = context.WithCancel(context.Background())
 	k.putFn = putFn
+	k.cleanupFn = cleanupFn
 	offset := kafka.LastOffset
 	if k.taskCfg.Earliest {
 		offset = kafka.FirstOffset
@@ -176,6 +178,8 @@ func (k *KafkaGo) CommitMessages(msg *model.InputMessage) (err error) {
 
 // Stop kafka consumer and close all connections
 func (k *KafkaGo) Stop() error {
+	k.cleanupFn()
+	// Note: a closed kafka-go client cannot commit offsets.
 	k.cancel()
 	k.r.Close()
 	k.wgRun.Wait()

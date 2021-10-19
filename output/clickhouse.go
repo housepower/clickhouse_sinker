@@ -159,7 +159,6 @@ func (c *ClickHouse) write(batch *model.Batch, sc *pool.ShardConn, dbVer *int) (
 	if err = c.writeSeries(*batch.Rows, conn); err != nil {
 		return
 	}
-
 	statistics.FlushMsgsTotal.WithLabelValues(c.taskCfg.Name).Add(float64(batch.RealSize))
 	return
 }

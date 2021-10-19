@@ -348,6 +348,7 @@ func (service *Service) drain() {
 		service.sharder.ForceFlush(nil)
 	}
 	service.clickhouse.Drain()
+	util.Logger.Debug("drained flying messages", zap.String("task", service.taskCfg.Name))
 }
 
 func (service *Service) Flush(batch *model.Batch) (err error) {
@@ -379,6 +380,13 @@ func (service *Service) Stop() {
 
 	util.Logger.Debug("stopping task service...", zap.String("task", taskCfg.Name))
 	atomic.StoreUint32(&service.state, util.StateStopped)
+	for _, ring := range service.rings {
+		if ring != nil {
+			ring.mux.Lock()
+			ring.available.Broadcast()
+			ring.mux.Unlock()
+		}
+	}
 
 	if service.sharder != nil {
 		service.sharder.tid.Stop()
@@ -386,10 +394,6 @@ func (service *Service) Stop() {
 	service.tid.Stop()
 	util.Logger.Debug("stopped internal timers", zap.String("task", taskCfg.Name))
 
-	service.drain()
-	util.Logger.Debug("drained flying messages", zap.String("task", taskCfg.Name))
-
-	// Note: inputer needs be stopped *after* drain() since a closed kafka-go client cannot commit offsets.
 	if err := service.inputer.Stop(); err != nil {
 		util.Logger.Fatal("service.inputer.Stop failed", zap.Error(err))
 	}
