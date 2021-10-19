@@ -53,6 +53,7 @@ type ClickHouse struct {
 	Dims       []*model.ColumnWithType
 	Dms        []string
 	IdxSerID   int
+	IdxName    int
 	idxLabels  []int
 	cfg        *config.Config
 	taskCfg    *config.TaskConfig
@@ -116,18 +117,20 @@ func (c *ClickHouse) writeSeries(rows model.Rows, conn *sql.DB) (err error) {
 	c.mux.Lock()
 	for _, row := range rows {
 		seriesID := (*row)[c.IdxSerID].(uint64)
+		name := (*row)[c.IdxName].(string)
 		if c.bmSeries.CheckedAdd(seriesID) {
-			seriesRow := make(model.Row, 2+len(c.idxLabels)) //__series_id, lables, ...
+			seriesRow := make(model.Row, 3+len(c.idxLabels)) //__series_id, __name__, lables, ...
 			labels := make([]string, 0)
 			seriesRow[0] = seriesID
+			seriesRow[1] = name
 			for i, idxLabel := range c.idxLabels {
-				seriesRow[2+i] = (*row)[idxLabel]
+				seriesRow[3+i] = (*row)[idxLabel]
 				labelKey := c.Dims[idxLabel].Name
 				if labelVal, ok := (*row)[idxLabel].(string); ok {
 					labels = append(labels, fmt.Sprintf(`"%s": "%s"`, labelKey, labelVal))
 				}
 			}
-			seriesRow[1] = fmt.Sprintf("{%s}", strings.Join(labels, ", "))
+			seriesRow[2] = fmt.Sprintf("{%s}", strings.Join(labels, ", "))
 			seriesRows = append(seriesRows, &seriesRow)
 		}
 	}
@@ -231,6 +234,7 @@ func (c *ClickHouse) recoverSeriesSchema(conn *sql.DB) (err error) {
 	// Check the series table schema
 	expSeriesDims := []*model.ColumnWithType{
 		{Name: "__series_id", Type: model.Int},
+		{Name: "__name__", Type: model.String},
 		{Name: "labels", Type: model.String},
 	}
 	var seriesDims []*model.ColumnWithType
@@ -254,11 +258,11 @@ func (c *ClickHouse) recoverSeriesSchema(conn *sql.DB) (err error) {
 		}
 	}
 	if badFirst {
-		err = errors.Errorf(`First two columns of %s are expect to be "__series_id UInt64, labels String".`, c.seriesTbl)
+		err = errors.Errorf(`First three columns of %s are expect to be "__series_id UInt64, __name__ String, labels String".`, c.seriesTbl)
 		return
 	}
 	for i, serDim := range seriesDims {
-		if i < 2 {
+		if i < 3 {
 			continue
 		}
 		idxLabel := -1
@@ -377,12 +381,19 @@ func (c *ClickHouse) recoverSeriesData(conn *sql.DB) (err error) {
 
 func (c *ClickHouse) initSeriesSchema(conn *sql.DB) (err error) {
 	c.IdxSerID = -1
+	c.IdxName = -1
 	for i, dim := range c.Dims {
-		if dim.Name == "__series_id" {
+		if dim.Name == "__series_id" && dim.Type == model.Int {
 			c.IdxSerID = i
+		} else if dim.Name == "__name__" && dim.Type == model.String {
+			c.IdxName = i
 		}
 	}
 	if c.IdxSerID < 0 {
+		return
+	}
+	if c.IdxName < 0 {
+		err = errors.Errorf("Table %s shall have columns `__series_id UInt64` and `__name__ String`.", c.taskCfg.TableName)
 		return
 	}
 	// Check distributed series table
