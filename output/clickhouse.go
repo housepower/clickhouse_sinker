@@ -125,9 +125,10 @@ func (c *ClickHouse) writeSeries(rows model.Rows, conn *sql.DB) (err error) {
 			seriesRow[1] = name
 			for i, idxLabel := range c.idxLabels {
 				seriesRow[3+i] = (*row)[idxLabel]
-				labelKey := c.Dims[idxLabel].Name
-				if labelVal, ok := (*row)[idxLabel].(string); ok {
-					labels = append(labels, fmt.Sprintf(`"%s": "%s"`, labelKey, labelVal))
+				if labelKey := c.Dims[idxLabel].Name; labelKey != "le" {
+					if labelVal, ok := (*row)[idxLabel].(string); ok {
+						labels = append(labels, fmt.Sprintf(`"%s": "%s"`, labelKey, labelVal))
+					}
 				}
 			}
 			seriesRow[2] = fmt.Sprintf("{%s}", strings.Join(labels, ", "))
