@@ -2,6 +2,7 @@ package model
 
 import (
 	"container/list"
+	"fmt"
 	"strconv"
 	"strings"
 	"sync"
@@ -170,12 +171,15 @@ func PutRow(r *Row) {
 func MetricToRow(metric Metric, msg *InputMessage, dims []*ColumnWithType, idxSeriesID int) (row *Row) {
 	row = GetRow()
 	var dig *xxhash.Digest
+	var labels []string
 	if idxSeriesID >= 0 {
 		dig = xxhash.New()
 	}
 	for i, dim := range dims {
-		if i == idxSeriesID {
+		if idxSeriesID >= 0 && i == idxSeriesID {
 			*row = append(*row, uint64(0))
+		} else if idxSeriesID >= 0 && i == idxSeriesID+1 {
+			*row = append(*row, "")
 		} else if strings.HasPrefix(dim.Name, "__kafka") {
 			if strings.HasSuffix(dim.Name, "_topic") {
 				*row = append(*row, msg.Topic)
@@ -188,15 +192,20 @@ func MetricToRow(metric Metric, msg *InputMessage, dims []*ColumnWithType, idxSe
 			val := GetValueByType(metric, dim)
 			*row = append(*row, val)
 			if idxSeriesID >= 0 && dim.Type == String && val != nil {
+				labelVal := val.(string)
 				_, _ = dig.WriteString("###")
 				_, _ = dig.WriteString(dim.Name)
 				_, _ = dig.WriteString("###")
-				_, _ = dig.WriteString(val.(string))
+				_, _ = dig.WriteString(labelVal)
+				if dim.Name != "__name__" && dim.Name != "le" {
+					labels = append(labels, fmt.Sprintf(`"%s": "%s"`, dim.Name, labelVal))
+				}
 			}
 		}
 	}
 	if idxSeriesID >= 0 {
 		(*row)[idxSeriesID] = dig.Sum64()
+		(*row)[idxSeriesID+1] = fmt.Sprintf("{%s}", strings.Join(labels, ", "))
 	}
 	return
 }

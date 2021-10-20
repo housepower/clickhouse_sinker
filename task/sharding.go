@@ -23,11 +23,11 @@ type ShardingPolicy struct {
 	stripe uint64 //=0 means hash, >0 means stripe size
 }
 
-func NewShardingPolicy(shardingKey, shardingPolicy string, dims []string, ckNum int) (policy *ShardingPolicy, err error) {
+func NewShardingPolicy(shardingKey, shardingPolicy string, dims []*model.ColumnWithType, ckNum int) (policy *ShardingPolicy, err error) {
 	policy = &ShardingPolicy{ckNum: ckNum}
 	colSeq := -1
 	for i, dim := range dims {
-		if dim == shardingKey {
+		if dim.Name == shardingKey {
 			colSeq = i
 		}
 	}
@@ -115,7 +115,7 @@ func NewSharder(service *Service) (sh *Sharder, err error) {
 	var policy *ShardingPolicy
 	ckNum := pool.NumShard()
 	taskCfg := service.taskCfg
-	if policy, err = NewShardingPolicy(taskCfg.ShardingKey, taskCfg.ShardingPolicy, service.clickhouse.Dms, ckNum); err != nil {
+	if policy, err = NewShardingPolicy(taskCfg.ShardingKey, taskCfg.ShardingPolicy, service.clickhouse.Dims, ckNum); err != nil {
 		return
 	}
 	sh = &Sharder{

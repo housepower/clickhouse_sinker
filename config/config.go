@@ -127,6 +127,8 @@ type TaskConfig struct {
 		Enable  bool
 		MaxDims int // the upper limit of dynamic columns number, <=0 means math.MaxInt16. protecting dirty data attack
 	}
+	// PrometheusSchema expects each message is a Prometheus metric(timestamp, value, metric name and a list of labels).
+	PrometheusSchema bool
 
 	// ShardingKey is the column name to which sharding against
 	ShardingKey string `json:"shardingKey,omitempty"`
@@ -233,6 +235,10 @@ func (cfg *Config) Normallize() (err error) {
 		}
 		if taskCfg.TimeZone == "" {
 			taskCfg.TimeZone = defaultTimeZone
+		}
+		if taskCfg.PrometheusSchema {
+			taskCfg.DynamicSchema.Enable = true
+			taskCfg.AutoSchema = true
 		}
 		if taskCfg.DynamicSchema.Enable {
 			if taskCfg.Parser != "fastjson" {

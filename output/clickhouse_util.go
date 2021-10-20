@@ -28,7 +28,7 @@ func shouldReconnect(err error, sc *pool.ShardConn) bool {
 	return true
 }
 
-func writeRows(prepareSQL string, rows model.Rows, conn *sql.DB) (err error) {
+func writeRows(prepareSQL string, rows model.Rows, idxBegin, idxEnd int, conn *sql.DB) (err error) {
 	var stmt *sql.Stmt
 	var tx *sql.Tx
 	if tx, err = conn.Begin(); err != nil {
@@ -41,7 +41,7 @@ func writeRows(prepareSQL string, rows model.Rows, conn *sql.DB) (err error) {
 	}
 	defer stmt.Close()
 	for _, row := range rows {
-		if _, err = stmt.Exec(*row...); err != nil {
+		if _, err = stmt.Exec((*row)[idxBegin:idxEnd]...); err != nil {
 			err = errors.Wrapf(err, "stmt.Exec")
 			break
 		}

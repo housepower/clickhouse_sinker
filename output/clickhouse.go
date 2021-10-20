@@ -51,10 +51,7 @@ var (
 // ClickHouse is an output service consumers from kafka messages
 type ClickHouse struct {
 	Dims       []*model.ColumnWithType
-	Dms        []string
 	IdxSerID   int
-	IdxName    int
-	idxLabels  []int
 	cfg        *config.Config
 	taskCfg    *config.TaskConfig
 	prepareSQL string
@@ -111,33 +108,16 @@ func (c *ClickHouse) Send(batch *model.Batch) {
 
 func (c *ClickHouse) writeSeries(rows model.Rows, conn *sql.DB) (err error) {
 	var seriesRows model.Rows
-	if c.IdxSerID < 0 {
-		return
-	}
 	c.mux.Lock()
 	for _, row := range rows {
 		seriesID := (*row)[c.IdxSerID].(uint64)
-		name := (*row)[c.IdxName].(string)
 		if c.bmSeries.CheckedAdd(seriesID) {
-			seriesRow := make(model.Row, 3+len(c.idxLabels)) //__series_id, __name__, lables, ...
-			labels := make([]string, 0)
-			seriesRow[0] = seriesID
-			seriesRow[1] = name
-			for i, idxLabel := range c.idxLabels {
-				seriesRow[3+i] = (*row)[idxLabel]
-				if labelKey := c.Dims[idxLabel].Name; labelKey != "le" {
-					if labelVal, ok := (*row)[idxLabel].(string); ok {
-						labels = append(labels, fmt.Sprintf(`"%s": "%s"`, labelKey, labelVal))
-					}
-				}
-			}
-			seriesRow[2] = fmt.Sprintf("{%s}", strings.Join(labels, ", "))
-			seriesRows = append(seriesRows, &seriesRow)
+			seriesRows = append(seriesRows, row)
 		}
 	}
 	c.mux.Unlock()
 	if len(seriesRows) != 0 {
-		if err = writeRows(c.promSerSQL, seriesRows, conn); err != nil {
+		if err = writeRows(c.promSerSQL, seriesRows, c.IdxSerID, len(c.Dims), conn); err != nil {
 			return
 		}
 	}
@@ -153,11 +133,16 @@ func (c *ClickHouse) write(batch *model.Batch, sc *pool.ShardConn, dbVer *int) (
 	if conn, *dbVer, err = sc.NextGoodReplica(*dbVer); err != nil {
 		return
 	}
-
-	if err = writeRows(c.prepareSQL, *batch.Rows, conn); err != nil {
-		return
+	//row[:c.IdxSerID] is for metric table
+	//row[c.IdxSerID:] is for series table
+	numDims := len(c.Dims)
+	if c.taskCfg.PrometheusSchema {
+		numDims = c.IdxSerID + 1
+		if err = c.writeSeries(*batch.Rows, conn); err != nil {
+			return
+		}
 	}
-	if err = c.writeSeries(*batch.Rows, conn); err != nil {
+	if err = writeRows(c.prepareSQL, *batch.Rows, 0, numDims, conn); err != nil {
 		return
 	}
 	statistics.FlushMsgsTotal.WithLabelValues(c.taskCfg.Name).Add(float64(batch.RealSize))
@@ -206,6 +191,7 @@ func (c *ClickHouse) initBmSeries(conn *sql.DB) (err error) {
 	} else {
 		query = fmt.Sprintf("SELECT __series_id FROM %s.%s", c.cfg.Clickhouse.DB, c.seriesTbl)
 	}
+	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query))
 	var rs *sql.Rows
 	var seriesID uint64
 	if rs, err = conn.Query(query); err != nil {
@@ -225,16 +211,35 @@ func (c *ClickHouse) initBmSeries(conn *sql.DB) (err error) {
 	return
 }
 
-func (c *ClickHouse) recoverSeriesSchema(conn *sql.DB) (err error) {
-	chCfg := &c.cfg.Clickhouse
-	var onCluster string
-	if chCfg.Cluster != "" {
-		onCluster = fmt.Sprintf("ON CLUSTER %s", chCfg.Cluster)
+func (c *ClickHouse) initSeriesSchema(conn *sql.DB) (err error) {
+	if !c.taskCfg.PrometheusSchema {
+		c.IdxSerID = -1
+		return
 	}
-	// Check the series table schema
+	// Strip away string columns from metric table, and move column "__series_id" to the last.
+	var dimSerID *model.ColumnWithType
+	for i := 0; i < len(c.Dims); {
+		dim := c.Dims[i]
+		if dim.Name == "__series_id" && dim.Type == model.Int {
+			dimSerID = dim
+			c.Dims = append(c.Dims[:i], c.Dims[i+1:]...)
+		} else if dim.Type == model.String {
+			c.Dims = append(c.Dims[:i], c.Dims[i+1:]...)
+		} else {
+			i++
+		}
+	}
+	if dimSerID == nil {
+		err = errors.Errorf("Metric table %s shall have column `__series_id UInt64`.", c.taskCfg.TableName)
+		return
+	}
+	c.IdxSerID = len(c.Dims)
+	c.Dims = append(c.Dims, dimSerID)
+
+	// Add string columns from series table
+	c.seriesTbl = c.taskCfg.TableName + "_series"
 	expSeriesDims := []*model.ColumnWithType{
 		{Name: "__series_id", Type: model.Int},
-		{Name: "__name__", Type: model.String},
 		{Name: "labels", Type: model.String},
 	}
 	var seriesDims []*model.ColumnWithType
@@ -258,58 +263,10 @@ func (c *ClickHouse) recoverSeriesSchema(conn *sql.DB) (err error) {
 		}
 	}
 	if badFirst {
-		err = errors.Errorf(`First three columns of %s are expect to be "__series_id UInt64, __name__ String, labels String".`, c.seriesTbl)
+		err = errors.Errorf(`First columns of %s are expect to be "__series_id UInt64, labels String".`, c.seriesTbl)
 		return
 	}
-	for i, serDim := range seriesDims {
-		if i < 3 {
-			continue
-		}
-		idxLabel := -1
-		for j, dim := range c.Dims {
-			if serDim.Name == dim.Name && serDim.Type == dim.Type {
-				idxLabel = j
-				break
-			}
-		}
-		if idxLabel < 0 {
-			err = errors.Errorf("Column %s exists in %s but not in %s", serDim.Name, c.seriesTbl, c.taskCfg.TableName)
-			return
-		}
-		c.idxLabels = append(c.idxLabels, idxLabel)
-	}
-	// Add missed columns to the series table
-	var missedLabels []string
-	for i, dim := range c.Dims {
-		if dim.Type != model.String {
-			continue
-		}
-		var found bool
-		for _, serDim := range seriesDims {
-			if serDim.Name == dim.Name {
-				found = true
-				break
-			}
-		}
-		if !found {
-			c.idxLabels = append(c.idxLabels, i)
-			seriesDims = append(seriesDims, dim)
-			missedLabels = append(missedLabels, dim.Name)
-		}
-	}
-	if missedLabels != nil {
-		for _, key := range missedLabels {
-			query := fmt.Sprintf("ALTER TABLE %s.%s %s ADD COLUMN IF NOT EXISTS `%s` Nullable(String)", chCfg.DB, c.seriesTbl, onCluster, key)
-			util.Logger.Info(fmt.Sprintf("executing sql=> %s", query))
-			if _, err = conn.Exec(query); err != nil {
-				err = errors.Wrapf(err, query)
-				return
-			}
-		}
-		if err = recreateDistTbls(chCfg.Cluster, chCfg.DB, c.seriesTbl, c.distSeriesTbls, conn); err != nil {
-			return
-		}
-	}
+	c.Dims = append(c.Dims, seriesDims[1:]...)
 
 	// Generate SQL for series INSERT
 	serDimsQuoted := make([]string, len(seriesDims))
@@ -320,85 +277,8 @@ func (c *ClickHouse) recoverSeriesSchema(conn *sql.DB) (err error) {
 	}
 	c.promSerSQL = "INSERT INTO " + c.cfg.Clickhouse.DB + "." + c.seriesTbl + " (" + strings.Join(serDimsQuoted, ",") + ") " +
 		"VALUES (" + strings.Join(params, ",") + ")"
-	return
-}
 
-func (c *ClickHouse) recoverSeriesData(conn *sql.DB) (err error) {
-	sel := make([]string, len(c.Dims))
-	for i, dim := range c.Dims {
-		if i == c.IdxSerID {
-			sel[i] = dim.Name
-		} else {
-			sel[i] = fmt.Sprintf("any(`%s`)", dim.Name)
-		}
-	}
-	var query string
-	if chCfg := &c.cfg.Clickhouse; chCfg.Cluster != "" {
-		query = fmt.Sprintf(`SELECT %s FROM %s.%s WHERE __series_id GLOBAL NOT IN (SELECT __series_id FROM %s.%s) GROUP BY __series_id`,
-			strings.Join(sel, ", "), chCfg.DB, c.distMetricTbls[0], chCfg.DB, c.distSeriesTbls[0])
-	} else {
-		query = fmt.Sprintf(`SELECT %s FROM %s.%s WHERE __series_id NOT IN (SELECT __series_id FROM %s.%s) GROUP BY __series_id`,
-			strings.Join(sel, ", "), chCfg.DB, c.taskCfg.TableName, chCfg.DB, c.seriesTbl)
-	}
-	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query))
-	rowsMissed := make(model.Rows, 0)
-	var rs *sql.Rows
-	if rs, err = conn.Query(query); err != nil {
-		err = errors.Wrapf(err, "")
-		return err
-	}
-	defer rs.Close()
-	rowPtr := make(model.Row, len(c.Dims))
-	for rs.Next() {
-		row := make(model.Row, len(c.Dims))
-		for i, dim := range c.Dims {
-			switch dim.Type {
-			case model.Int:
-				row[i] = uint64(0)
-			case model.Float:
-				row[i] = float64(0.0)
-			case model.DateTime, model.ElasticDateTime:
-				row[i] = time.Time{}
-			case model.String:
-				row[i] = sql.NullString{}
-			default:
-			}
-			rowPtr[i] = &row[i]
-		}
-		if err = rs.Scan(rowPtr...); err != nil {
-			err = errors.Wrapf(err, "")
-			return err
-		}
-		rowsMissed = append(rowsMissed, &row)
-	}
-	rs.Close() //rows need be closed before executing another sql
-	if err = c.writeSeries(rowsMissed, conn); err != nil {
-		return
-	}
-	util.Logger.Info(fmt.Sprintf("recovered %d series to %s", len(rowsMissed), c.seriesTbl), zap.String("task", c.taskCfg.Name))
-	return
-}
-
-func (c *ClickHouse) initSeriesSchema(conn *sql.DB) (err error) {
-	c.IdxSerID = -1
-	c.IdxName = -1
-	for i, dim := range c.Dims {
-		if dim.Name == "__series_id" && dim.Type == model.Int {
-			c.IdxSerID = i
-		} else if dim.Name == "__name__" && dim.Type == model.String {
-			c.IdxName = i
-		}
-	}
-	if c.IdxSerID < 0 {
-		return
-	}
-	if c.IdxName < 0 {
-		err = errors.Errorf("Table %s shall have columns `__series_id UInt64` and `__name__ String`.", c.taskCfg.TableName)
-		return
-	}
 	// Check distributed series table
-	c.idxLabels = nil
-	c.seriesTbl = c.taskCfg.TableName + "_series"
 	if chCfg := &c.cfg.Clickhouse; chCfg.Cluster != "" {
 		if c.distSeriesTbls, err = c.getDistTbls(c.seriesTbl); err != nil {
 			return
@@ -408,25 +288,15 @@ func (c *ClickHouse) initSeriesSchema(conn *sql.DB) (err error) {
 			return
 		}
 	}
+
 	// Initialize bmSeries
 	if err = c.initBmSeries(conn); err != nil {
-		return
-	}
-	// Recover series table columns
-	if err = c.recoverSeriesSchema(conn); err != nil {
-		return
-	}
-	// Recover series to the series table
-	if err = c.recoverSeriesData(conn); err != nil {
 		return
 	}
 	return
 }
 
 func (c *ClickHouse) initSchema() (err error) {
-	if c.distMetricTbls, err = c.getDistTbls(c.taskCfg.TableName); err != nil {
-		return
-	}
 	sc := pool.GetShardConn(0)
 	var conn *sql.DB
 	if conn, _, err = sc.NextGoodReplica(0); err != nil {
@@ -452,19 +322,30 @@ func (c *ClickHouse) initSchema() (err error) {
 		return
 	}
 	// Generate SQL for INSERT
-	c.Dms = make([]string, 0, len(c.Dims))
-	quotedDms := make([]string, 0, len(c.Dims))
-	for _, d := range c.Dims {
-		c.Dms = append(c.Dms, d.Name)
-		quotedDms = append(quotedDms, fmt.Sprintf("`%s`", d.Name))
+	numDims := len(c.Dims)
+	if c.taskCfg.PrometheusSchema {
+		numDims = c.IdxSerID + 1
 	}
-	params := make([]string, len(c.Dims))
-	for i := range params {
+	quotedDms := make([]string, numDims)
+	params := make([]string, numDims)
+	for i := 0; i < numDims; i++ {
+		quotedDms[i] = fmt.Sprintf("`%s`", c.Dims[i].Name)
 		params[i] = "?"
 	}
 	c.prepareSQL = "INSERT INTO " + c.cfg.Clickhouse.DB + "." + c.taskCfg.TableName + " (" + strings.Join(quotedDms, ",") + ") " +
 		"VALUES (" + strings.Join(params, ",") + ")"
 	util.Logger.Info(fmt.Sprintf("Prepare sql=> %s", c.prepareSQL), zap.String("task", c.taskCfg.Name))
+
+	// Check distributed metric table
+	if chCfg := &c.cfg.Clickhouse; chCfg.Cluster != "" {
+		if c.distMetricTbls, err = c.getDistTbls(c.taskCfg.TableName); err != nil {
+			return
+		}
+		if c.distMetricTbls == nil {
+			err = errors.Errorf("Please create distributed table for %s.", c.taskCfg.TableName)
+			return
+		}
+	}
 	return nil
 }
 
@@ -486,6 +367,7 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 		return
 	}
 	var i int
+	var affectDistMetric, affectDistSeries bool
 	newKeys.Range(func(key, value interface{}) bool {
 		i++
 		if i > newKeysQuota {
@@ -516,11 +398,16 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 			err = errors.Errorf("%s: BUG: unsupported column type %s", taskCfg.Name, strVal)
 			return false
 		}
-		query := fmt.Sprintf("ALTER TABLE %s.%s %s ADD COLUMN IF NOT EXISTS `%s` %s", chCfg.DB, taskCfg.TableName, onCluster, strKey, strVal)
-		queries = append(queries, query)
-		if c.IdxSerID >= 0 && intVal == model.String {
-			query := fmt.Sprintf("ALTER TABLE %s.%s %s ADD COLUMN IF NOT EXISTS `%s` %s", chCfg.DB, c.seriesTbl, onCluster, strKey, strVal)
+		if c.taskCfg.PrometheusSchema {
+			if intVal == model.String {
+				query := fmt.Sprintf("ALTER TABLE %s.%s %s ADD COLUMN IF NOT EXISTS `%s` %s", chCfg.DB, c.seriesTbl, onCluster, strKey, strVal)
+				queries = append(queries, query)
+				affectDistSeries = true
+			}
+		} else {
+			query := fmt.Sprintf("ALTER TABLE %s.%s %s ADD COLUMN IF NOT EXISTS `%s` %s", chCfg.DB, taskCfg.TableName, onCluster, strKey, strVal)
 			queries = append(queries, query)
+			affectDistMetric = true
 		}
 		return true
 	})
@@ -541,11 +428,15 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 		}
 	}
 	if chCfg.Cluster != "" {
-		if err = recreateDistTbls(chCfg.Cluster, chCfg.DB, taskCfg.TableName, c.distMetricTbls, conn); err != nil {
-			return
+		if affectDistMetric {
+			if err = recreateDistTbls(chCfg.Cluster, chCfg.DB, c.taskCfg.TableName, c.distMetricTbls, conn); err != nil {
+				return
+			}
 		}
-		if err = recreateDistTbls(chCfg.Cluster, chCfg.DB, c.seriesTbl, c.distSeriesTbls, conn); err != nil {
-			return
+		if affectDistSeries {
+			if err = recreateDistTbls(chCfg.Cluster, chCfg.DB, c.seriesTbl, c.distSeriesTbls, conn); err != nil {
+				return
+			}
 		}
 	}
 	return
