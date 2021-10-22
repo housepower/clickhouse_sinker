@@ -70,35 +70,35 @@ var jsonSample = []byte(`{
 
 var jsonSchema = map[string]string{
 	"null":                      "null",
-	"bool_true":                 "true",
-	"bool_false":                "false",
-	"num_int":                   "number",
-	"num_float":                 "number",
-	"str":                       "string",
-	"str_int":                   "string",
-	"str_float":                 "string",
-	"str_date_1":                "string",
-	"str_date_2":                "string",
-	"str_time_rfc3339_1":        "string",
-	"str_time_rfc3339_2":        "string",
-	"str_time_clickhouse_1":     "string",
-	"str_time_clickhouse_2":     "string",
-	"obj":                       "object",
-	"array_empty":               "array",
-	"array_null":                "array",
-	"array_bool":                "array",
-	"array_num_int_1":           "array",
-	"array_num_int_2":           "array",
-	"array_num_float":           "array",
-	"array_str":                 "array",
-	"array_str_int_1":           "array",
-	"array_str_int_2":           "array",
-	"array_str_float":           "array",
-	"array_str_date_1":          "array",
-	"array_str_date_2":          "array",
-	"array_str_time_rfc3339":    "array",
-	"array_str_time_clickhouse": "array",
-	"array_obj":                 "array",
+	"bool_true":                 "Int",
+	"bool_false":                "Int",
+	"num_int":                   "Int",
+	"num_float":                 "Float",
+	"str":                       "String",
+	"str_int":                   "String",
+	"str_float":                 "String",
+	"str_date_1":                "DateTime",
+	"str_date_2":                "DateTime",
+	"str_time_rfc3339_1":        "DateTime",
+	"str_time_rfc3339_2":        "DateTime",
+	"str_time_clickhouse_1":     "DateTime",
+	"str_time_clickhouse_2":     "DateTime",
+	"obj":                       "String",
+	"array_empty":               "String",
+	"array_null":                "String",
+	"array_bool":                "IntArray",
+	"array_num_int_1":           "IntArray",
+	"array_num_int_2":           "IntArray",
+	"array_num_float":           "FloatArray",
+	"array_str":                 "StringArray",
+	"array_str_int_1":           "StringArray",
+	"array_str_int_2":           "StringArray",
+	"array_str_float":           "StringArray",
+	"array_str_date_1":          "DateTimeArray",
+	"array_str_date_2":          "DateTimeArray",
+	"array_str_time_rfc3339":    "DateTimeArray",
+	"array_str_time_clickhouse": "DateTimeArray",
+	"array_obj":                 "StringArray",
 }
 
 var csvSample = []byte(`null,true,false,123,123.321,"escaped_""ws",123,123.321,2009-07-13,13/07/2009,2009-07-13T09:07:13Z,2009-07-13T09:07:13.123+08:00,2009-07-13 09:07:13,2009-07-13 09:07:13.123,"{""i"":[1,2,3],""f"":[1.1,2.2,3.3],""s"":[""aa"",""bb"",""cc""],""e"":[]}",[],[null],"[true,false]","[0,255,256,65535,65536,4294967295,4294967296,18446744073709551615,18446744073709551616]","[-9223372036854775808,-2147483649,-2147483648,-32769,-32768,-129,-128,0,127,128,32767,32768,2147483647,2147483648,9223372036854775807]","[4.940656458412465441765687928682213723651e-324,1.401298464324817070923729583289916131280e-45,0.0,3.40282346638528859811704183484516925440e+38,1.797693134862315708145274237317043567981e+308]","[""aa"",""bb"",""cc""]","[""0"",""255"",""256"",""65535"",""65536"",""4294967295"",""4294967296"",""18446744073709551615"",""18446744073709551616""]","[""-9223372036854775808"",""-2147483649"",""-2147483648"",""-32769"",""-32768"",""-129"",""-128"",""0"",""127"",""128"",""32767"",""32768"",""2147483647"",""2147483648"",""9223372036854775807""]","[""4.940656458412465441765687928682213723651e-324"",""1.401298464324817070923729583289916131280e-45"",""0.0"",""3.40282346638528859811704183484516925440e+38"",""1.797693134862315708145274237317043567981e+308""]","[""2009-07-13"",""2009-07-14"",""2009-07-15""]","[""13/07/2009"",""14/07/2009"",""15/07/2009""]","[""2009-07-13T09:07:13Z"",""2009-07-13T09:07:13+08:00"",""2009-07-13T09:07:13.123Z"",""2009-07-13T09:07:13.123+08:00""]","[""2009-07-13 09:07:13"",""2009-07-13 09:07:13.123""]","[{""i"":[1,2,3],""f"":[1.1,2.2,3.3]},{""s"":[""aa"",""bb"",""cc""],""e"":[]}]"`)
@@ -504,8 +504,7 @@ func TestParserArray(t *testing.T) {
 		for j := range testCases {
 			var v interface{}
 			desc := fmt.Sprintf(`%s.GetArray("%s", %d)`, name, testCases[j].Field, testCases[j].Type)
-			if (name == "gjson" && testCases[j].Field == "array_num_float") ||
-				(name == "csv" && sliceContains([]string{"array_num_float", "array_str_float"}, testCases[j].Field)) {
+			if name == "csv" && sliceContains([]string{"array_num_float", "array_str_float"}, testCases[j].Field) {
 				skipped = append(skipped, desc)
 				continue
 			}
@@ -659,6 +658,41 @@ func TestParseInt(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestFastjsonDetectSchema(t *testing.T) {
+	pp, _ := NewParserPool("fastjson", nil, "", "")
+	parser := pp.Get()
+	defer pp.Put(parser)
+	metric, _ := parser.Parse(jsonSample)
+
+	act := make(map[string]string)
+	c, _ := metric.(*FastjsonMetric)
+	var obj *fastjson.Object
+	var err error
+	if obj, err = c.value.Object(); err != nil {
+		return
+	}
+	obj.Visit(func(key []byte, v *fastjson.Value) {
+		act[string(key)] = model.GetTypeName(fjDetectType(v))
+	})
+	require.Equal(t, jsonSchema, act)
+}
+
+func TestGjsonDetectSchema(t *testing.T) {
+	pp, _ := NewParserPool("gjson", nil, "", "")
+	parser := pp.Get()
+	defer pp.Put(parser)
+	metric, _ := parser.Parse(jsonSample)
+
+	act := make(map[string]string)
+	c, _ := metric.(*GjsonMetric)
+	obj := gjson.Parse(c.raw)
+	obj.ForEach(func(k, v gjson.Result) bool {
+		act[k.Str] = model.GetTypeName(gjDetectType(v))
+		return true
+	})
+	require.Equal(t, jsonSchema, act)
 }
 
 func BenchmarkUnmarshalljson(b *testing.B) {

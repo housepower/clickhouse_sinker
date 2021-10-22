@@ -43,6 +43,32 @@ var (
 	typeInfo map[string]TypeInfo
 )
 
+func GetTypeName(typ int) (name string) {
+	switch typ {
+	case Int:
+		name = "Int"
+	case Float:
+		name = "Float"
+	case String:
+		name = "String"
+	case DateTime:
+		name = "DateTime"
+	case ElasticDateTime:
+		name = "ElasticDateTime"
+	case IntArray:
+		name = "IntArray"
+	case FloatArray:
+		name = "FloatArray"
+	case StringArray:
+		name = "StringArray"
+	case DateTimeArray:
+		name = "DateTimeArray"
+	default:
+		name = "TypeUnknown"
+	}
+	return
+}
+
 // There are only three cases for the value type of metric, (float64, string, map [string] interface {})
 func GetValueByType(metric Metric, cwt *ColumnWithType) (val interface{}) {
 	name := cwt.SourceName

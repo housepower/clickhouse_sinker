@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/tidwall/gjson"
+	"go.uber.org/zap"
 
 	"github.com/housepower/clickhouse_sinker/model"
 	"github.com/housepower/clickhouse_sinker/util"
@@ -205,8 +206,20 @@ func (c *GjsonMetric) GetArray(key string, typ int) (val interface{}) {
 	return
 }
 
-func (c *GjsonMetric) GetNewKeys(knownKeys *sync.Map, newKeys *sync.Map) bool {
-	return false
+func (c *GjsonMetric) GetNewKeys(knownKeys *sync.Map, newKeys *sync.Map) (foundNew bool) {
+	gjson.Parse(c.raw).ForEach(func(k, v gjson.Result) bool {
+		strKey := k.Str
+		if _, loaded := knownKeys.LoadOrStore(strKey, nil); !loaded {
+			if typ := gjDetectType(v); typ != model.TypeUnknown {
+				newKeys.Store(strKey, typ)
+				foundNew = true
+			} else {
+				util.Logger.Warn("GjsonMetric.GetNewKeys failed to detect field type", zap.String("key", strKey), zap.String("value", v.String()))
+			}
+		}
+		return true
+	})
+	return
 }
 
 func gjCompatibleInt(r gjson.Result) (ok bool) {
@@ -247,6 +260,47 @@ func gjCompatibleDateTime(r gjson.Result) (ok bool) {
 	case gjson.String:
 		ok = true
 	default:
+	}
+	return
+}
+
+func gjDetectType(v gjson.Result) (typ int) {
+	switch v.Type {
+	case gjson.True, gjson.False:
+		typ = model.Int
+	case gjson.Number:
+		typ = model.Float
+		if float64(v.Int()) == v.Num {
+			typ = model.Int
+		}
+	case gjson.String:
+		typ = model.String
+		if _, layout := parseInLocation(string(v.Str), time.Local); layout != "" {
+			typ = model.DateTime
+		}
+	case gjson.JSON:
+		typ = model.String
+		array := v.Array()
+		if array != nil {
+			switch array[0].Type {
+			case gjson.True, gjson.False:
+				typ = model.IntArray
+			case gjson.Number:
+				typ = model.FloatArray
+				if float64(v.Int()) == v.Num {
+					typ = model.IntArray
+				}
+			case gjson.String:
+				typ = model.StringArray
+				if _, layout := parseInLocation(string(v.Str), time.Local); layout != "" {
+					typ = model.DateTimeArray
+				}
+			default:
+				typ = model.StringArray
+			}
+		}
+	default:
+		typ = model.String
 	}
 	return
 }
