@@ -22,7 +22,7 @@ import (
 )
 
 const (
-	TypeUnknown = iota
+	Unknown = iota
 	Int
 	Float
 	String
@@ -64,7 +64,7 @@ func GetTypeName(typ int) (name string) {
 	case DateTimeArray:
 		name = "DateTimeArray"
 	default:
-		name = "TypeUnknown"
+		name = "Unknown"
 	}
 	return
 }

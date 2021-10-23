@@ -218,7 +218,7 @@ func (c *FastjsonMetric) GetNewKeys(knownKeys *sync.Map, newKeys *sync.Map) (fou
 	obj.Visit(func(key []byte, v *fastjson.Value) {
 		strKey := string(key)
 		if _, loaded := knownKeys.LoadOrStore(strKey, nil); !loaded {
-			if typ := fjDetectType(v); typ != model.TypeUnknown {
+			if typ := fjDetectType(v); typ != model.Unknown {
 				newKeys.Store(strKey, typ)
 				foundNew = true
 			} else {
@@ -295,6 +295,7 @@ func getDefaultDateTime(nullable bool) (val interface{}) {
 func fjDetectType(v *fastjson.Value) (typ int) {
 	switch v.Type() {
 	case fastjson.TypeNull:
+		typ = model.Unknown
 	case fastjson.TypeTrue:
 		typ = model.Int
 	case fastjson.TypeFalse:

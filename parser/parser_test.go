@@ -69,7 +69,7 @@ var jsonSample = []byte(`{
 }`)
 
 var jsonSchema = map[string]string{
-	"null":                      "null",
+	"null":                      "Unknown",
 	"bool_true":                 "Int",
 	"bool_false":                "Int",
 	"num_int":                   "Int",
@@ -84,8 +84,8 @@ var jsonSchema = map[string]string{
 	"str_time_clickhouse_1":     "DateTime",
 	"str_time_clickhouse_2":     "DateTime",
 	"obj":                       "String",
-	"array_empty":               "String",
-	"array_null":                "String",
+	"array_empty":               "Unknown",
+	"array_null":                "Unknown",
 	"array_bool":                "IntArray",
 	"array_num_int_1":           "IntArray",
 	"array_num_int_2":           "IntArray",
@@ -503,8 +503,9 @@ func TestParserArray(t *testing.T) {
 		var skipped []string
 		for j := range testCases {
 			var v interface{}
-			desc := fmt.Sprintf(`%s.GetArray("%s", %d)`, name, testCases[j].Field, testCases[j].Type)
-			if name == "csv" && sliceContains([]string{"array_num_float", "array_str_float"}, testCases[j].Field) {
+			desc := fmt.Sprintf(`%s.GetArray("%s", %s)`, name, testCases[j].Field, model.GetTypeName(testCases[j].Type))
+			if (name == "gjson" && testCases[j].Field == "array_num_float") ||
+				(name == "csv" && sliceContains([]string{"array_num_float", "array_str_float"}, testCases[j].Field)) {
 				skipped = append(skipped, desc)
 				continue
 			}

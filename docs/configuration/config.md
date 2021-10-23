@@ -132,7 +132,7 @@
     // these columns will be excluded from the detected table schema. This takes effect only if "autoSchema" is true.
     "excludeColumns": []
 
-    // (experiment feature) detect new fields and their type, and add columns to the ClickHouse table accordingly. This feature requires parser be "fastjson", and support following ClickHouse data types: Int64, Float64, String.
+    // (experiment feature) detect new fields and their type, and add columns to the ClickHouse table accordingly. This feature requires parser be "fastjson" or "gjson". New fields' type will be one of: Int64, Float64, String.
     "dynamicSchema": {
       // whether enable this feature, default to false
       "enable": true,

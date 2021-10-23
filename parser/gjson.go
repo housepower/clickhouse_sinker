@@ -131,7 +131,7 @@ func (c *GjsonMetric) GetElasticDateTime(key string, nullable bool) (val interfa
 
 func (c *GjsonMetric) GetArray(key string, typ int) (val interface{}) {
 	r := gjson.Get(c.raw, key)
-	if !r.Exists() || r.Type != gjson.JSON {
+	if !r.IsArray() {
 		val = makeArray(typ)
 		return
 	}
@@ -210,7 +210,7 @@ func (c *GjsonMetric) GetNewKeys(knownKeys *sync.Map, newKeys *sync.Map) (foundN
 	gjson.Parse(c.raw).ForEach(func(k, v gjson.Result) bool {
 		strKey := k.Str
 		if _, loaded := knownKeys.LoadOrStore(strKey, nil); !loaded {
-			if typ := gjDetectType(v); typ != model.TypeUnknown {
+			if typ := gjDetectType(v); typ != model.Unknown {
 				newKeys.Store(strKey, typ)
 				foundNew = true
 			} else {
@@ -265,6 +265,7 @@ func gjCompatibleDateTime(r gjson.Result) (ok bool) {
 }
 
 func gjDetectType(v gjson.Result) (typ int) {
+	typ = model.Unknown
 	switch v.Type {
 	case gjson.True, gjson.False:
 		typ = model.Int
@@ -275,32 +276,34 @@ func gjDetectType(v gjson.Result) (typ int) {
 		}
 	case gjson.String:
 		typ = model.String
-		if _, layout := parseInLocation(string(v.Str), time.Local); layout != "" {
+		if _, layout := parseInLocation(v.Str, time.Local); layout != "" {
 			typ = model.DateTime
 		}
 	case gjson.JSON:
-		typ = model.String
-		array := v.Array()
-		if array != nil {
-			switch array[0].Type {
-			case gjson.True, gjson.False:
-				typ = model.IntArray
-			case gjson.Number:
-				typ = model.FloatArray
-				if float64(v.Int()) == v.Num {
+		if v.IsObject() {
+			typ = model.String
+		} else if v.IsArray() {
+			if array := v.Array(); len(array) != 0 {
+				switch array[0].Type {
+				case gjson.True, gjson.False:
 					typ = model.IntArray
+				case gjson.Number:
+					typ = model.FloatArray
+					if float64(array[0].Int()) == array[0].Num {
+						typ = model.IntArray
+					}
+				case gjson.String:
+					typ = model.StringArray
+					if _, layout := parseInLocation(array[0].Str, time.Local); layout != "" {
+						typ = model.DateTimeArray
+					}
+				case gjson.JSON:
+					typ = model.StringArray
+				default:
 				}
-			case gjson.String:
-				typ = model.StringArray
-				if _, layout := parseInLocation(string(v.Str), time.Local); layout != "" {
-					typ = model.DateTimeArray
-				}
-			default:
-				typ = model.StringArray
 			}
 		}
 	default:
-		typ = model.String
 	}
 	return
 }

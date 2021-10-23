@@ -241,7 +241,7 @@ func (cfg *Config) Normallize() (err error) {
 			taskCfg.AutoSchema = true
 		}
 		if taskCfg.DynamicSchema.Enable {
-			if taskCfg.Parser != "fastjson" {
+			if taskCfg.Parser != "fastjson" && taskCfg.Parser != "gjson" {
 				err = errors.Errorf("Parser %s doesn't support DynamicSchema", taskCfg.Parser)
 				return
 			}
