@@ -49,7 +49,7 @@ import (
 	"github.com/google/gops/agent"
 	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/pkg/errors"
-	log "github.com/sirupsen/logrus"
+	"go.uber.org/zap"
 )
 
 const (
@@ -118,7 +118,7 @@ func generate() {
 	config.Version = sarama.V2_1_0_0
 	w, err := sarama.NewAsyncProducer(strings.Split(KafkaBrokers, ","), config)
 	if err != nil {
-		log.Fatalf("sarama.NewAsyncProducer failed %+v", err)
+		util.Logger.Error("sarama.NewAsyncProducer failed", zap.Error(err))
 	}
 	defer w.Close()
 	chInput := w.Input()
@@ -158,7 +158,7 @@ func generate() {
 						var b []byte
 						if b, err = sonic.Marshal(&metric); err != nil {
 							err = errors.Wrapf(err, "")
-							log.Fatalf("got error %+v", err)
+							util.Logger.Fatal("got error", zap.Error(err))
 						}
 						chInput <- &sarama.ProducerMessage{
 							Topic: KafkaTopic,
@@ -175,26 +175,27 @@ func generate() {
 }
 
 func main() {
+	util.InitLogger([]string{"stdout"})
 	flag.Usage = func() {
 		usage := fmt.Sprintf(`Usage of %s
     %s kakfa_brokers topic
 This util fill some fields with random content, serialize and send to kafka.
 kakfa_brokers: for example, 192.168.102.114:9092,192.168.102.115:9092
 topic: for example, sensor_dt_result_online`, os.Args[0], os.Args[0])
-		log.Infof(usage)
+		fmt.Println(usage)
+		os.Exit(0)
 	}
 	flag.Parse()
 	args := flag.Args()
 	if len(args) != 2 {
 		flag.Usage()
-		log.Fatal("Invalid CLI arguments!")
 	}
 	KafkaBrokers = args[0]
 	KafkaTopic = args[1]
-	log.Infof("KafkaBrokers: %v\nKafkaTopic: %v\nBusinessNum: %v\nInstanceNum: %v\n", KafkaBrokers, KafkaTopic, BusinessNum, InstanceNum)
+	util.Logger.Info("CLI options", zap.String("KafkaBrokers", KafkaBrokers), zap.String("KafkaTopic", KafkaTopic), zap.Int("BusinessNum", BusinessNum), zap.Int("InstanceNum", InstanceNum))
 
 	if err := agent.Listen(agent.Options{}); err != nil {
-		log.Fatal(err)
+		util.Logger.Fatal("got error", zap.Error(err))
 	}
 
 	var prevLines, prevSize int64
@@ -206,7 +207,7 @@ LOOP:
 	for {
 		select {
 		case <-ctx.Done():
-			log.Infof("quit due to context been canceled")
+			util.Logger.Info("quit due to context been canceled")
 			break LOOP
 		case <-ticker.C:
 			var speedLine, speedSize int64
@@ -216,7 +217,7 @@ LOOP:
 			}
 			prevLines = gLines
 			prevSize = gSize
-			log.Infof("generated %+v lines, %+v Bytes, speedLine: %v lines/s, speedSize: %v B/s", gLines, gSize, speedLine, speedSize)
+			util.Logger.Info("status", zap.Int64("lines", gLines), zap.Int64("bytes", gSize), zap.Int64("speed(lines/s)", speedLine), zap.Int64("speed(bytes/s)", speedSize))
 		}
 	}
 }

@@ -57,7 +57,7 @@ import (
 	"github.com/google/gops/agent"
 	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/pkg/errors"
-	log "github.com/sirupsen/logrus"
+	"go.uber.org/zap"
 )
 
 var (
@@ -179,7 +179,7 @@ func (g *LogGenerator) Init() error {
 		return err
 	}
 	sort.Strings(g.logfiles)
-	log.Infof("Following files under %v match pattern %v: %+v", LogfileDir, LogfilePattern, g.logfiles)
+	util.Logger.Info(fmt.Sprintf("Following files under %v match pattern %v: %+v", LogfileDir, LogfilePattern, g.logfiles))
 
 	if err := g.next(); err != nil {
 		return err
@@ -191,7 +191,6 @@ func (g *LogGenerator) Init() error {
 func (g *LogGenerator) next() (err error) {
 	g.scanner = nil
 	if g.reader != nil {
-		log.Debugf("closed %+v", g.fp)
 		g.reader.Close()
 		g.reader = nil
 	}
@@ -204,11 +203,11 @@ func (g *LogGenerator) next() (err error) {
 		if reader, err = os.Open(g.fp); err == nil {
 			g.reader = reader
 			g.scanner = bufio.NewScanner(g.reader)
-			log.Debugf("scanning %+v", g.fp)
+			util.Logger.Debug(fmt.Sprintf("scanning %+v", g.fp))
 			return nil
 		}
 		err = errors.Wrapf(err, "")
-		log.Infof("failed to open %+v, %+v", g.fp, err)
+		util.Logger.Fatal("os.Open failed", zap.String("path", g.fp), zap.Error(err))
 		time.Sleep(6000 * time.Second)
 	}
 	err = errors.Errorf("no readable file")
@@ -221,11 +220,11 @@ func (g *LogGenerator) getLine() (fp string, lineno int, line string) {
 			g.lineno++
 			return g.fp, g.lineno, g.scanner.Text()
 		}
-		if g.scanner.Err() != nil {
-			log.Warnf("Scan %+v", g.scanner.Err())
+		if err := g.scanner.Err(); err != nil {
+			util.Logger.Fatal("got error", zap.Error(err))
 		}
 		if err := g.next(); err != nil {
-			log.Fatalf("got error %+v", err)
+			util.Logger.Fatal("got error", zap.Error(err))
 		}
 	}
 }
@@ -240,7 +239,7 @@ func (g *LogGenerator) Run() {
 	config.Version = sarama.V2_1_0_0
 	w, err := sarama.NewAsyncProducer(strings.Split(KafkaBrokers, ","), config)
 	if err != nil {
-		log.Fatalf("sarama.NewAsyncProducer failed %+v", err)
+		util.Logger.Fatal("sarama.NewAsyncProducer failed", zap.Error(err))
 	}
 	defer w.Close()
 	chInput := w.Input()
@@ -282,7 +281,7 @@ func (g *LogGenerator) Run() {
 			_ = wp.Submit(func() {
 				if b, err = sonic.Marshal(&logObj); err != nil {
 					err = errors.Wrapf(err, "")
-					log.Fatalf("got error %+v", err)
+					util.Logger.Fatal("got error", zap.Error(err))
 				}
 				chInput <- &sarama.ProducerMessage{
 					Topic: KafkaTopic,
@@ -297,6 +296,7 @@ func (g *LogGenerator) Run() {
 }
 
 func main() {
+	util.InitLogger([]string{"stdout"})
 	flag.Usage = func() {
 		usage := fmt.Sprintf(`Usage of %s
     %s kakfa_brokers topic log_file_dir log_file_pattern
@@ -305,28 +305,28 @@ kakfa_brokers: for example, 192.168.102.114:9092,192.168.102.115:9092
 topic: for example, apache_access_log
 log_file_dir: log file directory, for example, /var/log
 log_file_pattern: file name pattern, for example, '^secure.*$'`, os.Args[0], os.Args[0])
-		log.Infof(usage)
+		fmt.Println(usage)
+		os.Exit(0)
 	}
 	flag.Parse()
 	args := flag.Args()
 	if len(args) != 4 {
 		flag.Usage()
-		log.Fatal("Invalid CLI arguments!")
 	}
 	KafkaBrokers = args[0]
 	KafkaTopic = args[1]
 	LogfileDir = args[2]
 	LogfilePattern = args[3]
-	log.Infof("KafkaBrokers: %v\nKafkaTopic: %v\nLogfileDir: %v\nLogFilePattern: %v\n", KafkaBrokers, KafkaTopic, LogfileDir, LogfilePattern)
+	util.Logger.Info("CLI options", zap.String("KafkaBrokers", KafkaBrokers), zap.String("KafkaTopic", KafkaTopic), zap.String("LogfileDir", LogfileDir), zap.String("LogFilePattern", LogfilePattern))
 
 	if err := agent.Listen(agent.Options{}); err != nil {
-		log.Fatal(err)
+		util.Logger.Fatal("got error", zap.Error(err))
 	}
 
 	ctx, _ := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	g := &LogGenerator{}
 	if err := g.Init(); err != nil {
-		log.Fatalf("got error %+v", err)
+		util.Logger.Fatal("got error", zap.Error(err))
 	}
 	go g.Run()
 
@@ -336,7 +336,7 @@ LOOP:
 	for {
 		select {
 		case <-ctx.Done():
-			log.Infof("quit due to context been canceled")
+			util.Logger.Info("quit due to context been canceled")
 			break LOOP
 		case <-ticker.C:
 			var speedLine, speedSize int64
@@ -347,7 +347,7 @@ LOOP:
 			}
 			prevLines = lines
 			prevSize = size
-			log.Infof("generated %+v lines, %+v Bytes, speedLine: %v lines/s, speedSize: %v B/s", lines, size, speedLine, speedSize)
+			util.Logger.Info("status", zap.Int64("lines", lines), zap.Int64("bytes", size), zap.Int64("speed(lines/s)", speedLine), zap.Int64("speed(bytes/s)", speedSize))
 		}
 	}
 }
