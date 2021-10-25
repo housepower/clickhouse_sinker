@@ -165,12 +165,11 @@ func (service *Service) putToRing(msg *model.InputMessage) (ok bool) {
 		}
 	}
 
-	var err error
 	if ring == nil {
 		batchSizeShift := util.GetShift(taskCfg.BufferSize)
 		ringCap := int64(1 << (batchSizeShift + 1))
 		ring := &Ring{
-			ringBuf:          make([]model.MsgRow, ringCap),
+			ringBuf:          nil,
 			ringCap:          ringCap,
 			ringCapMask:      ringCap - 1,
 			ringGroundOff:    msg.Offset,
@@ -178,22 +177,13 @@ func (service *Service) putToRing(msg *model.InputMessage) (ok bool) {
 			ringFilledOffset: msg.Offset,
 			batchSizeShift:   batchSizeShift,
 			idleCnt:          0,
-			isIdle:           false,
+			isIdle:           true,
 			partition:        msg.Partition,
 			batchSys:         model.NewBatchSys(taskCfg, service.fnCommit),
 			service:          service,
 		}
 		ring.available = sync.NewCond(&ring.mux)
 		ring.PutMsgNolock(msg)
-		// schedule a delayed ForceBatchOrShard
-		if ring.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(taskCfg.FlushInterval)*time.Second, ring.ForceBatchOrShard, nil); err != nil {
-			if errors.Is(err, goetty.ErrSystemStopped) {
-				util.Logger.Info("Service.put scheduling timer to a stopped timer wheel")
-			} else {
-				err = errors.Wrap(err, "")
-				util.Logger.Fatal("scheduling timer filed", zap.String("task", taskCfg.Name), zap.Error(err))
-			}
-		}
 		service.rings[msg.Partition] = ring
 		service.Unlock()
 		ok = true
