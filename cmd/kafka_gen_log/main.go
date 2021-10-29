@@ -305,7 +305,7 @@ kakfa_brokers: for example, 192.168.102.114:9092,192.168.102.115:9092
 topic: for example, apache_access_log
 log_file_dir: log file directory, for example, /var/log
 log_file_pattern: file name pattern, for example, '^secure.*$'`, os.Args[0], os.Args[0])
-		fmt.Println(usage)
+		util.Logger.Info(usage)
 		os.Exit(0)
 	}
 	flag.Parse()
@@ -317,7 +317,11 @@ log_file_pattern: file name pattern, for example, '^secure.*$'`, os.Args[0], os.
 	KafkaTopic = args[1]
 	LogfileDir = args[2]
 	LogfilePattern = args[3]
-	util.Logger.Info("CLI options", zap.String("KafkaBrokers", KafkaBrokers), zap.String("KafkaTopic", KafkaTopic), zap.String("LogfileDir", LogfileDir), zap.String("LogFilePattern", LogfilePattern))
+	util.Logger.Info("CLI options",
+		zap.String("KafkaBrokers", KafkaBrokers),
+		zap.String("KafkaTopic", KafkaTopic),
+		zap.String("LogfileDir", LogfileDir),
+		zap.String("LogFilePattern", LogfilePattern))
 
 	if err := agent.Listen(agent.Options{}); err != nil {
 		util.Logger.Fatal("got error", zap.Error(err))

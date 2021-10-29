@@ -168,7 +168,7 @@ func PutRow(r *Row) {
 	rowPool.Put(r)
 }
 
-func MetricToRow(metric Metric, msg *InputMessage, dims []*ColumnWithType, idxSeriesID int) (row *Row) {
+func MetricToRow(metric Metric, msg *InputMessage, dims []*ColumnWithType, idxSeriesID int, nameKey string) (row *Row) {
 	row = GetRow()
 	var dig *xxhash.Digest
 	var labels []string
@@ -197,7 +197,7 @@ func MetricToRow(metric Metric, msg *InputMessage, dims []*ColumnWithType, idxSe
 				_, _ = dig.WriteString(dim.Name)
 				_, _ = dig.WriteString("###")
 				_, _ = dig.WriteString(labelVal)
-				if dim.Name != "__name__" && dim.Name != "le" {
+				if dim.Name != nameKey && dim.Name != "le" {
 					labels = append(labels, fmt.Sprintf(`"%s": "%s"`, dim.Name, labelVal))
 				}
 			}

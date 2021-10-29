@@ -182,7 +182,7 @@ func main() {
 This util fill some fields with random content, serialize and send to kafka.
 kakfa_brokers: for example, 192.168.102.114:9092,192.168.102.115:9092
 topic: for example, sensor_dt_result_online`, os.Args[0], os.Args[0])
-		fmt.Println(usage)
+		util.Logger.Info(usage)
 		os.Exit(0)
 	}
 	flag.Parse()
@@ -192,7 +192,11 @@ topic: for example, sensor_dt_result_online`, os.Args[0], os.Args[0])
 	}
 	KafkaBrokers = args[0]
 	KafkaTopic = args[1]
-	util.Logger.Info("CLI options", zap.String("KafkaBrokers", KafkaBrokers), zap.String("KafkaTopic", KafkaTopic), zap.Int("BusinessNum", BusinessNum), zap.Int("InstanceNum", InstanceNum))
+	util.Logger.Info("CLI options",
+		zap.String("KafkaBrokers", KafkaBrokers),
+		zap.String("KafkaTopic", KafkaTopic),
+		zap.Int("BusinessNum", BusinessNum),
+		zap.Int("InstanceNum", InstanceNum))
 
 	if err := agent.Listen(agent.Options{}); err != nil {
 		util.Logger.Fatal("got error", zap.Error(err))

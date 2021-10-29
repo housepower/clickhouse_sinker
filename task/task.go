@@ -44,7 +44,9 @@ type Service struct {
 	cfg        *config.Config
 	taskCfg    *config.TaskConfig
 	dims       []*model.ColumnWithType
-	idxSerID   int
+
+	idxSerID int
+	nameKey  string
 
 	knownKeys  sync.Map
 	newKeys    sync.Map
@@ -90,6 +92,7 @@ func (service *Service) Init() (err error) {
 
 	service.dims = service.clickhouse.Dims
 	service.idxSerID = service.clickhouse.IdxSerID
+	service.nameKey = service.clickhouse.NameKey
 	service.limiter1 = rate.NewLimiter(rate.Every(10*time.Second), 1)
 	service.limiter2 = rate.NewLimiter(rate.Every(10*time.Second), 1)
 
@@ -274,7 +277,7 @@ func (service *Service) put(msg *model.InputMessage) {
 					msg.Topic, msg.Partition, msg.Offset), zap.String("message value", string(msg.Value)), zap.String("task", taskCfg.Name), zap.Error(err))
 			}
 		} else {
-			row = model.MetricToRow(metric, msg, service.dims, service.idxSerID)
+			row = model.MetricToRow(metric, msg, service.dims, service.idxSerID, service.nameKey)
 			if taskCfg.DynamicSchema.Enable {
 				foundNewKeys = metric.GetNewKeys(&service.knownKeys, &service.newKeys)
 			}

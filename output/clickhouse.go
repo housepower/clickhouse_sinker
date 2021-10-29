@@ -52,6 +52,7 @@ var (
 type ClickHouse struct {
 	Dims       []*model.ColumnWithType
 	IdxSerID   int
+	NameKey    string
 	cfg        *config.Config
 	taskCfg    *config.TaskConfig
 	prepareSQL string
@@ -265,6 +266,16 @@ func (c *ClickHouse) initSeriesSchema(conn *sql.DB) (err error) {
 	if badFirst {
 		err = errors.Errorf(`First columns of %s are expect to be "__series_id UInt64, labels String".`, c.seriesTbl)
 		return
+	}
+	c.NameKey = "__name__" // prometheus uses internal "__name__" label for metric name
+	for i := 2; i < len(seriesDims); i++ {
+		serDim := seriesDims[i]
+		if serDim.Type == model.String {
+			if serDim.Name == c.NameKey {
+				break
+			}
+			c.NameKey = serDim.Name // opentsdb uses "metric" tag for metric name
+		}
 	}
 	c.Dims = append(c.Dims, seriesDims[1:]...)
 
