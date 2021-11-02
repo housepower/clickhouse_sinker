@@ -143,9 +143,10 @@ type TaskConfig struct {
 	// ShardingPolicy is `stripe,<interval>`(requires ShardingKey be numerical) or `hash`(requires ShardingKey be string)
 	ShardingPolicy string `json:"shardingPolicy,omitempty"`
 
-	FlushInterval int    `json:"flushInterval,omitempty"`
-	BufferSize    int    `json:"bufferSize,omitempty"`
-	TimeZone      string `json:"timezone"`
+	FlushInterval int     `json:"flushInterval,omitempty"`
+	BufferSize    int     `json:"bufferSize,omitempty"`
+	TimeZone      string  `json:"timeZone"`
+	TimeUnit      float64 `json:"timeUnit"`
 }
 
 type Assignment struct {
@@ -256,6 +257,9 @@ func (cfg *Config) normallizeTask(taskCfg *TaskConfig) (err error) {
 	}
 	if taskCfg.TimeZone == "" {
 		taskCfg.TimeZone = defaultTimeZone
+	}
+	if taskCfg.TimeUnit == 0.0 {
+		taskCfg.TimeUnit = float64(1.0)
 	}
 	if taskCfg.PrometheusSchema {
 		taskCfg.DynamicSchema.Enable = true

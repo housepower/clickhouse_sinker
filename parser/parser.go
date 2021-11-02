@@ -76,12 +76,13 @@ type Pool struct {
 	csvFormat    map[string]int
 	delimiter    string
 	timeZone     *time.Location
+	timeUnit     float64
 	knownLayouts sync.Map
 	pool         sync.Pool
 }
 
 // NewParserPool creates a parser pool
-func NewParserPool(name string, csvFormat []string, delimiter string, timezone string) (pp *Pool, err error) {
+func NewParserPool(name string, csvFormat []string, delimiter string, timezone string, timeunit float64) (pp *Pool, err error) {
 	var tz *time.Location
 	if timezone == "" {
 		tz = time.Local
@@ -93,6 +94,7 @@ func NewParserPool(name string, csvFormat []string, delimiter string, timezone s
 		name:      name,
 		delimiter: delimiter,
 		timeZone:  tz,
+		timeUnit:  timeunit,
 	}
 	if csvFormat != nil {
 		pp.csvFormat = make(map[string]int)
@@ -194,15 +196,8 @@ func parseInLocation(val string, loc *time.Location) (t time.Time, layout string
 	return
 }
 
-func UnixInt(sec int64) (t time.Time) {
-	//2^32 seconds since epoch: 2106-02-07T06:28:16Z
-	if sec < 0 || sec >= 4294967296 {
-		return Epoch
-	}
-	return time.Unix(sec, 0).UTC()
-}
-
-func UnixFloat(sec float64) (t time.Time) {
+func UnixFloat(sec, unit float64) (t time.Time) {
+	sec *= unit
 	//2^32 seconds since epoch: 2106-02-07T06:28:16Z
 	if sec < 0 || sec >= 4294967296.0 {
 		return Epoch

@@ -119,7 +119,7 @@ func (c *FastjsonMetric) GetDateTime(key string, nullable bool) (val interface{}
 			val = getDefaultDateTime(nullable)
 			return
 		}
-		val = UnixFloat(f)
+		val = UnixFloat(f, c.pp.timeUnit)
 	case fastjson.TypeString:
 		var b []byte
 		if b, err = v.StringBytes(); err != nil || len(b) == 0 {
@@ -188,7 +188,7 @@ func (c *FastjsonMetric) GetArray(key string, typ int) (val interface{}) {
 				if f, err := e.Float64(); err != nil {
 					t = Epoch
 				} else {
-					t = UnixFloat(f)
+					t = UnixFloat(f, c.pp.timeUnit)
 				}
 			case fastjson.TypeString:
 				if b, err := e.StringBytes(); err != nil || len(b) == 0 {

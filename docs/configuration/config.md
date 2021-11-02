@@ -130,14 +130,23 @@
     // if it's specified, clickhouse_sinker will detect table schema instead of using the fixed schema given by "dims".
     "autoSchema" : true,
     // these columns will be excluded from the detected table schema. This takes effect only if "autoSchema" is true.
-    "excludeColumns": []
+    "excludeColumns": [],
 
     // (experiment feature) detect new fields and their type, and add columns to the ClickHouse table accordingly. This feature requires parser be "fastjson" or "gjson". New fields' type will be one of: Int64, Float64, String.
+    // A column is added for new key K if all following conditions are true:
+    // - K isn't in ExcludeColumns
+    // - number of existing columns doesn't reach MaxDims-1
+    // - WhiteList is empty, or K matchs WhiteList
+    // - BlackList is empty, or K doesn't match BlackList
     "dynamicSchema": {
       // whether enable this feature, default to false
       "enable": true,
       // the upper limit of dynamic columns number, <=0 means math.MaxInt16. protecting dirty data attack
-      "maxDims": 1024
+      "maxDims": 1024,
+      // the regexp of white list. syntax reference: https://github.com/google/re2/wiki/Syntax
+      "whiteList": "^[0-9A-Za-z_]+$",
+      // the regexp of black list
+      "blackList": "@"
     },
 
     // shardingKey is the column name to which sharding against
@@ -151,7 +160,10 @@
     "bufferSize": 262114,
 
     // In the absence of time zone information, interprets the time as in the given location. Default to "Local" (aka /etc/localtime of the machine on which sinker runs)
-    "timezone": ""
+    "timeZone": "",
+    // Time unit when interprete a number as time. Default to 1.0.
+    // Java's timestamp is milliseconds since epoch. Change timeUnit to 0.001 at this case.
+    "timeUnit": 1.0
   },
 
   // log level, possible value: "debug", "info", "warn", "error", "dpanic", "panic", "fatal". Default to "info".

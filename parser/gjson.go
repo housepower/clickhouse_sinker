@@ -110,7 +110,7 @@ func (c *GjsonMetric) GetDateTime(key string, nullable bool) (val interface{}) {
 	}
 	switch r.Type {
 	case gjson.Number:
-		val = UnixFloat(r.Num)
+		val = UnixFloat(r.Num, c.pp.timeUnit)
 	case gjson.String:
 		var err error
 		if val, err = c.pp.ParseDateTime(key, r.Str); err != nil {
@@ -189,7 +189,7 @@ func (c *GjsonMetric) GetArray(key string, typ int) (val interface{}) {
 			var t time.Time
 			switch e.Type {
 			case gjson.Number:
-				t = UnixFloat(e.Num)
+				t = UnixFloat(e.Num, c.pp.timeUnit)
 			case gjson.String:
 				var err error
 				if t, err = c.pp.ParseDateTime(key, e.Str); err != nil {

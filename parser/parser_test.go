@@ -147,6 +147,7 @@ var (
 	bdLocalNs     = bdLocalNsOrig.UTC()
 	bdLocalSec    = bdLocalNsOrig.Truncate(1 * time.Second).UTC()
 	bdLocalDate   = time.Date(2009, 7, 13, 0, 0, 0, 0, time.Local).UTC()
+	timeUnit      = float64(0.000001)
 )
 
 var initialize sync.Once
@@ -180,13 +181,13 @@ func initMetrics() {
 	for _, name := range names {
 		switch name {
 		case "csv":
-			pp, _ = NewParserPool("csv", csvSchema, ",", "")
+			pp, _ = NewParserPool("csv", csvSchema, ",", "", timeUnit)
 			sample = csvSample
 		case "fastjson":
-			pp, _ = NewParserPool("fastjson", nil, "", "")
+			pp, _ = NewParserPool("fastjson", nil, "", "", timeUnit)
 			sample = jsonSample
 		case "gjson":
-			pp, _ = NewParserPool("gjson", nil, "", "")
+			pp, _ = NewParserPool("gjson", nil, "", "", timeUnit)
 			sample = jsonSample
 		}
 		parser = pp.Get()
@@ -354,8 +355,8 @@ func TestParserDateTime(t *testing.T) {
 		{"null", false, Epoch},
 		{"bool_true", false, Epoch},
 		{"bool_false", false, Epoch},
-		{"num_int", false, UnixInt(123)},
-		{"num_float", false, UnixFloat(123.321)},
+		{"num_int", false, UnixFloat(123, timeUnit)},
+		{"num_float", false, UnixFloat(123.321, timeUnit)},
 		{"str", false, Epoch},
 		{"str_int", false, Epoch},
 		{"str_float", false, Epoch},
@@ -371,8 +372,8 @@ func TestParserDateTime(t *testing.T) {
 		{"null", true, nil},
 		{"bool_true", true, nil},
 		{"bool_false", true, nil},
-		{"num_int", true, UnixInt(123)},
-		{"num_float", true, UnixFloat(123.321)},
+		{"num_int", true, UnixFloat(123, timeUnit)},
+		{"num_float", true, UnixFloat(123.321, timeUnit)},
 		{"str", true, nil},
 		{"str_int", true, nil},
 		{"str_float", true, nil},
@@ -394,8 +395,8 @@ func TestParserElasticDateTime(t *testing.T) {
 		{"null", false, Epoch.Unix()},
 		{"bool_true", false, Epoch.Unix()},
 		{"bool_false", false, Epoch.Unix()},
-		{"num_int", false, UnixInt(123).Unix()},
-		{"num_float", false, UnixFloat(123.321).Unix()},
+		{"num_int", false, UnixFloat(123, timeUnit).Unix()},
+		{"num_float", false, UnixFloat(123.321, timeUnit).Unix()},
 		{"str", false, Epoch.Unix()},
 		{"str_int", false, Epoch.Unix()},
 		{"str_float", false, Epoch.Unix()},
@@ -411,8 +412,8 @@ func TestParserElasticDateTime(t *testing.T) {
 		{"null", true, nil},
 		{"bool_true", true, nil},
 		{"bool_false", true, nil},
-		{"num_int", true, UnixInt(123).Unix()},
-		{"num_float", true, UnixFloat(123.321).Unix()},
+		{"num_int", true, UnixFloat(123, timeUnit).Unix()},
+		{"num_float", true, UnixFloat(123.321, timeUnit).Unix()},
 		{"str", true, nil},
 		{"str_int", true, nil},
 		{"str_float", true, nil},
@@ -459,17 +460,17 @@ func TestParserArray(t *testing.T) {
 		{"array_num_int_1", model.Int, []int64{0, 255, 256, 65535, 65536, 4294967295, 4294967296, 0, 0}},
 		{"array_num_int_1", model.Float, []float64{0, 255, 256, 65535, 65536, 4294967295, 4294967296, 18446744073709551615, 18446744073709551616}},
 		{"array_num_int_1", model.String, []string{"0", "255", "256", "65535", "65536", "4294967295", "4294967296", "18446744073709551615", "18446744073709551616"}},
-		{"array_num_int_1", model.DateTime, []time.Time{Epoch, UnixInt(255), UnixInt(256), UnixInt(65535), UnixInt(65536), UnixInt(4294967295), UnixInt(4294967296), Epoch, Epoch}},
+		{"array_num_int_1", model.DateTime, []time.Time{Epoch, UnixFloat(255, timeUnit), UnixFloat(256, timeUnit), UnixFloat(65535, timeUnit), UnixFloat(65536, timeUnit), UnixFloat(4294967295, timeUnit), UnixFloat(4294967296, timeUnit), Epoch, Epoch}},
 
 		{"array_num_int_2", model.Int, []int64{-9223372036854775808, -2147483649, -2147483648, -32769, -32768, -129, -128, 0, 127, 128, 32767, 32768, 2147483647, 2147483648, 9223372036854775807}},
 		{"array_num_int_2", model.Float, []float64{-9223372036854775808, -2147483649, -2147483648, -32769, -32768, -129, -128, 0, 127, 128, 32767, 32768, 2147483647, 2147483648, 9223372036854775807}},
 		{"array_num_int_2", model.String, []string{"-9223372036854775808", "-2147483649", "-2147483648", "-32769", "-32768", "-129", "-128", "0", "127", "128", "32767", "32768", "2147483647", "2147483648", "9223372036854775807"}},
-		{"array_num_int_2", model.DateTime, []time.Time{Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, UnixInt(127), UnixInt(128), UnixInt(32767), UnixInt(32768), UnixInt(2147483647), UnixInt(2147483648), UnixInt(9223372036854775807)}},
+		{"array_num_int_2", model.DateTime, []time.Time{Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, UnixFloat(127, timeUnit), UnixFloat(128, timeUnit), UnixFloat(32767, timeUnit), UnixFloat(32768, timeUnit), UnixFloat(2147483647, timeUnit), UnixFloat(2147483648, timeUnit), UnixFloat(9223372036854775807, timeUnit)}},
 
 		{"array_num_float", model.Int, []int64{0, 0, 0, 0, 0, 0, 0}},
 		{"array_num_float", model.Float, []float64{4.940656458412465441765687928682213723651e-324, 1.401298464324817070923729583289916131280e-45, 0.0, 3.40282346638528859811704183484516925440e+38, 1.797693134862315708145274237317043567981e+308, math.Inf(-1), math.Inf(1)}},
 		{"array_num_float", model.String, []string{"4.940656458412465441765687928682213723651e-324", "1.401298464324817070923729583289916131280e-45", "0.0", "3.40282346638528859811704183484516925440e+38", "1.797693134862315708145274237317043567981e+308", "-inf", "+inf"}},
-		{"array_num_float", model.DateTime, []time.Time{Epoch, Epoch, Epoch, UnixFloat(3.40282346638528859811704183484516925440e+38), UnixFloat(1.797693134862315708145274237317043567981e+308), UnixFloat(math.Inf(-1)), UnixFloat(math.Inf(1))}},
+		{"array_num_float", model.DateTime, []time.Time{Epoch, Epoch, Epoch, UnixFloat(3.40282346638528859811704183484516925440e+38, timeUnit), UnixFloat(1.797693134862315708145274237317043567981e+308, timeUnit), UnixFloat(math.Inf(-1), timeUnit), UnixFloat(math.Inf(1), timeUnit)}},
 
 		{"array_str", model.Int, []int64{0, 0, 0}},
 		{"array_str", model.Float, []float64{0.0, 0.0, 0.0}},
@@ -662,7 +663,7 @@ func TestParseInt(t *testing.T) {
 }
 
 func TestFastjsonDetectSchema(t *testing.T) {
-	pp, _ := NewParserPool("fastjson", nil, "", "")
+	pp, _ := NewParserPool("fastjson", nil, "", "", timeUnit)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
@@ -681,7 +682,7 @@ func TestFastjsonDetectSchema(t *testing.T) {
 }
 
 func TestGjsonDetectSchema(t *testing.T) {
-	pp, _ := NewParserPool("gjson", nil, "", "")
+	pp, _ := NewParserPool("gjson", nil, "", "", timeUnit)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
