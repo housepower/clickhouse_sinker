@@ -271,10 +271,8 @@ func (c *ClickHouse) initSeriesSchema(conn *sql.DB) (err error) {
 	for i := 2; i < len(seriesDims); i++ {
 		serDim := seriesDims[i]
 		if serDim.Type == model.String {
-			if serDim.Name == c.NameKey {
-				break
-			}
 			c.NameKey = serDim.Name // opentsdb uses "metric" tag for metric name
+			break
 		}
 	}
 	c.Dims = append(c.Dims, seriesDims[1:]...)

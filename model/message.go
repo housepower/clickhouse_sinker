@@ -192,13 +192,14 @@ func MetricToRow(metric Metric, msg *InputMessage, dims []*ColumnWithType, idxSe
 			val := GetValueByType(metric, dim)
 			*row = append(*row, val)
 			if idxSeriesID >= 0 && dim.Type == String && val != nil {
-				labelVal := val.(string)
-				_, _ = dig.WriteString("###")
-				_, _ = dig.WriteString(dim.Name)
-				_, _ = dig.WriteString("###")
-				_, _ = dig.WriteString(labelVal)
-				if dim.Name != nameKey && dim.Name != "le" {
-					labels = append(labels, fmt.Sprintf(`"%s": "%s"`, dim.Name, labelVal))
+				if labelVal := val.(string); labelVal != "" {
+					_, _ = dig.WriteString("###")
+					_, _ = dig.WriteString(dim.Name)
+					_, _ = dig.WriteString("###")
+					_, _ = dig.WriteString(labelVal)
+					if dim.Name != nameKey && dim.Name != "le" {
+						labels = append(labels, fmt.Sprintf(`"%s": "%s"`, dim.Name, labelVal))
+					}
 				}
 			}
 		}
