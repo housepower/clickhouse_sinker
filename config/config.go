@@ -18,6 +18,7 @@ package config
 import (
 	"encoding/json"
 	"io/ioutil"
+	"regexp"
 	"strings"
 
 	"github.com/housepower/clickhouse_sinker/util"
@@ -126,6 +127,13 @@ type TaskConfig struct {
 	DynamicSchema struct {
 		Enable  bool
 		MaxDims int // the upper limit of dynamic columns number, <=0 means math.MaxInt16. protecting dirty data attack
+		// A column is added for new key K if all following conditions are true:
+		// - K isn't in ExcludeColumns
+		// - number of existing columns doesn't reach MaxDims-1
+		// - WhiteList is empty, or K matchs WhiteList
+		// - BlackList is empty, or K doesn't match BlackList
+		WhiteList string // the regexp of white list
+		BlackList string // the regexp of black list
 	}
 	// PrometheusSchema expects each message is a Prometheus metric(timestamp, value, metric name and a list of labels).
 	PrometheusSchema bool
@@ -205,52 +213,71 @@ func (cfg *Config) Normallize() (err error) {
 		cfg.Task = nil
 	}
 	for _, taskCfg := range cfg.Tasks {
-		if taskCfg.KafkaClient == "" || (cfg.Kafka.Sasl.Enable && cfg.Kafka.Sasl.Username == "") {
-			// known limitations of kafka-go:
-			// - The Reader API is too high-level. There's no generation cleanup callback which sarama provides.
-			// - Doesn't support SASL/GSSAPI(Kerberos). https://github.com/segmentio/kafka-go/issues/539
-			taskCfg.KafkaClient = "sarama"
-		}
-		if taskCfg.Parser == "" || taskCfg.Parser == "json" {
-			taskCfg.Parser = "fastjson"
-		}
-
-		for i := range taskCfg.Dims {
-			if taskCfg.Dims[i].SourceName == "" {
-				taskCfg.Dims[i].SourceName = util.GetSourceName(taskCfg.Dims[i].Name)
-			}
-		}
-
-		if taskCfg.FlushInterval <= 0 {
-			taskCfg.FlushInterval = defaultFlushInterval
-		} else if taskCfg.FlushInterval > maxFlushInterval {
-			taskCfg.FlushInterval = maxFlushInterval
-		}
-		if taskCfg.BufferSize <= 0 {
-			taskCfg.BufferSize = defaultBufferSize
-		} else if taskCfg.BufferSize > MaxBufferSize {
-			taskCfg.BufferSize = MaxBufferSize
-		} else {
-			taskCfg.BufferSize = 1 << util.GetShift(taskCfg.BufferSize)
-		}
-		if taskCfg.TimeZone == "" {
-			taskCfg.TimeZone = defaultTimeZone
-		}
-		if taskCfg.PrometheusSchema {
-			taskCfg.DynamicSchema.Enable = true
-			taskCfg.AutoSchema = true
-		}
-		if taskCfg.DynamicSchema.Enable {
-			if taskCfg.Parser != "fastjson" && taskCfg.Parser != "gjson" {
-				err = errors.Errorf("Parser %s doesn't support DynamicSchema", taskCfg.Parser)
-				return
-			}
+		if err = cfg.normallizeTask(taskCfg); err != nil {
+			return
 		}
 	}
 	switch strings.ToLower(cfg.LogLevel) {
 	case "debug", "info", "warn", "error", "dpanic", "panic", "fatal":
 	default:
 		cfg.LogLevel = defaultLogLevel
+	}
+	return
+}
+
+func (cfg *Config) normallizeTask(taskCfg *TaskConfig) (err error) {
+	if taskCfg.KafkaClient == "" || (cfg.Kafka.Sasl.Enable && cfg.Kafka.Sasl.Username == "") {
+		// known limitations of kafka-go:
+		// - The Reader API is too high-level. There's no generation cleanup callback which sarama provides.
+		// - Doesn't support SASL/GSSAPI(Kerberos). https://github.com/segmentio/kafka-go/issues/539
+		taskCfg.KafkaClient = "sarama"
+	}
+	if taskCfg.Parser == "" || taskCfg.Parser == "json" {
+		taskCfg.Parser = "fastjson"
+	}
+
+	for i := range taskCfg.Dims {
+		if taskCfg.Dims[i].SourceName == "" {
+			taskCfg.Dims[i].SourceName = util.GetSourceName(taskCfg.Dims[i].Name)
+		}
+	}
+
+	if taskCfg.FlushInterval <= 0 {
+		taskCfg.FlushInterval = defaultFlushInterval
+	} else if taskCfg.FlushInterval > maxFlushInterval {
+		taskCfg.FlushInterval = maxFlushInterval
+	}
+	if taskCfg.BufferSize <= 0 {
+		taskCfg.BufferSize = defaultBufferSize
+	} else if taskCfg.BufferSize > MaxBufferSize {
+		taskCfg.BufferSize = MaxBufferSize
+	} else {
+		taskCfg.BufferSize = 1 << util.GetShift(taskCfg.BufferSize)
+	}
+	if taskCfg.TimeZone == "" {
+		taskCfg.TimeZone = defaultTimeZone
+	}
+	if taskCfg.PrometheusSchema {
+		taskCfg.DynamicSchema.Enable = true
+		taskCfg.AutoSchema = true
+	}
+	if taskCfg.DynamicSchema.Enable {
+		if taskCfg.Parser != "fastjson" && taskCfg.Parser != "gjson" {
+			err = errors.Errorf("Parser %s doesn't support DynamicSchema", taskCfg.Parser)
+			return
+		}
+	}
+	if taskCfg.DynamicSchema.WhiteList != "" {
+		if _, err = regexp.Compile(taskCfg.DynamicSchema.WhiteList); err != nil {
+			err = errors.Wrapf(err, "WhiteList %s is invalid regexp", taskCfg.DynamicSchema.WhiteList)
+			return
+		}
+	}
+	if taskCfg.DynamicSchema.BlackList != "" {
+		if _, err = regexp.Compile(taskCfg.DynamicSchema.BlackList); err != nil {
+			err = errors.Wrapf(err, "BlackList %s is invalid regexp", taskCfg.DynamicSchema.BlackList)
+			return
+		}
 	}
 	return
 }

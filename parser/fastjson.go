@@ -17,6 +17,7 @@ package parser
 
 import (
 	"fmt"
+	"regexp"
 	"sync"
 	"time"
 
@@ -209,7 +210,7 @@ func (c *FastjsonMetric) GetArray(key string, typ int) (val interface{}) {
 	return
 }
 
-func (c *FastjsonMetric) GetNewKeys(knownKeys *sync.Map, newKeys *sync.Map) (foundNew bool) {
+func (c *FastjsonMetric) GetNewKeys(knownKeys, newKeys *sync.Map, white, black *regexp.Regexp) (foundNew bool) {
 	var obj *fastjson.Object
 	var err error
 	if obj, err = c.value.Object(); err != nil {
@@ -218,11 +219,17 @@ func (c *FastjsonMetric) GetNewKeys(knownKeys *sync.Map, newKeys *sync.Map) (fou
 	obj.Visit(func(key []byte, v *fastjson.Value) {
 		strKey := string(key)
 		if _, loaded := knownKeys.LoadOrStore(strKey, nil); !loaded {
-			if typ := fjDetectType(v); typ != model.Unknown {
-				newKeys.Store(strKey, typ)
-				foundNew = true
+			if (white == nil || white.MatchString(strKey)) &&
+				(black == nil || !black.MatchString(strKey)) {
+				if typ := fjDetectType(v); typ != model.Unknown {
+					newKeys.Store(strKey, typ)
+					foundNew = true
+				} else {
+					util.Logger.Warn("FastjsonMetric.GetNewKeys failed to detect field type", zap.String("key", strKey), zap.String("value", v.String()))
+				}
 			} else {
-				util.Logger.Warn("FastjsonMetric.GetNewKeys failed to detect field type", zap.String("key", strKey), zap.String("value", v.String()))
+				util.Logger.Warn("FastjsonMetric.GetNewKeys ignored new key due to white/black list setting", zap.String("key", strKey), zap.String("value", v.String()))
+				knownKeys.Store(strKey, nil)
 			}
 		}
 	})

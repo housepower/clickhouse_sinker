@@ -17,6 +17,7 @@ package parser
 
 import (
 	"fmt"
+	"regexp"
 	"sync"
 	"time"
 
@@ -206,15 +207,21 @@ func (c *GjsonMetric) GetArray(key string, typ int) (val interface{}) {
 	return
 }
 
-func (c *GjsonMetric) GetNewKeys(knownKeys *sync.Map, newKeys *sync.Map) (foundNew bool) {
+func (c *GjsonMetric) GetNewKeys(knownKeys, newKeys *sync.Map, white, black *regexp.Regexp) (foundNew bool) {
 	gjson.Parse(c.raw).ForEach(func(k, v gjson.Result) bool {
 		strKey := k.Str
 		if _, loaded := knownKeys.LoadOrStore(strKey, nil); !loaded {
-			if typ := gjDetectType(v); typ != model.Unknown {
-				newKeys.Store(strKey, typ)
-				foundNew = true
+			if (white == nil || white.MatchString(strKey)) &&
+				(black == nil || !black.MatchString(strKey)) {
+				if typ := gjDetectType(v); typ != model.Unknown {
+					newKeys.Store(strKey, typ)
+					foundNew = true
+				} else {
+					util.Logger.Warn("GjsonMetric.GetNewKeys failed to detect field type", zap.String("key", strKey), zap.String("value", v.String()))
+				}
 			} else {
-				util.Logger.Warn("GjsonMetric.GetNewKeys failed to detect field type", zap.String("key", strKey), zap.String("value", v.String()))
+				util.Logger.Warn("GjsonMetric.GetNewKeys ignored new key due to white/black list setting", zap.String("key", strKey), zap.String("value", v.String()))
+				knownKeys.Store(strKey, nil)
 			}
 		}
 		return true

@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"encoding/csv"
 	"fmt"
+	"regexp"
 	"strconv"
 	"sync"
 	"time"
@@ -224,6 +225,6 @@ func (c *CsvMetric) GetArray(key string, typ int) (val interface{}) {
 	return
 }
 
-func (c *CsvMetric) GetNewKeys(knownKeys *sync.Map, newKeys *sync.Map) bool {
+func (c *CsvMetric) GetNewKeys(knownKeys, newKeys *sync.Map, white, black *regexp.Regexp) bool {
 	return false
 }

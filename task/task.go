@@ -18,6 +18,7 @@ package task
 import (
 	"fmt"
 	"math"
+	"regexp"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -43,6 +44,8 @@ type Service struct {
 	pp         *parser.Pool
 	cfg        *config.Config
 	taskCfg    *config.TaskConfig
+	whiteList  *regexp.Regexp
+	blackList  *regexp.Regexp
 	dims       []*model.ColumnWithType
 
 	idxSerID int
@@ -77,6 +80,12 @@ func NewTaskService(cfg *config.Config, taskCfg *config.TaskConfig) (service *Se
 		taskCfg:    taskCfg,
 	}
 	service.taskDone = sync.NewCond(service)
+	if taskCfg.DynamicSchema.WhiteList != "" {
+		service.whiteList = regexp.MustCompile(taskCfg.DynamicSchema.WhiteList)
+	}
+	if taskCfg.DynamicSchema.BlackList != "" {
+		service.blackList = regexp.MustCompile(taskCfg.DynamicSchema.BlackList)
+	}
 	return
 }
 
@@ -279,7 +288,7 @@ func (service *Service) put(msg *model.InputMessage) {
 		} else {
 			row = model.MetricToRow(metric, msg, service.dims, service.idxSerID, service.nameKey)
 			if taskCfg.DynamicSchema.Enable {
-				foundNewKeys = metric.GetNewKeys(&service.knownKeys, &service.newKeys)
+				foundNewKeys = metric.GetNewKeys(&service.knownKeys, &service.newKeys, service.whiteList, service.blackList)
 			}
 			// Dumping message and result
 			//util.Logger.Debug("parsed kafka message", zap.Int("partition", msg.Partition), zap.Int64("offset", msg.Offset),

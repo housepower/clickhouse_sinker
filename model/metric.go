@@ -16,6 +16,7 @@ limitations under the License.
 package model
 
 import (
+	"regexp"
 	"sync"
 )
 
@@ -27,7 +28,7 @@ type Metric interface {
 	GetDateTime(key string, nullable bool) (val interface{})
 	GetElasticDateTime(key string, nullable bool) (val interface{})
 	GetArray(key string, t int) (val interface{})
-	GetNewKeys(knownKeys *sync.Map, newKeys *sync.Map) bool
+	GetNewKeys(knownKeys, newKeys *sync.Map, white, black *regexp.Regexp) bool
 }
 
 // DimMetrics
