@@ -31,6 +31,8 @@ Refers to [design](./design.md) for how it works.
 - [x] Decimal, Decimal32, Decimal64, Decimal128, Decimal256
 - [x] String, FixedString, LowCardinality(String)
 - [x] Date, DateTime, DateTime64. Assuming that all values of a field of kafka message has the same layout, and layouts of each field are unrelated. Automatically detect the layout from [these date layouts](https://github.com/housepower/clickhouse_sinker/blob/master/parser/parser.go) till the first successful detection and reuse that layout forever.
+- [x] UUID
+- [x] Enum
 - [x] Array(T), where T is one of above basic types
 - [x] Nullable(T), where T is one of above basic types
 - [x] [ElasticDateTime](https://www.elastic.co/guide/en/elasticsearch/reference/current/date.html) => Int64 (2019-12-16T12:10:30Z => 1576498230)
