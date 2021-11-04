@@ -118,8 +118,12 @@ func (c *ClickHouse) writeSeries(rows model.Rows, conn *sql.DB) (err error) {
 	}
 	c.mux.Unlock()
 	if len(seriesRows) != 0 {
-		if err = writeRows(c.promSerSQL, seriesRows, c.IdxSerID, len(c.Dims), conn); err != nil {
+		var numBad int
+		if numBad, err = writeRows(c.promSerSQL, seriesRows, c.IdxSerID, len(c.Dims), conn); err != nil {
 			return
+		}
+		if numBad != 0 {
+			statistics.ParseMsgsErrorTotal.WithLabelValues(c.taskCfg.Name).Add(float64(numBad))
 		}
 	}
 	return
@@ -143,8 +147,12 @@ func (c *ClickHouse) write(batch *model.Batch, sc *pool.ShardConn, dbVer *int) (
 			return
 		}
 	}
-	if err = writeRows(c.prepareSQL, *batch.Rows, 0, numDims, conn); err != nil {
+	var numBad int
+	if numBad, err = writeRows(c.prepareSQL, *batch.Rows, 0, numDims, conn); err != nil {
 		return
+	}
+	if numBad != 0 {
+		statistics.ParseMsgsErrorTotal.WithLabelValues(c.taskCfg.Name).Add(float64(numBad))
 	}
 	statistics.FlushMsgsTotal.WithLabelValues(c.taskCfg.Name).Add(float64(batch.RealSize))
 	return
