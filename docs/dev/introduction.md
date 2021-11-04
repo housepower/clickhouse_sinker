@@ -50,6 +50,8 @@ Note:
 | Decimal, ...         | 0.0           | Number                              | [decimal-value-ranges](https://clickhouse.tech/docs/en/sql-reference/data-types/decimal/#decimal-value-ranges) |
 | String, ...          | ""            | Bool, Number, String, Object, Array | N/A                                   |
 | Date, DateTime, ...  | EPOCH         | Number, String                      | [EPOCH,MaxUint32_seconds_since_epoch) |
+| UUID                 | "00000000-0000-0000-0000-000000000000" | String     | N/A                                   |
+| Enum                 | N/A           | String                              | N/A                                   |
 | Nullable(T)          | NULL          | (The same as T)                     | (The same as T)                       |
 | Array(T)             | []            | (The same as T)                     | (The same as T)                       |
 
