@@ -45,7 +45,7 @@ var (
 	// https://github.com/ClickHouse/ClickHouse/issues/24036
 	// src/Common/ErrorCodes.cpp
 	// src/Storages/MergeTree/ReplicatedMergeTreeBlockOutputStream.cpp
-	replicaSpecificErrorCodes = []int32{164, 225, 319, 1000} //READONLY, NO_ZOOKEEPER, UNKNOWN_STATUS_OF_INSERT, POCO_EXCEPTION
+	replicaSpecificErrorCodes = []int32{242, 319, 1000} //TABLE_IS_READ_ONLY, UNKNOWN_STATUS_OF_INSERT, POCO_EXCEPTION
 )
 
 // ClickHouse is an output service consumers from kafka messages
