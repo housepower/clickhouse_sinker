@@ -185,8 +185,14 @@ func MetricToRow(metric Metric, msg *InputMessage, dims []*ColumnWithType, idxSe
 				*row = append(*row, msg.Topic)
 			} else if strings.HasSuffix(dim.Name, "_partition") {
 				*row = append(*row, msg.Partition)
-			} else {
+			} else if strings.HasSuffix(dim.Name, "_offset") {
 				*row = append(*row, msg.Offset)
+			} else if strings.HasSuffix(dim.Name, "_key") {
+				*row = append(*row, string(msg.Key))
+			} else if strings.HasSuffix(dim.Name, "_timestamp") {
+				*row = append(*row, *msg.Timestamp)
+			} else {
+				*row = append(*row, nil)
 			}
 		} else {
 			val := GetValueByType(metric, dim)
