@@ -467,7 +467,7 @@ func (c *ClickHouse) getDistTbls(table string) (distTbls []string, err error) {
 	if conn, _, err = sc.NextGoodReplica(0); err != nil {
 		return
 	}
-	query := fmt.Sprintf(`SELECT name FROM system.tables WHERE engine='Distributed' AND database='%s' AND match(create_table_query, 'Distributed\(\'%s\', \'%s\', \'%s\'\)')`,
+	query := fmt.Sprintf(`SELECT name FROM system.tables WHERE engine='Distributed' AND database='%s' AND match(create_table_query, 'Distributed\(\'%s\', \'%s\', \'%s\'.*\)')`,
 		chCfg.DB, chCfg.Cluster, chCfg.DB, table)
 	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", taskCfg.Name))
 
