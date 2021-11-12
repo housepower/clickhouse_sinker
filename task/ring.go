@@ -134,7 +134,10 @@ func (ring *Ring) ForceBatchOrShard(_ interface{}) {
 	ring.mux.Lock()
 	defer ring.mux.Unlock()
 	if !ring.isIdle {
-		if ring.ringGroundOff == ring.ringCeilingOff {
+		if ring.ringFilledOffset > ring.ringGroundOff {
+			ring.genBatchOrShard()
+			ring.idleCnt = 0
+		} else if ring.ringBuf[ring.ringGroundOff&ring.ringCapMask].Msg == nil {
 			ring.idleCnt++
 			if ring.idleCnt >= 2 {
 				ring.idleCnt = 0
@@ -143,9 +146,6 @@ func (ring *Ring) ForceBatchOrShard(_ interface{}) {
 				util.Logger.Info(fmt.Sprintf("topic %s partition %d became idle", taskCfg.Topic, ring.partition), zap.String("task", taskCfg.Name))
 				return
 			}
-		} else if ring.ringFilledOffset > ring.ringGroundOff {
-			ring.genBatchOrShard()
-			ring.idleCnt = 0
 		}
 		ring.scheduleForchBatchOrShard()
 	}
