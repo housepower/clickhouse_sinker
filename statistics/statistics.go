@@ -203,6 +203,7 @@ func (p *Pusher) Init() error {
 
 func (p *Pusher) Run() {
 	ticker := time.NewTicker(time.Second * time.Duration(p.pushInterval))
+	defer ticker.Stop()
 FOR:
 	for {
 		select {

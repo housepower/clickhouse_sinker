@@ -336,6 +336,7 @@ log_file_pattern: file name pattern, for example, '^secure.*$'`, os.Args[0], os.
 
 	var prevLines, prevSize int64
 	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
 LOOP:
 	for {
 		select {

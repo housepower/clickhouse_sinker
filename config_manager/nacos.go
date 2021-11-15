@@ -220,13 +220,15 @@ func (ncm *NacosConfManager) Run() {
 	}
 
 	// Assign regularly to handle lag change
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
 LOOP_FOR:
 	for {
 		select {
 		case <-ncm.ctx.Done():
 			util.Logger.Info("NacosConfManager.Run quit due to context has been canceled")
 			break LOOP_FOR
-		case <-time.After(5 * time.Minute):
+		case <-ticker.C:
 			util.Logger.Debug("assign triggered by 5 min timer")
 			if err := ncm.assign(); err != nil {
 				util.Logger.Error("assign failed", zap.Error(err))

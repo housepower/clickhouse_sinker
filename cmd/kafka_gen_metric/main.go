@@ -207,6 +207,7 @@ topic: for example, sensor_dt_result_online`, os.Args[0], os.Args[0])
 	go generate()
 
 	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
 LOOP:
 	for {
 		select {

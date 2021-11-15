@@ -302,12 +302,15 @@ func (s *Sinker) Run() {
 		if cmdOps.NacosServiceName != "" {
 			go s.rcm.Run()
 		}
+		// Golang <-time.After() is not garbage collected before expiry.
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
 		for {
 			select {
 			case <-s.ctx.Done():
 				util.Logger.Info("Sinker.Run quit due to context has been canceled")
 				return
-			case <-time.After(10 * time.Second):
+			case <-ticker.C:
 				if newCfg, err = s.rcm.GetConfig(); err != nil {
 					util.Logger.Error("s.rcm.GetConfig failed", zap.Error(err))
 					continue
