@@ -327,23 +327,23 @@ func (ncm *NacosConfManager) assign() (err error) {
 		return
 	}
 
-	var taskLags map[string]int64
-	if taskLags, err = GetTaskLags(newCfg); err != nil {
+	var stateLags map[string]StateLag
+	if stateLags, err = GetTaskStateAndLags(newCfg); err != nil {
 		return
 	}
-	util.Logger.Debug(fmt.Sprintf("task lags %+v", taskLags))
+	util.Logger.Debug(fmt.Sprintf("task state and lags %+v", stateLags))
 
 	var validTasks []string
 	for _, taskCfg := range newCfg.Tasks {
-		if _, ok := taskLags[taskCfg.Name]; ok {
+		if _, ok := stateLags[taskCfg.Name]; ok {
 			validTasks = append(validTasks, taskCfg.Name)
 		}
 	}
 	sort.Slice(validTasks, func(i, j int) bool {
 		taskNameI := validTasks[i]
-		lagI := taskLags[taskNameI]
+		lagI := stateLags[taskNameI].Lag
 		taskNameJ := validTasks[j]
-		lagJ := taskLags[taskNameJ]
+		lagJ := stateLags[taskNameJ].Lag
 		return (lagI > lagJ) || (lagI == lagJ && taskNameI < taskNameJ)
 	})
 
@@ -360,7 +360,7 @@ func (ncm *NacosConfManager) assign() (err error) {
 			idxInst = len(newInsts) - 1 - idxInst
 		}
 		taskName := validTasks[idxTask]
-		taskLag := taskLags[taskName]
+		taskLag := stateLags[taskName].Lag
 		instAg := instAgs[idxInst]
 		instAg.TotalLag += taskLag
 		instAg.TaskLags = append(instAg.TaskLags, TaskLag{Task: taskName, Lag: taskLag})

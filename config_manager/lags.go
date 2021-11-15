@@ -11,12 +11,17 @@ import (
 	"go.uber.org/zap"
 )
 
-// GetTaskLags inspired by https://github.com/cloudhut/kminion/blob/1ffd02ba94a5edc26d4f11e57191ed3479d8a111/prometheus/collect_consumer_group_lags.go
-func GetTaskLags(cfg *config.Config) (taskLags map[string]int64, err error) {
+type StateLag struct {
+	State string
+	Lag   int64
+}
+
+// GetTaskStateAndLags is inspired by https://github.com/cloudhut/kminion/blob/1ffd02ba94a5edc26d4f11e57191ed3479d8a111/prometheus/collect_consumer_group_lags.go
+func GetTaskStateAndLags(cfg *config.Config) (stateLags map[string]StateLag, err error) {
 	var adminClient sarama.ClusterAdmin
 	var client sarama.Client
 	var sarCfg *sarama.Config
-	taskLags = make(map[string]int64) // taskName -> totalLags
+	stateLags = make(map[string]StateLag) // taskName -> state and totalLags
 	if sarCfg, err = input.GetSaramaConfig(&cfg.Kafka); err != nil {
 		return
 	}
@@ -80,7 +85,7 @@ func GetTaskLags(cfg *config.Config) (taskLags map[string]int64, err error) {
 		}
 	}
 
-	// Get consumer groups' offset
+	// Get consumer groups' offset, calculate lag
 	for _, taskCfg := range cfg.Tasks {
 		topic := taskCfg.Topic
 		var totalLags int64
@@ -105,7 +110,24 @@ func GetTaskLags(cfg *config.Config) (taskLags map[string]int64, err error) {
 					}
 				}
 			}
-			taskLags[taskCfg.Name] = totalLags
+			stateLags[taskCfg.Name] = StateLag{Lag: totalLags}
+		}
+	}
+
+	// Get consumer groups' state
+	groups := make([]string, len(cfg.Tasks))
+	for i, taskCfg := range cfg.Tasks {
+		groups[i] = taskCfg.ConsumerGroup
+	}
+	var gd []*sarama.GroupDescription
+	if gd, err = adminClient.DescribeConsumerGroups(groups); err != nil {
+		err = errors.Wrapf(err, "failed to describe consumer groups")
+		return
+	}
+	for i, taskCfg := range cfg.Tasks {
+		if stateLag, ok := stateLags[taskCfg.Name]; ok {
+			stateLag.State = gd[i].State
+			stateLags[taskCfg.Name] = stateLag
 		}
 	}
 	return
