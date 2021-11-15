@@ -49,6 +49,14 @@ type KafkaGo struct {
 	cleanupFn func()
 }
 
+type KafkaGoLogger struct {
+	logger *zap.Logger
+}
+
+func (kgl *KafkaGoLogger) Printf(template string, args ...interface{}) {
+	kgl.logger.Sugar().Debugf(template, args)
+}
+
 // NewKafkaGo get instance of kafka reader
 func NewKafkaGo() *KafkaGo {
 	return &KafkaGo{}
@@ -78,6 +86,7 @@ func (k *KafkaGo) Init(cfg *config.Config, taskCfg *config.TaskConfig, putFn fun
 		// PartitionWatchInterval is only used when GroupID is set and WatchPartitionChanges is set.
 		PartitionWatchInterval: 600 * time.Second, // sarama.Config.Metadata.RefreshFrequency
 		WatchPartitionChanges:  true,
+		ErrorLogger:            &KafkaGoLogger{util.Logger},
 	}
 	if kfkCfg.TLS.CaCertFiles == "" && kfkCfg.TLS.TrustStoreLocation != "" {
 		if kfkCfg.TLS.CaCertFiles, _, err = util.JksToPem(kfkCfg.TLS.TrustStoreLocation, kfkCfg.TLS.TrustStorePassword, false); err != nil {

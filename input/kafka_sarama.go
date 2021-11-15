@@ -28,6 +28,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/xdg-go/scram"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 
 	"github.com/housepower/clickhouse_sinker/config"
 	"github.com/housepower/clickhouse_sinker/model"
@@ -108,7 +109,7 @@ func (k *KafkaSarama) Init(cfg *config.Config, taskCfg *config.TaskConfig, putFn
 	if err != nil {
 		return err
 	}
-	//sarama.Logger, _ = zap.NewStdLogAt(util.Logger.With(zap.String("name", "sarama")), zapcore.DebugLevel)
+	sarama.Logger, _ = zap.NewStdLogAt(util.Logger.With(zap.String("name", "sarama")), zapcore.DebugLevel)
 	k.cg = cg
 	return nil
 }
