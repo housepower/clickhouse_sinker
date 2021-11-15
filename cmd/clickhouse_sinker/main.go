@@ -17,6 +17,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -159,6 +160,7 @@ func main() {
 				<html><head><title>ClickHouse Sinker</title></head>
 				<body>
 					<h1>ClickHouse Sinker</h1>
+					<p><a href="/state">State</a></p>
 					<p><a href="/metrics">Metrics</a></p>
 					<p><a href="/ready">Ready</a></p>
 					<p><a href="/ready?full=1">Ready Full</a></p>
@@ -168,6 +170,19 @@ func main() {
 				</body></html>`))
 		})
 
+		mux.HandleFunc("/state", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			if runner != nil && runner.curCfg != nil {
+				var stateLags map[string]cm.StateLag
+				var bs []byte
+				var err error
+				if stateLags, err = cm.GetTaskStateAndLags(runner.curCfg); err == nil {
+					if bs, err = json.Marshal(stateLags); err == nil {
+						_, _ = w.Write(bs)
+					}
+				}
+			}
+		})
 		mux.Handle("/metrics", httpMetrics)
 		mux.HandleFunc("/ready", health.Health.ReadyEndpoint) // GET /ready?full=1
 		mux.HandleFunc("/live", health.Health.LiveEndpoint)   // GET /live?full=1
