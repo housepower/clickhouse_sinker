@@ -189,7 +189,13 @@ func (cfg *Config) Normallize() (err error) {
 		return
 	}
 	if cfg.Kafka.Version == "" {
-		cfg.Kafka.Version = "2.5.0"
+		// https://cwiki.apache.org/confluence/display/KAFKA/Compatibility+Matrix
+		// KIP-35 - Retrieving protocol version introduced a mechanism for dynamically determining the functionality of a Kafka broker.
+		// https://github.com/Shopify/sarama/issues/1732,
+		// Historically Sarama has tied it's protocol usage to the Version field in Config.
+		// https://kafka.apache.org/downloads
+		// 2.0.0 is released at July 30, 2018.
+		cfg.Kafka.Version = "2.0.0"
 	}
 
 	cfg.convertKfkSecurity()
