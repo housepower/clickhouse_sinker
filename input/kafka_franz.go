@@ -19,6 +19,7 @@ import (
 	"context"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/twmb/franz-go/pkg/kgo"
@@ -63,6 +64,7 @@ func (k *KafkaFranz) Init(cfg *config.Config, taskCfg *config.TaskConfig, putFn 
 		kgo.ConsumeTopics(taskCfg.Topic),
 		kgo.ConsumerGroup(taskCfg.ConsumerGroup),
 		kgo.DisableAutoCommit(),
+		kgo.OnPartitionsRevoked(k.onPartitionRevoked),
 		kgo.FetchMaxBytes(5 << 20),
 	}
 	if k.cl, err = kgo.NewClient(opts...); err != nil {
@@ -78,9 +80,8 @@ func (k *KafkaFranz) Run() {
 	defer k.wgRun.Done()
 	for {
 		fetches := k.cl.PollFetches(k.ctx)
-		if fetches.IsClientClosed() {
-			util.Logger.Error("KafkaFranz.Run quit due to context has been canceled", zap.String("task", k.taskCfg.Name))
-			return
+		if fetches == nil || fetches.IsClientClosed() {
+			break
 		}
 		var hasError bool
 		fetches.EachError(func(_ string, _ int32, err error) {
@@ -103,6 +104,8 @@ func (k *KafkaFranz) Run() {
 			k.putFn(msg)
 		})
 	}
+	k.cl.Close() // will trigger k.onPartitionRevoked
+	util.Logger.Info("KafkaFranz.Run quit due to context has been canceled", zap.String("task", k.taskCfg.Name))
 }
 
 func (k *KafkaFranz) CommitMessages(msg *model.InputMessage) error {
@@ -113,7 +116,6 @@ func (k *KafkaFranz) CommitMessages(msg *model.InputMessage) error {
 // Stop kafka consumer and close all connections
 func (k *KafkaFranz) Stop() error {
 	k.cancel()
-	k.cl.Close()
 	k.wgRun.Wait()
 	return nil
 }
@@ -121,4 +123,13 @@ func (k *KafkaFranz) Stop() error {
 // Description of this kafka consumer, which topic it reads from
 func (k *KafkaFranz) Description() string {
 	return "kafka consumer of topic " + k.taskCfg.Topic
+}
+
+func (k *KafkaFranz) onPartitionRevoked(_ context.Context, _ *kgo.Client, _ map[string][]int32) {
+	begin := time.Now()
+	k.cleanupFn()
+	util.Logger.Info("consumer group cleanup",
+		zap.String("task", k.taskCfg.Name),
+		zap.String("consumer group", k.taskCfg.ConsumerGroup),
+		zap.Duration("cost", time.Since(begin)))
 }

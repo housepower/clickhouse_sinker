@@ -158,9 +158,13 @@ func (service *Service) Run() {
 	service.inputer.Run()
 }
 
-func (service *Service) fnCommit(partition int, offset int64) error {
+func (service *Service) fnCommit(partition int, offset int64) (err error) {
 	msg := model.InputMessage{Topic: service.taskCfg.Topic, Partition: partition, Offset: offset}
-	return service.inputer.CommitMessages(&msg)
+	if err = service.inputer.CommitMessages(&msg); err != nil {
+		return
+	}
+	util.Logger.Debug(fmt.Sprintf("committed topic %s, partition %d, offset %d", msg.Topic, msg.Partition, msg.Offset+1), zap.String("task", service.taskCfg.Name))
+	return
 }
 
 func (service *Service) putToRing(msg *model.InputMessage) (ok bool) {
