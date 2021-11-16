@@ -20,6 +20,7 @@ require (
 	github.com/stretchr/testify v1.7.0
 	github.com/tidwall/gjson v1.10.1
 	github.com/troian/healthcheck v0.1.4-0.20200127040058-c373fb6a0dc1
+	github.com/twmb/franz-go v1.2.4
 	github.com/valyala/fastjson v1.6.3
 	github.com/xdg-go/scram v1.0.2
 	github.com/xdg/scram v1.0.3 // indirect

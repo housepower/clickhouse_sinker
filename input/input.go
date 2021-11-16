@@ -11,7 +11,7 @@ import (
 const (
 	TypeKafkaGo     = "kafka-go"
 	TypeKafkaSarama = "sarama"
-	TypePulsar      = "pulsar"
+	TypeKafkaFranz  = "franz"
 )
 
 type Inputer interface {
@@ -27,6 +27,8 @@ func NewInputer(typ string) Inputer {
 		return NewKafkaGo()
 	case TypeKafkaSarama:
 		return NewKafkaSarama()
+	case TypeKafkaFranz:
+		return NewKafkaFranz()
 	default:
 		util.Logger.Fatal(fmt.Sprintf("BUG: %s is not a supported input type", typ))
 		return nil
