@@ -368,16 +368,23 @@ Kafka release history is at [here](https://kafka.apache.org/downloads). Kafka br
 
 ### Kafka-go
 
-- Kafka-go [negotiate it's protocol Version](https://github.com/segmentio/kafka-go/blob/c66d8ca149e7f1a7905b47a60962745ceb08a6a9/conn.go#L209).
+- Kafka-go [negotiate it's protocol version](https://github.com/segmentio/kafka-go/blob/c66d8ca149e7f1a7905b47a60962745ceb08a6a9/conn.go#L209).
 - Kafka-go [doesn't support Kerberos authentication](https://github.com/segmentio/kafka-go/issues/237).
 
 ### Sarama
 
 - Sarama guarantees compatibility [with Kafka 2.6 through 2.8](https://github.com/Shopify/sarama/blob/master/README.md#compatibility-and-api-stability).
-- Sarama [has tied it's protocol usage to the Version field in Config](https://github.com/Shopify/sarama/issues/1732).
+- Sarama [has tied it's protocol usage to the Version field in Config](https://github.com/Shopify/sarama/issues/1732). My experience is setting `Config.Version` to "0.11.0.0" or "2.5.0" cannot cowork with broker 2.2.0.
 - Sarama consumer API provides generation cleanup callback. This ensures `exactly once` when consumer-group rebalance occur.
+
+### Franz
+
+- Franz negotiates it's protocol version.
+- Franz supports Kerberos authentication.
+- Franz supports generation cleanup callback.
+- Franz wins Sarama and Kafka-go at benchmark competition.
+- Franz project is young but very active.
 
 ### Conclusion
 
-- Sarama is better than kafka-go, though neither is as mature as the officaial Kafka Java client. You need to try both if clickhouse_sinker fails to connect with Kafka.
-- Our experience is sarama can't work well with new kafka server if set its `Config.Version` to "0.11.0.0". So we suggest `KafkaConfig.Version` in clickhouse_sinker config matchs the Kafka server.
+Franz is the best Golang client library, though none is as mature as the officaial Kafka Java client. You need to try another if clickhouse_sinker fails to connect with Kafka.
