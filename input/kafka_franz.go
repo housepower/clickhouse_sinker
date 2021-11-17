@@ -23,6 +23,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/twmb/franz-go/pkg/kgo"
+	"github.com/twmb/franz-go/plugin/kzap"
 	"go.uber.org/zap"
 
 	"github.com/housepower/clickhouse_sinker/config"
@@ -65,7 +66,10 @@ func (k *KafkaFranz) Init(cfg *config.Config, taskCfg *config.TaskConfig, putFn 
 		kgo.ConsumerGroup(taskCfg.ConsumerGroup),
 		kgo.DisableAutoCommit(),
 		kgo.OnPartitionsRevoked(k.onPartitionRevoked),
-		kgo.FetchMaxBytes(5 << 20),
+		kgo.MaxConcurrentFetches(3),
+		kgo.FetchMaxBytes(1 << 27),      //134 MB
+		kgo.BrokerMaxReadBytes(1 << 27), //134 MB
+		kgo.WithLogger(kzap.New(util.Logger)),
 	}
 	if k.cl, err = kgo.NewClient(opts...); err != nil {
 		err = errors.Wrap(err, "")
