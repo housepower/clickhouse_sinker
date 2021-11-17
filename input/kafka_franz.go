@@ -109,7 +109,8 @@ func (k *KafkaFranz) Run() {
 }
 
 func (k *KafkaFranz) CommitMessages(msg *model.InputMessage) error {
-	k.cl.CommitRecords(context.Background(), &kgo.Record{Topic: msg.Topic, Partition: int32(msg.Partition), Offset: msg.Offset})
+	// "LeaderEpoch: -1" will disable leader epoch validation
+	k.cl.CommitRecords(context.Background(), &kgo.Record{Topic: msg.Topic, Partition: int32(msg.Partition), Offset: msg.Offset, LeaderEpoch: -1})
 	return nil
 }
 
