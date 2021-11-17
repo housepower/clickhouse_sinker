@@ -199,6 +199,16 @@ func (cfg *Config) Normallize() (err error) {
 	}
 
 	cfg.convertKfkSecurity()
+	if cfg.Kafka.TLS.CaCertFiles == "" && cfg.Kafka.TLS.TrustStoreLocation != "" {
+		if cfg.Kafka.TLS.CaCertFiles, _, err = util.JksToPem(cfg.Kafka.TLS.TrustStoreLocation, cfg.Kafka.TLS.TrustStorePassword, false); err != nil {
+			return
+		}
+	}
+	if cfg.Kafka.TLS.ClientKeyFile == "" && cfg.Kafka.TLS.KeystoreLocation != "" {
+		if cfg.Kafka.TLS.ClientCertFile, cfg.Kafka.TLS.ClientKeyFile, err = util.JksToPem(cfg.Kafka.TLS.KeystoreLocation, cfg.Kafka.TLS.KeystorePassword, false); err != nil {
+			return
+		}
+	}
 	if cfg.Kafka.Sasl.Enable {
 		cfg.Kafka.Sasl.Mechanism = strings.ToUpper(cfg.Kafka.Sasl.Mechanism)
 		switch cfg.Kafka.Sasl.Mechanism {

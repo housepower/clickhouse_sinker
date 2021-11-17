@@ -17,18 +17,36 @@ package input
 
 import (
 	"context"
+	"crypto/tls"
 	"strings"
 	"sync"
 	"time"
 
+	krb5client "github.com/jcmturner/gokrb5/v8/client"
+	krb5config "github.com/jcmturner/gokrb5/v8/config"
+	"github.com/jcmturner/gokrb5/v8/keytab"
 	"github.com/pkg/errors"
 	"github.com/twmb/franz-go/pkg/kgo"
+	"github.com/twmb/franz-go/pkg/sasl"
+	"github.com/twmb/franz-go/pkg/sasl/kerberos"
+	"github.com/twmb/franz-go/pkg/sasl/plain"
+	"github.com/twmb/franz-go/pkg/sasl/scram"
 	"github.com/twmb/franz-go/plugin/kzap"
 	"go.uber.org/zap"
 
 	"github.com/housepower/clickhouse_sinker/config"
 	"github.com/housepower/clickhouse_sinker/model"
 	"github.com/housepower/clickhouse_sinker/util"
+)
+
+const (
+	TOK_ID_KRB_AP_REQ   = 256
+	GSS_API_GENERIC_TAG = 0x60
+	KRB5_USER_AUTH      = 1
+	KRB5_KEYTAB_AUTH    = 2
+	GSS_API_INITIAL     = 1
+	GSS_API_VERIFY      = 2
+	GSS_API_FINISH      = 3
 )
 
 var _ Inputer = (*KafkaFranz)(nil)
@@ -71,6 +89,64 @@ func (k *KafkaFranz) Init(cfg *config.Config, taskCfg *config.TaskConfig, putFn 
 		kgo.BrokerMaxReadBytes(1 << 27), //134 MB
 		kgo.WithLogger(kzap.New(util.Logger)),
 	}
+	if !taskCfg.Earliest {
+		opts = append(opts, kgo.ConsumeResetOffset(kgo.NewOffset().AtEnd()))
+	}
+	if kfkCfg.TLS.Enable {
+		var tlsCfg *tls.Config
+		if tlsCfg, err = util.NewTLSConfig(kfkCfg.TLS.CaCertFiles, kfkCfg.TLS.ClientCertFile, kfkCfg.TLS.ClientKeyFile, kfkCfg.TLS.EndpIdentAlgo == ""); err != nil {
+			return
+		}
+		opts = append(opts, kgo.DialTLSConfig(tlsCfg))
+	}
+	if kfkCfg.Sasl.Enable {
+		var mch sasl.Mechanism
+		switch kfkCfg.Sasl.Mechanism {
+		case "PLAIN":
+			auth := plain.Auth{
+				User: kfkCfg.Sasl.Username,
+				Pass: kfkCfg.Sasl.Password,
+			}
+			mch = auth.AsMechanism()
+		case "SCRAM-SHA-256", "SCRAM-SHA-512":
+			auth := scram.Auth{
+				User: kfkCfg.Sasl.Username,
+				Pass: kfkCfg.Sasl.Password,
+			}
+			switch kfkCfg.Sasl.Mechanism {
+			case "SCRAM-SHA-256":
+				mch = auth.AsSha256Mechanism()
+			case "SCRAM-SHA-512":
+				mch = auth.AsSha512Mechanism()
+			default:
+			}
+		case "GSSAPI":
+			gssapiCfg := kfkCfg.Sasl.GSSAPI
+			auth := kerberos.Auth{Service: gssapiCfg.ServiceName}
+			// refers to https://github.com/Shopify/sarama/blob/main/kerberos_client.go
+			var krbCfg *krb5config.Config
+			var kt *keytab.Keytab
+			if krbCfg, err = krb5config.Load(gssapiCfg.KerberosConfigPath); err != nil {
+				err = errors.Wrap(err, "")
+				return
+			}
+			if gssapiCfg.AuthType == KRB5_KEYTAB_AUTH {
+				if kt, err = keytab.Load(gssapiCfg.KeyTabPath); err != nil {
+					err = errors.Wrap(err, "")
+					return
+				}
+				auth.Client = krb5client.NewWithKeytab(gssapiCfg.Username, gssapiCfg.Realm, kt, krbCfg, krb5client.DisablePAFXFAST(gssapiCfg.DisablePAFXFAST))
+			} else {
+				auth.Client = krb5client.NewWithPassword(gssapiCfg.Username,
+					gssapiCfg.Realm, gssapiCfg.Password, krbCfg, krb5client.DisablePAFXFAST(gssapiCfg.DisablePAFXFAST))
+			}
+			mch = auth.AsMechanism()
+		}
+		if mch != nil {
+			opts = append(opts, kgo.SASL(mch))
+		}
+	}
+
 	if k.cl, err = kgo.NewClient(opts...); err != nil {
 		err = errors.Wrap(err, "")
 		return

@@ -88,16 +88,6 @@ func (k *KafkaGo) Init(cfg *config.Config, taskCfg *config.TaskConfig, putFn fun
 		WatchPartitionChanges:  true,
 		ErrorLogger:            &KafkaGoLogger{util.Logger},
 	}
-	if kfkCfg.TLS.CaCertFiles == "" && kfkCfg.TLS.TrustStoreLocation != "" {
-		if kfkCfg.TLS.CaCertFiles, _, err = util.JksToPem(kfkCfg.TLS.TrustStoreLocation, kfkCfg.TLS.TrustStorePassword, false); err != nil {
-			return
-		}
-	}
-	if kfkCfg.TLS.ClientKeyFile == "" && kfkCfg.TLS.KeystoreLocation != "" {
-		if kfkCfg.TLS.ClientCertFile, kfkCfg.TLS.ClientKeyFile, err = util.JksToPem(kfkCfg.TLS.KeystoreLocation, kfkCfg.TLS.KeystorePassword, false); err != nil {
-			return
-		}
-	}
 	var dialer *kafka.Dialer
 	if kfkCfg.TLS.Enable {
 		var tlsConfig *tls.Config
