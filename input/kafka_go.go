@@ -139,11 +139,7 @@ LOOP_KAFKA_GO:
 		var err error
 		var msg kafka.Message
 		if msg, err = k.r.FetchMessage(k.ctx); err != nil {
-			if errors.Is(err, context.Canceled) {
-				util.Logger.Info("KafkaGo.Run quit due to context has been canceled", zap.String("task", k.taskCfg.Name))
-				break LOOP_KAFKA_GO
-			} else if errors.Is(err, io.EOF) {
-				util.Logger.Info("KafkaGo.Run quit due to reader has been closed", zap.String("task", k.taskCfg.Name))
+			if errors.Is(err, context.Canceled) || errors.Is(err, io.EOF) {
 				break LOOP_KAFKA_GO
 			} else {
 				statistics.ConsumeMsgsErrorTotal.WithLabelValues(k.taskCfg.Name).Inc()
@@ -161,6 +157,10 @@ LOOP_KAFKA_GO:
 			Timestamp: &msg.Time,
 		})
 	}
+	// Note: a closed kafka-go client cannot commit offsets.
+	k.cleanupFn()
+	k.r.Close()
+	util.Logger.Info("KafkaGo.Run quit due to context has been canceled", zap.String("task", k.taskCfg.Name))
 }
 
 func (k *KafkaGo) CommitMessages(msg *model.InputMessage) (err error) {
@@ -177,10 +177,7 @@ func (k *KafkaGo) CommitMessages(msg *model.InputMessage) (err error) {
 
 // Stop kafka consumer and close all connections
 func (k *KafkaGo) Stop() error {
-	k.cleanupFn()
-	// Note: a closed kafka-go client cannot commit offsets.
 	k.cancel()
-	k.r.Close()
 	k.wgRun.Wait()
 	return nil
 }

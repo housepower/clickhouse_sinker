@@ -155,16 +155,17 @@ func (k *KafkaSarama) Run() {
 	taskCfg := k.taskCfg
 LOOP_SARAMA:
 	for {
+		select {
+		case <-k.ctx.Done():
+			break LOOP_SARAMA
+		default:
+		}
 		handler := MyConsumerGroupHandler{k}
 		// `Consume` should be called inside an infinite loop, when a
 		// server-side rebalance happens, the consumer session will need to be
 		// recreated to get the new claims
 		if err := k.cg.Consume(k.ctx, []string{taskCfg.Topic}, handler); err != nil {
-			if errors.Is(err, context.Canceled) {
-				util.Logger.Info("KafkaSarama.Run quit due to context has been canceled", zap.String("task", k.taskCfg.Name))
-				break LOOP_SARAMA
-			} else if errors.Is(err, sarama.ErrClosedConsumerGroup) {
-				util.Logger.Info("KafkaSarama.Run quit due to consumer group has been closed", zap.String("task", k.taskCfg.Name))
+			if errors.Is(err, context.Canceled) || errors.Is(err, sarama.ErrClosedConsumerGroup) {
 				break LOOP_SARAMA
 			} else {
 				statistics.ConsumeMsgsErrorTotal.WithLabelValues(taskCfg.Name).Inc()
@@ -174,6 +175,8 @@ LOOP_SARAMA:
 			}
 		}
 	}
+	k.cg.Close()
+	util.Logger.Info("KafkaSarama.Run quit due to context has been canceled", zap.String("task", k.taskCfg.Name))
 }
 
 func (k *KafkaSarama) CommitMessages(msg *model.InputMessage) error {
@@ -184,7 +187,6 @@ func (k *KafkaSarama) CommitMessages(msg *model.InputMessage) error {
 // Stop kafka consumer and close all connections
 func (k *KafkaSarama) Stop() error {
 	k.cancel()
-	k.cg.Close()
 	k.wgRun.Wait()
 	return nil
 }
