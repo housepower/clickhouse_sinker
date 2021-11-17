@@ -39,6 +39,7 @@ func writeRows(prepareSQL string, rows model.Rows, idxBegin, idxEnd int, conn *s
 	}
 	if stmt, err = tx.Prepare(prepareSQL); err != nil {
 		err = errors.Wrapf(err, "tx.Prepare %s", prepareSQL)
+		_ = tx.Rollback()
 		return
 	}
 	defer stmt.Close()
@@ -64,6 +65,7 @@ func writeRows(prepareSQL string, rows model.Rows, idxBegin, idxEnd int, conn *s
 		}
 		if stmt, err = tx.Prepare(prepareSQL); err != nil {
 			err = errors.Wrapf(err, "tx.Prepare %s", prepareSQL)
+			_ = tx.Rollback()
 			return
 		}
 		defer stmt.Close()
