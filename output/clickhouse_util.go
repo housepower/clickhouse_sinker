@@ -125,9 +125,9 @@ func getDims(database, table string, excludedColumns []string, conn *sql.DB) (di
 func recreateDistTbls(cluster, database, table string, distTbls []string, conn *sql.DB) (err error) {
 	var queries []string
 	for _, distTbl := range distTbls {
-		queries = append(queries, fmt.Sprintf("DROP TABLE IF EXISTS %s.%s ON CLUSTER %s", database, distTbl, cluster))
-		queries = append(queries, fmt.Sprintf("CREATE TABLE %s.%s ON CLUSTER %s AS %s ENGINE = Distributed(%s, %s, %s);",
-			database, distTbl, cluster, table,
+		queries = append(queries, fmt.Sprintf("DROP TABLE IF EXISTS `%s`.`%s` ON CLUSTER `%s`", database, distTbl, cluster))
+		queries = append(queries, fmt.Sprintf("CREATE TABLE `%s`.`%s` ON CLUSTER `%s` AS `%s`.`%s` ENGINE = Distributed(`%s`, `%s`, `%s`);",
+			database, distTbl, cluster, database, table,
 			cluster, database, table))
 	}
 	for _, query := range queries {

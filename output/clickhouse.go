@@ -292,8 +292,11 @@ func (c *ClickHouse) initSeriesSchema(conn *sql.DB) (err error) {
 		serDimsQuoted[i] = fmt.Sprintf("`%s`", serDim.Name)
 		params[i] = "?"
 	}
-	c.promSerSQL = "INSERT INTO " + c.cfg.Clickhouse.DB + "." + c.seriesTbl + " (" + strings.Join(serDimsQuoted, ",") + ") " +
-		"VALUES (" + strings.Join(params, ",") + ")"
+	c.promSerSQL = fmt.Sprintf("INSERT INTO `%s`.`%s` (%s) VALUES (%s)",
+		c.cfg.Clickhouse.DB,
+		c.seriesTbl,
+		strings.Join(serDimsQuoted, ","),
+		strings.Join(params, ","))
 
 	// Check distributed series table
 	if chCfg := &c.cfg.Clickhouse; chCfg.Cluster != "" {
@@ -349,8 +352,11 @@ func (c *ClickHouse) initSchema() (err error) {
 		quotedDms[i] = fmt.Sprintf("`%s`", c.Dims[i].Name)
 		params[i] = "?"
 	}
-	c.prepareSQL = "INSERT INTO " + c.cfg.Clickhouse.DB + "." + c.taskCfg.TableName + " (" + strings.Join(quotedDms, ",") + ") " +
-		"VALUES (" + strings.Join(params, ",") + ")"
+	c.prepareSQL = fmt.Sprintf("INSERT INTO `%s`.`%s` (%s) VALUES (%s)",
+		c.cfg.Clickhouse.DB,
+		c.taskCfg.TableName,
+		strings.Join(quotedDms, ","),
+		strings.Join(params, ","))
 	util.Logger.Info(fmt.Sprintf("Prepare sql=> %s", c.prepareSQL), zap.String("task", c.taskCfg.Name))
 
 	// Check distributed metric table
@@ -372,7 +378,7 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 	taskCfg := c.taskCfg
 	chCfg := &c.cfg.Clickhouse
 	if chCfg.Cluster != "" {
-		onCluster = fmt.Sprintf("ON CLUSTER %s", chCfg.Cluster)
+		onCluster = fmt.Sprintf("ON CLUSTER `%s`", chCfg.Cluster)
 	}
 	maxDims := math.MaxInt16
 	if taskCfg.DynamicSchema.MaxDims > 0 {
@@ -417,12 +423,12 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 		}
 		if c.taskCfg.PrometheusSchema {
 			if intVal == model.String {
-				query := fmt.Sprintf("ALTER TABLE %s.%s %s ADD COLUMN IF NOT EXISTS `%s` %s", chCfg.DB, c.seriesTbl, onCluster, strKey, strVal)
+				query := fmt.Sprintf("ALTER TABLE `%s`.`%s` %s ADD COLUMN IF NOT EXISTS `%s` %s", chCfg.DB, c.seriesTbl, onCluster, strKey, strVal)
 				queries = append(queries, query)
 				affectDistSeries = true
 			}
 		} else {
-			query := fmt.Sprintf("ALTER TABLE %s.%s %s ADD COLUMN IF NOT EXISTS `%s` %s", chCfg.DB, taskCfg.TableName, onCluster, strKey, strVal)
+			query := fmt.Sprintf("ALTER TABLE `%s`.`%s` %s ADD COLUMN IF NOT EXISTS `%s` %s", chCfg.DB, taskCfg.TableName, onCluster, strKey, strVal)
 			queries = append(queries, query)
 			affectDistMetric = true
 		}
