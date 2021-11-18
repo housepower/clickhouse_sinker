@@ -286,6 +286,16 @@ func (cfg *Config) normallizeTask(taskCfg *TaskConfig) (err error) {
 			err = errors.Errorf("Parser %s doesn't support DynamicSchema", taskCfg.Parser)
 			return
 		}
+		if cfg.Clickhouse.Cluster == "" {
+			var numHosts int
+			for _, shard := range cfg.Clickhouse.Hosts {
+				numHosts += len(shard)
+			}
+			if numHosts > 1 {
+				err = errors.Errorf("Need to set cluster name when DynamicSchema is enabled and number of hosts is more than one")
+				return
+			}
+		}
 	}
 	if taskCfg.DynamicSchema.WhiteList != "" {
 		if _, err = regexp.Compile(taskCfg.DynamicSchema.WhiteList); err != nil {
