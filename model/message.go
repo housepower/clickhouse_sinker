@@ -172,13 +172,19 @@ func MetricToRow(metric Metric, msg *InputMessage, dims []*ColumnWithType, idxSe
 	row = GetRow()
 	var dig *xxhash.Digest
 	var labels []string
+	var seriesID uint64
 	if idxSeriesID >= 0 {
-		dig = xxhash.New()
+		// ETL could calculate "__series_id" so that clickhouse_sinker needn't filter out those Prometheus native labels.
+		val := metric.GetInt("__series_id", false)
+		seriesID = uint64(val.(int64))
+		if seriesID == 0 {
+			dig = xxhash.New()
+		}
 	}
 	for i, dim := range dims {
 		if idxSeriesID >= 0 && i == idxSeriesID {
 			*row = append(*row, uint64(0))
-		} else if idxSeriesID >= 0 && i == idxSeriesID+1 {
+		} else if idxSeriesID >= 0 && i == idxSeriesID+2 {
 			*row = append(*row, "")
 		} else if strings.HasPrefix(dim.Name, "__kafka") {
 			if strings.HasSuffix(dim.Name, "_topic") {
@@ -199,10 +205,14 @@ func MetricToRow(metric Metric, msg *InputMessage, dims []*ColumnWithType, idxSe
 			*row = append(*row, val)
 			if idxSeriesID >= 0 && dim.Type == String && val != nil {
 				if labelVal := val.(string); labelVal != "" {
-					_, _ = dig.WriteString("###")
-					_, _ = dig.WriteString(dim.Name)
-					_, _ = dig.WriteString("###")
-					_, _ = dig.WriteString(labelVal)
+					// "__series_id" calculation envolves all Prometheus native labels (including metric name) in some order.
+					if dig != nil {
+						_, _ = dig.WriteString("###")
+						_, _ = dig.WriteString(dim.Name)
+						_, _ = dig.WriteString("###")
+						_, _ = dig.WriteString(labelVal)
+					}
+					// "labels" JSON excludes "le", so that "labels" can be used as group key for histogram queries.
 					if dim.Name != nameKey && dim.Name != "le" {
 						labels = append(labels, fmt.Sprintf(`"%s": "%s"`, dim.Name, labelVal))
 					}
@@ -211,8 +221,12 @@ func MetricToRow(metric Metric, msg *InputMessage, dims []*ColumnWithType, idxSe
 		}
 	}
 	if idxSeriesID >= 0 {
-		(*row)[idxSeriesID] = dig.Sum64()
-		(*row)[idxSeriesID+1] = fmt.Sprintf("{%s}", strings.Join(labels, ", "))
+		if dig == nil {
+			(*row)[idxSeriesID] = seriesID
+		} else {
+			(*row)[idxSeriesID] = dig.Sum64()
+		}
+		(*row)[idxSeriesID+2] = fmt.Sprintf("{%s}", strings.Join(labels, ", "))
 	}
 	return
 }

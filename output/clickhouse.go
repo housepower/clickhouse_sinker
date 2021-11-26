@@ -112,7 +112,8 @@ func (c *ClickHouse) writeSeries(rows model.Rows, conn *sql.DB) (err error) {
 	c.mux.Lock()
 	for _, row := range rows {
 		seriesID := (*row)[c.IdxSerID].(uint64)
-		if c.bmSeries.CheckedAdd(seriesID) {
+		mgmtID := uint64((*row)[c.IdxSerID+1].(int64))
+		if c.bmSeries.CheckedAdd(seriesID + mgmtID) {
 			seriesRows = append(seriesRows, row)
 		}
 	}
@@ -196,9 +197,9 @@ func (c *ClickHouse) loopWrite(batch *model.Batch) {
 func (c *ClickHouse) initBmSeries(conn *sql.DB) (err error) {
 	var query string
 	if c.cfg.Clickhouse.Cluster != "" {
-		query = fmt.Sprintf("SELECT __series_id FROM %s.%s", c.cfg.Clickhouse.DB, c.distSeriesTbls[0])
+		query = fmt.Sprintf("SELECT toUInt64(toUInt64(__series_id) + toUInt64(__mgmt_id)) FROM %s.%s", c.cfg.Clickhouse.DB, c.distSeriesTbls[0])
 	} else {
-		query = fmt.Sprintf("SELECT __series_id FROM %s.%s", c.cfg.Clickhouse.DB, c.seriesTbl)
+		query = fmt.Sprintf("SELECT toUInt64(toUInt64(__series_id) + toUInt64(__mgmt_id)) FROM %s.%s", c.cfg.Clickhouse.DB, c.seriesTbl)
 	}
 	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query))
 	var rs *sql.Rows
@@ -249,6 +250,7 @@ func (c *ClickHouse) initSeriesSchema(conn *sql.DB) (err error) {
 	c.seriesTbl = c.taskCfg.TableName + "_series"
 	expSeriesDims := []*model.ColumnWithType{
 		{Name: "__series_id", Type: model.Int},
+		{Name: "__mgmt_id", Type: model.Int},
 		{Name: "labels", Type: model.String},
 	}
 	var seriesDims []*model.ColumnWithType
@@ -272,11 +274,11 @@ func (c *ClickHouse) initSeriesSchema(conn *sql.DB) (err error) {
 		}
 	}
 	if badFirst {
-		err = errors.Errorf(`First columns of %s are expect to be "__series_id UInt64, labels String".`, c.seriesTbl)
+		err = errors.Errorf(`First columns of %s are expect to be "__series_id UInt64, __mgmt_id UInt64, labels String".`, c.seriesTbl)
 		return
 	}
 	c.NameKey = "__name__" // prometheus uses internal "__name__" label for metric name
-	for i := 2; i < len(seriesDims); i++ {
+	for i := len(expSeriesDims); i < len(seriesDims); i++ {
 		serDim := seriesDims[i]
 		if serDim.Type == model.String {
 			c.NameKey = serDim.Name // opentsdb uses "metric" tag for metric name
