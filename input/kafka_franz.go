@@ -87,6 +87,7 @@ func (k *KafkaFranz) Init(cfg *config.Config, taskCfg *config.TaskConfig, putFn 
 		kgo.MaxConcurrentFetches(3),
 		kgo.FetchMaxBytes(1 << 27),      //134 MB
 		kgo.BrokerMaxReadBytes(1 << 27), //134 MB
+		//kgo.MetadataMaxAge(...) corresponds to sarama.Config.Metadata.RefreshFrequency
 		kgo.WithLogger(kzap.New(util.Logger)),
 	}
 	if !taskCfg.Earliest {
