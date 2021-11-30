@@ -221,11 +221,15 @@ func MetricToRow(metric Metric, msg *InputMessage, dims []*ColumnWithType, idxSe
 		}
 	}
 	if idxSeriesID >= 0 {
-		if dig == nil {
-			(*row)[idxSeriesID] = seriesID
-		} else {
-			(*row)[idxSeriesID] = dig.Sum64()
+		if dig != nil {
+			seriesID = dig.Sum64()
 		}
+		(*row)[idxSeriesID] = seriesID
+		mgmtID := uint64((*row)[idxSeriesID+1].(int64))
+		if mgmtID == 0 {
+			mgmtID = seriesID
+		}
+		(*row)[idxSeriesID+1] = mgmtID
 		(*row)[idxSeriesID+2] = fmt.Sprintf("{%s}", strings.Join(labels, ", "))
 	}
 	return

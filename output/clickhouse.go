@@ -111,9 +111,8 @@ func (c *ClickHouse) writeSeries(rows model.Rows, conn *sql.DB) (err error) {
 	var seriesRows model.Rows
 	c.mux.Lock()
 	for _, row := range rows {
-		seriesID := (*row)[c.IdxSerID].(uint64)
-		mgmtID := uint64((*row)[c.IdxSerID+1].(int64))
-		if c.bmSeries.CheckedAdd(seriesID + mgmtID) {
+		mgmtID := (*row)[c.IdxSerID+1].(uint64)
+		if c.bmSeries.CheckedAdd(mgmtID) {
 			seriesRows = append(seriesRows, row)
 		}
 	}
@@ -197,13 +196,13 @@ func (c *ClickHouse) loopWrite(batch *model.Batch) {
 func (c *ClickHouse) initBmSeries(conn *sql.DB) (err error) {
 	var query string
 	if c.cfg.Clickhouse.Cluster != "" {
-		query = fmt.Sprintf("SELECT toUInt64(toUInt64(__series_id) + toUInt64(__mgmt_id)) FROM %s.%s", c.cfg.Clickhouse.DB, c.distSeriesTbls[0])
+		query = fmt.Sprintf("SELECT toUInt64(__mgmt_id) FROM %s.%s", c.cfg.Clickhouse.DB, c.distSeriesTbls[0])
 	} else {
-		query = fmt.Sprintf("SELECT toUInt64(toUInt64(__series_id) + toUInt64(__mgmt_id)) FROM %s.%s", c.cfg.Clickhouse.DB, c.seriesTbl)
+		query = fmt.Sprintf("SELECT toUInt64(__mgmt_id) FROM %s.%s", c.cfg.Clickhouse.DB, c.seriesTbl)
 	}
 	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query))
 	var rs *sql.Rows
-	var seriesID uint64
+	var mgmtID uint64
 	if rs, err = conn.Query(query); err != nil {
 		err = errors.Wrapf(err, "")
 		return err
@@ -211,11 +210,11 @@ func (c *ClickHouse) initBmSeries(conn *sql.DB) (err error) {
 	defer rs.Close()
 	c.bmSeries = roaring64.New()
 	for rs.Next() {
-		if err = rs.Scan(&seriesID); err != nil {
+		if err = rs.Scan(&mgmtID); err != nil {
 			err = errors.Wrapf(err, "")
 			return err
 		}
-		c.bmSeries.Add(seriesID)
+		c.bmSeries.Add(mgmtID)
 	}
 	util.Logger.Info(fmt.Sprintf("loaded %d series from %v", c.bmSeries.GetCardinality(), c.seriesTbl), zap.String("task", c.taskCfg.Name))
 	return
