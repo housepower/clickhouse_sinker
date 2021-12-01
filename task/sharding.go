@@ -139,7 +139,7 @@ func (sh *Sharder) Calc(row *model.Row) (int, error) {
 }
 
 func (sh *Sharder) PutElems(partition int, ringBuf []model.MsgRow, begOff, endOff, ringCapMask int64) {
-	if begOff <= endOff {
+	if begOff >= endOff {
 		return
 	}
 	msgCnt := endOff - begOff
