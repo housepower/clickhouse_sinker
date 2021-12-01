@@ -151,8 +151,8 @@
 
     // shardingKey is the column name to which sharding against
     "shardingKey": "",
-    // shardingPolicy is `stripe,<interval>`(requires ShardingKey be numerical) or `hash`(requires ShardingKey be string)
-    "shardingPolicy": "",
+    // shardingStripe take effect iff the sharding key is numerical
+    "shardingStripe": 0,
 
     // interval of flushing the batch. Default to 5, max to 600.
     "flushInterval": 5,

@@ -2,8 +2,6 @@ package task
 
 import (
 	"fmt"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -18,33 +16,37 @@ import (
 )
 
 type ShardingPolicy struct {
-	ckNum  int    //number of clickhouse instances
+	shards int    //number of clickhouse shards
 	colSeq int    //shardingKey column seq, 0 based
 	stripe uint64 //=0 means hash, >0 means stripe size
 }
 
-func NewShardingPolicy(shardingKey, shardingPolicy string, dims []*model.ColumnWithType, ckNum int) (policy *ShardingPolicy, err error) {
-	policy = &ShardingPolicy{ckNum: ckNum}
+func NewShardingPolicy(shardingKey string, shardingStripe uint64, dims []*model.ColumnWithType, shards int) (policy *ShardingPolicy, err error) {
+	policy = &ShardingPolicy{stripe: shardingStripe, shards: shards}
 	colSeq := -1
 	for i, dim := range dims {
 		if dim.Name == shardingKey {
 			colSeq = i
+			switch dim.Type {
+			case model.Int, model.Float, model.DateTime, model.ElasticDateTime:
+				//numerical
+				if policy.stripe <= 0 {
+					policy.stripe = uint64(1)
+				}
+			case model.String:
+				//string
+				policy.stripe = 0
+			default:
+				err = errors.Errorf("invalid shardingKey %s, expect its type be numerical or string", shardingKey)
+				return
+			}
 		}
 	}
 	if colSeq < 0 {
-		err = errors.Errorf("invalid shardingKey %s", shardingKey)
+		err = errors.Errorf("invalid shardingKey %s, no such column", shardingKey)
 		return
 	}
 	policy.colSeq = colSeq
-	if shardingPolicy == "hash" {
-		policy.stripe = 0
-	} else if strings.HasPrefix(shardingPolicy, "stripe,") {
-		if policy.stripe, err = strconv.ParseUint(shardingPolicy[len("stripe,"):], 10, 64); err != nil {
-			err = errors.Wrapf(err, "invalid shardingPolicy %s", shardingPolicy)
-		}
-	} else {
-		err = errors.Errorf("invalid shardingPolicy %s", shardingPolicy)
-	}
 	return
 }
 
@@ -83,7 +85,7 @@ func (policy *ShardingPolicy) Calc(row *model.Row) (shard int, err error) {
 			err = errors.Errorf("failed to convert %+v to integer", v)
 			return
 		}
-		shard = int((valu64 / policy.stripe) % uint64(policy.ckNum))
+		shard = int((valu64 / policy.stripe) % uint64(policy.shards))
 	} else {
 		var valu64 uint64
 		switch v := val.(type) {
@@ -95,7 +97,7 @@ func (policy *ShardingPolicy) Calc(row *model.Row) (shard int, err error) {
 			err = errors.Errorf("failed to convert %+v to string", v)
 			return
 		}
-		shard = int(valu64 % uint64(policy.ckNum))
+		shard = int(valu64 % uint64(policy.shards))
 	}
 	return
 }
@@ -104,7 +106,7 @@ type Sharder struct {
 	service  *Service
 	policy   *ShardingPolicy
 	batchSys *model.BatchSys
-	ckNum    int
+	shards   int
 	mux      sync.Mutex
 	msgBuf   []*model.Rows
 	offsets  map[int]int64
@@ -113,20 +115,20 @@ type Sharder struct {
 
 func NewSharder(service *Service) (sh *Sharder, err error) {
 	var policy *ShardingPolicy
-	ckNum := pool.NumShard()
+	shards := pool.NumShard()
 	taskCfg := service.taskCfg
-	if policy, err = NewShardingPolicy(taskCfg.ShardingKey, taskCfg.ShardingPolicy, service.clickhouse.Dims, ckNum); err != nil {
+	if policy, err = NewShardingPolicy(taskCfg.ShardingKey, taskCfg.ShardingStripe, service.clickhouse.Dims, shards); err != nil {
 		return
 	}
 	sh = &Sharder{
 		service:  service,
 		policy:   policy,
 		batchSys: model.NewBatchSys(taskCfg, service.fnCommit),
-		ckNum:    ckNum,
-		msgBuf:   make([]*model.Rows, ckNum),
+		shards:   shards,
+		msgBuf:   make([]*model.Rows, shards),
 		offsets:  make(map[int]int64),
 	}
-	for i := 0; i < ckNum; i++ {
+	for i := 0; i < shards; i++ {
 		sh.msgBuf[i] = model.GetRows()
 	}
 	return
@@ -162,7 +164,7 @@ func (sh *Sharder) PutElems(partition int, ringBuf []model.MsgRow, begOff, endOf
 	sh.offsets[partition] = endOff - 1
 	statistics.ShardMsgs.WithLabelValues(taskCfg.Name).Add(float64(msgCnt))
 	var maxBatchSize int
-	for i := 0; i < sh.ckNum; i++ {
+	for i := 0; i < sh.shards; i++ {
 		batchSize := len(*sh.msgBuf[i])
 		if maxBatchSize < batchSize {
 			maxBatchSize = batchSize

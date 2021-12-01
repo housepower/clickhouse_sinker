@@ -140,8 +140,8 @@ type TaskConfig struct {
 
 	// ShardingKey is the column name to which sharding against
 	ShardingKey string `json:"shardingKey,omitempty"`
-	// ShardingPolicy is `stripe,<interval>`(requires ShardingKey be numerical) or `hash`(requires ShardingKey be string)
-	ShardingPolicy string `json:"shardingPolicy,omitempty"`
+	// ShardingStripe take effect iff the sharding key is numerical
+	ShardingStripe uint64 `json:"shardingStripe,omitempty"`
 
 	FlushInterval int     `json:"flushInterval,omitempty"`
 	BufferSize    int     `json:"bufferSize,omitempty"`
