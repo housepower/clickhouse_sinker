@@ -170,7 +170,7 @@ func (c *ClickHouse) loopWrite(batch *model.Batch) {
 			if err = batch.Commit(); err == nil {
 				return
 			}
-			// Note: kafka_go and sarama commit give different error when context is cancceled.
+			// Note: kafka_go and sarama commit throws different error for context cancellation.
 			if errors.Is(err, context.Canceled) || errors.Is(err, io.ErrClosedPipe) {
 				util.Logger.Warn("Batch.Commit failed due to the context has been cancelled", zap.String("task", c.taskCfg.Name))
 				return

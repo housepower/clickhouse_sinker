@@ -40,13 +40,7 @@ import (
 )
 
 const (
-	TOK_ID_KRB_AP_REQ   = 256
-	GSS_API_GENERIC_TAG = 0x60
-	KRB5_USER_AUTH      = 1
-	KRB5_KEYTAB_AUTH    = 2
-	GSS_API_INITIAL     = 1
-	GSS_API_VERIFY      = 2
-	GSS_API_FINISH      = 3
+	Krb5KeytabAuth = 2
 )
 
 var _ Inputer = (*KafkaFranz)(nil)
@@ -131,7 +125,7 @@ func (k *KafkaFranz) Init(cfg *config.Config, taskCfg *config.TaskConfig, putFn 
 				err = errors.Wrap(err, "")
 				return
 			}
-			if gssapiCfg.AuthType == KRB5_KEYTAB_AUTH {
+			if gssapiCfg.AuthType == Krb5KeytabAuth {
 				if kt, err = keytab.Load(gssapiCfg.KeyTabPath); err != nil {
 					err = errors.Wrap(err, "")
 					return
@@ -191,8 +185,7 @@ func (k *KafkaFranz) Run() {
 
 func (k *KafkaFranz) CommitMessages(msg *model.InputMessage) error {
 	// "LeaderEpoch: -1" will disable leader epoch validation
-	k.cl.CommitRecords(context.Background(), &kgo.Record{Topic: msg.Topic, Partition: int32(msg.Partition), Offset: msg.Offset, LeaderEpoch: -1})
-	return nil
+	return k.cl.CommitRecords(context.Background(), &kgo.Record{Topic: msg.Topic, Partition: int32(msg.Partition), Offset: msg.Offset, LeaderEpoch: -1})
 }
 
 // Stop kafka consumer and close all connections
