@@ -111,8 +111,8 @@ func (c *ClickHouse) writeSeries(rows model.Rows, conn *sql.DB) (err error) {
 	var seriesRows model.Rows
 	c.mux.Lock()
 	for _, row := range rows {
-		mgmtID := (*row)[c.IdxSerID+1].(uint64)
-		if c.bmSeries.CheckedAdd(mgmtID) {
+		mgmtID := (*row)[c.IdxSerID+1].(int64)
+		if c.bmSeries.CheckedAdd(uint64(mgmtID)) {
 			seriesRows = append(seriesRows, row)
 		}
 	}
@@ -196,13 +196,13 @@ func (c *ClickHouse) loopWrite(batch *model.Batch) {
 func (c *ClickHouse) initBmSeries(conn *sql.DB) (err error) {
 	var query string
 	if c.cfg.Clickhouse.Cluster != "" {
-		query = fmt.Sprintf("SELECT toUInt64(__mgmt_id) FROM %s.%s", c.cfg.Clickhouse.DB, c.distSeriesTbls[0])
+		query = fmt.Sprintf("SELECT toInt64(__mgmt_id) FROM %s.%s", c.cfg.Clickhouse.DB, c.distSeriesTbls[0])
 	} else {
-		query = fmt.Sprintf("SELECT toUInt64(__mgmt_id) FROM %s.%s", c.cfg.Clickhouse.DB, c.seriesTbl)
+		query = fmt.Sprintf("SELECT toInt64(__mgmt_id) FROM %s.%s", c.cfg.Clickhouse.DB, c.seriesTbl)
 	}
 	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query))
 	var rs *sql.Rows
-	var mgmtID uint64
+	var mgmtID int64
 	if rs, err = conn.Query(query); err != nil {
 		err = errors.Wrapf(err, "")
 		return err
@@ -214,7 +214,7 @@ func (c *ClickHouse) initBmSeries(conn *sql.DB) (err error) {
 			err = errors.Wrapf(err, "")
 			return err
 		}
-		c.bmSeries.Add(mgmtID)
+		c.bmSeries.Add(uint64(mgmtID))
 	}
 	util.Logger.Info(fmt.Sprintf("loaded %d series from %v", c.bmSeries.GetCardinality(), c.seriesTbl), zap.String("task", c.taskCfg.Name))
 	return
@@ -273,7 +273,7 @@ func (c *ClickHouse) initSeriesSchema(conn *sql.DB) (err error) {
 		}
 	}
 	if badFirst {
-		err = errors.Errorf(`First columns of %s are expect to be "__series_id UInt64, __mgmt_id UInt64, labels String".`, c.seriesTbl)
+		err = errors.Errorf(`First columns of %s are expect to be "__series_id Int64, __mgmt_id Int64, labels String".`, c.seriesTbl)
 		return
 	}
 	c.NameKey = "__name__" // prometheus uses internal "__name__" label for metric name

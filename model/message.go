@@ -172,18 +172,22 @@ func MetricToRow(metric Metric, msg *InputMessage, dims []*ColumnWithType, idxSe
 	row = GetRow()
 	var dig *xxhash.Digest
 	var labels []string
-	var seriesID uint64
+	var seriesID, mgmtID int64
 	if idxSeriesID >= 0 {
 		// ETL could calculate "__series_id" so that clickhouse_sinker needn't filter out those Prometheus native labels.
 		val := metric.GetInt("__series_id", false)
-		seriesID = uint64(val.(int64))
+		seriesID = val.(int64)
 		if seriesID == 0 {
 			dig = xxhash.New()
 		}
+		val = metric.GetInt("__mgmt_id", false)
+		mgmtID = val.(int64)
 	}
 	for i, dim := range dims {
 		if idxSeriesID >= 0 && i == idxSeriesID {
-			*row = append(*row, uint64(0))
+			*row = append(*row, int64(0))
+		} else if idxSeriesID >= 0 && i == idxSeriesID+1 {
+			*row = append(*row, int64(0))
 		} else if idxSeriesID >= 0 && i == idxSeriesID+2 {
 			*row = append(*row, "")
 		} else if strings.HasPrefix(dim.Name, "__kafka") {
@@ -221,14 +225,13 @@ func MetricToRow(metric Metric, msg *InputMessage, dims []*ColumnWithType, idxSe
 		}
 	}
 	if idxSeriesID >= 0 {
-		if dig != nil {
-			seriesID = dig.Sum64()
+		if seriesID == 0 {
+			seriesID = int64(dig.Sum64())
 		}
-		(*row)[idxSeriesID] = seriesID
-		mgmtID := uint64((*row)[idxSeriesID+1].(int64))
 		if mgmtID == 0 {
 			mgmtID = seriesID
 		}
+		(*row)[idxSeriesID] = seriesID
 		(*row)[idxSeriesID+1] = mgmtID
 		(*row)[idxSeriesID+2] = fmt.Sprintf("{%s}", strings.Join(labels, ", "))
 	}
