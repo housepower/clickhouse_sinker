@@ -131,6 +131,7 @@ func (service *Service) Init() (err error) {
 			for _, dim := range taskCfg.ExcludeColumns {
 				service.knownKeys.Store(dim, nil)
 			}
+			service.knownKeys.Store("", nil) // column name shall not be empty string
 			service.newKeys = sync.Map{}
 			atomic.StoreInt32(&service.cntNewKeys, 0)
 		}
