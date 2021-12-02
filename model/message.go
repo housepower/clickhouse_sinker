@@ -174,14 +174,11 @@ func MetricToRow(metric Metric, msg *InputMessage, dims []*ColumnWithType, idxSe
 	var labels []string
 	var seriesID, mgmtID int64
 	if idxSeriesID >= 0 {
-		// ETL could calculate "__series_id" so that clickhouse_sinker needn't filter out those Prometheus native labels.
+		// If some labels are not Prometheus native, ETL shall calculate and pass "__series_id", otherwise clickhouse_sinker use "__mgmt_id".
 		val := metric.GetInt("__series_id", false)
 		seriesID = val.(int64)
-		if seriesID == 0 {
-			dig = xxhash.New()
-		}
-		val = metric.GetInt("__mgmt_id", false)
-		mgmtID = val.(int64)
+		// clickhouse_sinker calculate "__mgmt_id" based on all labels.
+		dig = xxhash.New()
 	}
 	for i, dim := range dims {
 		if idxSeriesID >= 0 && i == idxSeriesID {
@@ -225,11 +222,9 @@ func MetricToRow(metric Metric, msg *InputMessage, dims []*ColumnWithType, idxSe
 		}
 	}
 	if idxSeriesID >= 0 {
+		mgmtID = int64(dig.Sum64())
 		if seriesID == 0 {
-			seriesID = int64(dig.Sum64())
-		}
-		if mgmtID == 0 {
-			mgmtID = seriesID
+			seriesID = mgmtID
 		}
 		(*row)[idxSeriesID] = seriesID
 		(*row)[idxSeriesID+1] = mgmtID
