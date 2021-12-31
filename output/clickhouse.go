@@ -194,15 +194,14 @@ func (c *ClickHouse) loopWrite(batch *model.Batch) {
 }
 
 func (c *ClickHouse) initBmSeries(conn *sql.DB) (err error) {
-	var query string
+	tbl := c.seriesTbl
 	if c.cfg.Clickhouse.Cluster != "" {
-		query = fmt.Sprintf("SELECT toInt64(__mgmt_id) FROM %s.%s", c.cfg.Clickhouse.DB, c.distSeriesTbls[0])
-	} else {
-		query = fmt.Sprintf("SELECT toInt64(__mgmt_id) FROM %s.%s", c.cfg.Clickhouse.DB, c.seriesTbl)
+		tbl = c.distSeriesTbls[0]
 	}
+	query := fmt.Sprintf("SELECT toUInt64(toInt64(__mgmt_id)) AS mid FROM %s.%s ORDER BY mid", c.cfg.Clickhouse.DB, tbl)
 	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query))
 	var rs *sql.Rows
-	var mgmtID int64
+	var mgmtID uint64
 	if rs, err = conn.Query(query); err != nil {
 		err = errors.Wrapf(err, "")
 		return err
@@ -214,7 +213,7 @@ func (c *ClickHouse) initBmSeries(conn *sql.DB) (err error) {
 			err = errors.Wrapf(err, "")
 			return err
 		}
-		c.bmSeries.Add(uint64(mgmtID))
+		c.bmSeries.Add(mgmtID)
 	}
 	util.Logger.Info(fmt.Sprintf("loaded %d series from %v", c.bmSeries.GetCardinality(), c.seriesTbl), zap.String("task", c.taskCfg.Name))
 	return
