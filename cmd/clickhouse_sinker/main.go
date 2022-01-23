@@ -131,7 +131,7 @@ func initCmdOptions() {
 }
 
 func getVersion() string {
-	return fmt.Sprintf("version %s, commit %s, date %s, builtBy %s", version, commit, date, builtBy)
+	return fmt.Sprintf("version %s, commit %s, date %s, builtBy %s, pid %v", version, commit, date, builtBy, os.Getpid())
 }
 
 func init() {
