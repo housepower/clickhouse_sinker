@@ -101,6 +101,7 @@ func initCmdOptions() {
 	util.EnvIntVar(&cmdOps.HTTPPort, "http-port")
 	util.EnvStringVar(&cmdOps.PushGatewayAddrs, "metric-push-gateway-addrs")
 	util.EnvIntVar(&cmdOps.PushInterval, "push-interval")
+	util.EnvStringVar(&cmdOps.LocalCfgFile, "local-cfg-file")
 
 	util.EnvStringVar(&cmdOps.NacosAddr, "nacos-addr")
 	util.EnvStringVar(&cmdOps.NacosUsername, "nacos-username")
