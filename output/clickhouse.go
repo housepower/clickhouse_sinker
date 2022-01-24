@@ -84,6 +84,9 @@ func (c *ClickHouse) Init() (err error) {
 func (c *ClickHouse) Drain() {
 	c.mux.Lock()
 	for c.numFlying != 0 {
+		util.Logger.Debug("draining flying batches",
+			zap.String("task", c.taskCfg.Name),
+			zap.Int32("pending", c.numFlying))
 		c.taskDone.Wait()
 	}
 	c.mux.Unlock()

@@ -337,9 +337,9 @@ func (service *Service) put(msg *model.InputMessage) {
 
 // drain ensure we have completeted procession(discard or write&commit) for all received messages, and cleared service state.
 func (service *Service) drain() {
-	savedState := atomic.LoadUint32(&service.state)
-	atomic.StoreUint32(&service.state, util.StateStopped)
-	defer atomic.StoreUint32(&service.state, savedState)
+	savedState := atomic.SwapUint32(&service.state, util.StateStopped)
+	defer atomic.CompareAndSwapUint32(&service.state, util.StateStopped, savedState)
+	begin := time.Now()
 	service.Lock()
 	for service.numFlying != 0 {
 		service.taskDone.Wait()
@@ -354,8 +354,13 @@ func (service *Service) drain() {
 	if service.sharder != nil {
 		service.sharder.ForceFlush(nil)
 	}
+	util.Logger.Debug("generated flying batches",
+		zap.String("task", service.taskCfg.Name),
+		zap.Duration("cost", time.Since(begin)))
 	service.clickhouse.Drain()
-	util.Logger.Debug("drained flying messages", zap.String("task", service.taskCfg.Name))
+	util.Logger.Debug("drained flying batches",
+		zap.String("task", service.taskCfg.Name),
+		zap.Duration("cost", time.Since(begin)))
 }
 
 func (service *Service) Flush(batch *model.Batch) (err error) {
