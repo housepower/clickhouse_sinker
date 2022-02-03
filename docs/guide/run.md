@@ -91,3 +91,61 @@ Let's follow up a piece of the systest script.
   3 rows in set. Elapsed: 0.016 sec.
 
   ```
+
+## Run as a daemon
+
+On systemd managed Linux OSs such as RHEL, Debian and their variants, it's doable to run `clickhouse_sinker` as a system service to achieve auto-restart, coredump management etc.
+
+### Create `/etc/systemd/system/sinker_metric.service`
+
+```
+[Unit]
+Description=ck-sink-metric
+Requires=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=eoi
+LimitCORE=infinity
+Environment="GOTRACEBACK=crash"
+ExecStart=/data02/app/sinker/sinker/clickhouse_sinker --local-cfg-file=/data02/app/sinker/sinker/ck-sink-metric.json --log-paths=/data02/app/sinker/sinker/logs/sinker_metric.log
+Restart=on-failure
+RestartSec=3s
+StartLimitInterval=0
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Note:
+
+- Change pathes in `ExecStart` as necessary.
+- `User=eoi` means to run service as non-root for security reason.
+- `LimitCORE=infinity` for service is equivalent to `ulimit -c unlimited` for non-service.
+- env `GOTRACEBACK=crash` is required for Go applications to dump core. Refers to `https://pkg.go.dev/runtime`.
+
+### Modify `/etc/sysctl.conf`
+
+```kernel.core_pattern = |/usr/lib/systemd/systemd-coredump %p %u %g %s %t```
+
+Run `sysctl -p`.
+
+### Modify `etc/systemd/coredump.conf`
+
+```
+[Coredump]
+ProcessSizeMax=50G
+ExternalSizeMax=50G
+```
+
+### Manage `clickhouse-sinker` service
+
+- To start, `systemctl start sinker_metric`
+- To stop, `systemctl stop sinker_metric`
+- To view status, `systemctl status sinker_metric`
+
+### Manage coredumps with `coredumpctl`
+
+Coredumps are stored under `/var/lib/systemd/coredump`.
+Refers to core(5), systemd.exec(5), systemd-coredump(8), coredump.conf(5).
