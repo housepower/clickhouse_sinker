@@ -35,6 +35,12 @@ type Config struct {
 	Tasks      []*TaskConfig
 	Assignment Assignment
 	LogLevel   string
+	//consumer rate limit
+	MaxPollRecords int
+	//rate limit in EachRecord which calls fn for each record in Fetches.
+	RateLimit int
+	//rate burst in EachRecord which calls fn for each record in Fetches.
+	RateBurst int
 }
 
 // KafkaConfig configuration parameters

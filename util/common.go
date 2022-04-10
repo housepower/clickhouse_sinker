@@ -32,6 +32,7 @@ import (
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+	"golang.org/x/time/rate"
 	"gopkg.in/natefinch/lumberjack.v2"
 
 	"github.com/fagongzi/goetty"
@@ -45,7 +46,14 @@ var (
 	Logger            *zap.Logger
 	logAtomLevel      zap.AtomicLevel
 	logPaths          []string
+	Limiter           *rate.Limiter
+	MaxPollRecords    int
 )
+
+func InitRateLimit(maxPollRecords, rateLimit, rateBurst int) {
+	MaxPollRecords = maxPollRecords
+	Limiter = rate.NewLimiter(rate.Limit(rateLimit), rateBurst)
+}
 
 // InitGlobalTimerWheel initialize the global timer wheel
 func InitGlobalTimerWheel() {

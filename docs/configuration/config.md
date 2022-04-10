@@ -168,5 +168,11 @@
 
   // log level, possible value: "debug", "info", "warn", "error", "dpanic", "panic", "fatal". Default to "info".
   "logLevel": "debug"
+  //maxPollRecords of PollRecords
+  "maxPollRecords": 10000,
+	//rate limit in EachRecord which calls fn for each record in Fetches.
+  "rateLimit": 7000,
+ 	//rate burst in EachRecord which calls fn for each record in Fetches.  
+  "rateBurst": 3000
 }
 ```

@@ -403,6 +403,8 @@ func (s *Sinker) stopAllTasks() {
 
 func (s *Sinker) applyConfig(newCfg *config.Config) (err error) {
 	util.SetLogLevel(newCfg.LogLevel)
+	util.Logger.Debug("call applyConfig", zap.Int("maxPollRecords", newCfg.MaxPollRecords))
+	util.InitRateLimit(newCfg.MaxPollRecords, newCfg.RateLimit, newCfg.RateBurst)
 	if s.curCfg == nil {
 		// The first time invoking of applyConfig
 		err = s.applyFirstConfig(newCfg)

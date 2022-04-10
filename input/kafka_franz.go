@@ -165,7 +165,7 @@ func (k *KafkaFranz) Run() {
 	k.wgRun.Add(1)
 	defer k.wgRun.Done()
 	for {
-		fetches := k.cl.PollFetches(k.ctx)
+		fetches := k.cl.PollRecords(k.ctx, util.MaxPollRecords)
 		err := fetches.Err()
 		if fetches == nil || fetches.IsClientClosed() || errors.Is(err, context.Canceled) {
 			break
@@ -176,6 +176,15 @@ func (k *KafkaFranz) Run() {
 		}
 		util.Logger.Debug("Records fetched", zap.String("task", k.taskCfg.Name), zap.String("records", strconv.Itoa(fetches.NumRecords())))
 		fetches.EachRecord(func(rec *kgo.Record) {
+			//do rate limit for reading kafka record
+			//Background returns a non-nil, empty Context. It is never canceled, has no values, and has no deadline.
+			err := util.Limiter.Wait(context.Background())
+			if err != nil {
+				util.Logger.Error("rate.limiter.Wait() failed in fetches.EachRecord ", zap.Error(err))
+				util.Logger.Error("call limiter.Wait()", zap.Int("Limit", int(util.Limiter.Limit())))
+				util.Logger.Error("call limiter.Wait()", zap.Int("Burst", int(util.Limiter.Burst())))
+				return
+			}
 			msg := &model.InputMessage{
 				Topic:     rec.Topic,
 				Partition: int(rec.Partition),
