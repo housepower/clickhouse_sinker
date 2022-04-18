@@ -53,7 +53,6 @@ import (
 	"time"
 
 	"github.com/Shopify/sarama"
-	"github.com/bytedance/sonic"
 	"github.com/google/gops/agent"
 	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/pkg/errors"
@@ -279,7 +278,7 @@ func (g *LogGenerator) Run() {
 				Xforwardfor:     "",
 			}
 			_ = wp.Submit(func() {
-				if b, err = sonic.Marshal(&logObj); err != nil {
+				if b, err = util.JsonMarshal(&logObj); err != nil {
 					err = errors.Wrapf(err, "")
 					util.Logger.Fatal("got error", zap.Error(err))
 				}

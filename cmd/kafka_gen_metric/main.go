@@ -45,7 +45,6 @@ import (
 	"time"
 
 	"github.com/Shopify/sarama"
-	"github.com/bytedance/sonic"
 	"github.com/google/gops/agent"
 	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/pkg/errors"
@@ -156,7 +155,7 @@ func generate() {
 
 					_ = wp.Submit(func() {
 						var b []byte
-						if b, err = sonic.Marshal(&metric); err != nil {
+						if b, err = util.JsonMarshal(&metric); err != nil {
 							err = errors.Wrapf(err, "")
 							util.Logger.Fatal("got error", zap.Error(err))
 						}
