@@ -155,7 +155,7 @@ func generate() {
 
 					_ = wp.Submit(func() {
 						var b []byte
-						if b, err = util.JsonMarshal(&metric); err != nil {
+						if b, err = util.JSONMarshal(&metric); err != nil {
 							err = errors.Wrapf(err, "")
 							util.Logger.Fatal("got error", zap.Error(err))
 						}

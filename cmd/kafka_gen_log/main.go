@@ -194,22 +194,17 @@ func (g *LogGenerator) next() (err error) {
 		g.reader = nil
 	}
 	g.lineno = 0
-	for i := 0; i < len(g.logfiles); i++ {
-		// a log file may disappear, retry another log file
-		g.off = (g.off + 1) % len(g.logfiles)
-		g.fp = g.logfiles[g.off]
-		var reader *os.File
-		if reader, err = os.Open(g.fp); err == nil {
-			g.reader = reader
-			g.scanner = bufio.NewScanner(g.reader)
-			util.Logger.Debug(fmt.Sprintf("scanning %+v", g.fp))
-			return nil
-		}
+	// a log file may disappear, retry another log file
+	g.off = (g.off + 1) % len(g.logfiles)
+	g.fp = g.logfiles[g.off]
+	var reader *os.File
+	if reader, err = os.Open(g.fp); err != nil {
 		err = errors.Wrapf(err, "")
 		util.Logger.Fatal("os.Open failed", zap.String("path", g.fp), zap.Error(err))
-		time.Sleep(6000 * time.Second)
 	}
-	err = errors.Errorf("no readable file")
+	g.reader = reader
+	g.scanner = bufio.NewScanner(g.reader)
+	util.Logger.Debug(fmt.Sprintf("scanning %+v", g.fp))
 	return
 }
 
@@ -278,7 +273,7 @@ func (g *LogGenerator) Run() {
 				Xforwardfor:     "",
 			}
 			_ = wp.Submit(func() {
-				if b, err = util.JsonMarshal(&logObj); err != nil {
+				if b, err = util.JSONMarshal(&logObj); err != nil {
 					err = errors.Wrapf(err, "")
 					util.Logger.Fatal("got error", zap.Error(err))
 				}
