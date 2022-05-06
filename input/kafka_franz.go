@@ -82,7 +82,9 @@ func (k *KafkaFranz) Init(cfg *config.Config, taskCfg *config.TaskConfig, putFn 
 		kgo.ConsumeTopics(taskCfg.Topic),
 		kgo.ConsumerGroup(taskCfg.ConsumerGroup),
 		kgo.DisableAutoCommit(),
-		kgo.OnPartitionsRevoked(k.onPartitionRevoked))
+		kgo.OnPartitionsRevoked(k.onPartitionRevoked),
+		//modify partition assignment
+		kgo.Balancers(kgo.RangeBalancer()))
 	if !taskCfg.Earliest {
 		opts = append(opts, kgo.ConsumeResetOffset(kgo.NewOffset().AtEnd()))
 	}
