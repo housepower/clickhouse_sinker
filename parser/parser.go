@@ -169,6 +169,8 @@ func (pp *Pool) ParseDateTime(key string, val string) (t time.Time, err error) {
 
 func makeArray(typ int) (val interface{}) {
 	switch typ {
+	case model.Bool:
+		val = []bool{}
 	case model.Int:
 		val = []int64{}
 	case model.Float:

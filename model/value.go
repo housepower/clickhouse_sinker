@@ -23,12 +23,14 @@ import (
 
 const (
 	Unknown = iota
+	Bool
 	Int
 	Float
 	Decimal
 	String
 	DateTime
 	ElasticDateTime
+	BoolArray
 	IntArray
 	FloatArray
 	DecimalArray
@@ -47,6 +49,8 @@ var (
 
 func GetTypeName(typ int) (name string) {
 	switch typ {
+	case Bool:
+		name = "Bool"
 	case Int:
 		name = "Int"
 	case Float:
@@ -59,6 +63,8 @@ func GetTypeName(typ int) (name string) {
 		name = "DateTime"
 	case ElasticDateTime:
 		name = "ElasticDateTime"
+	case BoolArray:
+		name = "BoolArray"
 	case IntArray:
 		name = "IntArray"
 	case FloatArray:
@@ -77,6 +83,8 @@ func GetTypeName(typ int) (name string) {
 func GetValueByType(metric Metric, cwt *ColumnWithType) (val interface{}) {
 	name := cwt.SourceName
 	switch cwt.Type {
+	case Bool:
+		val = metric.GetBool(name, cwt.Nullable)
 	case Int:
 		val = metric.GetInt(name, cwt.Nullable)
 	case Float:
@@ -89,6 +97,8 @@ func GetValueByType(metric Metric, cwt *ColumnWithType) (val interface{}) {
 		val = metric.GetDateTime(name, cwt.Nullable)
 	case ElasticDateTime:
 		val = metric.GetElasticDateTime(name, cwt.Nullable)
+	case BoolArray:
+		val = metric.GetArray(name, Bool)
 	case IntArray:
 		val = metric.GetArray(name, Int)
 	case FloatArray:
@@ -144,6 +154,7 @@ func WhichType(typ string) (dataType int, nullable bool) {
 func init() {
 	primTypeInfo := make(map[string]TypeInfo)
 	typeInfo = make(map[string]TypeInfo)
+	primTypeInfo["Bool"] = TypeInfo{Type: Bool, Nullable: false}
 	for _, t := range []string{"UInt8", "UInt16", "UInt32", "UInt64", "Int8",
 		"Int16", "Int32", "Int64"} {
 		primTypeInfo[t] = TypeInfo{Type: Int, Nullable: false}
@@ -164,6 +175,8 @@ func init() {
 		typeInfo[nullK] = TypeInfo{Type: v.Type, Nullable: true}
 		arrK := fmt.Sprintf("Array(%s)", k)
 		switch v.Type {
+		case Bool:
+			typeInfo[arrK] = TypeInfo{Type: BoolArray, Nullable: false}
 		case Int:
 			typeInfo[arrK] = TypeInfo{Type: IntArray, Nullable: false}
 		case Float:

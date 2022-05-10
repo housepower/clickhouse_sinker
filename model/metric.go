@@ -22,6 +22,7 @@ import (
 
 // Metric interface for metric collection
 type Metric interface {
+	GetBool(key string, nullable bool) (val interface{})
 	GetInt(key string, nullable bool) (val interface{})
 	GetFloat(key string, nullable bool) (val interface{})
 	GetDecimal(key string, nullable bool) (val interface{})

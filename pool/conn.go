@@ -129,7 +129,7 @@ func InitClusterConn(hosts [][]string, port int, db, username, password, dsnPara
 	defer lock.Unlock()
 	freeClusterConn()
 	// Each shard has a *sql.DB which connects to one replica inside the shard.
-	// "alt_hosts" tolerates replica single-point-failure. However more flexable switching is needed for some cases for example https://github.com/ClickHouse/ClickHouse/issues/24036.
+	// "hosts" tolerates replica single-point-failure. However more flexable switching is needed for some cases for example https://github.com/ClickHouse/ClickHouse/issues/24036.
 	dsnSuffix = fmt.Sprintf("?database=%s&username=%s&password=%s",
 		url.QueryEscape(db), url.QueryEscape(username), url.QueryEscape(password))
 	if dsnParams != "" {

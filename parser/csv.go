@@ -109,7 +109,21 @@ func (c *CsvMetric) GetDecimal(key string, nullable bool) (val interface{}) {
 	return
 }
 
-// GetInt returns int
+func (c *CsvMetric) GetBool(key string, nullable bool) (val interface{}) {
+	var idx int
+	var ok bool
+	if idx, ok = c.pp.csvFormat[key]; !ok || c.values[idx] == "" || c.values[idx] == "null" {
+		if nullable {
+			return
+		}
+		val = false
+		return
+	}
+	val = (c.values[idx] == "true")
+	return
+}
+
+
 func (c *CsvMetric) GetInt(key string, nullable bool) (val interface{}) {
 	var idx int
 	var ok bool
@@ -172,6 +186,13 @@ func (c *CsvMetric) GetArray(key string, typ int) (val interface{}) {
 		return
 	}
 	switch typ {
+	case model.Bool:
+		results := make([]bool, 0, len(array))
+		for _, e := range array {
+			v := (e.Type == gjson.True)
+			results = append(results, v)
+		}
+		val = results
 	case model.Int:
 		results := make([]int64, 0, len(array))
 		for _, e := range array {

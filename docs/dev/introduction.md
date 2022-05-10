@@ -45,6 +45,7 @@ Note:
 
 | ClickHouse data type | default value | compatible Json data type           | valid range                           |
 |:--------------------:|:-------------:|:-----------------------------------:|:-------------------------------------:|
+| Bool                 | false         | Bool                                | false, true                           |
 | Int8, Int16, ...     | 0             | Bool, Number                        | Int8 [-128,127], ...                  |
 | Float32, Float64     | 0.0           | Number                              | Float32 [-MaxFloat32,MaxFloat32], ... |
 | Decimal, ...         | 0.0           | Number                              | [decimal-value-ranges](https://clickhouse.tech/docs/en/sql-reference/data-types/decimal/#decimal-value-ranges) |

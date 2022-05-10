@@ -70,8 +70,8 @@ var jsonSample = []byte(`{
 
 var jsonSchema = map[string]string{
 	"null":                      "Unknown",
-	"bool_true":                 "Int",
-	"bool_false":                "Int",
+	"bool_true":                 "Bool",
+	"bool_false":                "Bool",
 	"num_int":                   "Int",
 	"num_float":                 "Float",
 	"str":                       "String",
@@ -86,7 +86,7 @@ var jsonSchema = map[string]string{
 	"obj":                       "String",
 	"array_empty":               "Unknown",
 	"array_null":                "Unknown",
-	"array_bool":                "IntArray",
+	"array_bool":                "BoolArray",
 	"array_num_int_1":           "IntArray",
 	"array_num_int_2":           "IntArray",
 	"array_num_float":           "FloatArray",
@@ -220,11 +220,13 @@ func doTestSimple(t *testing.T, method string, testCases []SimpleCase) {
 		for j := range testCases {
 			var v interface{}
 			desc := fmt.Sprintf(`%s.%s("%s", %s)`, name, method, testCases[j].Field, strconv.FormatBool(testCases[j].Nullable))
-			if name == "csv" && (sliceContains([]string{"GetInt", "GetFloat", "GetDateTime", "GetElasticDateTime"}, method) && sliceContains([]string{"str_int", "str_float"}, testCases[j].Field) || testCases[j].Nullable) {
+			if name == "csv" && (sliceContains([]string{"GetBool", "GetInt", "GetFloat", "GetDateTime", "GetElasticDateTime"}, method) && sliceContains([]string{"str_int", "str_float"}, testCases[j].Field) || testCases[j].Nullable) {
 				skipped = append(skipped, desc)
 				continue
 			}
 			switch method {
+			case "GetBool":
+				v = metric.GetBool(testCases[j].Field, testCases[j].Nullable)
 			case "GetInt":
 				v = metric.GetInt(testCases[j].Field, testCases[j].Nullable)
 			case "GetFloat":
@@ -244,6 +246,38 @@ func doTestSimple(t *testing.T, method string, testCases []SimpleCase) {
 			log.Printf("Skipped %d cases incompatible with fastjson parser: %v\n", len(skipped), strings.Join(skipped, ", "))
 		}
 	}
+}
+
+func TestParserBool(t *testing.T) {
+	testCases := []SimpleCase{
+		// nullable: false
+		{"not_exist", false, false},
+		{"null", false, false},
+		{"bool_true", false, true},
+		{"bool_false", false, false},
+		{"num_int", false, false},
+		{"num_float", false, false},
+		{"str", false, false},
+		{"str_int", false, false},
+		{"str_float", false, false},
+		{"str_date_1", false, false},
+		{"obj", false, false},
+		{"array_empty", false, false},
+		// nullable: true
+		{"not_exist", true, nil},
+		{"null", true, nil},
+		{"bool_true", true, true},
+		{"bool_false", true, false},
+		{"num_int", true, nil},
+		{"num_float", true, nil},
+		{"str", true, nil},
+		{"str_int", true, nil},
+		{"str_float", true, nil},
+		{"str_date_1", true, nil},
+		{"obj", true, nil},
+		{"array_empty", true, nil},
+	}
+	doTestSimple(t, "GetBool", testCases)
 }
 
 func TestParserInt(t *testing.T) {
@@ -442,51 +476,61 @@ func TestParserArray(t *testing.T) {
 		{"str_date_1", model.DateTime, []time.Time{}},
 		{"obj", model.String, []string{}},
 
+		{"array_empty", model.Bool, []bool{}},
 		{"array_empty", model.Int, []int64{}},
 		{"array_empty", model.Float, []float64{}},
 		{"array_empty", model.String, []string{}},
 		{"array_empty", model.DateTime, []time.Time{}},
 
+		{"array_null", model.Bool, []bool{false}},
 		{"array_null", model.Int, []int64{0}},
 		{"array_null", model.Float, []float64{0.0}},
 		{"array_null", model.String, []string{""}},
 		{"array_null", model.DateTime, []time.Time{Epoch}},
 
+		{"array_bool", model.Bool, []bool{true, false}},
 		{"array_bool", model.Int, []int64{1, 0}},
 		{"array_bool", model.Float, []float64{0.0, 0.0}},
 		{"array_bool", model.String, []string{"true", "false"}},
 		{"array_bool", model.DateTime, []time.Time{Epoch, Epoch}},
 
+		{"array_num_int_1", model.Bool, []bool{false, false, false, false, false, false, false, false, false}},
 		{"array_num_int_1", model.Int, []int64{0, 255, 256, 65535, 65536, 4294967295, 4294967296, 0, 0}},
 		{"array_num_int_1", model.Float, []float64{0, 255, 256, 65535, 65536, 4294967295, 4294967296, 18446744073709551615, 18446744073709551616}},
 		{"array_num_int_1", model.String, []string{"0", "255", "256", "65535", "65536", "4294967295", "4294967296", "18446744073709551615", "18446744073709551616"}},
 		{"array_num_int_1", model.DateTime, []time.Time{Epoch, UnixFloat(255, timeUnit), UnixFloat(256, timeUnit), UnixFloat(65535, timeUnit), UnixFloat(65536, timeUnit), UnixFloat(4294967295, timeUnit), UnixFloat(4294967296, timeUnit), Epoch, Epoch}},
 
+		{"array_num_int_2", model.Bool, []bool{false, false, false, false, false, false, false, false, false, false, false, false, false, false, false}},
 		{"array_num_int_2", model.Int, []int64{-9223372036854775808, -2147483649, -2147483648, -32769, -32768, -129, -128, 0, 127, 128, 32767, 32768, 2147483647, 2147483648, 9223372036854775807}},
 		{"array_num_int_2", model.Float, []float64{-9223372036854775808, -2147483649, -2147483648, -32769, -32768, -129, -128, 0, 127, 128, 32767, 32768, 2147483647, 2147483648, 9223372036854775807}},
 		{"array_num_int_2", model.String, []string{"-9223372036854775808", "-2147483649", "-2147483648", "-32769", "-32768", "-129", "-128", "0", "127", "128", "32767", "32768", "2147483647", "2147483648", "9223372036854775807"}},
 		{"array_num_int_2", model.DateTime, []time.Time{Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, UnixFloat(127, timeUnit), UnixFloat(128, timeUnit), UnixFloat(32767, timeUnit), UnixFloat(32768, timeUnit), UnixFloat(2147483647, timeUnit), UnixFloat(2147483648, timeUnit), UnixFloat(9223372036854775807, timeUnit)}},
 
+		{"array_num_float", model.Bool, []bool{false, false, false, false, false, false, false}},
 		{"array_num_float", model.Int, []int64{0, 0, 0, 0, 0, 0, 0}},
 		{"array_num_float", model.Float, []float64{4.940656458412465441765687928682213723651e-324, 1.401298464324817070923729583289916131280e-45, 0.0, 3.40282346638528859811704183484516925440e+38, 1.797693134862315708145274237317043567981e+308, math.Inf(-1), math.Inf(1)}},
 		{"array_num_float", model.String, []string{"4.940656458412465441765687928682213723651e-324", "1.401298464324817070923729583289916131280e-45", "0.0", "3.40282346638528859811704183484516925440e+38", "1.797693134862315708145274237317043567981e+308", "-inf", "+inf"}},
 		{"array_num_float", model.DateTime, []time.Time{Epoch, Epoch, Epoch, UnixFloat(3.40282346638528859811704183484516925440e+38, timeUnit), UnixFloat(1.797693134862315708145274237317043567981e+308, timeUnit), UnixFloat(math.Inf(-1), timeUnit), UnixFloat(math.Inf(1), timeUnit)}},
 
+		{"array_str", model.Bool, []bool{false, false, false}},
 		{"array_str", model.Int, []int64{0, 0, 0}},
 		{"array_str", model.Float, []float64{0.0, 0.0, 0.0}},
 		{"array_str", model.String, []string{"aa", "bb", "cc"}},
 		{"array_str", model.DateTime, []time.Time{Epoch, Epoch, Epoch}},
 
+		{"array_str_int_1", model.Bool, []bool{false, false, false, false, false, false, false, false, false}},
 		{"array_str_int_1", model.Int, []int64{0, 0, 0, 0, 0, 0, 0, 0, 0}},
 		{"array_str_int_1", model.Float, []float64{0, 0, 0, 0, 0, 0, 0, 0, 0}},
 		{"array_str_int_1", model.String, []string{"0", "255", "256", "65535", "65536", "4294967295", "4294967296", "18446744073709551615", "18446744073709551616"}},
 		{"array_str_int_1", model.DateTime, []time.Time{Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch}},
 
+		{"array_str_int_2", model.Bool, []bool{false, false, false, false, false, false, false, false, false, false, false, false, false, false, false}},
 		{"array_str_int_2", model.Int, []int64{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
 		{"array_str_int_2", model.Float, []float64{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
 		{"array_str_int_2", model.String, []string{"-9223372036854775808", "-2147483649", "-2147483648", "-32769", "-32768", "-129", "-128", "0", "127", "128", "32767", "32768", "2147483647", "2147483648", "9223372036854775807"}},
 		{"array_str_int_2", model.DateTime, []time.Time{Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch}},
 
+		{"array_str_float", model.Bool, []bool{false, false, false, false, false, false, false}},
 		{"array_str_float", model.Int, []int64{0, 0, 0, 0, 0, 0, 0}},
 		{"array_str_float", model.Float, []float64{0, 0, 0, 0, 0, 0, 0}},
 		{"array_str_float", model.String, []string{"4.940656458412465441765687928682213723651e-324", "1.401298464324817070923729583289916131280e-45", "0.0", "3.40282346638528859811704183484516925440e+38", "1.797693134862315708145274237317043567981e+308", "-inf", "+inf"}},
