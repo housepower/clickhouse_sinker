@@ -215,7 +215,7 @@ func MetricToRow(metric Metric, msg *InputMessage, dims []*ColumnWithType, idxSe
 					}
 					// "labels" JSON excludes "le", so that "labels" can be used as group key for histogram queries.
 					if dim.Name != nameKey && dim.Name != "le" {
-						labels = append(labels, fmt.Sprintf(`"%s": "%s"`, dim.Name, labelVal))
+						labels = append(labels, fmt.Sprintf(`%s: %s`, strconv.Quote(dim.Name), strconv.Quote(labelVal)))
 					}
 				}
 			}
