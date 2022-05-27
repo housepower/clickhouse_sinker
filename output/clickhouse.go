@@ -201,6 +201,11 @@ func (c *ClickHouse) initBmSeries(conn *sql.DB) (err error) {
 	if c.cfg.Clickhouse.Cluster != "" {
 		tbl = c.distSeriesTbls[0]
 	}
+	c.bmSeries = roaring64.New()
+	if !c.taskCfg.LoadSeriesAtStartup {
+		util.Logger.Info(fmt.Sprintf("skipped loading series from %v", tbl), zap.String("task", c.taskCfg.Name))
+		return
+	}
 	query := fmt.Sprintf("SELECT toUInt64(toInt64(__mgmt_id)) AS mid FROM %s.%s ORDER BY mid", c.cfg.Clickhouse.DB, tbl)
 	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query))
 	var rs *sql.Rows
@@ -210,7 +215,6 @@ func (c *ClickHouse) initBmSeries(conn *sql.DB) (err error) {
 		return err
 	}
 	defer rs.Close()
-	c.bmSeries = roaring64.New()
 	for rs.Next() {
 		if err = rs.Scan(&mgmtID); err != nil {
 			err = errors.Wrapf(err, "")
@@ -218,7 +222,7 @@ func (c *ClickHouse) initBmSeries(conn *sql.DB) (err error) {
 		}
 		c.bmSeries.Add(mgmtID)
 	}
-	util.Logger.Info(fmt.Sprintf("loaded %d series from %v", c.bmSeries.GetCardinality(), c.seriesTbl), zap.String("task", c.taskCfg.Name))
+	util.Logger.Info(fmt.Sprintf("loaded %d series from %v", c.bmSeries.GetCardinality(), tbl), zap.String("task", c.taskCfg.Name))
 	return
 }
 

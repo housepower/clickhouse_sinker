@@ -137,6 +137,8 @@ type TaskConfig struct {
 	}
 	// PrometheusSchema expects each message is a Prometheus metric(timestamp, value, metric name and a list of labels).
 	PrometheusSchema bool
+	// whether load series at startup
+	LoadSeriesAtStartup bool
 
 	// ShardingKey is the column name to which sharding against
 	ShardingKey string `json:"shardingKey,omitempty"`
