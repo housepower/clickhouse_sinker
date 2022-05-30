@@ -41,6 +41,8 @@ import (
 
 const (
 	Krb5KeytabAuth = 2
+	CommitRetries  = 6
+	RetryBackoff   = 5 * time.Second
 )
 
 var _ Inputer = (*KafkaFranz)(nil)
@@ -185,7 +187,19 @@ func (k *KafkaFranz) Run() {
 
 func (k *KafkaFranz) CommitMessages(msg *model.InputMessage) error {
 	// "LeaderEpoch: -1" will disable leader epoch validation
-	return k.cl.CommitRecords(context.Background(), &kgo.Record{Topic: msg.Topic, Partition: int32(msg.Partition), Offset: msg.Offset, LeaderEpoch: -1})
+	var err error
+	for i := 0; i < CommitRetries; i++ {
+		err = k.cl.CommitRecords(context.Background(), &kgo.Record{Topic: msg.Topic, Partition: int32(msg.Partition), Offset: msg.Offset, LeaderEpoch: -1})
+		if err == nil {
+			break
+		}
+		err = errors.Wrap(err, "")
+		if i < CommitRetries-1 && !errors.Is(err, context.Canceled) {
+			util.Logger.Error("cl.CommitRecords failed, will retry later", zap.String("task", k.taskCfg.Name), zap.Int("try", i), zap.Error(err))
+			time.Sleep(RetryBackoff)
+		}
+	}
+	return err
 }
 
 // Stop kafka consumer and close all connections
