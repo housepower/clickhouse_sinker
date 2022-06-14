@@ -86,11 +86,12 @@ func (ncm *NacosConfManager) Init(properties map[string]interface{}) (err error)
 		NotLoadCacheAtStart: true,
 		LogDir:              filepath.Join(clientDir, "log"),
 		CacheDir:            filepath.Join(clientDir, "cache"),
-		RotateTime:          "1h",
-		MaxAge:              3,
 		LogLevel:            "debug",
 		Username:            properties["username"].(string),
 		Password:            properties["password"].(string),
+		LogRollingConfig: &constant.ClientLogRollingConfig{
+			MaxAge: 3,
+		},
 	}
 
 	ncm.configClient, err = clients.CreateConfigClient(map[string]interface{}{
