@@ -137,6 +137,8 @@ type TaskConfig struct {
 	}
 	// PrometheusSchema expects each message is a Prometheus metric(timestamp, value, metric name and a list of labels).
 	PrometheusSchema bool
+	// fields match PromLabelsBlackList are not considered as labels. Requires PrometheusSchema be true.
+	PromLabelsBlackList string // the regexp of black list
 	// whether load series at startup
 	LoadSeriesAtStartup bool
 
@@ -282,6 +284,8 @@ func (cfg *Config) normallizeTask(taskCfg *TaskConfig) (err error) {
 	if taskCfg.PrometheusSchema {
 		taskCfg.DynamicSchema.Enable = true
 		taskCfg.AutoSchema = true
+	} else {
+		taskCfg.PromLabelsBlackList = ""
 	}
 	if taskCfg.DynamicSchema.Enable {
 		if taskCfg.Parser != "fastjson" && taskCfg.Parser != "gjson" {
@@ -298,6 +302,9 @@ func (cfg *Config) normallizeTask(taskCfg *TaskConfig) (err error) {
 				return
 			}
 		}
+	} else {
+		taskCfg.DynamicSchema.WhiteList = ""
+		taskCfg.DynamicSchema.BlackList = ""
 	}
 	if taskCfg.DynamicSchema.WhiteList != "" {
 		if _, err = regexp.Compile(taskCfg.DynamicSchema.WhiteList); err != nil {
@@ -308,6 +315,12 @@ func (cfg *Config) normallizeTask(taskCfg *TaskConfig) (err error) {
 	if taskCfg.DynamicSchema.BlackList != "" {
 		if _, err = regexp.Compile(taskCfg.DynamicSchema.BlackList); err != nil {
 			err = errors.Wrapf(err, "BlackList %s is invalid regexp", taskCfg.DynamicSchema.BlackList)
+			return
+		}
+	}
+	if taskCfg.PromLabelsBlackList != "" {
+		if _, err = regexp.Compile(taskCfg.PromLabelsBlackList); err != nil {
+			err = errors.Wrapf(err, "PromLabelsBlackList %s is invalid regexp", taskCfg.PromLabelsBlackList)
 			return
 		}
 	}

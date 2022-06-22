@@ -46,6 +46,7 @@ type Service struct {
 	taskCfg    *config.TaskConfig
 	whiteList  *regexp.Regexp
 	blackList  *regexp.Regexp
+	lblBlkList *regexp.Regexp
 	dims       []*model.ColumnWithType
 
 	idxSerID int
@@ -85,6 +86,9 @@ func NewTaskService(cfg *config.Config, taskCfg *config.TaskConfig) (service *Se
 	}
 	if taskCfg.DynamicSchema.BlackList != "" {
 		service.blackList = regexp.MustCompile(taskCfg.DynamicSchema.BlackList)
+	}
+	if taskCfg.PromLabelsBlackList != "" {
+		service.lblBlkList = regexp.MustCompile(taskCfg.PromLabelsBlackList)
 	}
 	return
 }
@@ -291,7 +295,7 @@ func (service *Service) put(msg *model.InputMessage) {
 					msg.Topic, msg.Partition, msg.Offset), zap.String("message value", string(msg.Value)), zap.String("task", taskCfg.Name), zap.Error(err))
 			}
 		} else {
-			row = model.MetricToRow(metric, msg, service.dims, service.idxSerID, service.nameKey)
+			row = model.MetricToRow(metric, msg, service.dims, service.idxSerID, service.nameKey, service.lblBlkList)
 			if taskCfg.DynamicSchema.Enable {
 				foundNewKeys = metric.GetNewKeys(&service.knownKeys, &service.newKeys, service.whiteList, service.blackList)
 			}

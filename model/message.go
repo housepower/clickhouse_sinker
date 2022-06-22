@@ -3,6 +3,7 @@ package model
 import (
 	"container/list"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -168,7 +169,7 @@ func PutRow(r *Row) {
 	rowPool.Put(r)
 }
 
-func MetricToRow(metric Metric, msg *InputMessage, dims []*ColumnWithType, idxSeriesID int, nameKey string) (row *Row) {
+func MetricToRow(metric Metric, msg *InputMessage, dims []*ColumnWithType, idxSeriesID int, nameKey string, lblBlkList *regexp.Regexp) (row *Row) {
 	row = GetRow()
 	var dig *xxhash.Digest
 	var labels []string
@@ -214,7 +215,7 @@ func MetricToRow(metric Metric, msg *InputMessage, dims []*ColumnWithType, idxSe
 						_, _ = dig.WriteString(labelVal)
 					}
 					// "labels" JSON excludes "le", so that "labels" can be used as group key for histogram queries.
-					if dim.Name != nameKey && dim.Name != "le" {
+					if dim.Name != nameKey && dim.Name != "le" && (lblBlkList == nil || !lblBlkList.MatchString(dim.Name)) {
 						labels = append(labels, fmt.Sprintf(`%s: %s`, strconv.Quote(dim.Name), strconv.Quote(labelVal)))
 					}
 				}
