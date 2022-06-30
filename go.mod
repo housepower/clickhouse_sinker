@@ -22,6 +22,7 @@ require (
 	github.com/tidwall/gjson v1.14.1
 	github.com/troian/healthcheck v0.1.4-0.20200127040058-c373fb6a0dc1
 	github.com/twmb/franz-go v1.6.0
+	github.com/twmb/franz-go/pkg/kadm v1.1.1
 	github.com/twmb/franz-go/pkg/sasl/kerberos v1.0.0
 	github.com/twmb/franz-go/plugin/kzap v1.1.0
 	github.com/valyala/fastjson v1.6.3

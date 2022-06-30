@@ -73,21 +73,34 @@ func (k *KafkaFranz) Init(cfg *config.Config, taskCfg *config.TaskConfig, putFn 
 	k.putFn = putFn
 	k.cleanupFn = cleanupFn
 	kfkCfg := &cfg.Kafka
-
-	opts := []kgo.Opt{
-		kgo.SeedBrokers(strings.Split(kfkCfg.Brokers, ",")...),
+	var opts []kgo.Opt
+	if opts, err = GetFranzConfig(kfkCfg); err != nil {
+		return
+	}
+	opts = append(opts,
 		kgo.ConsumeTopics(taskCfg.Topic),
 		kgo.ConsumerGroup(taskCfg.ConsumerGroup),
+		kgo.OnPartitionsRevoked(k.onPartitionRevoked))
+	if !taskCfg.Earliest {
+		opts = append(opts, kgo.ConsumeResetOffset(kgo.NewOffset().AtEnd()))
+	}
+
+	if k.cl, err = kgo.NewClient(opts...); err != nil {
+		err = errors.Wrap(err, "")
+		return
+	}
+	return nil
+}
+
+func GetFranzConfig(kfkCfg *config.KafkaConfig) (opts []kgo.Opt, err error) {
+	opts = []kgo.Opt{
+		kgo.SeedBrokers(strings.Split(kfkCfg.Brokers, ",")...),
 		kgo.DisableAutoCommit(),
-		kgo.OnPartitionsRevoked(k.onPartitionRevoked),
 		kgo.MaxConcurrentFetches(3),
 		kgo.FetchMaxBytes(1 << 27),      //134 MB
 		kgo.BrokerMaxReadBytes(1 << 27), //134 MB
 		//kgo.MetadataMaxAge(...) corresponds to sarama.Config.Metadata.RefreshFrequency
 		kgo.WithLogger(kzap.New(util.Logger)),
-	}
-	if !taskCfg.Earliest {
-		opts = append(opts, kgo.ConsumeResetOffset(kgo.NewOffset().AtEnd()))
 	}
 	if kfkCfg.TLS.Enable {
 		var tlsCfg *tls.Config
@@ -143,12 +156,7 @@ func (k *KafkaFranz) Init(cfg *config.Config, taskCfg *config.TaskConfig, putFn 
 			opts = append(opts, kgo.SASL(mch))
 		}
 	}
-
-	if k.cl, err = kgo.NewClient(opts...); err != nil {
-		err = errors.Wrap(err, "")
-		return
-	}
-	return nil
+	return
 }
 
 // kafka main loop
