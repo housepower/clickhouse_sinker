@@ -204,7 +204,7 @@ func (sh *Sharder) doFlush(_ interface{}) {
 		}
 	}
 	if msgCnt > 0 {
-		util.Logger.Debug(fmt.Sprintf("going to flush batch group for topic %v, offsets %+v, messages %d", taskCfg.Topic, sh.offsets, msgCnt), zap.String("task", taskCfg.Name))
+		util.Logger.Info(fmt.Sprintf("created a batch group for topic %v, offsets %+v, messages %d", taskCfg.Topic, sh.offsets, msgCnt), zap.String("task", taskCfg.Name))
 		sh.batchSys.CreateBatchGroupMulti(batches, sh.offsets)
 		sh.offsets = make(map[int]int64)
 		// ALL batches in a group shall be populated before sending any one to next stage.

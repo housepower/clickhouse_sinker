@@ -205,7 +205,7 @@ func (ring *Ring) genBatchOrShard() {
 		batch.RealSize = len(*batch.Rows)
 
 		if batch.RealSize > 0 {
-			util.Logger.Debug(fmt.Sprintf("going to flush a batch for topic %v patittion %d, offset [%d,%d), messages %d, parse errors: %d",
+			util.Logger.Info(fmt.Sprintf("created a batch for topic %v patittion %d, offset [%d,%d), messages %d, parse errors: %d",
 				taskCfg.Topic, ring.partition, ring.ringGroundOff, endOff, batch.RealSize, parseErrs),
 				zap.String("task", taskCfg.Name))
 
