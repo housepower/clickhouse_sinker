@@ -40,7 +40,7 @@ import (
 	"github.com/housepower/clickhouse_sinker/util"
 	"go.uber.org/zap"
 
-	_ "github.com/ClickHouse/clickhouse-go"
+	_ "github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
