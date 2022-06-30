@@ -150,7 +150,7 @@ func generate() {
 						ShiftTag:     int32(rand.Intn(65535)),
 						SeasonTag:    int32(rand.Intn(65535)),
 						SpikeTag:     int32(rand.Intn(65535)),
-						IsMissing:    int32(rand.Intn(1)),
+						IsMissing:    int32(rand.Intn(2)),
 					}
 
 					_ = wp.Submit(func() {

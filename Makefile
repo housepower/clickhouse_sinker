@@ -25,6 +25,6 @@ benchtest: pre
 systest: build
 	bash go.test.sh
 lint:
-	golangci-lint run --issues-exit-code=0 --disable=nakedret,exhaustivestruct,wrapcheck,paralleltest,rowserrcheck,cyclop,scopelint,nilerr,interfacer,funlen,golint,revive,tagliatelle,forcetypeassert,ireturn,varnamelen,containedctx
+	golangci-lint run --timeout=3m
 run: pre
 	go run cmd/clickhouse_sinker/main.go --local-cfg-file docker/test_dynamic_schema.json

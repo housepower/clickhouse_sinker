@@ -123,7 +123,6 @@ func (c *CsvMetric) GetBool(key string, nullable bool) (val interface{}) {
 	return
 }
 
-
 func (c *CsvMetric) GetInt(key string, nullable bool) (val interface{}) {
 	var idx int
 	var ok bool
