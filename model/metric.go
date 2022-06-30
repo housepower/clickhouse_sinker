@@ -24,6 +24,7 @@ import (
 type Metric interface {
 	GetInt(key string, nullable bool) (val interface{})
 	GetFloat(key string, nullable bool) (val interface{})
+	GetDecimal(key string, nullable bool) (val interface{})
 	GetString(key string, nullable bool) (val interface{})
 	GetDateTime(key string, nullable bool) (val interface{})
 	GetElasticDateTime(key string, nullable bool) (val interface{})

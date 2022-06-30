@@ -26,6 +26,7 @@ import (
 	"github.com/housepower/clickhouse_sinker/model"
 	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/pkg/errors"
+	"github.com/shopspring/decimal"
 	"github.com/tidwall/gjson"
 	"github.com/valyala/fastjson/fastfloat"
 )
@@ -90,6 +91,21 @@ func (c *CsvMetric) GetFloat(key string, nullable bool) (val interface{}) {
 		return
 	}
 	val = fastfloat.ParseBestEffort(c.values[idx])
+	return
+}
+
+// GetDecimal returns the value as decimal
+func (c *CsvMetric) GetDecimal(key string, nullable bool) (val interface{}) {
+	var idx int
+	var ok bool
+	if idx, ok = c.pp.csvFormat[key]; !ok || c.values[idx] == "null" {
+		if nullable {
+			return
+		}
+		val = decimal.NewFromInt(0)
+		return
+	}
+	val, _ = decimal.NewFromString(c.values[idx])
 	return
 }
 
@@ -184,6 +200,19 @@ func (c *CsvMetric) GetArray(key string, typ int) (val interface{}) {
 				v = float64(0.0)
 			}
 			results = append(results, v)
+		}
+		val = results
+	case model.Decimal:
+		results := make([]decimal.Decimal, 0, len(array))
+		for _, e := range array {
+			var v float64
+			switch e.Type {
+			case gjson.Number:
+				v = e.Num
+			default:
+				v = float64(0.0)
+			}
+			results = append(results, decimal.NewFromFloat(v))
 		}
 		val = results
 	case model.String:

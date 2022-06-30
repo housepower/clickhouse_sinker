@@ -32,5 +32,5 @@
     },
     "bufferSize": 50000
   },
-  "logLevel": "debug"
+  "logLevel": "info"
 }

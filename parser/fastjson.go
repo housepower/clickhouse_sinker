@@ -24,6 +24,7 @@ import (
 	"github.com/housepower/clickhouse_sinker/model"
 	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/pkg/errors"
+	"github.com/shopspring/decimal"
 	"github.com/valyala/fastjson"
 	"go.uber.org/zap"
 )
@@ -80,6 +81,20 @@ func (c *FastjsonMetric) GetFloat(key string, nullable bool) (val interface{}) {
 		val = getDefaultFloat(nullable)
 	} else {
 		val = val2
+	}
+	return
+}
+
+func (c *FastjsonMetric) GetDecimal(key string, nullable bool) (val interface{}) {
+	v := c.value.Get(key)
+	if !fjCompatibleFloat(v) {
+		val = getDefaultDecimal(nullable)
+		return
+	}
+	if val2, err := v.Float64(); err != nil {
+		val = getDefaultDecimal(nullable)
+	} else {
+		val = decimal.NewFromFloat(val2)
 	}
 	return
 }
@@ -165,6 +180,11 @@ func (c *FastjsonMetric) GetArray(key string, typ int) (val interface{}) {
 		for _, e := range array {
 			v, _ := e.Float64()
 			val = append(val.([]float64), v)
+		}
+	case model.Decimal:
+		for _, e := range array {
+			v, _ := e.Float64()
+			val = append(val.([]decimal.Decimal), decimal.NewFromFloat(v))
 		}
 	case model.String:
 		for _, e := range array {
@@ -288,6 +308,14 @@ func getDefaultFloat(nullable bool) (val interface{}) {
 		return
 	}
 	val = float64(0.0)
+	return
+}
+
+func getDefaultDecimal(nullable bool) (val interface{}) {
+	if nullable {
+		return
+	}
+	val = decimal.NewFromInt(0)
 	return
 }
 

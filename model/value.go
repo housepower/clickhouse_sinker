@@ -25,11 +25,13 @@ const (
 	Unknown = iota
 	Int
 	Float
+	Decimal
 	String
 	DateTime
 	ElasticDateTime
 	IntArray
 	FloatArray
+	DecimalArray
 	StringArray
 	DateTimeArray
 )
@@ -49,6 +51,8 @@ func GetTypeName(typ int) (name string) {
 		name = "Int"
 	case Float:
 		name = "Float"
+	case Decimal:
+		name = "Decimal"
 	case String:
 		name = "String"
 	case DateTime:
@@ -77,6 +81,8 @@ func GetValueByType(metric Metric, cwt *ColumnWithType) (val interface{}) {
 		val = metric.GetInt(name, cwt.Nullable)
 	case Float:
 		val = metric.GetFloat(name, cwt.Nullable)
+	case Decimal:
+		val = metric.GetDecimal(name, cwt.Nullable)
 	case String:
 		val = metric.GetString(name, cwt.Nullable)
 	case DateTime:
@@ -87,6 +93,8 @@ func GetValueByType(metric Metric, cwt *ColumnWithType) (val interface{}) {
 		val = metric.GetArray(name, Int)
 	case FloatArray:
 		val = metric.GetArray(name, Float)
+	case DecimalArray:
+		val = metric.GetArray(name, Decimal)
 	case StringArray:
 		val = metric.GetArray(name, String)
 	case DateTimeArray:
@@ -113,9 +121,9 @@ func WhichType(typ string) (dataType int, nullable bool) {
 		dataType = DateTimeArray
 		nullable = false
 	} else if strings.HasPrefix(typ, "Decimal") {
-		dataType = Float
+		dataType = Decimal
 	} else if strings.HasPrefix(typ, "Array(Decimal") {
-		dataType = FloatArray
+		dataType = DecimalArray
 		nullable = false
 	} else if strings.HasPrefix(typ, "FixedString") {
 		dataType = String

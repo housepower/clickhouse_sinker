@@ -21,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/shopspring/decimal"
 	"github.com/tidwall/gjson"
 	"go.uber.org/zap"
 
@@ -75,6 +76,21 @@ func (c *GjsonMetric) GetFloat(key string, nullable bool) (val interface{}) {
 		val = r.Num
 	default:
 		val = getDefaultFloat(nullable)
+	}
+	return
+}
+
+func (c *GjsonMetric) GetDecimal(key string, nullable bool) (val interface{}) {
+	r := gjson.Get(c.raw, key)
+	if !gjCompatibleFloat(r) {
+		val = getDefaultDecimal(nullable)
+		return
+	}
+	switch r.Type {
+	case gjson.Number:
+		val = decimal.NewFromFloat(r.Num)
+	default:
+		val = getDefaultDecimal(nullable)
 	}
 	return
 }
@@ -166,6 +182,19 @@ func (c *GjsonMetric) GetArray(key string, typ int) (val interface{}) {
 				f = float64(0.0)
 			}
 			results = append(results, f)
+		}
+		val = results
+	case model.Decimal:
+		results := make([]decimal.Decimal, 0, len(array))
+		for _, e := range array {
+			var f float64
+			switch e.Type {
+			case gjson.Number:
+				f = e.Num
+			default:
+				f = float64(0.0)
+			}
+			results = append(results, decimal.NewFromFloat(f))
 		}
 		val = results
 	case model.String:
