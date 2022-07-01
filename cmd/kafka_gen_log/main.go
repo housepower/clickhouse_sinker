@@ -295,7 +295,7 @@ func main() {
 		usage := fmt.Sprintf(`Usage of %s
     %s kakfa_brokers topic log_file_dir log_file_pattern
 This util read log from given paths, fill some fields with random content, serialize and send to kafka.
-kakfa_brokers: for example, 192.168.102.114:9092,192.168.102.115:9092
+kakfa_brokers: for example, 192.168.110.8:9092,192.168.110.12:9092,192.168.110.16:9092
 topic: for example, apache_access_log
 log_file_dir: log file directory, for example, /var/log
 log_file_pattern: file name pattern, for example, '^secure.*$'`, os.Args[0], os.Args[0])

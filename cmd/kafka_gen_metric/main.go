@@ -125,9 +125,9 @@ func generate() {
 	for day := 0; ; day++ {
 		tsDay := rounded.Add(time.Duration(24*day) * time.Hour)
 		for step := 0; step < 24*60*60; step++ {
+			timestamp := tsDay.Add(time.Duration(step) * time.Second)
 			for bus := 0; bus < BusinessNum; bus++ {
 				for ins := 0; ins < InstanceNum; ins++ {
-					timestamp := tsDay.Add(time.Duration(step) * time.Second)
 					metric := Metric{
 						Time:         timestamp,
 						ItemGUID:     fmt.Sprintf("bus%03d_ins%03d", bus, ins),
@@ -179,7 +179,7 @@ func main() {
 		usage := fmt.Sprintf(`Usage of %s
     %s kakfa_brokers topic
 This util fill some fields with random content, serialize and send to kafka.
-kakfa_brokers: for example, 192.168.102.114:9092,192.168.102.115:9092
+kakfa_brokers: for example, 192.168.110.8:9092,192.168.110.12:9092,192.168.110.16:9092
 topic: for example, sensor_dt_result_online`, os.Args[0], os.Args[0])
 		util.Logger.Info(usage)
 		os.Exit(0)
