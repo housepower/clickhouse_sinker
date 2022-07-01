@@ -3,7 +3,7 @@ package util
 import (
 	"github.com/bytedance/sonic"
 
-	"github.com/pkg/errors"
+	"github.com/thanos-io/thanos/pkg/errors"
 )
 
 func JSONMarshal(obj interface{}) (b []byte, err error) {

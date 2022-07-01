@@ -23,7 +23,7 @@ import (
 
 	"github.com/housepower/clickhouse_sinker/util"
 
-	"github.com/pkg/errors"
+	"github.com/thanos-io/thanos/pkg/errors"
 )
 
 // Config struct used for different configurations use
@@ -189,7 +189,7 @@ func ParseLocalCfgFile(cfgPath string) (cfg *Config, err error) {
 // normallize and validate configuration
 func (cfg *Config) Normallize() (err error) {
 	if len(cfg.Clickhouse.Hosts) == 0 || cfg.Kafka.Brokers == "" {
-		err = errors.Errorf("invalid configuration")
+		err = errors.Newf("invalid configuration")
 		return
 	}
 	if cfg.Kafka.Version == "" {
@@ -218,7 +218,7 @@ func (cfg *Config) Normallize() (err error) {
 		switch cfg.Kafka.Sasl.Mechanism {
 		case "PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512", "GSSAPI":
 		default:
-			err = errors.Errorf("kafka SASL mechanism %s is unsupported", cfg.Kafka.Sasl.Mechanism)
+			err = errors.Newf("kafka SASL mechanism %s is unsupported", cfg.Kafka.Sasl.Mechanism)
 			return
 		}
 	}
@@ -289,7 +289,7 @@ func (cfg *Config) normallizeTask(taskCfg *TaskConfig) (err error) {
 	}
 	if taskCfg.DynamicSchema.Enable {
 		if taskCfg.Parser != "fastjson" && taskCfg.Parser != "gjson" {
-			err = errors.Errorf("Parser %s doesn't support DynamicSchema", taskCfg.Parser)
+			err = errors.Newf("Parser %s doesn't support DynamicSchema", taskCfg.Parser)
 			return
 		}
 		if cfg.Clickhouse.Cluster == "" {
@@ -298,7 +298,7 @@ func (cfg *Config) normallizeTask(taskCfg *TaskConfig) (err error) {
 				numHosts += len(shard)
 			}
 			if numHosts > 1 {
-				err = errors.Errorf("Need to set cluster name when DynamicSchema is enabled and number of hosts is more than one")
+				err = errors.Newf("Need to set cluster name when DynamicSchema is enabled and number of hosts is more than one")
 				return
 			}
 		}

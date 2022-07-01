@@ -22,7 +22,7 @@ import (
 
 	"github.com/housepower/clickhouse_sinker/model"
 	"github.com/housepower/clickhouse_sinker/util"
-	"github.com/pkg/errors"
+	"github.com/thanos-io/thanos/pkg/errors"
 )
 
 var (
@@ -62,7 +62,7 @@ var (
 		"Mon Jan 02, 2006",
 	}
 	Epoch            = time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
-	ErrParseDateTime = errors.Errorf("value doesn't contain DateTime")
+	ErrParseDateTime = errors.Newf("value doesn't contain DateTime")
 )
 
 // Parse is the Parser interface

@@ -3,7 +3,7 @@ package util
 import (
 	"encoding/json"
 
-	"github.com/pkg/errors"
+	"github.com/thanos-io/thanos/pkg/errors"
 )
 
 func JSONMarshal(obj interface{}) (b []byte, err error) {

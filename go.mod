@@ -13,12 +13,12 @@ require (
 	github.com/jcmturner/gokrb5/v8 v8.4.2
 	github.com/jinzhu/copier v0.3.5
 	github.com/nacos-group/nacos-sdk-go v1.1.1
-	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.12.2
 	github.com/prometheus/common v0.34.0
 	github.com/segmentio/kafka-go v0.4.32
 	github.com/shopspring/decimal v1.3.1
 	github.com/stretchr/testify v1.7.5
+	github.com/thanos-io/thanos v0.27.0-rc.0
 	github.com/tidwall/gjson v1.14.1
 	github.com/troian/healthcheck v0.1.4-0.20200127040058-c373fb6a0dc1
 	github.com/twmb/franz-go v1.6.0
@@ -57,12 +57,13 @@ require (
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/compress v1.15.6 // indirect
 	github.com/klauspost/cpuid/v2 v2.0.13 // indirect
-	github.com/matttproud/golang_protobuf_extensions v1.0.1 // indirect
+	github.com/matttproud/golang_protobuf_extensions v1.0.2-0.20181231171920-c182affec369 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/mschoch/smat v0.2.0 // indirect
 	github.com/paulmach/orb v0.7.1 // indirect
 	github.com/pierrec/lz4/v4 v4.1.15 // indirect
+	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/prometheus/client_model v0.2.0 // indirect
 	github.com/prometheus/procfs v0.7.3 // indirect

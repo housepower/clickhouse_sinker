@@ -47,7 +47,7 @@ import (
 	"github.com/Shopify/sarama"
 	"github.com/google/gops/agent"
 	"github.com/housepower/clickhouse_sinker/util"
-	"github.com/pkg/errors"
+	"github.com/thanos-io/thanos/pkg/errors"
 	"go.uber.org/zap"
 )
 

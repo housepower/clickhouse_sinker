@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/fagongzi/goetty"
-	"github.com/pkg/errors"
+	"github.com/thanos-io/thanos/pkg/errors"
 	"go.uber.org/zap"
 
 	"github.com/housepower/clickhouse_sinker/model"
@@ -160,7 +160,7 @@ func (ring *Ring) scheduleForchBatchOrShard() {
 		if errors.Is(err, goetty.ErrSystemStopped) {
 			util.Logger.Warn("Ring.ForceBatchOrShard scheduling timer to a stopped timer wheel", zap.String("task", ring.service.taskCfg.Name), zap.Error(err))
 		} else {
-			err = errors.Wrap(err, "")
+			err = errors.Wrapf(err, "")
 			util.Logger.Fatal("scheduling timer filed", zap.String("task", ring.service.taskCfg.Name), zap.Error(err))
 		}
 	}

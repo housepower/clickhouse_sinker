@@ -11,7 +11,7 @@ import (
 	"github.com/housepower/clickhouse_sinker/pool"
 	"github.com/housepower/clickhouse_sinker/statistics"
 	"github.com/housepower/clickhouse_sinker/util"
-	"github.com/pkg/errors"
+	"github.com/thanos-io/thanos/pkg/errors"
 	"go.uber.org/zap"
 )
 
@@ -37,13 +37,13 @@ func NewShardingPolicy(shardingKey string, shardingStripe uint64, dims []*model.
 				//string
 				policy.stripe = 0
 			default:
-				err = errors.Errorf("invalid shardingKey %s, expect its type be numerical or string", shardingKey)
+				err = errors.Newf("invalid shardingKey %s, expect its type be numerical or string", shardingKey)
 				return
 			}
 		}
 	}
 	if colSeq < 0 {
-		err = errors.Errorf("invalid shardingKey %s, no such column", shardingKey)
+		err = errors.Newf("invalid shardingKey %s, no such column", shardingKey)
 		return
 	}
 	policy.colSeq = colSeq
@@ -82,7 +82,7 @@ func (policy *ShardingPolicy) Calc(row *model.Row) (shard int, err error) {
 		case time.Time:
 			valu64 = uint64(v.Unix())
 		default:
-			err = errors.Errorf("failed to convert %+v to integer", v)
+			err = errors.Newf("failed to convert %+v to integer", v)
 			return
 		}
 		shard = int((valu64 / policy.stripe) % uint64(policy.shards))
@@ -94,7 +94,7 @@ func (policy *ShardingPolicy) Calc(row *model.Row) (shard int, err error) {
 		case string:
 			valu64 = xxhash.Sum64String(v)
 		default:
-			err = errors.Errorf("failed to convert %+v to string", v)
+			err = errors.Newf("failed to convert %+v to string", v)
 			return
 		}
 		shard = int(valu64 % uint64(policy.shards))
@@ -220,7 +220,7 @@ func (sh *Sharder) doFlush(_ interface{}) {
 		if errors.Is(err, goetty.ErrSystemStopped) {
 			util.Logger.Info("Sharder.doFlush scheduling timer to a stopped timer wheel")
 		} else {
-			err = errors.Wrap(err, "")
+			err = errors.Wrapf(err, "")
 			util.Logger.Fatal("scheduling timer filed", zap.String("task", taskCfg.Name), zap.Error(err))
 		}
 	}

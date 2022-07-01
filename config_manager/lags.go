@@ -5,7 +5,7 @@ import (
 
 	"github.com/housepower/clickhouse_sinker/config"
 	"github.com/housepower/clickhouse_sinker/input"
-	"github.com/pkg/errors"
+	"github.com/thanos-io/thanos/pkg/errors"
 	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kgo"
 )
@@ -55,7 +55,7 @@ func GetTaskStateAndLag(cfg *config.Config, taskName string) (stateLag StateLag,
 		}
 	}
 	if taskCfg == nil {
-		err = errors.Errorf("task %q doesn't exist", taskName)
+		err = errors.Newf("task %q doesn't exist", taskName)
 		return
 	}
 	if stateLag.State, stateLag.Lag, err = getStateAndLag(adm, taskCfg.Topic, taskCfg.ConsumerGroup); err != nil {
@@ -70,7 +70,7 @@ func newClient(cfg *config.Config) (cl *kgo.Client, adm *kadm.Client, err error)
 		return
 	}
 	if cl, err = kgo.NewClient(opts...); err != nil {
-		err = errors.Wrap(err, "")
+		err = errors.Wrapf(err, "")
 		return
 	}
 	adm = kadm.NewClient(cl)

@@ -36,7 +36,7 @@ import (
 	"gopkg.in/natefinch/lumberjack.v2"
 
 	"github.com/fagongzi/goetty"
-	"github.com/pkg/errors"
+	"github.com/thanos-io/thanos/pkg/errors"
 )
 
 var (

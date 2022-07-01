@@ -25,7 +25,7 @@ import (
 	"time"
 
 	"github.com/Shopify/sarama"
-	"github.com/pkg/errors"
+	"github.com/thanos-io/thanos/pkg/errors"
 	"github.com/xdg-go/scram"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -169,7 +169,7 @@ LOOP_SARAMA:
 				break LOOP_SARAMA
 			} else {
 				statistics.ConsumeMsgsErrorTotal.WithLabelValues(taskCfg.Name).Inc()
-				err = errors.Wrap(err, "")
+				err = errors.Wrapf(err, "")
 				util.Logger.Error("sarama.ConsumerGroup.Consume failed", zap.String("task", k.taskCfg.Name), zap.Error(err))
 				continue
 			}

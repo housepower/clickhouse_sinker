@@ -25,7 +25,7 @@ import (
 	krb5client "github.com/jcmturner/gokrb5/v8/client"
 	krb5config "github.com/jcmturner/gokrb5/v8/config"
 	"github.com/jcmturner/gokrb5/v8/keytab"
-	"github.com/pkg/errors"
+	"github.com/thanos-io/thanos/pkg/errors"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/sasl"
 	"github.com/twmb/franz-go/pkg/sasl/kerberos"
@@ -86,7 +86,7 @@ func (k *KafkaFranz) Init(cfg *config.Config, taskCfg *config.TaskConfig, putFn 
 	}
 
 	if k.cl, err = kgo.NewClient(opts...); err != nil {
-		err = errors.Wrap(err, "")
+		err = errors.Wrapf(err, "")
 		return
 	}
 	return nil
@@ -137,12 +137,12 @@ func GetFranzConfig(kfkCfg *config.KafkaConfig) (opts []kgo.Opt, err error) {
 			var krbCfg *krb5config.Config
 			var kt *keytab.Keytab
 			if krbCfg, err = krb5config.Load(gssapiCfg.KerberosConfigPath); err != nil {
-				err = errors.Wrap(err, "")
+				err = errors.Wrapf(err, "")
 				return
 			}
 			if gssapiCfg.AuthType == Krb5KeytabAuth {
 				if kt, err = keytab.Load(gssapiCfg.KeyTabPath); err != nil {
-					err = errors.Wrap(err, "")
+					err = errors.Wrapf(err, "")
 					return
 				}
 				auth.Client = krb5client.NewWithKeytab(gssapiCfg.Username, gssapiCfg.Realm, kt, krbCfg, krb5client.DisablePAFXFAST(gssapiCfg.DisablePAFXFAST))
@@ -173,7 +173,7 @@ func (k *KafkaFranz) Run() {
 			if errors.Is(err, context.Canceled) {
 				beCanceled = true
 			} else {
-				err = errors.Wrap(err, "")
+				err = errors.Wrapf(err, "")
 				util.Logger.Info("kgo.Client.PollFetchs() failed", zap.Error(err))
 			}
 		})
@@ -204,7 +204,7 @@ func (k *KafkaFranz) CommitMessages(msg *model.InputMessage) error {
 		if err == nil {
 			break
 		}
-		err = errors.Wrap(err, "")
+		err = errors.Wrapf(err, "")
 		if i < CommitRetries-1 && !errors.Is(err, context.Canceled) {
 			util.Logger.Error("cl.CommitRecords failed, will retry later", zap.String("task", k.taskCfg.Name), zap.Int("try", i), zap.Error(err))
 			time.Sleep(RetryBackoff)

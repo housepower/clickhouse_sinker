@@ -25,8 +25,8 @@ import (
 
 	"github.com/housepower/clickhouse_sinker/model"
 	"github.com/housepower/clickhouse_sinker/util"
-	"github.com/pkg/errors"
 	"github.com/shopspring/decimal"
+	"github.com/thanos-io/thanos/pkg/errors"
 	"github.com/tidwall/gjson"
 	"github.com/valyala/fastjson/fastfloat"
 )
@@ -47,11 +47,11 @@ func (p *CsvParser) Parse(bs []byte) (metric model.Metric, err error) {
 	}
 	var value []string
 	if value, err = r.Read(); err != nil {
-		err = errors.Wrap(err, "")
+		err = errors.Wrapf(err, "")
 		return
 	}
 	if len(value) != len(p.pp.csvFormat) {
-		err = errors.Errorf("csv value doesn't match the format")
+		err = errors.Newf("csv value doesn't match the format")
 		return
 	}
 	metric = &CsvMetric{p.pp, value}

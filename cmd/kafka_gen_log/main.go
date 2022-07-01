@@ -55,7 +55,7 @@ import (
 	"github.com/Shopify/sarama"
 	"github.com/google/gops/agent"
 	"github.com/housepower/clickhouse_sinker/util"
-	"github.com/pkg/errors"
+	"github.com/thanos-io/thanos/pkg/errors"
 	"go.uber.org/zap"
 )
 
@@ -174,7 +174,7 @@ func (g *LogGenerator) Init() error {
 		}
 	}
 	if g.logfiles == nil || len(g.logfiles) == 0 {
-		err := errors.Errorf("There is no files under %v match pattern %v", LogfileDir, LogfilePattern)
+		err := errors.Newf("There is no files under %v match pattern %v", LogfileDir, LogfilePattern)
 		return err
 	}
 	sort.Strings(g.logfiles)

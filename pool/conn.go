@@ -27,7 +27,7 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/housepower/clickhouse_sinker/util"
-	"github.com/pkg/errors"
+	"github.com/thanos-io/thanos/pkg/errors"
 	"go.uber.org/zap"
 )
 
@@ -99,7 +99,7 @@ func (sc *ShardConn) NextGoodReplica(failedVer int) (db clickhouse.Conn, dbVer i
 		util.Logger.Info("clickhouse.Open succeeded", zap.Int("dbVer", sc.dbVer), zap.String("replica", replica))
 		return sc.db, sc.dbVer, nil
 	}
-	err = errors.Errorf("no good replica among replicas %v since %d", sc.replicas, savedNextRep)
+	err = errors.Newf("no good replica among replicas %v since %d", sc.replicas, savedNextRep)
 	return nil, sc.dbVer, err
 }
 

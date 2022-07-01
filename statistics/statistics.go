@@ -20,11 +20,11 @@ import (
 	"time"
 
 	"github.com/housepower/clickhouse_sinker/util"
-	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/push"
 	"github.com/prometheus/common/expfmt"
+	"github.com/thanos-io/thanos/pkg/errors"
 	"go.uber.org/zap"
 )
 
@@ -189,7 +189,7 @@ func NewPusher(addrs []string, interval int, selfAddr string) *Pusher {
 }
 
 var (
-	errPgwEmpty = errors.New("invalid configuration for pusher")
+	errPgwEmpty = errors.Newf("invalid configuration for pusher")
 )
 
 func (p *Pusher) Init() error {

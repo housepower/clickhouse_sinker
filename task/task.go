@@ -31,7 +31,7 @@ import (
 	"github.com/housepower/clickhouse_sinker/parser"
 	"github.com/housepower/clickhouse_sinker/statistics"
 	"github.com/housepower/clickhouse_sinker/util"
-	"github.com/pkg/errors"
+	"github.com/thanos-io/thanos/pkg/errors"
 	"go.uber.org/zap"
 	"golang.org/x/time/rate"
 )
@@ -155,7 +155,7 @@ func (service *Service) Run() {
 			if errors.Is(err, goetty.ErrSystemStopped) {
 				util.Logger.Info("Service.Run scheduling timer to a stopped timer wheel")
 			} else {
-				err = errors.Wrap(err, "")
+				err = errors.Wrapf(err, "")
 				util.Logger.Fatal("scheduling timer filed", zap.String("task", taskCfg.Name), zap.Error(err))
 			}
 		}
@@ -323,7 +323,7 @@ func (service *Service) put(msg *model.InputMessage) {
 					if errors.Is(err, goetty.ErrSystemStopped) {
 						util.Logger.Info("Service.put scheduling timer to a stopped timer wheel")
 					} else {
-						err = errors.Wrap(err, "")
+						err = errors.Wrapf(err, "")
 						util.Logger.Fatal("scheduling timer failed", zap.String("task", taskCfg.Name), zap.Error(err))
 					}
 				}

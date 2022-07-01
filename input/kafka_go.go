@@ -23,10 +23,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pkg/errors"
 	"github.com/segmentio/kafka-go"
 	"github.com/segmentio/kafka-go/sasl/plain"
 	"github.com/segmentio/kafka-go/sasl/scram"
+	"github.com/thanos-io/thanos/pkg/errors"
 	"go.uber.org/zap"
 
 	"github.com/housepower/clickhouse_sinker/config"
@@ -120,7 +120,7 @@ func (k *KafkaGo) Init(cfg *config.Config, taskCfg *config.TaskConfig, putFn fun
 				return
 			}
 		default:
-			return errors.Errorf("kafka-go doesn't support SASL/%s authentication", kfkCfg.Sasl.Mechanism)
+			return errors.Newf("kafka-go doesn't support SASL/%s authentication", kfkCfg.Sasl.Mechanism)
 		}
 	}
 	if dialer != nil {
@@ -143,7 +143,7 @@ LOOP_KAFKA_GO:
 				break LOOP_KAFKA_GO
 			} else {
 				statistics.ConsumeMsgsErrorTotal.WithLabelValues(k.taskCfg.Name).Inc()
-				err = errors.Wrap(err, "")
+				err = errors.Wrapf(err, "")
 				util.Logger.Error("kafka.Reader.FetchMessage failed", zap.String("task", k.taskCfg.Name), zap.Error(err))
 				continue
 			}

@@ -35,12 +35,12 @@ import (
 	"github.com/housepower/clickhouse_sinker/pool"
 	"github.com/housepower/clickhouse_sinker/statistics"
 	"github.com/housepower/clickhouse_sinker/util"
-	"github.com/pkg/errors"
+	"github.com/thanos-io/thanos/pkg/errors"
 	"go.uber.org/zap"
 )
 
 var (
-	ErrTblNotExist       = errors.Errorf("table doesn't exist")
+	ErrTblNotExist       = errors.Newf("table doesn't exist")
 	selectSQLTemplate    = `select name, type, default_kind from system.columns where database = '%s' and table = '%s'`
 	lowCardinalityRegexp = regexp.MustCompile(`LowCardinality\((.+)\)`)
 
@@ -248,7 +248,7 @@ func (c *ClickHouse) initSeriesSchema(conn clickhouse.Conn) (err error) {
 		}
 	}
 	if dimSerID == nil {
-		err = errors.Errorf("Metric table %s shall have column `__series_id UInt64`.", c.taskCfg.TableName)
+		err = errors.Newf("Metric table %s shall have column `__series_id UInt64`.", c.taskCfg.TableName)
 		return
 	}
 	c.IdxSerID = len(c.Dims)
@@ -282,7 +282,7 @@ func (c *ClickHouse) initSeriesSchema(conn clickhouse.Conn) (err error) {
 		}
 	}
 	if badFirst {
-		err = errors.Errorf(`First columns of %s are expect to be "__series_id Int64, __mgmt_id Int64, labels String".`, c.seriesTbl)
+		err = errors.Newf(`First columns of %s are expect to be "__series_id Int64, __mgmt_id Int64, labels String".`, c.seriesTbl)
 		return
 	}
 	c.NameKey = "__name__" // prometheus uses internal "__name__" label for metric name
@@ -311,7 +311,7 @@ func (c *ClickHouse) initSeriesSchema(conn clickhouse.Conn) (err error) {
 			return
 		}
 		if c.distSeriesTbls == nil {
-			err = errors.Errorf("Please create distributed table for %s.", c.seriesTbl)
+			err = errors.Newf("Please create distributed table for %s.", c.seriesTbl)
 			return
 		}
 	}
@@ -369,7 +369,7 @@ func (c *ClickHouse) initSchema() (err error) {
 			return
 		}
 		if c.distMetricTbls == nil {
-			err = errors.Errorf("Please create distributed table for %s.", c.taskCfg.TableName)
+			err = errors.Newf("Please create distributed table for %s.", c.taskCfg.TableName)
 			return
 		}
 	}
@@ -422,7 +422,7 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 		case model.DateTimeArray:
 			strVal = "Array(DateTime64(3))"
 		default:
-			err = errors.Errorf("%s: BUG: unsupported column type %s", taskCfg.Name, strVal)
+			err = errors.Newf("%s: BUG: unsupported column type %s", taskCfg.Name, strVal)
 			return false
 		}
 		if c.taskCfg.PrometheusSchema {
