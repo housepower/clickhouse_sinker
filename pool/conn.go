@@ -19,42 +19,42 @@ package pool
 // Clickhouse connection pool
 
 import (
-	"database/sql"
+	"crypto/tls"
 	"fmt"
 	"net/url"
-	"strconv"
 	"sync"
 	"time"
 
-	"github.com/housepower/clickhouse_sinker/health"
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/pkg/errors"
-	"github.com/troian/healthcheck"
 	"go.uber.org/zap"
 )
 
 var (
 	lock        sync.Mutex
 	clusterConn []*ShardConn
-	dsnSuffix   string
 )
 
 // ShardConn a datastructure for storing the clickhouse connection
 type ShardConn struct {
-	lock         sync.Mutex
-	db           *sql.DB
-	dbVer        int
-	dsn          string
-	replicas     []string //ip:port list of replicas
-	maxOpenConns int
-	nextRep      int //index of next replica
+	lock     sync.Mutex
+	db       clickhouse.Conn
+	dbVer    int
+	opts     clickhouse.Options
+	replicas []string //ip:port list of replicas
+	nextRep  int      //index of next replica
 }
 
-// Close closes the current replica connection
-func (sc *ShardConn) GetDsn() string {
+// GetReplica returns the replica to which db connects
+func (sc *ShardConn) GetReplica() (replica string) {
 	sc.lock.Lock()
 	defer sc.lock.Unlock()
-	return sc.dsn
+	if sc.db != nil {
+		curRep := (len(sc.replicas) + sc.nextRep - 1) % len(sc.replicas)
+		replica = sc.replicas[curRep]
+	}
+	return
 }
 
 // Close closes the current replica connection
@@ -64,14 +64,11 @@ func (sc *ShardConn) Close() {
 	if sc.db != nil {
 		sc.db.Close()
 		sc.db = nil
-		if err := health.Health.RemoveReadinessCheck(sc.dsn); err != nil {
-			util.Logger.Error("health.Health.RemoveReadinessCheck failed", zap.String("dsn", sc.dsn), zap.Error(err))
-		}
 	}
 }
 
 // NextGoodReplica connects to next good replica
-func (sc *ShardConn) NextGoodReplica(failedVer int) (db *sql.DB, dbVer int, err error) {
+func (sc *ShardConn) NextGoodReplica(failedVer int) (db clickhouse.Conn, dbVer int, err error) {
 	sc.lock.Lock()
 	defer sc.lock.Unlock()
 	if sc.db != nil {
@@ -84,60 +81,34 @@ func (sc *ShardConn) NextGoodReplica(failedVer int) (db *sql.DB, dbVer int, err 
 			// conn4 = NextGood(ts2) will close the good connection and break users.
 			return sc.db, sc.dbVer, nil
 		}
-		if err := health.Health.RemoveReadinessCheck(sc.dsn); err != nil {
-			util.Logger.Warn("health.Health.RemoveReadinessCheck failed", zap.String("dsn", sc.dsn), zap.Error(err))
-		}
 		sc.db.Close()
 		sc.db = nil
 	}
 	savedNextRep := sc.nextRep
 	// try all replicas, including the current one
 	for i := 0; i < len(sc.replicas); i++ {
-		sc.dsn = fmt.Sprintf("tcp://%s", sc.replicas[sc.nextRep]) + dsnSuffix
+		replica := sc.replicas[sc.nextRep]
+		sc.opts.Addr = []string{replica}
 		sc.nextRep = (sc.nextRep + 1) % len(sc.replicas)
-		sqlDB, err := sql.Open("clickhouse", sc.dsn)
+		sc.db, err = clickhouse.Open(&sc.opts)
 		if err != nil {
-			util.Logger.Warn("sql.Open failed", zap.String("dsn", sc.dsn), zap.Error(err))
+			util.Logger.Warn("clickhouse.Open failed", zap.String("replica", replica), zap.Error(err))
 			continue
 		}
-		// According to sql.Open doc, "Open may just validate its arguments without creating a connection
-		// to the database. To verify that the data source name is valid, call Ping."
-		if err := sqlDB.Ping(); err != nil {
-			util.Logger.Warn("sqlDB.Ping failed", zap.String("dsn", sc.dsn), zap.Error(err))
-			continue
-		}
-
-		// WARN:
-		// If the number of concurrent INSERT is close to clickhouse max_concurrent_queries(default 100), user queries could fail due to the limit.
-		sqlDB.SetMaxOpenConns(sc.maxOpenConns)
-		sqlDB.SetMaxIdleConns(0)
-		sqlDB.SetConnMaxIdleTime(10 * time.Second)
-		sc.db = sqlDB
 		sc.dbVer++
-		util.Logger.Info("sql.Open and sqlDB.Ping succeeded", zap.Int("dbVer", sc.dbVer), zap.String("dsn", sc.dsn))
-		if err = health.Health.AddReadinessCheck(sc.dsn, healthcheck.DatabasePingCheck(sqlDB, 30*time.Second)); err != nil {
-			util.Logger.Warn("health.Health.AddReadinessCheck failed", zap.String("dsn", sc.dsn), zap.Error(err))
-		}
+		util.Logger.Info("clickhouse.Open succeeded", zap.Int("dbVer", sc.dbVer), zap.String("replica", replica))
 		return sc.db, sc.dbVer, nil
 	}
 	err = errors.Errorf("no good replica among replicas %v since %d", sc.replicas, savedNextRep)
 	return nil, sc.dbVer, err
 }
 
+// Each shard has a clickhouse.Conn which connects to one replica inside the shard.
+// We need more control than replica single-point-failure.
 func InitClusterConn(hosts [][]string, port int, db, username, password, dsnParams string, secure, skipVerify bool, maxOpenConns int) (err error) {
 	lock.Lock()
 	defer lock.Unlock()
 	freeClusterConn()
-	// Each shard has a *sql.DB which connects to one replica inside the shard.
-	// "hosts" tolerates replica single-point-failure. However more flexable switching is needed for some cases for example https://github.com/ClickHouse/ClickHouse/issues/24036.
-	dsnSuffix = fmt.Sprintf("?database=%s&username=%s&password=%s",
-		url.QueryEscape(db), url.QueryEscape(username), url.QueryEscape(password))
-	if dsnParams != "" {
-		dsnSuffix += "&" + dsnParams
-	}
-	if secure {
-		dsnSuffix += "&secure=true&skip_verify=" + strconv.FormatBool(skipVerify)
-	}
 
 	for _, replicas := range hosts {
 		numReplicas := len(replicas)
@@ -149,8 +120,24 @@ func InitClusterConn(hosts [][]string, port int, db, username, password, dsnPara
 			replicaAddrs[i] = fmt.Sprintf("%s:%d", ip, port)
 		}
 		sc := &ShardConn{
-			replicas:     replicaAddrs,
-			maxOpenConns: maxOpenConns,
+			replicas: replicaAddrs,
+			opts: clickhouse.Options{
+				Auth: clickhouse.Auth{
+					Database: url.QueryEscape(db),
+					Username: url.QueryEscape(username),
+					Password: url.QueryEscape(password),
+				},
+				//Debug:           true,
+				DialTimeout:     time.Second,
+				MaxOpenConns:    maxOpenConns,
+				MaxIdleConns:    1,
+				ConnMaxLifetime: time.Hour,
+			},
+		}
+		if secure {
+			tlsConfig := &tls.Config{}
+			tlsConfig.InsecureSkipVerify = skipVerify
+			sc.opts.TLS = tlsConfig
 		}
 		if _, _, err = sc.NextGoodReplica(0); err != nil {
 			return

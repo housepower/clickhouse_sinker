@@ -17,7 +17,6 @@ package output
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"io"
 	"math"
@@ -27,6 +26,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
+
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/housepower/clickhouse_sinker/config"
 	"github.com/housepower/clickhouse_sinker/model"
@@ -111,7 +113,7 @@ func (c *ClickHouse) Send(batch *model.Batch) {
 	})
 }
 
-func (c *ClickHouse) writeSeries(rows model.Rows, conn *sql.DB) (err error) {
+func (c *ClickHouse) writeSeries(rows model.Rows, conn clickhouse.Conn) (err error) {
 	var seriesRows model.Rows
 	c.mux.Lock()
 	for _, row := range rows {
@@ -138,7 +140,7 @@ func (c *ClickHouse) write(batch *model.Batch, sc *pool.ShardConn, dbVer *int) (
 	if len(*batch.Rows) == 0 {
 		return
 	}
-	var conn *sql.DB
+	var conn clickhouse.Conn
 	if conn, *dbVer, err = sc.NextGoodReplica(*dbVer); err != nil {
 		return
 	}
@@ -197,7 +199,7 @@ func (c *ClickHouse) loopWrite(batch *model.Batch) {
 	}
 }
 
-func (c *ClickHouse) initBmSeries(conn *sql.DB) (err error) {
+func (c *ClickHouse) initBmSeries(conn clickhouse.Conn) (err error) {
 	tbl := c.seriesTbl
 	if c.cfg.Clickhouse.Cluster != "" {
 		tbl = c.distSeriesTbls[0]
@@ -209,9 +211,9 @@ func (c *ClickHouse) initBmSeries(conn *sql.DB) (err error) {
 	}
 	query := fmt.Sprintf("SELECT toUInt64(toInt64(__mgmt_id)) AS mid FROM %s.%s ORDER BY mid", c.cfg.Clickhouse.DB, tbl)
 	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query))
-	var rs *sql.Rows
+	var rs driver.Rows
 	var mgmtID uint64
-	if rs, err = conn.Query(query); err != nil {
+	if rs, err = conn.Query(context.Background(), query); err != nil {
 		err = errors.Wrapf(err, "")
 		return err
 	}
@@ -227,7 +229,7 @@ func (c *ClickHouse) initBmSeries(conn *sql.DB) (err error) {
 	return
 }
 
-func (c *ClickHouse) initSeriesSchema(conn *sql.DB) (err error) {
+func (c *ClickHouse) initSeriesSchema(conn clickhouse.Conn) (err error) {
 	if !c.taskCfg.PrometheusSchema {
 		c.IdxSerID = -1
 		return
@@ -295,16 +297,13 @@ func (c *ClickHouse) initSeriesSchema(conn *sql.DB) (err error) {
 
 	// Generate SQL for series INSERT
 	serDimsQuoted := make([]string, len(seriesDims))
-	params := make([]string, len(seriesDims))
 	for i, serDim := range seriesDims {
 		serDimsQuoted[i] = fmt.Sprintf("`%s`", serDim.Name)
-		params[i] = "?"
 	}
-	c.promSerSQL = fmt.Sprintf("INSERT INTO `%s`.`%s` (%s) VALUES (%s)",
+	c.promSerSQL = fmt.Sprintf("INSERT INTO `%s`.`%s` (%s)",
 		c.cfg.Clickhouse.DB,
 		c.seriesTbl,
-		strings.Join(serDimsQuoted, ","),
-		strings.Join(params, ","))
+		strings.Join(serDimsQuoted, ","))
 
 	// Check distributed series table
 	if chCfg := &c.cfg.Clickhouse; chCfg.Cluster != "" {
@@ -326,7 +325,7 @@ func (c *ClickHouse) initSeriesSchema(conn *sql.DB) (err error) {
 
 func (c *ClickHouse) initSchema() (err error) {
 	sc := pool.GetShardConn(0)
-	var conn *sql.DB
+	var conn clickhouse.Conn
 	if conn, _, err = sc.NextGoodReplica(0); err != nil {
 		return
 	}
@@ -355,16 +354,13 @@ func (c *ClickHouse) initSchema() (err error) {
 		numDims = c.IdxSerID + 1
 	}
 	quotedDms := make([]string, numDims)
-	params := make([]string, numDims)
 	for i := 0; i < numDims; i++ {
 		quotedDms[i] = fmt.Sprintf("`%s`", c.Dims[i].Name)
-		params[i] = "?"
 	}
-	c.prepareSQL = fmt.Sprintf("INSERT INTO `%s`.`%s` (%s) VALUES (%s)",
+	c.prepareSQL = fmt.Sprintf("INSERT INTO `%s`.`%s` (%s)",
 		c.cfg.Clickhouse.DB,
 		c.taskCfg.TableName,
-		strings.Join(quotedDms, ","),
-		strings.Join(params, ","))
+		strings.Join(quotedDms, ","))
 	util.Logger.Info(fmt.Sprintf("Prepare sql=> %s", c.prepareSQL), zap.String("task", c.taskCfg.Name))
 
 	// Check distributed metric table
@@ -447,13 +443,13 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 	}
 	sort.Strings(queries)
 	sc := pool.GetShardConn(0)
-	var conn *sql.DB
+	var conn clickhouse.Conn
 	if conn, _, err = sc.NextGoodReplica(0); err != nil {
 		return
 	}
 	for _, query := range queries {
 		util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", taskCfg.Name))
-		if _, err = conn.Exec(query); err != nil {
+		if err = conn.Exec(context.Background(), query); err != nil {
 			err = errors.Wrapf(err, query)
 			return
 		}
@@ -477,7 +473,7 @@ func (c *ClickHouse) getDistTbls(table string) (distTbls []string, err error) {
 	taskCfg := c.taskCfg
 	chCfg := &c.cfg.Clickhouse
 	sc := pool.GetShardConn(0)
-	var conn *sql.DB
+	var conn clickhouse.Conn
 	if conn, _, err = sc.NextGoodReplica(0); err != nil {
 		return
 	}
@@ -485,8 +481,8 @@ func (c *ClickHouse) getDistTbls(table string) (distTbls []string, err error) {
 		chCfg.DB, chCfg.Cluster, chCfg.DB, table)
 	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", taskCfg.Name))
 
-	var rows *sql.Rows
-	if rows, err = conn.Query(query); err != nil {
+	var rows driver.Rows
+	if rows, err = conn.Query(context.Background(), query); err != nil {
 		err = errors.Wrapf(err, "")
 		return
 	}
