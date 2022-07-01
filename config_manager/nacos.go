@@ -15,12 +15,12 @@ import (
 
 	"github.com/housepower/clickhouse_sinker/config"
 	"github.com/housepower/clickhouse_sinker/util"
-	"github.com/nacos-group/nacos-sdk-go/clients"
-	"github.com/nacos-group/nacos-sdk-go/clients/config_client"
-	"github.com/nacos-group/nacos-sdk-go/clients/naming_client"
-	"github.com/nacos-group/nacos-sdk-go/common/constant"
-	"github.com/nacos-group/nacos-sdk-go/model"
-	"github.com/nacos-group/nacos-sdk-go/vo"
+	"github.com/nacos-group/nacos-sdk-go/v2/clients"
+	"github.com/nacos-group/nacos-sdk-go/v2/clients/config_client"
+	"github.com/nacos-group/nacos-sdk-go/v2/clients/naming_client"
+	"github.com/nacos-group/nacos-sdk-go/v2/common/constant"
+	"github.com/nacos-group/nacos-sdk-go/v2/model"
+	"github.com/nacos-group/nacos-sdk-go/v2/vo"
 	"github.com/thanos-io/thanos/pkg/errors"
 	"go.uber.org/zap"
 )
@@ -274,7 +274,7 @@ func (ncm *NacosConfManager) configOnChange(namespace, group, dataID, data strin
 	}
 }
 
-func (ncm *NacosConfManager) serviceOnChange(services []model.SubscribeService, err error) {
+func (ncm *NacosConfManager) serviceOnChange(services []model.Instance, err error) {
 	if err != nil {
 		return
 	}
