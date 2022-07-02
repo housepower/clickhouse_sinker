@@ -109,13 +109,6 @@ var (
 		},
 		[]string{"task", "topic", "partition"},
 	)
-	ClickhouseReconnectTotal = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: prefix + "clickhouse_reconnect_total",
-			Help: "total num of ClickHouse reconnects",
-		},
-		[]string{"task"},
-	)
 	RingMsgs = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: prefix + "ring_msgs",
@@ -144,6 +137,14 @@ var (
 		},
 		[]string{"task"},
 	)
+	WritingDurations = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    prefix + "writing_durations",
+			Help:    "writing durations",
+			Buckets: []float64{1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0},
+		},
+		[]string{"task", "table"},
+	)
 )
 
 func init() {
@@ -158,11 +159,11 @@ func init() {
 	prometheus.MustRegister(FlushMsgsTotal)
 	prometheus.MustRegister(FlushMsgsErrorTotal)
 	prometheus.MustRegister(ConsumeOffsets)
-	prometheus.MustRegister(ClickhouseReconnectTotal)
 	prometheus.MustRegister(RingMsgs)
 	prometheus.MustRegister(ShardMsgs)
 	prometheus.MustRegister(ParsingPoolBacklog)
 	prometheus.MustRegister(WritingPoolBacklog)
+	prometheus.MustRegister(WritingDurations)
 	prometheus.MustRegister(collectors.NewBuildInfoCollector())
 }
 
@@ -253,11 +254,11 @@ func (p *Pusher) reconnect() {
 		Collector(FlushMsgsTotal).
 		Collector(FlushMsgsErrorTotal).
 		Collector(ConsumeOffsets).
-		Collector(ClickhouseReconnectTotal).
 		Collector(RingMsgs).
 		Collector(ShardMsgs).
 		Collector(ParsingPoolBacklog).
 		Collector(WritingPoolBacklog).
+		Collector(WritingDurations).
 		Grouping("instance", p.instance).Format(expfmt.FmtText)
 	p.inUseAddr = nextAddr
 }
