@@ -128,6 +128,8 @@ func generate() {
 		if err != nil {
 			util.Logger.Fatal("kgo.Client.Produce failed", zap.Error(err))
 		}
+		atomic.AddInt64(&gLines, int64(1))
+		atomic.AddInt64(&gSize, int64(len(rec.Value)))
 	}
 
 	for day := 0; ; day++ {
@@ -156,8 +158,6 @@ func generate() {
 						Key:   []byte(dp.Name),
 						Value: b,
 					}, produceCb)
-					atomic.AddInt64(&gLines, int64(1))
-					atomic.AddInt64(&gSize, int64(len(b)))
 				})
 			}
 		}

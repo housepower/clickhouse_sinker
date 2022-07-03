@@ -52,10 +52,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Shopify/sarama"
 	"github.com/google/gops/agent"
 	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/thanos-io/thanos/pkg/errors"
+	"github.com/twmb/franz-go/pkg/kgo"
 	"go.uber.org/zap"
 )
 
@@ -229,14 +229,24 @@ func (g *LogGenerator) Run() {
 	rounded := time.Date(toRound.Year(), toRound.Month(), toRound.Day(), 0, 0, 0, 0, toRound.Location())
 
 	wp := util.NewWorkerPool(10, 10000)
-	config := sarama.NewConfig()
-	config.Version = sarama.V2_1_0_0
-	w, err := sarama.NewAsyncProducer(strings.Split(KafkaBrokers, ","), config)
-	if err != nil {
-		util.Logger.Fatal("sarama.NewAsyncProducer failed", zap.Error(err))
+	opts := []kgo.Opt{
+		kgo.SeedBrokers(strings.Split(KafkaBrokers, ",")...),
 	}
-	defer w.Close()
-	chInput := w.Input()
+	var err error
+	var cl *kgo.Client
+	if cl, err = kgo.NewClient(opts...); err != nil {
+		util.Logger.Fatal("kgo.NewClient failed", zap.Error(err))
+	}
+	defer cl.Close()
+
+	ctx := context.Background()
+	produceCb := func(rec *kgo.Record, err error) {
+		if err != nil {
+			util.Logger.Fatal("kgo.Client.Produce failed", zap.Error(err))
+		}
+		atomic.AddInt64(&g.lines, int64(1))
+		atomic.AddInt64(&g.size, int64(len(rec.Value)))
+	}
 
 	var b []byte
 	for day := 0; ; day++ {
@@ -277,13 +287,11 @@ func (g *LogGenerator) Run() {
 					err = errors.Wrapf(err, "")
 					util.Logger.Fatal("got error", zap.Error(err))
 				}
-				chInput <- &sarama.ProducerMessage{
+				cl.Produce(ctx, &kgo.Record{
 					Topic: KafkaTopic,
-					Key:   sarama.StringEncoder(logObj.Hostname),
-					Value: sarama.ByteEncoder(b),
-				}
-				atomic.AddInt64(&g.lines, int64(1))
-				atomic.AddInt64(&g.size, int64(len(b)))
+					Key:   []byte(logObj.Hostname),
+					Value: b,
+				}, produceCb)
 			})
 		}
 	}
