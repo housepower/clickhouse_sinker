@@ -78,6 +78,16 @@ func (h MyConsumerGroupHandler) Cleanup(_ sarama.ConsumerGroupSession) error {
 
 func (h MyConsumerGroupHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
 	for msg := range claim.Messages() {
+
+		//do rate limit for reading kafka record
+		//Background returns a non-nil, empty Context. It is never canceled, has no values, and has no deadline.
+		err := util.Limiter.Wait(context.Background())
+		if err != nil {
+			util.Logger.Error("rate.limiter.Wait() failed in fetches.EachRecord ", zap.Error(err))
+			util.Logger.Error("call limiter.Wait()", zap.Int("Limit", int(util.Limiter.Limit())))
+			util.Logger.Error("call limiter.Wait()", zap.Int("Burst", int(util.Limiter.Burst())))
+		}
+
 		h.k.putFn(&model.InputMessage{
 			Topic:     msg.Topic,
 			Partition: int(msg.Partition),
