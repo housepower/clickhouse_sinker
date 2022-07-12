@@ -21,7 +21,6 @@ package pool
 import (
 	"crypto/tls"
 	"fmt"
-	"net/url"
 	"sync"
 	"time"
 
@@ -123,9 +122,9 @@ func InitClusterConn(hosts [][]string, port int, db, username, password, dsnPara
 			replicas: replicaAddrs,
 			opts: clickhouse.Options{
 				Auth: clickhouse.Auth{
-					Database: url.QueryEscape(db),
-					Username: url.QueryEscape(username),
-					Password: url.QueryEscape(password),
+					Database: db,
+					Username: username,
+					Password: password,
 				},
 				//Debug:           true,
 				DialTimeout:     time.Second,
