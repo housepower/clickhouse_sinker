@@ -21,6 +21,8 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/exp/constraints"
+
 	"github.com/housepower/clickhouse_sinker/model"
 	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/shopspring/decimal"
@@ -110,21 +112,46 @@ func (c *FastjsonMetric) GetDecimal(key string, nullable bool) (val interface{})
 }
 
 func (c *FastjsonMetric) GetInt(key string, nullable bool) (val interface{}) {
+	return FastjsonGetInt[int8](c, key, nullable)
+}
+
+func FastjsonGetInt[T constraints.Signed](c *FastjsonMetric, key string, nullable bool) (val interface{}) {
 	v := c.value.Get(key)
 	if !fjCompatibleInt(v) {
-		val = getDefaultInt(nullable)
+		val = getDefaultIntGeneric[T](nullable)
 		return
 	}
 	switch v.Type() {
 	case fastjson.TypeTrue:
-		val = int64(1)
+		val = T(1)
 	case fastjson.TypeFalse:
-		val = int64(0)
+		val = T(0)
 	default:
 		if val2, err := v.Int64(); err != nil {
-			val = getDefaultInt(nullable)
+			val = getDefaultIntGeneric[T](nullable)
 		} else {
-			val = val2
+			val = T(val2)
+		}
+	}
+	return
+}
+
+func FastjsonGetUint[T constraints.Unsigned](c *FastjsonMetric, key string, nullable bool) (val interface{}) {
+	v := c.value.Get(key)
+	if !fjCompatibleInt(v) {
+		val = getDefaultIntGeneric[T](nullable)
+		return
+	}
+	switch v.Type() {
+	case fastjson.TypeTrue:
+		val = T(1)
+	case fastjson.TypeFalse:
+		val = T(0)
+	default:
+		if val2, err := v.Uint64(); err != nil {
+			val = getDefaultIntGeneric[T](nullable)
+		} else {
+			val = T(val2)
 		}
 	}
 	return
@@ -320,6 +347,15 @@ func getDefaultBool(nullable bool) (val interface{}) {
 		return
 	}
 	val = false
+	return
+}
+
+func getDefaultIntGeneric[T constraints.Integer](nullable bool) (val interface{}) {
+	if nullable {
+		return
+	}
+	var zero T
+	val = zero
 	return
 }
 
