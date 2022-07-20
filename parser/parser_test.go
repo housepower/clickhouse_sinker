@@ -72,8 +72,8 @@ var jsonSchema = map[string]string{
 	"null":                      "Unknown",
 	"bool_true":                 "Bool",
 	"bool_false":                "Bool",
-	"num_int":                   "Int",
-	"num_float":                 "Float",
+	"num_int":                   "Int64",
+	"num_float":                 "Float64",
 	"str":                       "String",
 	"str_int":                   "String",
 	"str_float":                 "String",
@@ -83,13 +83,13 @@ var jsonSchema = map[string]string{
 	"str_time_rfc3339_2":        "DateTime",
 	"str_time_clickhouse_1":     "DateTime",
 	"str_time_clickhouse_2":     "DateTime",
-	"obj":                       "String",
+	"obj":                       "Unknown",
 	"array_empty":               "Unknown",
 	"array_null":                "Unknown",
 	"array_bool":                "BoolArray",
-	"array_num_int_1":           "IntArray",
-	"array_num_int_2":           "IntArray",
-	"array_num_float":           "FloatArray",
+	"array_num_int_1":           "Int64Array",
+	"array_num_int_2":           "Int64Array",
+	"array_num_float":           "Float64Array",
 	"array_str":                 "StringArray",
 	"array_str_int_1":           "StringArray",
 	"array_str_int_2":           "StringArray",
@@ -98,7 +98,7 @@ var jsonSchema = map[string]string{
 	"array_str_date_2":          "DateTimeArray",
 	"array_str_time_rfc3339":    "DateTimeArray",
 	"array_str_time_clickhouse": "DateTimeArray",
-	"array_obj":                 "StringArray",
+	"array_obj":                 "Unknown",
 }
 
 var csvSample = []byte(`null,true,false,123,123.321,"escaped_""ws",123,123.321,2009-07-13,13/07/2009,2009-07-13T09:07:13Z,2009-07-13T09:07:13.123+08:00,2009-07-13 09:07:13,2009-07-13 09:07:13.123,"{""i"":[1,2,3],""f"":[1.1,2.2,3.3],""s"":[""aa"",""bb"",""cc""],""e"":[]}",[],[null],"[true,false]","[0,255,256,65535,65536,4294967295,4294967296,18446744073709551615,18446744073709551616]","[-9223372036854775808,-2147483649,-2147483648,-32769,-32768,-129,-128,0,127,128,32767,32768,2147483647,2147483648,9223372036854775807]","[4.940656458412465441765687928682213723651e-324,1.401298464324817070923729583289916131280e-45,0.0,3.40282346638528859811704183484516925440e+38,1.797693134862315708145274237317043567981e+308]","[""aa"",""bb"",""cc""]","[""0"",""255"",""256"",""65535"",""65536"",""4294967295"",""4294967296"",""18446744073709551615"",""18446744073709551616""]","[""-9223372036854775808"",""-2147483649"",""-2147483648"",""-32769"",""-32768"",""-129"",""-128"",""0"",""127"",""128"",""32767"",""32768"",""2147483647"",""2147483648"",""9223372036854775807""]","[""4.940656458412465441765687928682213723651e-324"",""1.401298464324817070923729583289916131280e-45"",""0.0"",""3.40282346638528859811704183484516925440e+38"",""1.797693134862315708145274237317043567981e+308""]","[""2009-07-13"",""2009-07-14"",""2009-07-15""]","[""13/07/2009"",""14/07/2009"",""15/07/2009""]","[""2009-07-13T09:07:13Z"",""2009-07-13T09:07:13+08:00"",""2009-07-13T09:07:13.123Z"",""2009-07-13T09:07:13.123+08:00""]","[""2009-07-13 09:07:13"",""2009-07-13 09:07:13.123""]","[{""i"":[1,2,3],""f"":[1.1,2.2,3.3]},{""s"":[""aa"",""bb"",""cc""],""e"":[]}]"`)
@@ -220,21 +220,37 @@ func doTestSimple(t *testing.T, method string, testCases []SimpleCase) {
 		for j := range testCases {
 			var v interface{}
 			desc := fmt.Sprintf(`%s.%s("%s", %s)`, name, method, testCases[j].Field, strconv.FormatBool(testCases[j].Nullable))
-			if name == "csv" && (sliceContains([]string{"GetBool", "GetInt", "GetFloat", "GetDateTime"}, method) && sliceContains([]string{"str_int", "str_float"}, testCases[j].Field) || testCases[j].Nullable) {
+			if name == "csv" && (sliceContains([]string{"GetBool", "GetInt64", "GetFloat64", "GetDateTime"}, method) && sliceContains([]string{"str_int", "str_float"}, testCases[j].Field) || testCases[j].Nullable) {
 				skipped = append(skipped, desc)
 				continue
 			}
 			switch method {
 			case "GetBool":
 				v = metric.GetBool(testCases[j].Field, testCases[j].Nullable)
-			case "GetInt":
-				v = metric.GetInt(testCases[j].Field, testCases[j].Nullable)
-			case "GetFloat":
-				v = metric.GetFloat(testCases[j].Field, testCases[j].Nullable)
-			case "GetString":
-				v = metric.GetString(testCases[j].Field, testCases[j].Nullable)
+			case "GetInt8":
+				v = metric.GetInt8(testCases[j].Field, testCases[j].Nullable)
+			case "GetInt16":
+				v = metric.GetInt16(testCases[j].Field, testCases[j].Nullable)
+			case "GetInt32":
+				v = metric.GetInt32(testCases[j].Field, testCases[j].Nullable)
+			case "GetInt64":
+				v = metric.GetInt64(testCases[j].Field, testCases[j].Nullable)
+			case "GetUint8":
+				v = metric.GetUint8(testCases[j].Field, testCases[j].Nullable)
+			case "GetUint16":
+				v = metric.GetUint16(testCases[j].Field, testCases[j].Nullable)
+			case "GetUint32":
+				v = metric.GetUint32(testCases[j].Field, testCases[j].Nullable)
+			case "GetUint64":
+				v = metric.GetUint64(testCases[j].Field, testCases[j].Nullable)
+			case "GetFloat32":
+				v = metric.GetFloat32(testCases[j].Field, testCases[j].Nullable)
+			case "GetFloat64":
+				v = metric.GetFloat64(testCases[j].Field, testCases[j].Nullable)
 			case "GetDateTime":
 				v = metric.GetDateTime(testCases[j].Field, testCases[j].Nullable)
+			case "GetString":
+				v = metric.GetString(testCases[j].Field, testCases[j].Nullable)
 			default:
 				panic("error!")
 			}
@@ -307,7 +323,7 @@ func TestParserInt(t *testing.T) {
 		{"obj", true, nil},
 		{"array_empty", true, nil},
 	}
-	doTestSimple(t, "GetInt", testCases)
+	doTestSimple(t, "GetInt64", testCases)
 }
 
 func TestParserFloat(t *testing.T) {
@@ -339,7 +355,7 @@ func TestParserFloat(t *testing.T) {
 		{"obj", true, nil},
 		{"array_empty", true, nil},
 	}
-	doTestSimple(t, "GetFloat", testCases)
+	doTestSimple(t, "GetFloat64", testCases)
 }
 
 func TestParserString(t *testing.T) {
@@ -425,72 +441,72 @@ func TestParserArray(t *testing.T) {
 	require.Nil(t, errInit)
 
 	testCases := []ArrayCase{
-		{"not_exist", model.Float, []float64{}},
-		{"null", model.Float, []float64{}},
-		{"num_int", model.Int, []int64{}},
-		{"num_float", model.Float, []float64{}},
+		{"not_exist", model.Float64, []float64{}},
+		{"null", model.Float64, []float64{}},
+		{"num_int", model.Int64, []int64{}},
+		{"num_float", model.Float64, []float64{}},
 		{"str", model.String, []string{}},
 		{"str_int", model.String, []string{}},
 		{"str_date_1", model.DateTime, []time.Time{}},
 		{"obj", model.String, []string{}},
 
 		{"array_empty", model.Bool, []bool{}},
-		{"array_empty", model.Int, []int64{}},
-		{"array_empty", model.Float, []float64{}},
+		{"array_empty", model.Int64, []int64{}},
+		{"array_empty", model.Float64, []float64{}},
 		{"array_empty", model.String, []string{}},
 		{"array_empty", model.DateTime, []time.Time{}},
 
 		{"array_null", model.Bool, []bool{false}},
-		{"array_null", model.Int, []int64{0}},
-		{"array_null", model.Float, []float64{0.0}},
+		{"array_null", model.Int64, []int64{0}},
+		{"array_null", model.Float64, []float64{0.0}},
 		{"array_null", model.String, []string{""}},
 		{"array_null", model.DateTime, []time.Time{Epoch}},
 
 		{"array_bool", model.Bool, []bool{true, false}},
-		{"array_bool", model.Int, []int64{1, 0}},
-		{"array_bool", model.Float, []float64{0.0, 0.0}},
+		{"array_bool", model.Int64, []int64{1, 0}},
+		{"array_bool", model.Float64, []float64{0.0, 0.0}},
 		{"array_bool", model.String, []string{"true", "false"}},
 		{"array_bool", model.DateTime, []time.Time{Epoch, Epoch}},
 
 		{"array_num_int_1", model.Bool, []bool{false, false, false, false, false, false, false, false, false}},
-		{"array_num_int_1", model.Int, []int64{0, 255, 256, 65535, 65536, 4294967295, 4294967296, 0, 0}},
-		{"array_num_int_1", model.Float, []float64{0, 255, 256, 65535, 65536, 4294967295, 4294967296, 18446744073709551615, 18446744073709551616}},
+		{"array_num_int_1", model.Int64, []int64{0, 255, 256, 65535, 65536, 4294967295, 4294967296, 0, 0}},
+		{"array_num_int_1", model.Float64, []float64{0, 255, 256, 65535, 65536, 4294967295, 4294967296, 18446744073709551615, 18446744073709551616}},
 		{"array_num_int_1", model.String, []string{"0", "255", "256", "65535", "65536", "4294967295", "4294967296", "18446744073709551615", "18446744073709551616"}},
 		{"array_num_int_1", model.DateTime, []time.Time{Epoch, UnixFloat(255, timeUnit), UnixFloat(256, timeUnit), UnixFloat(65535, timeUnit), UnixFloat(65536, timeUnit), UnixFloat(4294967295, timeUnit), UnixFloat(4294967296, timeUnit), Epoch, Epoch}},
 
 		{"array_num_int_2", model.Bool, []bool{false, false, false, false, false, false, false, false, false, false, false, false, false, false, false}},
-		{"array_num_int_2", model.Int, []int64{-9223372036854775808, -2147483649, -2147483648, -32769, -32768, -129, -128, 0, 127, 128, 32767, 32768, 2147483647, 2147483648, 9223372036854775807}},
-		{"array_num_int_2", model.Float, []float64{-9223372036854775808, -2147483649, -2147483648, -32769, -32768, -129, -128, 0, 127, 128, 32767, 32768, 2147483647, 2147483648, 9223372036854775807}},
+		{"array_num_int_2", model.Int64, []int64{-9223372036854775808, -2147483649, -2147483648, -32769, -32768, -129, -128, 0, 127, 128, 32767, 32768, 2147483647, 2147483648, 9223372036854775807}},
+		{"array_num_int_2", model.Float64, []float64{-9223372036854775808, -2147483649, -2147483648, -32769, -32768, -129, -128, 0, 127, 128, 32767, 32768, 2147483647, 2147483648, 9223372036854775807}},
 		{"array_num_int_2", model.String, []string{"-9223372036854775808", "-2147483649", "-2147483648", "-32769", "-32768", "-129", "-128", "0", "127", "128", "32767", "32768", "2147483647", "2147483648", "9223372036854775807"}},
 		{"array_num_int_2", model.DateTime, []time.Time{Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, UnixFloat(127, timeUnit), UnixFloat(128, timeUnit), UnixFloat(32767, timeUnit), UnixFloat(32768, timeUnit), UnixFloat(2147483647, timeUnit), UnixFloat(2147483648, timeUnit), UnixFloat(9223372036854775807, timeUnit)}},
 
 		{"array_num_float", model.Bool, []bool{false, false, false, false, false, false, false}},
-		{"array_num_float", model.Int, []int64{0, 0, 0, 0, 0, 0, 0}},
-		{"array_num_float", model.Float, []float64{4.940656458412465441765687928682213723651e-324, 1.401298464324817070923729583289916131280e-45, 0.0, 3.40282346638528859811704183484516925440e+38, 1.797693134862315708145274237317043567981e+308, math.Inf(-1), math.Inf(1)}},
+		{"array_num_float", model.Int64, []int64{0, 0, 0, 0, 0, 0, 0}},
+		{"array_num_float", model.Float64, []float64{4.940656458412465441765687928682213723651e-324, 1.401298464324817070923729583289916131280e-45, 0.0, 3.40282346638528859811704183484516925440e+38, 1.797693134862315708145274237317043567981e+308, math.Inf(-1), math.Inf(1)}},
 		{"array_num_float", model.String, []string{"4.940656458412465441765687928682213723651e-324", "1.401298464324817070923729583289916131280e-45", "0.0", "3.40282346638528859811704183484516925440e+38", "1.797693134862315708145274237317043567981e+308", "-inf", "+inf"}},
 		{"array_num_float", model.DateTime, []time.Time{Epoch, Epoch, Epoch, UnixFloat(3.40282346638528859811704183484516925440e+38, timeUnit), UnixFloat(1.797693134862315708145274237317043567981e+308, timeUnit), UnixFloat(math.Inf(-1), timeUnit), UnixFloat(math.Inf(1), timeUnit)}},
 
 		{"array_str", model.Bool, []bool{false, false, false}},
-		{"array_str", model.Int, []int64{0, 0, 0}},
-		{"array_str", model.Float, []float64{0.0, 0.0, 0.0}},
+		{"array_str", model.Int64, []int64{0, 0, 0}},
+		{"array_str", model.Float64, []float64{0.0, 0.0, 0.0}},
 		{"array_str", model.String, []string{"aa", "bb", "cc"}},
 		{"array_str", model.DateTime, []time.Time{Epoch, Epoch, Epoch}},
 
 		{"array_str_int_1", model.Bool, []bool{false, false, false, false, false, false, false, false, false}},
-		{"array_str_int_1", model.Int, []int64{0, 0, 0, 0, 0, 0, 0, 0, 0}},
-		{"array_str_int_1", model.Float, []float64{0, 0, 0, 0, 0, 0, 0, 0, 0}},
+		{"array_str_int_1", model.Int64, []int64{0, 0, 0, 0, 0, 0, 0, 0, 0}},
+		{"array_str_int_1", model.Float64, []float64{0, 0, 0, 0, 0, 0, 0, 0, 0}},
 		{"array_str_int_1", model.String, []string{"0", "255", "256", "65535", "65536", "4294967295", "4294967296", "18446744073709551615", "18446744073709551616"}},
 		{"array_str_int_1", model.DateTime, []time.Time{Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch}},
 
 		{"array_str_int_2", model.Bool, []bool{false, false, false, false, false, false, false, false, false, false, false, false, false, false, false}},
-		{"array_str_int_2", model.Int, []int64{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
-		{"array_str_int_2", model.Float, []float64{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
+		{"array_str_int_2", model.Int64, []int64{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
+		{"array_str_int_2", model.Float64, []float64{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
 		{"array_str_int_2", model.String, []string{"-9223372036854775808", "-2147483649", "-2147483648", "-32769", "-32768", "-129", "-128", "0", "127", "128", "32767", "32768", "2147483647", "2147483648", "9223372036854775807"}},
 		{"array_str_int_2", model.DateTime, []time.Time{Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch}},
 
 		{"array_str_float", model.Bool, []bool{false, false, false, false, false, false, false}},
-		{"array_str_float", model.Int, []int64{0, 0, 0, 0, 0, 0, 0}},
-		{"array_str_float", model.Float, []float64{0, 0, 0, 0, 0, 0, 0}},
+		{"array_str_float", model.Int64, []int64{0, 0, 0, 0, 0, 0, 0}},
+		{"array_str_float", model.Float64, []float64{0, 0, 0, 0, 0, 0, 0}},
 		{"array_str_float", model.String, []string{"4.940656458412465441765687928682213723651e-324", "1.401298464324817070923729583289916131280e-45", "0.0", "3.40282346638528859811704183484516925440e+38", "1.797693134862315708145274237317043567981e+308", "-inf", "+inf"}},
 		{"array_str_float", model.DateTime, []time.Time{Epoch, Epoch, Epoch, Epoch, Epoch, Epoch, Epoch}},
 
@@ -677,8 +693,13 @@ func TestFastjsonDetectSchema(t *testing.T) {
 	if obj, err = c.value.Object(); err != nil {
 		return
 	}
-	obj.Visit(func(key []byte, v *fastjson.Value) {
-		act[string(key)] = model.GetTypeName(fjDetectType(v))
+	obj.Visit(func(k []byte, v *fastjson.Value) {
+		typ, array := fjDetectType(v, 0)
+		tn := model.GetTypeName(typ)
+		if typ != model.Unknown && array {
+			tn += "Array"
+		}
+		act[string(k)] = tn
 	})
 	require.Equal(t, jsonSchema, act)
 }
@@ -693,7 +714,12 @@ func TestGjsonDetectSchema(t *testing.T) {
 	c, _ := metric.(*GjsonMetric)
 	obj := gjson.Parse(c.raw)
 	obj.ForEach(func(k, v gjson.Result) bool {
-		act[k.Str] = model.GetTypeName(gjDetectType(v))
+		typ, array := gjDetectType(v, 0)
+		tn := model.GetTypeName(typ)
+		if typ != model.Unknown && array {
+			tn += "Array"
+		}
+		act[k.Str] = tn
 		return true
 	})
 	require.Equal(t, jsonSchema, act)

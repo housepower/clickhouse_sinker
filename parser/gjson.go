@@ -32,7 +32,6 @@ import (
 )
 
 var _ Parser = (*GjsonParser)(nil)
-var intPatt = regexp.MustCompile(`(+-)?[\de]+`)
 
 type GjsonParser struct {
 	pp *Pool
@@ -136,7 +135,7 @@ func (c *GjsonMetric) GetFloat64(key string, nullable bool) (val interface{}) {
 func GjsonGetInt[T constraints.Signed](c *GjsonMetric, key string, nullable bool) (val interface{}) {
 	r := gjson.Get(c.raw, key)
 	if !gjCompatibleInt(r) {
-		val = getDefaultIntGeneric[T](nullable)
+		val = getDefaultInt[T](nullable)
 		return
 	}
 	switch r.Type {
@@ -146,12 +145,12 @@ func GjsonGetInt[T constraints.Signed](c *GjsonMetric, key string, nullable bool
 		val = T(0)
 	case gjson.Number:
 		if v := r.Int(); float64(v) != r.Num {
-			val = getDefaultIntGeneric[T](nullable)
+			val = getDefaultInt[T](nullable)
 		} else {
 			val = T(v)
 		}
 	default:
-		val = getDefaultIntGeneric[T](nullable)
+		val = getDefaultInt[T](nullable)
 	}
 	return
 }
@@ -159,7 +158,7 @@ func GjsonGetInt[T constraints.Signed](c *GjsonMetric, key string, nullable bool
 func GjsonGetUint[T constraints.Unsigned](c *GjsonMetric, key string, nullable bool) (val interface{}) {
 	r := gjson.Get(c.raw, key)
 	if !gjCompatibleInt(r) {
-		val = getDefaultIntGeneric[T](nullable)
+		val = getDefaultInt[T](nullable)
 		return
 	}
 	switch r.Type {
@@ -169,12 +168,12 @@ func GjsonGetUint[T constraints.Unsigned](c *GjsonMetric, key string, nullable b
 		val = T(0)
 	case gjson.Number:
 		if v := r.Uint(); float64(v) != r.Num {
-			val = getDefaultIntGeneric[T](nullable)
+			val = getDefaultInt[T](nullable)
 		} else {
 			val = T(v)
 		}
 	default:
-		val = getDefaultIntGeneric[T](nullable)
+		val = getDefaultInt[T](nullable)
 	}
 	return
 }
@@ -182,14 +181,14 @@ func GjsonGetUint[T constraints.Unsigned](c *GjsonMetric, key string, nullable b
 func GjsonGetFloat[T constraints.Float](c *GjsonMetric, key string, nullable bool) (val interface{}) {
 	r := gjson.Get(c.raw, key)
 	if !gjCompatibleFloat(r) {
-		val = getDefaultFloatGeneric[T](nullable)
+		val = getDefaultFloat[T](nullable)
 		return
 	}
 	switch r.Type {
 	case gjson.Number:
 		val = T(r.Num)
 	default:
-		val = getDefaultFloatGeneric[T](nullable)
+		val = getDefaultFloat[T](nullable)
 	}
 	return
 }
@@ -215,8 +214,11 @@ func (c *GjsonMetric) GetDateTime(key string, nullable bool) (val interface{}) {
 }
 
 func (c *GjsonMetric) GetArray(key string, typ int) (val interface{}) {
+	var array []gjson.Result
 	r := gjson.Get(c.raw, key)
-	array := r.Array()
+	if r.IsArray() {
+		array = r.Array()
+	}
 	switch typ {
 	case model.Bool:
 		results := make([]bool, 0, len(array))
@@ -362,7 +364,7 @@ func (c *GjsonMetric) GetNewKeys(knownKeys, newKeys *sync.Map, white, black *reg
 		if _, loaded := knownKeys.LoadOrStore(strKey, nil); !loaded {
 			if (white == nil || white.MatchString(strKey)) &&
 				(black == nil || !black.MatchString(strKey)) {
-				if typ := gjDetectType(v); typ != model.Unknown {
+				if typ, array := gjDetectType(v, 0); typ != model.Unknown && !array {
 					newKeys.Store(strKey, typ)
 					foundNew = true
 				} else {
@@ -426,7 +428,11 @@ func gjCompatibleDateTime(r gjson.Result) (ok bool) {
 	return
 }
 
-func gjDetectType(v gjson.Result) (typ int) {
+func gjDetectType(v gjson.Result, depth int) (typ int, array bool) {
+	typ = model.Unknown
+	if depth > 1 {
+		return
+	}
 	switch v.Type {
 	case gjson.True, gjson.False:
 		typ = model.Bool
@@ -441,8 +447,17 @@ func gjDetectType(v gjson.Result) (typ int) {
 		if _, layout := parseInLocation(v.Str, time.Local); layout != "" {
 			typ = model.DateTime
 		}
+	case gjson.JSON:
+		if v.IsArray() {
+			if depth >= 1 {
+				return
+			}
+			array = true
+			if array := v.Array(); len(array) != 0 {
+				typ, _ = gjDetectType(array[0], depth+1)
+			}
+		}
 	default:
-		typ = model.Unknown
 	}
 	return
 }

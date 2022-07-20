@@ -140,7 +140,7 @@ func (c *FastjsonMetric) GetFloat64(key string, nullable bool) (val interface{})
 func FastjsonGetInt[T constraints.Signed](c *FastjsonMetric, key string, nullable bool) (val interface{}) {
 	v := c.value.Get(key)
 	if !fjCompatibleInt(v) {
-		val = getDefaultIntGeneric[T](nullable)
+		val = getDefaultInt[T](nullable)
 		return
 	}
 	switch v.Type() {
@@ -150,7 +150,7 @@ func FastjsonGetInt[T constraints.Signed](c *FastjsonMetric, key string, nullabl
 		val = T(0)
 	default:
 		if val2, err := v.Int64(); err != nil {
-			val = getDefaultIntGeneric[T](nullable)
+			val = getDefaultInt[T](nullable)
 		} else {
 			val = T(val2)
 		}
@@ -161,7 +161,7 @@ func FastjsonGetInt[T constraints.Signed](c *FastjsonMetric, key string, nullabl
 func FastjsonGetUint[T constraints.Unsigned](c *FastjsonMetric, key string, nullable bool) (val interface{}) {
 	v := c.value.Get(key)
 	if !fjCompatibleInt(v) {
-		val = getDefaultIntGeneric[T](nullable)
+		val = getDefaultInt[T](nullable)
 		return
 	}
 	switch v.Type() {
@@ -171,7 +171,7 @@ func FastjsonGetUint[T constraints.Unsigned](c *FastjsonMetric, key string, null
 		val = T(0)
 	default:
 		if val2, err := v.Uint64(); err != nil {
-			val = getDefaultIntGeneric[T](nullable)
+			val = getDefaultInt[T](nullable)
 		} else {
 			val = T(val2)
 		}
@@ -182,11 +182,11 @@ func FastjsonGetUint[T constraints.Unsigned](c *FastjsonMetric, key string, null
 func FastjsonGetFloat[T constraints.Float](c *FastjsonMetric, key string, nullable bool) (val interface{}) {
 	v := c.value.Get(key)
 	if !fjCompatibleFloat(v) {
-		val = getDefaultFloat(nullable)
+		val = getDefaultFloat[T](nullable)
 		return
 	}
 	if val2, err := v.Float64(); err != nil {
-		val = getDefaultFloatGeneric[T](nullable)
+		val = getDefaultFloat[T](nullable)
 	} else {
 		val = T(val2)
 	}
@@ -224,11 +224,10 @@ func (c *FastjsonMetric) GetDateTime(key string, nullable bool) (val interface{}
 }
 
 func (c *FastjsonMetric) GetArray(key string, typ int) (val interface{}) {
-	v := c.value.Get(key)
-	if v == nil || v.Type() != fastjson.TypeArray {
-		return
+	var array []*fastjson.Value
+	if v := c.value.Get(key); v != nil {
+		array, _ = v.Array()
 	}
-	array, _ := v.Array()
 	switch typ {
 	case model.Bool:
 		arr := make([]bool, 0)
@@ -364,7 +363,7 @@ func (c *FastjsonMetric) GetNewKeys(knownKeys, newKeys *sync.Map, white, black *
 		if _, loaded := knownKeys.LoadOrStore(strKey, nil); !loaded {
 			if (white == nil || white.MatchString(strKey)) &&
 				(black == nil || !black.MatchString(strKey)) {
-				if typ := fjDetectType(v); typ != model.Unknown {
+				if typ, arr := fjDetectType(v, 0); typ != model.Unknown && !arr {
 					newKeys.Store(strKey, typ)
 					foundNew = true
 				} else {
@@ -431,7 +430,7 @@ func getDefaultBool(nullable bool) (val interface{}) {
 	return
 }
 
-func getDefaultIntGeneric[T constraints.Integer](nullable bool) (val interface{}) {
+func getDefaultInt[T constraints.Integer](nullable bool) (val interface{}) {
 	if nullable {
 		return
 	}
@@ -440,27 +439,11 @@ func getDefaultIntGeneric[T constraints.Integer](nullable bool) (val interface{}
 	return
 }
 
-func getDefaultInt(nullable bool) (val interface{}) {
-	if nullable {
-		return
-	}
-	val = int64(0)
-	return
-}
-
-func getDefaultFloatGeneric[T constraints.Float](nullable bool) (val interface{}) {
+func getDefaultFloat[T constraints.Float](nullable bool) (val interface{}) {
 	if nullable {
 		return
 	}
 	val = T(0.0)
-	return
-}
-
-func getDefaultFloat(nullable bool) (val interface{}) {
-	if nullable {
-		return
-	}
-	val = float64(0.0)
 	return
 }
 
@@ -480,9 +463,13 @@ func getDefaultDateTime(nullable bool) (val interface{}) {
 	return
 }
 
-func fjDetectType(v *fastjson.Value) (typ int) {
+func fjDetectType(v *fastjson.Value, depth int) (typ int, array bool) {
+	typ = model.Unknown
+	if depth > 1 {
+		return
+	}
 	switch v.Type() {
-	case fastjson.TypeNull, fastjson.TypeArray:
+	case fastjson.TypeNull:
 		typ = model.Unknown
 	case fastjson.TypeTrue, fastjson.TypeFalse:
 		typ = model.Bool
@@ -498,8 +485,15 @@ func fjDetectType(v *fastjson.Value) (typ int) {
 				typ = model.DateTime
 			}
 		}
+	case fastjson.TypeArray:
+		if depth >= 1 {
+			return
+		}
+		array = true
+		if arr, err := v.Array(); err == nil && len(arr) > 0 {
+			typ, _ = fjDetectType(arr[0], depth+1)
+		}
 	default:
-		typ = model.String
 	}
 	return
 }

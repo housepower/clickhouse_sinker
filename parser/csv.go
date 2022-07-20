@@ -226,7 +226,11 @@ func (c *CsvMetric) GetDateTime(key string, nullable bool) (val interface{}) {
 func (c *CsvMetric) GetArray(key string, typ int) (val interface{}) {
 	s := c.GetString(key, false)
 	str, _ := s.(string)
-	array := gjson.Parse(str).Array()
+	var array []gjson.Result
+	r := gjson.Parse(str)
+	if r.IsArray() {
+		array = r.Array()
+	}
 	switch typ {
 	case model.Bool:
 		results := make([]bool, 0, len(array))
