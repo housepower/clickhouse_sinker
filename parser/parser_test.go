@@ -220,7 +220,7 @@ func doTestSimple(t *testing.T, method string, testCases []SimpleCase) {
 		for j := range testCases {
 			var v interface{}
 			desc := fmt.Sprintf(`%s.%s("%s", %s)`, name, method, testCases[j].Field, strconv.FormatBool(testCases[j].Nullable))
-			if name == "csv" && (sliceContains([]string{"GetBool", "GetInt", "GetFloat", "GetDateTime", "GetElasticDateTime"}, method) && sliceContains([]string{"str_int", "str_float"}, testCases[j].Field) || testCases[j].Nullable) {
+			if name == "csv" && (sliceContains([]string{"GetBool", "GetInt", "GetFloat", "GetDateTime"}, method) && sliceContains([]string{"str_int", "str_float"}, testCases[j].Field) || testCases[j].Nullable) {
 				skipped = append(skipped, desc)
 				continue
 			}
@@ -235,8 +235,6 @@ func doTestSimple(t *testing.T, method string, testCases []SimpleCase) {
 				v = metric.GetString(testCases[j].Field, testCases[j].Nullable)
 			case "GetDateTime":
 				v = metric.GetDateTime(testCases[j].Field, testCases[j].Nullable)
-			case "GetElasticDateTime":
-				v = metric.GetElasticDateTime(testCases[j].Field, testCases[j].Nullable)
 			default:
 				panic("error!")
 			}
@@ -420,46 +418,6 @@ func TestParserDateTime(t *testing.T) {
 		{"array_empty", true, nil},
 	}
 	doTestSimple(t, "GetDateTime", testCases)
-}
-
-func TestParserElasticDateTime(t *testing.T) {
-	testCases := []SimpleCase{
-		// nullable: false
-		{"not_exist", false, Epoch.Unix()},
-		{"null", false, Epoch.Unix()},
-		{"bool_true", false, Epoch.Unix()},
-		{"bool_false", false, Epoch.Unix()},
-		{"num_int", false, UnixFloat(123, timeUnit).Unix()},
-		{"num_float", false, UnixFloat(123.321, timeUnit).Unix()},
-		{"str", false, Epoch.Unix()},
-		{"str_int", false, Epoch.Unix()},
-		{"str_float", false, Epoch.Unix()},
-		{"str_date_1", false, bdLocalDate.Unix()},
-		{"str_time_rfc3339_1", false, bdUtcSec.Unix()},
-		{"str_time_rfc3339_2", false, bdShNs.Unix()},
-		{"str_time_clickhouse_1", false, bdLocalSec.Unix()},
-		{"str_time_clickhouse_2", false, bdLocalNs.Unix()},
-		{"obj", false, Epoch.Unix()},
-		{"array_empty", false, Epoch.Unix()},
-		// nullable: true
-		{"not_exist", true, nil},
-		{"null", true, nil},
-		{"bool_true", true, nil},
-		{"bool_false", true, nil},
-		{"num_int", true, UnixFloat(123, timeUnit).Unix()},
-		{"num_float", true, UnixFloat(123.321, timeUnit).Unix()},
-		{"str", true, nil},
-		{"str_int", true, nil},
-		{"str_float", true, nil},
-		{"str_date_1", true, bdLocalDate.Unix()},
-		{"str_time_rfc3339_1", true, bdUtcSec.Unix()},
-		{"str_time_rfc3339_2", true, bdShNs.Unix()},
-		{"str_time_clickhouse_1", true, bdLocalSec.Unix()},
-		{"str_time_clickhouse_2", true, bdLocalNs.Unix()},
-		{"obj", true, nil},
-		{"array_empty", true, nil},
-	}
-	doTestSimple(t, "GetElasticDateTime", testCases)
 }
 
 func TestParserArray(t *testing.T) {

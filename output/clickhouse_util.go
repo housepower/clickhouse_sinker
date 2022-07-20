@@ -100,8 +100,8 @@ func getDims(database, table string, excludedColumns []string, conn clickhouse.C
 		}
 		typ = lowCardinalityRegexp.ReplaceAllString(typ, "$1")
 		if !util.StringContains(excludedColumns, name) && defaultKind != "MATERIALIZED" {
-			tp, nullable := model.WhichType(typ)
-			dims = append(dims, &model.ColumnWithType{Name: name, Type: tp, Nullable: nullable, SourceName: util.GetSourceName(name)})
+			tp, nullable, array := model.WhichType(typ)
+			dims = append(dims, &model.ColumnWithType{Name: name, Type: tp, Nullable: nullable, Array: array, SourceName: util.GetSourceName(name)})
 		}
 	}
 	if len(dims) == 0 {

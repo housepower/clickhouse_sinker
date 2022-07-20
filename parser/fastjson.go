@@ -223,48 +223,49 @@ func (c *FastjsonMetric) GetDateTime(key string, nullable bool) (val interface{}
 	return
 }
 
-func (c *FastjsonMetric) GetElasticDateTime(key string, nullable bool) (val interface{}) {
-	t := c.GetDateTime(key, nullable)
-	if t != nil {
-		val = t.(time.Time).Unix()
-	}
-	return
-}
-
 func (c *FastjsonMetric) GetArray(key string, typ int) (val interface{}) {
 	v := c.value.Get(key)
-	val = makeArray(typ)
 	if v == nil || v.Type() != fastjson.TypeArray {
 		return
 	}
 	array, _ := v.Array()
 	switch typ {
 	case model.Bool:
+		arr := make([]bool, 0)
 		for _, e := range array {
 			v := (e != nil && e.Type() == fastjson.TypeTrue)
-			val = append(val.([]bool), v)
+			arr = append(arr, v)
 		}
-	case model.Int:
-		for _, e := range array {
-			var v int64
-			if e.Type() == fastjson.TypeTrue {
-				v = 1
-			} else {
-				v, _ = e.Int64()
-			}
-			val = append(val.([]int64), v)
-		}
-	case model.Float:
-		for _, e := range array {
-			v, _ := e.Float64()
-			val = append(val.([]float64), v)
-		}
+		val = arr
+	case model.Int8:
+		val = FastjsonIntArray[int8](array)
+	case model.Int16:
+		val = FastjsonIntArray[int16](array)
+	case model.Int32:
+		val = FastjsonIntArray[int32](array)
+	case model.Int64:
+		val = FastjsonIntArray[int64](array)
+	case model.Uint8:
+		val = FastjsonUintArray[uint8](array)
+	case model.Uint16:
+		val = FastjsonUintArray[uint16](array)
+	case model.Uint32:
+		val = FastjsonUintArray[uint32](array)
+	case model.Uint64:
+		val = FastjsonUintArray[uint64](array)
+	case model.Float32:
+		val = FastjsonFloatArray[float32](array)
+	case model.Float64:
+		val = FastjsonFloatArray[float64](array)
 	case model.Decimal:
+		arr := make([]decimal.Decimal, 0)
 		for _, e := range array {
 			v, _ := e.Float64()
-			val = append(val.([]decimal.Decimal), decimal.NewFromFloat(v))
+			arr = append(arr, decimal.NewFromFloat(v))
 		}
+		val = arr
 	case model.String:
+		arr := make([]string, 0)
 		for _, e := range array {
 			var s string
 			switch e.Type() {
@@ -276,9 +277,11 @@ func (c *FastjsonMetric) GetArray(key string, typ int) (val interface{}) {
 			default:
 				s = e.String()
 			}
-			val = append(val.([]string), s)
+			arr = append(arr, s)
 		}
+		val = arr
 	case model.DateTime:
+		arr := make([]time.Time, 0)
 		for _, e := range array {
 			var t time.Time
 			switch e.Type() {
@@ -300,10 +303,52 @@ func (c *FastjsonMetric) GetArray(key string, typ int) (val interface{}) {
 			default:
 				t = Epoch
 			}
-			val = append(val.([]time.Time), t)
+			arr = append(arr, t)
 		}
+		val = arr
 	default:
 		util.Logger.Fatal(fmt.Sprintf("LOGIC ERROR: unsupported array type %v", typ))
+	}
+	return
+}
+
+func FastjsonIntArray[T constraints.Signed](a []*fastjson.Value) (arr []T) {
+	arr = make([]T, 0)
+	for _, e := range a {
+		var val T
+		if e.Type() == fastjson.TypeTrue {
+			val = T(1)
+		} else {
+			var v int64
+			v, _ = e.Int64()
+			val = T(v)
+		}
+		arr = append(arr, val)
+	}
+	return
+}
+
+func FastjsonUintArray[T constraints.Unsigned](a []*fastjson.Value) (arr []T) {
+	arr = make([]T, 0)
+	for _, e := range a {
+		var val T
+		if e.Type() == fastjson.TypeTrue {
+			val = T(1)
+		} else {
+			var v uint64
+			v, _ = e.Uint64()
+			val = T(v)
+		}
+		arr = append(arr, val)
+	}
+	return
+}
+
+func FastjsonFloatArray[T constraints.Float](a []*fastjson.Value) (arr []T) {
+	arr = make([]T, 0)
+	for _, e := range a {
+		v, _ := e.Float64()
+		arr = append(arr, T(v))
 	}
 	return
 }
@@ -437,36 +482,20 @@ func getDefaultDateTime(nullable bool) (val interface{}) {
 
 func fjDetectType(v *fastjson.Value) (typ int) {
 	switch v.Type() {
-	case fastjson.TypeNull:
+	case fastjson.TypeNull, fastjson.TypeArray:
 		typ = model.Unknown
 	case fastjson.TypeTrue, fastjson.TypeFalse:
 		typ = model.Bool
 	case fastjson.TypeNumber:
-		typ = model.Float
+		typ = model.Float64
 		if _, err := v.Int64(); err == nil {
-			typ = model.Int
+			typ = model.Int64
 		}
 	case fastjson.TypeString:
 		typ = model.String
 		if val, err := v.StringBytes(); err == nil {
 			if _, layout := parseInLocation(string(val), time.Local); layout != "" {
 				typ = model.DateTime
-			}
-		}
-	case fastjson.TypeArray:
-		if arr, err := v.Array(); err == nil && len(arr) > 0 {
-			typ2 := fjDetectType(arr[0])
-			switch typ2 {
-			case model.Bool:
-				typ = model.BoolArray
-			case model.Int:
-				typ = model.IntArray
-			case model.Float:
-				typ = model.FloatArray
-			case model.String:
-				typ = model.StringArray
-			case model.DateTime:
-				typ = model.DateTimeArray
 			}
 		}
 	default:

@@ -24,23 +24,25 @@ import (
 const (
 	Unknown = iota
 	Bool
-	Int
-	Float
+	Int8
+	Int16
+	Int32
+	Int64
+	Uint8
+	Uint16
+	Uint32
+	Uint64
+	Float32
+	Float64
 	Decimal
-	String
 	DateTime
-	ElasticDateTime
-	BoolArray
-	IntArray
-	FloatArray
-	DecimalArray
-	StringArray
-	DateTimeArray
+	String
 )
 
 type TypeInfo struct {
 	Type     int
 	Nullable bool
+	Array    bool
 }
 
 var (
@@ -51,95 +53,96 @@ func GetTypeName(typ int) (name string) {
 	switch typ {
 	case Bool:
 		name = "Bool"
-	case Int:
-		name = "Int"
-	case Float:
-		name = "Float"
+	case Int8:
+		name = "Int8"
+	case Int16:
+		name = "Int16"
+	case Int32:
+		name = "Int32"
+	case Int64:
+		name = "Int64"
+	case Uint8:
+		name = "Uint8"
+	case Uint16:
+		name = "Uint16"
+	case Uint32:
+		name = "Uint32"
+	case Uint64:
+		name = "Uint64"
+	case Float32:
+		name = "Float32"
+	case Float64:
+		name = "Float64"
 	case Decimal:
 		name = "Decimal"
-	case String:
-		name = "String"
 	case DateTime:
 		name = "DateTime"
-	case ElasticDateTime:
-		name = "ElasticDateTime"
-	case BoolArray:
-		name = "BoolArray"
-	case IntArray:
-		name = "IntArray"
-	case FloatArray:
-		name = "FloatArray"
-	case StringArray:
-		name = "StringArray"
-	case DateTimeArray:
-		name = "DateTimeArray"
+	case String:
+		name = "String"
 	default:
 		name = "Unknown"
 	}
 	return
 }
 
-// There are only three cases for the value type of metric, (float64, string, map [string] interface {})
 func GetValueByType(metric Metric, cwt *ColumnWithType) (val interface{}) {
 	name := cwt.SourceName
-	switch cwt.Type {
-	case Bool:
-		val = metric.GetBool(name, cwt.Nullable)
-	case Int:
-		val = metric.GetInt64(name, cwt.Nullable)
-	case Float:
-		val = metric.GetFloat64(name, cwt.Nullable)
-	case Decimal:
-		val = metric.GetDecimal(name, cwt.Nullable)
-	case String:
-		val = metric.GetString(name, cwt.Nullable)
-	case DateTime:
-		val = metric.GetDateTime(name, cwt.Nullable)
-	case ElasticDateTime:
-		val = metric.GetElasticDateTime(name, cwt.Nullable)
-	case BoolArray:
-		val = metric.GetArray(name, Bool)
-	case IntArray:
-		val = metric.GetArray(name, Int)
-	case FloatArray:
-		val = metric.GetArray(name, Float)
-	case DecimalArray:
-		val = metric.GetArray(name, Decimal)
-	case StringArray:
-		val = metric.GetArray(name, String)
-	case DateTimeArray:
-		val = metric.GetArray(name, DateTime)
-	default:
-		util.Logger.Fatal("LOGIC ERROR: reached switch default condition")
+	if cwt.Array {
+		val = metric.GetArray(name, cwt.Type)
+	} else {
+		switch cwt.Type {
+		case Bool:
+			val = metric.GetBool(name, cwt.Nullable)
+		case Int8:
+			val = metric.GetInt8(name, cwt.Nullable)
+		case Int16:
+			val = metric.GetInt16(name, cwt.Nullable)
+		case Int32:
+			val = metric.GetInt32(name, cwt.Nullable)
+		case Int64:
+			val = metric.GetInt64(name, cwt.Nullable)
+		case Uint8:
+			val = metric.GetUint8(name, cwt.Nullable)
+		case Uint16:
+			val = metric.GetUint16(name, cwt.Nullable)
+		case Uint32:
+			val = metric.GetUint32(name, cwt.Nullable)
+		case Uint64:
+			val = metric.GetUint64(name, cwt.Nullable)
+		case Float32:
+			val = metric.GetFloat32(name, cwt.Nullable)
+		case Float64:
+			val = metric.GetFloat64(name, cwt.Nullable)
+		case Decimal:
+			val = metric.GetDecimal(name, cwt.Nullable)
+		case DateTime:
+			val = metric.GetDateTime(name, cwt.Nullable)
+		case String:
+			val = metric.GetString(name, cwt.Nullable)
+		default:
+			util.Logger.Fatal("LOGIC ERROR: reached switch default condition")
+		}
 	}
 	return
 }
 
-func WhichType(typ string) (dataType int, nullable bool) {
+func WhichType(typ string) (dataType int, nullable bool, array bool) {
 	ti, ok := typeInfo[typ]
 	if ok {
-		dataType, nullable = ti.Type, ti.Nullable
+		dataType, nullable, array = ti.Type, ti.Nullable, ti.Array
 		return
 	}
 	nullable = strings.HasPrefix(typ, "Nullable(")
+	array = strings.HasPrefix(typ, "Array(")
 	if nullable {
 		typ = typ[len("Nullable(") : len(typ)-1]
+	} else if array {
+		typ = typ[len("Array(") : len(typ)-1]
 	}
 	if strings.HasPrefix(typ, "DateTime64") {
 		dataType = DateTime
-	} else if strings.HasPrefix(typ, "Array(DateTime64") {
-		dataType = DateTimeArray
-		nullable = false
-	} else if strings.HasPrefix(typ, "Decimal") {
-		dataType = Decimal
-	} else if strings.HasPrefix(typ, "Array(Decimal") {
-		dataType = DecimalArray
-		nullable = false
 	} else if strings.HasPrefix(typ, "FixedString") {
 		dataType = String
-	} else if strings.HasPrefix(typ, "Array(FixedString") {
-		dataType = StringArray
-		nullable = false
 	} else if strings.HasPrefix(typ, "Enum8(") {
 		dataType = String
 	} else if strings.HasPrefix(typ, "Enum16(") {
@@ -147,44 +150,25 @@ func WhichType(typ string) (dataType int, nullable bool) {
 	} else {
 		util.Logger.Fatal(fmt.Sprintf("LOGIC ERROR: unsupported ClickHouse data type %v", typ))
 	}
-	typeInfo[typ] = TypeInfo{Type: dataType, Nullable: nullable}
+	typeInfo[typ] = TypeInfo{Type: dataType, Nullable: nullable, Array: array}
 	return
 }
 
 func init() {
 	primTypeInfo := make(map[string]TypeInfo)
 	typeInfo = make(map[string]TypeInfo)
-	primTypeInfo["Bool"] = TypeInfo{Type: Bool, Nullable: false}
-	for _, t := range []string{"UInt8", "UInt16", "UInt32", "UInt64", "Int8",
-		"Int16", "Int32", "Int64"} {
-		primTypeInfo[t] = TypeInfo{Type: Int, Nullable: false}
+	for _, t := range []int{Bool, Int8, Int16, Int32, Int64, Uint8, Uint16, Uint32, Uint64, Float32, Float64, DateTime, String} {
+		tn := GetTypeName(t)
+		primTypeInfo[tn] = TypeInfo{Type: t}
+		nullTn := fmt.Sprintf("Nullable(%s)", tn)
+		primTypeInfo[nullTn] = TypeInfo{Type: t, Nullable: true}
+		arrTn := fmt.Sprintf("Array(%s)", tn)
+		primTypeInfo[arrTn] = TypeInfo{Type: t, Array: true}
 	}
-	for _, t := range []string{"Float32", "Float64"} {
-		primTypeInfo[t] = TypeInfo{Type: Float, Nullable: false}
-	}
-	for _, t := range []string{"String", "UUID"} {
-		primTypeInfo[t] = TypeInfo{Type: String, Nullable: false}
-	}
-	for _, t := range []string{"Date", "DateTime"} {
-		primTypeInfo[t] = TypeInfo{Type: DateTime, Nullable: false}
-	}
-	primTypeInfo["ElasticDateTime"] = TypeInfo{Type: ElasticDateTime, Nullable: false}
-	for k, v := range primTypeInfo {
-		typeInfo[k] = v
-		nullK := fmt.Sprintf("Nullable(%s)", k)
-		typeInfo[nullK] = TypeInfo{Type: v.Type, Nullable: true}
-		arrK := fmt.Sprintf("Array(%s)", k)
-		switch v.Type {
-		case Bool:
-			typeInfo[arrK] = TypeInfo{Type: BoolArray, Nullable: false}
-		case Int:
-			typeInfo[arrK] = TypeInfo{Type: IntArray, Nullable: false}
-		case Float:
-			typeInfo[arrK] = TypeInfo{Type: FloatArray, Nullable: false}
-		case String:
-			typeInfo[arrK] = TypeInfo{Type: StringArray, Nullable: false}
-		case DateTime:
-			typeInfo[arrK] = TypeInfo{Type: DateTimeArray, Nullable: false}
-		}
-	}
+	primTypeInfo["UUID"] = TypeInfo{Type: String}
+	primTypeInfo["Nullable(UUID)"] = TypeInfo{Type: String, Nullable: true}
+	primTypeInfo["Array(UUID)"] = TypeInfo{Type: String, Array: true}
+	primTypeInfo["Date"] = TypeInfo{Type: DateTime}
+	primTypeInfo["Nullable(Date)"] = TypeInfo{Type: DateTime, Nullable: true}
+	primTypeInfo["Array(Date)"] = TypeInfo{Type: DateTime, Array: true}
 }

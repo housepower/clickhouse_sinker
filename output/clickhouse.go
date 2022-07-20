@@ -242,7 +242,7 @@ func (c *ClickHouse) initSeriesSchema(conn clickhouse.Conn) (err error) {
 	var dimSerID *model.ColumnWithType
 	for i := 0; i < len(c.Dims); {
 		dim := c.Dims[i]
-		if dim.Name == "__series_id" && dim.Type == model.Int {
+		if dim.Name == "__series_id" && dim.Type == model.Int64 {
 			dimSerID = dim
 			c.Dims = append(c.Dims[:i], c.Dims[i+1:]...)
 		} else if dim.Type == model.String {
@@ -261,8 +261,8 @@ func (c *ClickHouse) initSeriesSchema(conn clickhouse.Conn) (err error) {
 	// Add string columns from series table
 	c.seriesTbl = c.taskCfg.TableName + "_series"
 	expSeriesDims := []*model.ColumnWithType{
-		{Name: "__series_id", Type: model.Int},
-		{Name: "__mgmt_id", Type: model.Int},
+		{Name: "__series_id", Type: model.Int64},
+		{Name: "__mgmt_id", Type: model.Int64},
 		{Name: "labels", Type: model.String},
 	}
 	var seriesDims []*model.ColumnWithType
@@ -340,11 +340,12 @@ func (c *ClickHouse) initSchema() (err error) {
 	} else {
 		c.Dims = make([]*model.ColumnWithType, 0)
 		for _, dim := range c.taskCfg.Dims {
-			tp, nullable := model.WhichType(dim.Type)
+			tp, nullable, array := model.WhichType(dim.Type)
 			c.Dims = append(c.Dims, &model.ColumnWithType{
 				Name:       dim.Name,
 				Type:       tp,
 				Nullable:   nullable,
+				Array:      array,
 				SourceName: dim.SourceName,
 			})
 		}
@@ -409,22 +410,14 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 		intVal := value.(int)
 		var strVal string
 		switch intVal {
-		case model.Int:
+		case model.Int64:
 			strVal = "Nullable(Int64)"
-		case model.Float:
+		case model.Float64:
 			strVal = "Nullable(Float64)"
 		case model.String:
 			strVal = "Nullable(String)"
 		case model.DateTime:
 			strVal = "Nullable(DateTime64(3))"
-		case model.IntArray:
-			strVal = "Array(Int64)"
-		case model.FloatArray:
-			strVal = "Array(Float64)"
-		case model.StringArray:
-			strVal = "Array(String)"
-		case model.DateTimeArray:
-			strVal = "Array(DateTime64(3))"
 		default:
 			err = errors.Newf("%s: BUG: unsupported column type %s", taskCfg.Name, strVal)
 			return false

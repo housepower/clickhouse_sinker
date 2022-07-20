@@ -18,6 +18,7 @@ package parser
 import (
 	"fmt"
 	"regexp"
+	"strconv"
 	"sync"
 	"time"
 
@@ -31,6 +32,7 @@ import (
 )
 
 var _ Parser = (*GjsonParser)(nil)
+var intPatt = regexp.MustCompile(`(+-)?[\de]+`)
 
 type GjsonParser struct {
 	pp *Pool
@@ -212,20 +214,8 @@ func (c *GjsonMetric) GetDateTime(key string, nullable bool) (val interface{}) {
 	return
 }
 
-func (c *GjsonMetric) GetElasticDateTime(key string, nullable bool) (val interface{}) {
-	t := c.GetDateTime(key, nullable)
-	if t != nil {
-		val = t.(time.Time).Unix()
-	}
-	return
-}
-
 func (c *GjsonMetric) GetArray(key string, typ int) (val interface{}) {
 	r := gjson.Get(c.raw, key)
-	if !r.IsArray() {
-		val = makeArray(typ)
-		return
-	}
 	array := r.Array()
 	switch typ {
 	case model.Bool:
@@ -235,36 +225,26 @@ func (c *GjsonMetric) GetArray(key string, typ int) (val interface{}) {
 			results = append(results, v)
 		}
 		val = results
-	case model.Int:
-		results := make([]int64, 0, len(array))
-		for _, e := range array {
-			var v int64
-			switch e.Type {
-			case gjson.True:
-				v = int64(1)
-			case gjson.Number:
-				if v = e.Int(); float64(v) != e.Num {
-					v = int64(0)
-				}
-			default:
-				v = int64(0)
-			}
-			results = append(results, v)
-		}
-		val = results
-	case model.Float:
-		results := make([]float64, 0, len(array))
-		for _, e := range array {
-			var f float64
-			switch e.Type {
-			case gjson.Number:
-				f = e.Num
-			default:
-				f = float64(0.0)
-			}
-			results = append(results, f)
-		}
-		val = results
+	case model.Int8:
+		val = GjsonIntArray[int8](array)
+	case model.Int16:
+		val = GjsonIntArray[int16](array)
+	case model.Int32:
+		val = GjsonIntArray[int32](array)
+	case model.Int64:
+		val = GjsonIntArray[int64](array)
+	case model.Uint8:
+		val = GjsonUintArray[uint8](array)
+	case model.Uint16:
+		val = GjsonUintArray[uint16](array)
+	case model.Uint32:
+		val = GjsonUintArray[uint32](array)
+	case model.Uint64:
+		val = GjsonUintArray[uint64](array)
+	case model.Float32:
+		val = GjsonFloatArray[float32](array)
+	case model.Float64:
+		val = GjsonFloatArray[float64](array)
 	case model.Decimal:
 		results := make([]decimal.Decimal, 0, len(array))
 		for _, e := range array {
@@ -313,6 +293,65 @@ func (c *GjsonMetric) GetArray(key string, typ int) (val interface{}) {
 		val = results
 	default:
 		util.Logger.Fatal(fmt.Sprintf("LOGIC ERROR: unsupported array type %v", typ))
+	}
+	return
+}
+
+func GjsonIntArray[T constraints.Signed](a []gjson.Result) (arr []T) {
+	arr = make([]T, 0, len(a))
+	for _, e := range a {
+		var v T
+		switch e.Type {
+		case gjson.True:
+			v = T(1)
+		case gjson.Number:
+			var tmpv int64
+			if tmpv = e.Int(); float64(tmpv) != e.Num {
+				v = T(0)
+			} else {
+				v = T(tmpv)
+			}
+		default:
+			v = T(0)
+		}
+		arr = append(arr, v)
+	}
+	return
+}
+
+func GjsonUintArray[T constraints.Unsigned](a []gjson.Result) (arr []T) {
+	arr = make([]T, 0, len(a))
+	for _, e := range a {
+		var v T
+		switch e.Type {
+		case gjson.True:
+			v = T(1)
+		case gjson.Number:
+			var tmpv uint64
+			if tmpv = e.Uint(); float64(tmpv) != e.Num {
+				v = T(0)
+			} else {
+				v = T(tmpv)
+			}
+		default:
+			v = T(0)
+		}
+		arr = append(arr, v)
+	}
+	return
+}
+
+func GjsonFloatArray[T constraints.Float](a []gjson.Result) (arr []T) {
+	arr = make([]T, 0, len(a))
+	for _, e := range a {
+		var v T
+		switch e.Type {
+		case gjson.Number:
+			v = T(e.Num)
+		default:
+			v = T(0.0)
+		}
+		arr = append(arr, v)
 	}
 	return
 }
@@ -388,45 +427,22 @@ func gjCompatibleDateTime(r gjson.Result) (ok bool) {
 }
 
 func gjDetectType(v gjson.Result) (typ int) {
-	typ = model.Unknown
 	switch v.Type {
 	case gjson.True, gjson.False:
 		typ = model.Bool
 	case gjson.Number:
-		typ = model.Float
-		if float64(v.Int()) == v.Num {
-			typ = model.Int
+		if _, err := strconv.ParseInt(v.Raw, 10, 64); err == nil {
+			typ = model.Int64
+		} else {
+			typ = model.Float64
 		}
 	case gjson.String:
 		typ = model.String
 		if _, layout := parseInLocation(v.Str, time.Local); layout != "" {
 			typ = model.DateTime
 		}
-	case gjson.JSON:
-		if v.IsObject() {
-			typ = model.String
-		} else if v.IsArray() {
-			if array := v.Array(); len(array) != 0 {
-				switch array[0].Type {
-				case gjson.True, gjson.False:
-					typ = model.BoolArray
-				case gjson.Number:
-					typ = model.FloatArray
-					if float64(array[0].Int()) == array[0].Num {
-						typ = model.IntArray
-					}
-				case gjson.String:
-					typ = model.StringArray
-					if _, layout := parseInLocation(array[0].Str, time.Local); layout != "" {
-						typ = model.DateTimeArray
-					}
-				case gjson.JSON:
-					typ = model.StringArray
-				default:
-				}
-			}
-		}
 	default:
+		typ = model.Unknown
 	}
 	return
 }

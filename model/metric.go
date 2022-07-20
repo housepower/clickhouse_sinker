@@ -34,9 +34,8 @@ type Metric interface {
 	GetFloat32(key string, nullable bool) (val interface{})
 	GetFloat64(key string, nullable bool) (val interface{})
 	GetDecimal(key string, nullable bool) (val interface{})
-	GetString(key string, nullable bool) (val interface{})
 	GetDateTime(key string, nullable bool) (val interface{})
-	GetElasticDateTime(key string, nullable bool) (val interface{})
+	GetString(key string, nullable bool) (val interface{})
 	GetArray(key string, t int) (val interface{})
 	GetNewKeys(knownKeys, newKeys *sync.Map, white, black *regexp.Regexp) bool
 }
@@ -52,5 +51,6 @@ type ColumnWithType struct {
 	Name       string
 	Type       int
 	Nullable   bool
+	Array      bool
 	SourceName string
 }

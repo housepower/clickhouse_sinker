@@ -222,91 +222,65 @@ func (c *CsvMetric) GetDateTime(key string, nullable bool) (val interface{}) {
 	return
 }
 
-func (c *CsvMetric) GetElasticDateTime(key string, nullable bool) (val interface{}) {
-	t := c.GetDateTime(key, nullable)
-	if t != nil {
-		val = t.(time.Time).Unix()
-	}
-	return
-}
-
 // GetArray parse an CSV encoded array
 func (c *CsvMetric) GetArray(key string, typ int) (val interface{}) {
 	s := c.GetString(key, false)
 	str, _ := s.(string)
-	if str == "" || str[0] != '[' {
-		val = makeArray(typ)
-		return
-	}
 	array := gjson.Parse(str).Array()
-	if len(array) == 0 {
-		val = makeArray(typ)
-		return
-	}
 	switch typ {
 	case model.Bool:
 		results := make([]bool, 0, len(array))
 		for _, e := range array {
-			v := (e.Type == gjson.True)
+			v := (e.Exists() && e.Type == gjson.True)
 			results = append(results, v)
 		}
 		val = results
-	case model.Int:
-		results := make([]int64, 0, len(array))
-		for _, e := range array {
-			var v int64
-			switch e.Type {
-			case gjson.True:
-				v = int64(1)
-			case gjson.Number:
-				if v = e.Int(); float64(v) != e.Num {
-					v = int64(0)
-				}
-			default:
-				v = int64(0)
-			}
-			results = append(results, v)
-		}
-		val = results
-	case model.Float:
-		results := make([]float64, 0, len(array))
-		for _, e := range array {
-			var v float64
-			switch e.Type {
-			case gjson.Number:
-				v = e.Num
-			default:
-				v = float64(0.0)
-			}
-			results = append(results, v)
-		}
-		val = results
+	case model.Int8:
+		val = GjsonIntArray[int8](array)
+	case model.Int16:
+		val = GjsonIntArray[int16](array)
+	case model.Int32:
+		val = GjsonIntArray[int32](array)
+	case model.Int64:
+		val = GjsonIntArray[int64](array)
+	case model.Uint8:
+		val = GjsonUintArray[uint8](array)
+	case model.Uint16:
+		val = GjsonUintArray[uint16](array)
+	case model.Uint32:
+		val = GjsonUintArray[uint32](array)
+	case model.Uint64:
+		val = GjsonUintArray[uint64](array)
+	case model.Float32:
+		val = GjsonFloatArray[float32](array)
+	case model.Float64:
+		val = GjsonFloatArray[float64](array)
 	case model.Decimal:
 		results := make([]decimal.Decimal, 0, len(array))
 		for _, e := range array {
-			var v float64
+			var f float64
 			switch e.Type {
 			case gjson.Number:
-				v = e.Num
+				f = e.Num
 			default:
-				v = float64(0.0)
+				f = float64(0.0)
 			}
-			results = append(results, decimal.NewFromFloat(v))
+			results = append(results, decimal.NewFromFloat(f))
 		}
 		val = results
 	case model.String:
 		results := make([]string, 0, len(array))
 		for _, e := range array {
-			var v string
+			var s string
 			switch e.Type {
 			case gjson.Null:
-				v = ""
+				s = ""
 			case gjson.String:
-				v = e.Str
+				s = e.Str
 			default:
-				v = e.Raw
+				s = e.Raw
 			}
-			results = append(results, v)
+			results = append(results, s)
 		}
 		val = results
 	case model.DateTime:
