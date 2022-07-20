@@ -6,7 +6,7 @@ curl "localhost:8123" -d 'CREATE TABLE test_fixed_schema
 (
     time DateTime,
     name String,
-    value Float64,
+    value Float32,
     price Decimal32(3) DEFAULT(9.9)
 )
 ENGINE = MergeTree
