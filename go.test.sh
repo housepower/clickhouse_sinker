@@ -6,7 +6,7 @@ curl "localhost:8123" -d 'CREATE TABLE test_fixed_schema
 (
     time DateTime,
     name String,
-    value Float64,
+    value Float32,
     price Decimal32(3) DEFAULT(9.9)
 )
 ENGINE = MergeTree
@@ -63,7 +63,7 @@ echo "Got test_auto_schema count => $count"
 
 schema=`curl "localhost:8123" -d 'DESC test_dynamic_schema' 2>/dev/null | grep newkey | sort | tr -d '\t' | tr '\n' ','`
 echo "Got test_dynamic_schema schema => $schema"
-[ $schema = "newkey01Nullable(Int64),newkey02Nullable(Float64),newkey03Nullable(String),newkey04Nullable(DateTime64(3)),newkey05Nullable(String),newkey06Array(Int64),newkey07Array(Float64),newkey08Array(String),newkey09Array(DateTime64(3)),newkey10Array(String)," ] || exit 1
+[ $schema = "newkey01Nullable(Int64),newkey02Nullable(Float64),newkey03Nullable(String),newkey04Nullable(DateTime64(3))," ] || exit 1
 count=`curl "localhost:8123" -d 'SELECT count() FROM test_dynamic_schema'`
 echo "Got test_dynamic_schema count => $count"
 [ $count -eq 100000 ] || exit 1

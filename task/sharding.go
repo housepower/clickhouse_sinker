@@ -11,6 +11,7 @@ import (
 	"github.com/housepower/clickhouse_sinker/pool"
 	"github.com/housepower/clickhouse_sinker/statistics"
 	"github.com/housepower/clickhouse_sinker/util"
+	"github.com/shopspring/decimal"
 	"github.com/thanos-io/thanos/pkg/errors"
 	"go.uber.org/zap"
 )
@@ -26,9 +27,13 @@ func NewShardingPolicy(shardingKey string, shardingStripe uint64, dims []*model.
 	colSeq := -1
 	for i, dim := range dims {
 		if dim.Name == shardingKey {
+			if dim.Nullable || dim.Array {
+				err = errors.Newf("invalid shardingKey %s, expect its type be numerical or string", shardingKey)
+				return
+			}
 			colSeq = i
 			switch dim.Type {
-			case model.Int, model.Float, model.DateTime, model.ElasticDateTime:
+			case model.Int8, model.Int16, model.Int32, model.Int64, model.Uint8, model.Uint16, model.Uint32, model.Uint64, model.Float32, model.Float64, model.Decimal, model.DateTime:
 				//numerical
 				if policy.stripe <= 0 {
 					policy.stripe = uint64(1)
@@ -79,6 +84,8 @@ func (policy *ShardingPolicy) Calc(row *model.Row) (shard int, err error) {
 			valu64 = uint64(v)
 		case float64:
 			valu64 = uint64(v)
+		case decimal.Decimal:
+			valu64 = uint64(v.IntPart())
 		case time.Time:
 			valu64 = uint64(v.Unix())
 		default:

@@ -29,6 +29,7 @@ import (
 	"github.com/thanos-io/thanos/pkg/errors"
 	"github.com/tidwall/gjson"
 	"github.com/valyala/fastjson/fastfloat"
+	"golang.org/x/exp/constraints"
 )
 
 var _ Parser = (*CsvParser)(nil)
@@ -79,21 +80,6 @@ func (c *CsvMetric) GetString(key string, nullable bool) (val interface{}) {
 	return
 }
 
-// GetFloat returns the value as float
-func (c *CsvMetric) GetFloat(key string, nullable bool) (val interface{}) {
-	var idx int
-	var ok bool
-	if idx, ok = c.pp.csvFormat[key]; !ok || c.values[idx] == "null" {
-		if nullable {
-			return
-		}
-		val = float64(0.0)
-		return
-	}
-	val = fastfloat.ParseBestEffort(c.values[idx])
-	return
-}
-
 // GetDecimal returns the value as decimal
 func (c *CsvMetric) GetDecimal(key string, nullable bool) (val interface{}) {
 	var idx int
@@ -123,21 +109,94 @@ func (c *CsvMetric) GetBool(key string, nullable bool) (val interface{}) {
 	return
 }
 
-func (c *CsvMetric) GetInt(key string, nullable bool) (val interface{}) {
+func (c *CsvMetric) GetInt8(key string, nullable bool) (val interface{}) {
+	return CsvGetInt[int8](c, key, nullable)
+}
+
+func (c *CsvMetric) GetInt16(key string, nullable bool) (val interface{}) {
+	return CsvGetInt[int16](c, key, nullable)
+}
+
+func (c *CsvMetric) GetInt32(key string, nullable bool) (val interface{}) {
+	return CsvGetInt[int32](c, key, nullable)
+}
+
+func (c *CsvMetric) GetInt64(key string, nullable bool) (val interface{}) {
+	return CsvGetInt[int64](c, key, nullable)
+}
+
+func (c *CsvMetric) GetUint8(key string, nullable bool) (val interface{}) {
+	return CsvGetUint[uint8](c, key, nullable)
+}
+
+func (c *CsvMetric) GetUint16(key string, nullable bool) (val interface{}) {
+	return CsvGetUint[uint16](c, key, nullable)
+}
+
+func (c *CsvMetric) GetUint32(key string, nullable bool) (val interface{}) {
+	return CsvGetUint[uint32](c, key, nullable)
+}
+
+func (c *CsvMetric) GetUint64(key string, nullable bool) (val interface{}) {
+	return CsvGetUint[uint64](c, key, nullable)
+}
+
+func (c *CsvMetric) GetFloat32(key string, nullable bool) (val interface{}) {
+	return CsvGetFloat[float32](c, key, nullable)
+}
+
+func (c *CsvMetric) GetFloat64(key string, nullable bool) (val interface{}) {
+	return CsvGetFloat[float64](c, key, nullable)
+}
+
+func CsvGetInt[T constraints.Signed](c *CsvMetric, key string, nullable bool) (val interface{}) {
 	var idx int
 	var ok bool
 	if idx, ok = c.pp.csvFormat[key]; !ok || c.values[idx] == "null" {
 		if nullable {
 			return
 		}
-		val = int64(0)
+		val = T(0)
 		return
 	}
 	if s := c.values[idx]; s == "true" {
-		val = int64(1)
+		val = T(1)
 	} else {
-		val = fastfloat.ParseInt64BestEffort(s)
+		val = T(fastfloat.ParseInt64BestEffort(s))
 	}
+	return
+}
+
+func CsvGetUint[T constraints.Unsigned](c *CsvMetric, key string, nullable bool) (val interface{}) {
+	var idx int
+	var ok bool
+	if idx, ok = c.pp.csvFormat[key]; !ok || c.values[idx] == "null" {
+		if nullable {
+			return
+		}
+		val = T(0)
+		return
+	}
+	if s := c.values[idx]; s == "true" {
+		val = T(1)
+	} else {
+		val = T(fastfloat.ParseUint64BestEffort(s))
+	}
+	return
+}
+
+// GetFloat returns the value as float
+func CsvGetFloat[T constraints.Float](c *CsvMetric, key string, nullable bool) (val interface{}) {
+	var idx int
+	var ok bool
+	if idx, ok = c.pp.csvFormat[key]; !ok || c.values[idx] == "null" {
+		if nullable {
+			return
+		}
+		val = float64(0.0)
+		return
+	}
+	val = T(fastfloat.ParseBestEffort(c.values[idx]))
 	return
 }
 
@@ -163,91 +222,69 @@ func (c *CsvMetric) GetDateTime(key string, nullable bool) (val interface{}) {
 	return
 }
 
-func (c *CsvMetric) GetElasticDateTime(key string, nullable bool) (val interface{}) {
-	t := c.GetDateTime(key, nullable)
-	if t != nil {
-		val = t.(time.Time).Unix()
-	}
-	return
-}
-
 // GetArray parse an CSV encoded array
 func (c *CsvMetric) GetArray(key string, typ int) (val interface{}) {
 	s := c.GetString(key, false)
 	str, _ := s.(string)
-	if str == "" || str[0] != '[' {
-		val = makeArray(typ)
-		return
-	}
-	array := gjson.Parse(str).Array()
-	if len(array) == 0 {
-		val = makeArray(typ)
-		return
+	var array []gjson.Result
+	r := gjson.Parse(str)
+	if r.IsArray() {
+		array = r.Array()
 	}
 	switch typ {
 	case model.Bool:
 		results := make([]bool, 0, len(array))
 		for _, e := range array {
-			v := (e.Type == gjson.True)
+			v := (e.Exists() && e.Type == gjson.True)
 			results = append(results, v)
 		}
 		val = results
-	case model.Int:
-		results := make([]int64, 0, len(array))
-		for _, e := range array {
-			var v int64
-			switch e.Type {
-			case gjson.True:
-				v = int64(1)
-			case gjson.Number:
-				if v = e.Int(); float64(v) != e.Num {
-					v = int64(0)
-				}
-			default:
-				v = int64(0)
-			}
-			results = append(results, v)
-		}
-		val = results
-	case model.Float:
-		results := make([]float64, 0, len(array))
-		for _, e := range array {
-			var v float64
-			switch e.Type {
-			case gjson.Number:
-				v = e.Num
-			default:
-				v = float64(0.0)
-			}
-			results = append(results, v)
-		}
-		val = results
+	case model.Int8:
+		val = GjsonIntArray[int8](array)
+	case model.Int16:
+		val = GjsonIntArray[int16](array)
+	case model.Int32:
+		val = GjsonIntArray[int32](array)
+	case model.Int64:
+		val = GjsonIntArray[int64](array)
+	case model.Uint8:
+		val = GjsonUintArray[uint8](array)
+	case model.Uint16:
+		val = GjsonUintArray[uint16](array)
+	case model.Uint32:
+		val = GjsonUintArray[uint32](array)
+	case model.Uint64:
+		val = GjsonUintArray[uint64](array)
+	case model.Float32:
+		val = GjsonFloatArray[float32](array)
+	case model.Float64:
+		val = GjsonFloatArray[float64](array)
 	case model.Decimal:
 		results := make([]decimal.Decimal, 0, len(array))
 		for _, e := range array {
-			var v float64
+			var f float64
 			switch e.Type {
 			case gjson.Number:
-				v = e.Num
+				f = e.Num
 			default:
-				v = float64(0.0)
+				f = float64(0.0)
 			}
-			results = append(results, decimal.NewFromFloat(v))
+			results = append(results, decimal.NewFromFloat(f))
 		}
 		val = results
 	case model.String:
 		results := make([]string, 0, len(array))
 		for _, e := range array {
-			var v string
+			var s string
 			switch e.Type {
 			case gjson.Null:
-				v = ""
+				s = ""
 			case gjson.String:
-				v = e.Str
+				s = e.Str
 			default:
-				v = e.Raw
+				s = e.Raw
 			}
-			results = append(results, v)
+			results = append(results, s)
 		}
 		val = results
 	case model.DateTime:
@@ -274,6 +311,6 @@ func (c *CsvMetric) GetArray(key string, typ int) (val interface{}) {
 	return
 }
 
-func (c *CsvMetric) GetNewKeys(knownKeys, newKeys *sync.Map, white, black *regexp.Regexp) bool {
+func (c *CsvMetric) GetNewKeys(knownKeys, newKeys, warnKeys *sync.Map, white, black *regexp.Regexp, partition int, offset int64) bool {
 	return false
 }

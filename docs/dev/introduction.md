@@ -35,7 +35,6 @@ Refers to [design](./design.md) for how it works.
 - [x] Enum
 - [x] Array(T), where T is one of above basic types
 - [x] Nullable(T), where T is one of above basic types
-- [x] [ElasticDateTime](https://www.elastic.co/guide/en/elasticsearch/reference/current/date.html) => Int64 (2019-12-16T12:10:30Z => 1576498230)
 
 Note:
 

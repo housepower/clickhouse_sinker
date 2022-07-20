@@ -54,6 +54,7 @@ type Service struct {
 
 	knownKeys  sync.Map
 	newKeys    sync.Map
+	warnKeys   sync.Map
 	cntNewKeys int32 // size of newKeys
 	tid        goetty.Timeout
 
@@ -297,7 +298,7 @@ func (service *Service) put(msg *model.InputMessage) {
 		} else {
 			row = model.MetricToRow(metric, msg, service.dims, service.idxSerID, service.nameKey, service.lblBlkList)
 			if taskCfg.DynamicSchema.Enable {
-				foundNewKeys = metric.GetNewKeys(&service.knownKeys, &service.newKeys, service.whiteList, service.blackList)
+				foundNewKeys = metric.GetNewKeys(&service.knownKeys, &service.newKeys, &service.warnKeys, service.whiteList, service.blackList, msg.Partition, msg.Offset)
 			}
 			// Dumping message and result
 			//util.Logger.Debug("parsed kafka message", zap.Int("partition", msg.Partition), zap.Int64("offset", msg.Offset),

@@ -15,13 +15,11 @@ limitations under the License.
 package parser
 
 import (
-	"fmt"
 	"math"
 	"sync"
 	"time"
 
 	"github.com/housepower/clickhouse_sinker/model"
-	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/thanos-io/thanos/pkg/errors"
 )
 
@@ -164,24 +162,6 @@ func (pp *Pool) ParseDateTime(key string, val string) (t time.Time, err error) {
 		return
 	}
 	t = t2.UTC()
-	return
-}
-
-func makeArray(typ int) (val interface{}) {
-	switch typ {
-	case model.Bool:
-		val = []bool{}
-	case model.Int:
-		val = []int64{}
-	case model.Float:
-		val = []float64{}
-	case model.String:
-		val = []string{}
-	case model.DateTime:
-		val = []time.Time{}
-	default:
-		util.Logger.Fatal(fmt.Sprintf("LOGIC ERROR: unsupported array type %v", typ))
-	}
 	return
 }
 
