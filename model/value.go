@@ -132,6 +132,7 @@ func WhichType(typ string) (dataType int, nullable bool, array bool) {
 		dataType, nullable, array = ti.Type, ti.Nullable, ti.Array
 		return
 	}
+	origTyp := typ
 	nullable = strings.HasPrefix(typ, "Nullable(")
 	array = strings.HasPrefix(typ, "Array(")
 	if nullable {
@@ -148,9 +149,9 @@ func WhichType(typ string) (dataType int, nullable bool, array bool) {
 	} else if strings.HasPrefix(typ, "Enum16(") {
 		dataType = String
 	} else {
-		util.Logger.Fatal(fmt.Sprintf("LOGIC ERROR: unsupported ClickHouse data type %v", typ))
+		util.Logger.Fatal(fmt.Sprintf("ClickHouse column type %v is not inside supported ones: %v", origTyp, typeInfo))
 	}
-	typeInfo[typ] = TypeInfo{Type: dataType, Nullable: nullable, Array: array}
+	typeInfo[origTyp] = TypeInfo{Type: dataType, Nullable: nullable, Array: array}
 	return
 }
 
