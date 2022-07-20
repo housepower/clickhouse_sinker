@@ -156,20 +156,19 @@ func WhichType(typ string) (dataType int, nullable bool, array bool) {
 }
 
 func init() {
-	primTypeInfo := make(map[string]TypeInfo)
 	typeInfo = make(map[string]TypeInfo)
 	for _, t := range []int{Bool, Int8, Int16, Int32, Int64, Uint8, Uint16, Uint32, Uint64, Float32, Float64, DateTime, String} {
 		tn := GetTypeName(t)
-		primTypeInfo[tn] = TypeInfo{Type: t}
+		typeInfo[tn] = TypeInfo{Type: t}
 		nullTn := fmt.Sprintf("Nullable(%s)", tn)
-		primTypeInfo[nullTn] = TypeInfo{Type: t, Nullable: true}
+		typeInfo[nullTn] = TypeInfo{Type: t, Nullable: true}
 		arrTn := fmt.Sprintf("Array(%s)", tn)
-		primTypeInfo[arrTn] = TypeInfo{Type: t, Array: true}
+		typeInfo[arrTn] = TypeInfo{Type: t, Array: true}
 	}
-	primTypeInfo["UUID"] = TypeInfo{Type: String}
-	primTypeInfo["Nullable(UUID)"] = TypeInfo{Type: String, Nullable: true}
-	primTypeInfo["Array(UUID)"] = TypeInfo{Type: String, Array: true}
-	primTypeInfo["Date"] = TypeInfo{Type: DateTime}
-	primTypeInfo["Nullable(Date)"] = TypeInfo{Type: DateTime, Nullable: true}
-	primTypeInfo["Array(Date)"] = TypeInfo{Type: DateTime, Array: true}
+	typeInfo["UUID"] = TypeInfo{Type: String}
+	typeInfo["Nullable(UUID)"] = TypeInfo{Type: String, Nullable: true}
+	typeInfo["Array(UUID)"] = TypeInfo{Type: String, Array: true}
+	typeInfo["Date"] = TypeInfo{Type: DateTime}
+	typeInfo["Nullable(Date)"] = TypeInfo{Type: DateTime, Nullable: true}
+	typeInfo["Array(Date)"] = TypeInfo{Type: DateTime, Array: true}
 }
