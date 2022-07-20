@@ -1,6 +1,9 @@
 package main
 
 /*
+https://github.com/ClickHouse/ClickHouse/issues/38878
+performance of inserting to sparse wide table is bad
+
 CREATE TABLE prom_extend ON CLUSTER abc (
     timestamp DateTime,
     value Float64,
