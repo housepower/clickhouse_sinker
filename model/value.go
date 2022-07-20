@@ -86,9 +86,9 @@ func GetValueByType(metric Metric, cwt *ColumnWithType) (val interface{}) {
 	case Bool:
 		val = metric.GetBool(name, cwt.Nullable)
 	case Int:
-		val = metric.GetInt(name, cwt.Nullable)
+		val = metric.GetInt64(name, cwt.Nullable)
 	case Float:
-		val = metric.GetFloat(name, cwt.Nullable)
+		val = metric.GetFloat64(name, cwt.Nullable)
 	case Decimal:
 		val = metric.GetDecimal(name, cwt.Nullable)
 	case String:

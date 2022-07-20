@@ -29,6 +29,7 @@ import (
 	"github.com/thanos-io/thanos/pkg/errors"
 	"github.com/tidwall/gjson"
 	"github.com/valyala/fastjson/fastfloat"
+	"golang.org/x/exp/constraints"
 )
 
 var _ Parser = (*CsvParser)(nil)
@@ -79,21 +80,6 @@ func (c *CsvMetric) GetString(key string, nullable bool) (val interface{}) {
 	return
 }
 
-// GetFloat returns the value as float
-func (c *CsvMetric) GetFloat(key string, nullable bool) (val interface{}) {
-	var idx int
-	var ok bool
-	if idx, ok = c.pp.csvFormat[key]; !ok || c.values[idx] == "null" {
-		if nullable {
-			return
-		}
-		val = float64(0.0)
-		return
-	}
-	val = fastfloat.ParseBestEffort(c.values[idx])
-	return
-}
-
 // GetDecimal returns the value as decimal
 func (c *CsvMetric) GetDecimal(key string, nullable bool) (val interface{}) {
 	var idx int
@@ -123,21 +109,94 @@ func (c *CsvMetric) GetBool(key string, nullable bool) (val interface{}) {
 	return
 }
 
-func (c *CsvMetric) GetInt(key string, nullable bool) (val interface{}) {
+func (c *CsvMetric) GetInt8(key string, nullable bool) (val interface{}) {
+	return CsvGetInt[int8](c, key, nullable)
+}
+
+func (c *CsvMetric) GetInt16(key string, nullable bool) (val interface{}) {
+	return CsvGetInt[int16](c, key, nullable)
+}
+
+func (c *CsvMetric) GetInt32(key string, nullable bool) (val interface{}) {
+	return CsvGetInt[int32](c, key, nullable)
+}
+
+func (c *CsvMetric) GetInt64(key string, nullable bool) (val interface{}) {
+	return CsvGetInt[int64](c, key, nullable)
+}
+
+func (c *CsvMetric) GetUint8(key string, nullable bool) (val interface{}) {
+	return CsvGetUint[uint8](c, key, nullable)
+}
+
+func (c *CsvMetric) GetUint16(key string, nullable bool) (val interface{}) {
+	return CsvGetUint[uint16](c, key, nullable)
+}
+
+func (c *CsvMetric) GetUint32(key string, nullable bool) (val interface{}) {
+	return CsvGetUint[uint32](c, key, nullable)
+}
+
+func (c *CsvMetric) GetUint64(key string, nullable bool) (val interface{}) {
+	return CsvGetUint[uint64](c, key, nullable)
+}
+
+func (c *CsvMetric) GetFloat32(key string, nullable bool) (val interface{}) {
+	return CsvGetFloat[float32](c, key, nullable)
+}
+
+func (c *CsvMetric) GetFloat64(key string, nullable bool) (val interface{}) {
+	return CsvGetFloat[float64](c, key, nullable)
+}
+
+func CsvGetInt[T constraints.Signed](c *CsvMetric, key string, nullable bool) (val interface{}) {
 	var idx int
 	var ok bool
 	if idx, ok = c.pp.csvFormat[key]; !ok || c.values[idx] == "null" {
 		if nullable {
 			return
 		}
-		val = int64(0)
+		val = T(0)
 		return
 	}
 	if s := c.values[idx]; s == "true" {
-		val = int64(1)
+		val = T(1)
 	} else {
-		val = fastfloat.ParseInt64BestEffort(s)
+		val = T(fastfloat.ParseInt64BestEffort(s))
 	}
+	return
+}
+
+func CsvGetUint[T constraints.Unsigned](c *CsvMetric, key string, nullable bool) (val interface{}) {
+	var idx int
+	var ok bool
+	if idx, ok = c.pp.csvFormat[key]; !ok || c.values[idx] == "null" {
+		if nullable {
+			return
+		}
+		val = T(0)
+		return
+	}
+	if s := c.values[idx]; s == "true" {
+		val = T(1)
+	} else {
+		val = T(fastfloat.ParseUint64BestEffort(s))
+	}
+	return
+}
+
+// GetFloat returns the value as float
+func CsvGetFloat[T constraints.Float](c *CsvMetric, key string, nullable bool) (val interface{}) {
+	var idx int
+	var ok bool
+	if idx, ok = c.pp.csvFormat[key]; !ok || c.values[idx] == "null" {
+		if nullable {
+			return
+		}
+		val = float64(0.0)
+		return
+	}
+	val = T(fastfloat.ParseBestEffort(c.values[idx]))
 	return
 }
 

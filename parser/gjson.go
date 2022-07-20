@@ -24,6 +24,7 @@ import (
 	"github.com/shopspring/decimal"
 	"github.com/tidwall/gjson"
 	"go.uber.org/zap"
+	"golang.org/x/exp/constraints"
 
 	"github.com/housepower/clickhouse_sinker/model"
 	"github.com/housepower/clickhouse_sinker/util"
@@ -65,21 +66,6 @@ func (c *GjsonMetric) GetString(key string, nullable bool) (val interface{}) {
 	return
 }
 
-func (c *GjsonMetric) GetFloat(key string, nullable bool) (val interface{}) {
-	r := gjson.Get(c.raw, key)
-	if !gjCompatibleFloat(r) {
-		val = getDefaultFloat(nullable)
-		return
-	}
-	switch r.Type {
-	case gjson.Number:
-		val = r.Num
-	default:
-		val = getDefaultFloat(nullable)
-	}
-	return
-}
-
 func (c *GjsonMetric) GetBool(key string, nullable bool) (val interface{}) {
 	r := gjson.Get(c.raw, key)
 	if !gjCompatibleBool(r) {
@@ -105,25 +91,103 @@ func (c *GjsonMetric) GetDecimal(key string, nullable bool) (val interface{}) {
 	return
 }
 
-func (c *GjsonMetric) GetInt(key string, nullable bool) (val interface{}) {
+func (c *GjsonMetric) GetInt8(key string, nullable bool) (val interface{}) {
+	return GjsonGetInt[int8](c, key, nullable)
+}
+
+func (c *GjsonMetric) GetInt16(key string, nullable bool) (val interface{}) {
+	return GjsonGetInt[int16](c, key, nullable)
+}
+
+func (c *GjsonMetric) GetInt32(key string, nullable bool) (val interface{}) {
+	return GjsonGetInt[int32](c, key, nullable)
+}
+
+func (c *GjsonMetric) GetInt64(key string, nullable bool) (val interface{}) {
+	return GjsonGetInt[int64](c, key, nullable)
+}
+
+func (c *GjsonMetric) GetUint8(key string, nullable bool) (val interface{}) {
+	return GjsonGetUint[uint8](c, key, nullable)
+}
+
+func (c *GjsonMetric) GetUint16(key string, nullable bool) (val interface{}) {
+	return GjsonGetUint[uint16](c, key, nullable)
+}
+
+func (c *GjsonMetric) GetUint32(key string, nullable bool) (val interface{}) {
+	return GjsonGetUint[uint32](c, key, nullable)
+}
+
+func (c *GjsonMetric) GetUint64(key string, nullable bool) (val interface{}) {
+	return GjsonGetUint[uint64](c, key, nullable)
+}
+
+func (c *GjsonMetric) GetFloat32(key string, nullable bool) (val interface{}) {
+	return GjsonGetFloat[float32](c, key, nullable)
+}
+
+func (c *GjsonMetric) GetFloat64(key string, nullable bool) (val interface{}) {
+	return GjsonGetFloat[float64](c, key, nullable)
+}
+
+func GjsonGetInt[T constraints.Signed](c *GjsonMetric, key string, nullable bool) (val interface{}) {
 	r := gjson.Get(c.raw, key)
 	if !gjCompatibleInt(r) {
-		val = getDefaultInt(nullable)
+		val = getDefaultIntGeneric[T](nullable)
 		return
 	}
 	switch r.Type {
 	case gjson.True:
-		val = int64(1)
+		val = T(1)
 	case gjson.False:
-		val = int64(0)
+		val = T(0)
 	case gjson.Number:
 		if v := r.Int(); float64(v) != r.Num {
-			val = getDefaultInt(nullable)
+			val = getDefaultIntGeneric[T](nullable)
 		} else {
-			val = v
+			val = T(v)
 		}
 	default:
-		val = getDefaultInt(nullable)
+		val = getDefaultIntGeneric[T](nullable)
+	}
+	return
+}
+
+func GjsonGetUint[T constraints.Unsigned](c *GjsonMetric, key string, nullable bool) (val interface{}) {
+	r := gjson.Get(c.raw, key)
+	if !gjCompatibleInt(r) {
+		val = getDefaultIntGeneric[T](nullable)
+		return
+	}
+	switch r.Type {
+	case gjson.True:
+		val = T(1)
+	case gjson.False:
+		val = T(0)
+	case gjson.Number:
+		if v := r.Uint(); float64(v) != r.Num {
+			val = getDefaultIntGeneric[T](nullable)
+		} else {
+			val = T(v)
+		}
+	default:
+		val = getDefaultIntGeneric[T](nullable)
+	}
+	return
+}
+
+func GjsonGetFloat[T constraints.Float](c *GjsonMetric, key string, nullable bool) (val interface{}) {
+	r := gjson.Get(c.raw, key)
+	if !gjCompatibleFloat(r) {
+		val = getDefaultFloatGeneric[T](nullable)
+		return
+	}
+	switch r.Type {
+	case gjson.Number:
+		val = T(r.Num)
+	default:
+		val = getDefaultFloatGeneric[T](nullable)
 	}
 	return
 }

@@ -73,20 +73,6 @@ func (c *FastjsonMetric) GetString(key string, nullable bool) (val interface{}) 
 	return
 }
 
-func (c *FastjsonMetric) GetFloat(key string, nullable bool) (val interface{}) {
-	v := c.value.Get(key)
-	if !fjCompatibleFloat(v) {
-		val = getDefaultFloat(nullable)
-		return
-	}
-	if val2, err := v.Float64(); err != nil {
-		val = getDefaultFloat(nullable)
-	} else {
-		val = val2
-	}
-	return
-}
-
 func (c *FastjsonMetric) GetBool(key string, nullable bool) (val interface{}) {
 	v := c.value.Get(key)
 	if !fjCompatibleBool(v) {
@@ -111,8 +97,44 @@ func (c *FastjsonMetric) GetDecimal(key string, nullable bool) (val interface{})
 	return
 }
 
-func (c *FastjsonMetric) GetInt(key string, nullable bool) (val interface{}) {
+func (c *FastjsonMetric) GetInt8(key string, nullable bool) (val interface{}) {
 	return FastjsonGetInt[int8](c, key, nullable)
+}
+
+func (c *FastjsonMetric) GetInt16(key string, nullable bool) (val interface{}) {
+	return FastjsonGetInt[int16](c, key, nullable)
+}
+
+func (c *FastjsonMetric) GetInt32(key string, nullable bool) (val interface{}) {
+	return FastjsonGetInt[int32](c, key, nullable)
+}
+
+func (c *FastjsonMetric) GetInt64(key string, nullable bool) (val interface{}) {
+	return FastjsonGetInt[int64](c, key, nullable)
+}
+
+func (c *FastjsonMetric) GetUint8(key string, nullable bool) (val interface{}) {
+	return FastjsonGetUint[uint8](c, key, nullable)
+}
+
+func (c *FastjsonMetric) GetUint16(key string, nullable bool) (val interface{}) {
+	return FastjsonGetUint[uint16](c, key, nullable)
+}
+
+func (c *FastjsonMetric) GetUint32(key string, nullable bool) (val interface{}) {
+	return FastjsonGetUint[uint32](c, key, nullable)
+}
+
+func (c *FastjsonMetric) GetUint64(key string, nullable bool) (val interface{}) {
+	return FastjsonGetUint[uint64](c, key, nullable)
+}
+
+func (c *FastjsonMetric) GetFloat32(key string, nullable bool) (val interface{}) {
+	return FastjsonGetFloat[float32](c, key, nullable)
+}
+
+func (c *FastjsonMetric) GetFloat64(key string, nullable bool) (val interface{}) {
+	return FastjsonGetFloat[float64](c, key, nullable)
 }
 
 func FastjsonGetInt[T constraints.Signed](c *FastjsonMetric, key string, nullable bool) (val interface{}) {
@@ -153,6 +175,20 @@ func FastjsonGetUint[T constraints.Unsigned](c *FastjsonMetric, key string, null
 		} else {
 			val = T(val2)
 		}
+	}
+	return
+}
+
+func FastjsonGetFloat[T constraints.Float](c *FastjsonMetric, key string, nullable bool) (val interface{}) {
+	v := c.value.Get(key)
+	if !fjCompatibleFloat(v) {
+		val = getDefaultFloat(nullable)
+		return
+	}
+	if val2, err := v.Float64(); err != nil {
+		val = getDefaultFloatGeneric[T](nullable)
+	} else {
+		val = T(val2)
 	}
 	return
 }
@@ -364,6 +400,14 @@ func getDefaultInt(nullable bool) (val interface{}) {
 		return
 	}
 	val = int64(0)
+	return
+}
+
+func getDefaultFloatGeneric[T constraints.Float](nullable bool) (val interface{}) {
+	if nullable {
+		return
+	}
+	val = T(0.0)
 	return
 }
 
