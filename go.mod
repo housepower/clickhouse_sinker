@@ -6,25 +6,25 @@ require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.2.0
 	github.com/RoaringBitmap/roaring v1.2.1
 	github.com/Shopify/sarama v1.34.1
-	github.com/bytedance/sonic v1.3.1
+	github.com/bytedance/sonic v1.3.3
 	github.com/cespare/xxhash/v2 v2.1.2
 	github.com/fagongzi/goetty v1.7.0
-	github.com/google/gops v0.3.23
+	github.com/google/gops v0.3.25
 	github.com/jcmturner/gokrb5/v8 v8.4.2
 	github.com/jinzhu/copier v0.3.5
 	github.com/nacos-group/nacos-sdk-go v1.1.1
 	github.com/prometheus/client_golang v1.12.2
-	github.com/prometheus/common v0.34.0
+	github.com/prometheus/common v0.37.0
 	github.com/segmentio/kafka-go v0.4.32
 	github.com/shopspring/decimal v1.3.1
 	github.com/stretchr/testify v1.7.5
-	github.com/thanos-io/thanos v0.27.0-rc.0
+	github.com/thanos-io/thanos v0.27.0
 	github.com/tidwall/gjson v1.14.1
 	github.com/troian/healthcheck v0.1.4-0.20200127040058-c373fb6a0dc1
 	github.com/twmb/franz-go v1.6.0
 	github.com/twmb/franz-go/pkg/kadm v1.1.1
 	github.com/twmb/franz-go/pkg/sasl/kerberos v1.0.0
-	github.com/twmb/franz-go/plugin/kzap v1.1.0
+	github.com/twmb/franz-go/plugin/kzap v1.1.1
 	github.com/valyala/fastjson v1.6.3
 	github.com/xdg-go/scram v1.1.1
 	go.uber.org/zap v1.21.0
@@ -34,13 +34,13 @@ require (
 )
 
 require (
-	github.com/aliyun/alibaba-cloud-sdk-go v1.61.1639 // indirect
+	github.com/aliyun/alibaba-cloud-sdk-go v1.61.1682 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bits-and-blooms/bitset v1.2.2 // indirect
 	github.com/buger/jsonparser v1.1.1 // indirect
 	github.com/chenzhuoyu/base64x v0.0.0-20220526154910-8bf9453eb81a // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
-	github.com/eapache/go-resiliency v1.2.0 // indirect
+	github.com/eapache/go-resiliency v1.3.0 // indirect
 	github.com/eapache/go-xerial-snappy v0.0.0-20180814174437-776d5712da21 // indirect
 	github.com/eapache/queue v1.1.0 // indirect
 	github.com/go-errors/errors v1.4.2 // indirect
@@ -56,8 +56,8 @@ require (
 	github.com/jcmturner/rpc/v2 v2.0.3 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
-	github.com/klauspost/compress v1.15.6 // indirect
-	github.com/klauspost/cpuid/v2 v2.0.13 // indirect
+	github.com/klauspost/compress v1.15.8 // indirect
+	github.com/klauspost/cpuid/v2 v2.1.0 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.2-0.20181231171920-c182affec369 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
@@ -78,15 +78,15 @@ require (
 	github.com/xdg-go/stringprep v1.0.3 // indirect
 	github.com/xdg/scram v1.0.5 // indirect
 	github.com/xdg/stringprep v1.0.3 // indirect
-	go.opentelemetry.io/otel v1.7.0 // indirect
-	go.opentelemetry.io/otel/trace v1.7.0 // indirect
+	go.opentelemetry.io/otel v1.8.0 // indirect
+	go.opentelemetry.io/otel/trace v1.8.0 // indirect
 	go.uber.org/atomic v1.9.0 // indirect
 	go.uber.org/multierr v1.8.0 // indirect
 	golang.org/x/arch v0.0.0-20220412001346-fc48f9fe4c15 // indirect
-	golang.org/x/crypto v0.0.0-20220525230936-793ad666bf5e // indirect
-	golang.org/x/net v0.0.0-20220607020251-c690dde0001d // indirect
+	golang.org/x/crypto v0.0.0-20220622213112-05595931fe9d // indirect
+	golang.org/x/net v0.0.0-20220708220712-1185a9018129 // indirect
 	golang.org/x/sync v0.0.0-20220601150217-0de741cfad7f // indirect
-	golang.org/x/sys v0.0.0-20220610221304-9f5ed59c137d // indirect
+	golang.org/x/sys v0.0.0-20220715151400-c0bba94af5f8 // indirect
 	golang.org/x/text v0.3.7 // indirect
 	google.golang.org/protobuf v1.28.0 // indirect
 	gopkg.in/ini.v1 v1.66.6 // indirect
