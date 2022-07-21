@@ -17,6 +17,7 @@ package parser
 
 import (
 	"fmt"
+	"math"
 	"regexp"
 	"sync"
 	"time"
@@ -98,46 +99,46 @@ func (c *FastjsonMetric) GetDecimal(key string, nullable bool) (val interface{})
 }
 
 func (c *FastjsonMetric) GetInt8(key string, nullable bool) (val interface{}) {
-	return FastjsonGetInt[int8](c, key, nullable)
+	return FastjsonGetInt[int8](c, key, nullable, math.MinInt8, math.MaxInt8)
 }
 
 func (c *FastjsonMetric) GetInt16(key string, nullable bool) (val interface{}) {
-	return FastjsonGetInt[int16](c, key, nullable)
+	return FastjsonGetInt[int16](c, key, nullable, math.MinInt16, math.MaxInt16)
 }
 
 func (c *FastjsonMetric) GetInt32(key string, nullable bool) (val interface{}) {
-	return FastjsonGetInt[int32](c, key, nullable)
+	return FastjsonGetInt[int32](c, key, nullable, math.MinInt32, math.MaxInt32)
 }
 
 func (c *FastjsonMetric) GetInt64(key string, nullable bool) (val interface{}) {
-	return FastjsonGetInt[int64](c, key, nullable)
+	return FastjsonGetInt[int64](c, key, nullable, math.MinInt64, math.MaxInt64)
 }
 
 func (c *FastjsonMetric) GetUint8(key string, nullable bool) (val interface{}) {
-	return FastjsonGetUint[uint8](c, key, nullable)
+	return FastjsonGetUint[uint8](c, key, nullable, math.MaxUint8)
 }
 
 func (c *FastjsonMetric) GetUint16(key string, nullable bool) (val interface{}) {
-	return FastjsonGetUint[uint16](c, key, nullable)
+	return FastjsonGetUint[uint16](c, key, nullable, math.MaxUint16)
 }
 
 func (c *FastjsonMetric) GetUint32(key string, nullable bool) (val interface{}) {
-	return FastjsonGetUint[uint32](c, key, nullable)
+	return FastjsonGetUint[uint32](c, key, nullable, math.MaxUint32)
 }
 
 func (c *FastjsonMetric) GetUint64(key string, nullable bool) (val interface{}) {
-	return FastjsonGetUint[uint64](c, key, nullable)
+	return FastjsonGetUint[uint64](c, key, nullable, math.MaxUint64)
 }
 
 func (c *FastjsonMetric) GetFloat32(key string, nullable bool) (val interface{}) {
-	return FastjsonGetFloat[float32](c, key, nullable)
+	return FastjsonGetFloat[float32](c, key, nullable, math.MaxFloat32)
 }
 
 func (c *FastjsonMetric) GetFloat64(key string, nullable bool) (val interface{}) {
-	return FastjsonGetFloat[float64](c, key, nullable)
+	return FastjsonGetFloat[float64](c, key, nullable, math.MaxFloat64)
 }
 
-func FastjsonGetInt[T constraints.Signed](c *FastjsonMetric, key string, nullable bool) (val interface{}) {
+func FastjsonGetInt[T constraints.Signed](c *FastjsonMetric, key string, nullable bool, min, max int64) (val interface{}) {
 	v := c.value.Get(key)
 	if !fjCompatibleInt(v) {
 		val = getDefaultInt[T](nullable)
@@ -151,6 +152,10 @@ func FastjsonGetInt[T constraints.Signed](c *FastjsonMetric, key string, nullabl
 	default:
 		if val2, err := v.Int64(); err != nil {
 			val = getDefaultInt[T](nullable)
+		} else if val2 < min {
+			val = T(min)
+		} else if val2 > max {
+			val = T(max)
 		} else {
 			val = T(val2)
 		}
@@ -158,7 +163,7 @@ func FastjsonGetInt[T constraints.Signed](c *FastjsonMetric, key string, nullabl
 	return
 }
 
-func FastjsonGetUint[T constraints.Unsigned](c *FastjsonMetric, key string, nullable bool) (val interface{}) {
+func FastjsonGetUint[T constraints.Unsigned](c *FastjsonMetric, key string, nullable bool, max uint64) (val interface{}) {
 	v := c.value.Get(key)
 	if !fjCompatibleInt(v) {
 		val = getDefaultInt[T](nullable)
@@ -172,6 +177,8 @@ func FastjsonGetUint[T constraints.Unsigned](c *FastjsonMetric, key string, null
 	default:
 		if val2, err := v.Uint64(); err != nil {
 			val = getDefaultInt[T](nullable)
+		} else if val2 > max {
+			val = T(max)
 		} else {
 			val = T(val2)
 		}
@@ -179,7 +186,7 @@ func FastjsonGetUint[T constraints.Unsigned](c *FastjsonMetric, key string, null
 	return
 }
 
-func FastjsonGetFloat[T constraints.Float](c *FastjsonMetric, key string, nullable bool) (val interface{}) {
+func FastjsonGetFloat[T constraints.Float](c *FastjsonMetric, key string, nullable bool, max float64) (val interface{}) {
 	v := c.value.Get(key)
 	if !fjCompatibleFloat(v) {
 		val = getDefaultFloat[T](nullable)
@@ -187,6 +194,8 @@ func FastjsonGetFloat[T constraints.Float](c *FastjsonMetric, key string, nullab
 	}
 	if val2, err := v.Float64(); err != nil {
 		val = getDefaultFloat[T](nullable)
+	} else if val2 > max {
+		val = T(max)
 	} else {
 		val = T(val2)
 	}
@@ -237,25 +246,25 @@ func (c *FastjsonMetric) GetArray(key string, typ int) (val interface{}) {
 		}
 		val = arr
 	case model.Int8:
-		val = FastjsonIntArray[int8](array)
+		val = FastjsonIntArray[int8](array, math.MinInt8, math.MaxInt8)
 	case model.Int16:
-		val = FastjsonIntArray[int16](array)
+		val = FastjsonIntArray[int16](array, math.MinInt16, math.MaxInt16)
 	case model.Int32:
-		val = FastjsonIntArray[int32](array)
+		val = FastjsonIntArray[int32](array, math.MinInt32, math.MaxInt32)
 	case model.Int64:
-		val = FastjsonIntArray[int64](array)
+		val = FastjsonIntArray[int64](array, math.MinInt64, math.MaxInt64)
 	case model.Uint8:
-		val = FastjsonUintArray[uint8](array)
+		val = FastjsonUintArray[uint8](array, math.MaxUint8)
 	case model.Uint16:
-		val = FastjsonUintArray[uint16](array)
+		val = FastjsonUintArray[uint16](array, math.MaxUint16)
 	case model.Uint32:
-		val = FastjsonUintArray[uint32](array)
+		val = FastjsonUintArray[uint32](array, math.MaxUint32)
 	case model.Uint64:
-		val = FastjsonUintArray[uint64](array)
+		val = FastjsonUintArray[uint64](array, math.MaxUint64)
 	case model.Float32:
-		val = FastjsonFloatArray[float32](array)
+		val = FastjsonFloatArray[float32](array, math.MaxFloat32)
 	case model.Float64:
-		val = FastjsonFloatArray[float64](array)
+		val = FastjsonFloatArray[float64](array, math.MaxFloat64)
 	case model.Decimal:
 		arr := make([]decimal.Decimal, 0)
 		for _, e := range array {
@@ -265,8 +274,8 @@ func (c *FastjsonMetric) GetArray(key string, typ int) (val interface{}) {
 		val = arr
 	case model.String:
 		arr := make([]string, 0)
+		var s string
 		for _, e := range array {
-			var s string
 			switch e.Type() {
 			case fastjson.TypeNull:
 				s = ""
@@ -281,8 +290,8 @@ func (c *FastjsonMetric) GetArray(key string, typ int) (val interface{}) {
 		val = arr
 	case model.DateTime:
 		arr := make([]time.Time, 0)
+		var t time.Time
 		for _, e := range array {
-			var t time.Time
 			switch e.Type() {
 			case fastjson.TypeNumber:
 				if f, err := e.Float64(); err != nil {
@@ -311,43 +320,57 @@ func (c *FastjsonMetric) GetArray(key string, typ int) (val interface{}) {
 	return
 }
 
-func FastjsonIntArray[T constraints.Signed](a []*fastjson.Value) (arr []T) {
+func FastjsonIntArray[T constraints.Signed](a []*fastjson.Value, min, max int64) (arr []T) {
 	arr = make([]T, 0)
+	var val T
 	for _, e := range a {
-		var val T
 		if e.Type() == fastjson.TypeTrue {
 			val = T(1)
 		} else {
-			var v int64
-			v, _ = e.Int64()
-			val = T(v)
+			val2, _ := e.Int64()
+			if val2 < min {
+				val = T(min)
+			} else if val2 > max {
+				val = T(max)
+			} else {
+				val = T(val2)
+			}
 		}
 		arr = append(arr, val)
 	}
 	return
 }
 
-func FastjsonUintArray[T constraints.Unsigned](a []*fastjson.Value) (arr []T) {
+func FastjsonUintArray[T constraints.Unsigned](a []*fastjson.Value, max uint64) (arr []T) {
 	arr = make([]T, 0)
+	var val T
 	for _, e := range a {
-		var val T
 		if e.Type() == fastjson.TypeTrue {
 			val = T(1)
 		} else {
-			var v uint64
-			v, _ = e.Uint64()
-			val = T(v)
+			val2, _ := e.Uint64()
+			if val2 > max {
+				val = T(max)
+			} else {
+				val = T(val2)
+			}
 		}
 		arr = append(arr, val)
 	}
 	return
 }
 
-func FastjsonFloatArray[T constraints.Float](a []*fastjson.Value) (arr []T) {
+func FastjsonFloatArray[T constraints.Float](a []*fastjson.Value, max float64) (arr []T) {
 	arr = make([]T, 0)
+	var val T
 	for _, e := range a {
-		v, _ := e.Float64()
-		arr = append(arr, T(v))
+		val2, _ := e.Float64()
+		if val2 > max {
+			val = T(max)
+		} else {
+			val = T(val2)
+		}
+		arr = append(arr, val)
 	}
 	return
 }

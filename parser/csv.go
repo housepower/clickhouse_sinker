@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"encoding/csv"
 	"fmt"
+	"math"
 	"regexp"
 	"strconv"
 	"sync"
@@ -110,46 +111,46 @@ func (c *CsvMetric) GetBool(key string, nullable bool) (val interface{}) {
 }
 
 func (c *CsvMetric) GetInt8(key string, nullable bool) (val interface{}) {
-	return CsvGetInt[int8](c, key, nullable)
+	return CsvGetInt[int8](c, key, nullable, math.MinInt8, math.MaxInt8)
 }
 
 func (c *CsvMetric) GetInt16(key string, nullable bool) (val interface{}) {
-	return CsvGetInt[int16](c, key, nullable)
+	return CsvGetInt[int16](c, key, nullable, math.MinInt16, math.MaxInt16)
 }
 
 func (c *CsvMetric) GetInt32(key string, nullable bool) (val interface{}) {
-	return CsvGetInt[int32](c, key, nullable)
+	return CsvGetInt[int32](c, key, nullable, math.MinInt32, math.MaxInt32)
 }
 
 func (c *CsvMetric) GetInt64(key string, nullable bool) (val interface{}) {
-	return CsvGetInt[int64](c, key, nullable)
+	return CsvGetInt[int64](c, key, nullable, math.MinInt64, math.MaxInt64)
 }
 
 func (c *CsvMetric) GetUint8(key string, nullable bool) (val interface{}) {
-	return CsvGetUint[uint8](c, key, nullable)
+	return CsvGetUint[uint8](c, key, nullable, math.MaxUint8)
 }
 
 func (c *CsvMetric) GetUint16(key string, nullable bool) (val interface{}) {
-	return CsvGetUint[uint16](c, key, nullable)
+	return CsvGetUint[uint16](c, key, nullable, math.MaxUint16)
 }
 
 func (c *CsvMetric) GetUint32(key string, nullable bool) (val interface{}) {
-	return CsvGetUint[uint32](c, key, nullable)
+	return CsvGetUint[uint32](c, key, nullable, math.MaxUint32)
 }
 
 func (c *CsvMetric) GetUint64(key string, nullable bool) (val interface{}) {
-	return CsvGetUint[uint64](c, key, nullable)
+	return CsvGetUint[uint64](c, key, nullable, math.MaxUint64)
 }
 
 func (c *CsvMetric) GetFloat32(key string, nullable bool) (val interface{}) {
-	return CsvGetFloat[float32](c, key, nullable)
+	return CsvGetFloat[float32](c, key, nullable, math.MaxFloat32)
 }
 
 func (c *CsvMetric) GetFloat64(key string, nullable bool) (val interface{}) {
-	return CsvGetFloat[float64](c, key, nullable)
+	return CsvGetFloat[float64](c, key, nullable, math.MaxFloat64)
 }
 
-func CsvGetInt[T constraints.Signed](c *CsvMetric, key string, nullable bool) (val interface{}) {
+func CsvGetInt[T constraints.Signed](c *CsvMetric, key string, nullable bool, min, max int64) (val interface{}) {
 	var idx int
 	var ok bool
 	if idx, ok = c.pp.csvFormat[key]; !ok || c.values[idx] == "null" {
@@ -162,12 +163,19 @@ func CsvGetInt[T constraints.Signed](c *CsvMetric, key string, nullable bool) (v
 	if s := c.values[idx]; s == "true" {
 		val = T(1)
 	} else {
-		val = T(fastfloat.ParseInt64BestEffort(s))
+		val2 := fastfloat.ParseInt64BestEffort(s)
+		if val2 < min {
+			val = T(min)
+		} else if val2 > max {
+			val = T(max)
+		} else {
+			val = T(val2)
+		}
 	}
 	return
 }
 
-func CsvGetUint[T constraints.Unsigned](c *CsvMetric, key string, nullable bool) (val interface{}) {
+func CsvGetUint[T constraints.Unsigned](c *CsvMetric, key string, nullable bool, max uint64) (val interface{}) {
 	var idx int
 	var ok bool
 	if idx, ok = c.pp.csvFormat[key]; !ok || c.values[idx] == "null" {
@@ -180,13 +188,18 @@ func CsvGetUint[T constraints.Unsigned](c *CsvMetric, key string, nullable bool)
 	if s := c.values[idx]; s == "true" {
 		val = T(1)
 	} else {
-		val = T(fastfloat.ParseUint64BestEffort(s))
+		val2 := fastfloat.ParseUint64BestEffort(s)
+		if val2 > max {
+			val = T(max)
+		} else {
+			val = T(val2)
+		}
 	}
 	return
 }
 
 // GetFloat returns the value as float
-func CsvGetFloat[T constraints.Float](c *CsvMetric, key string, nullable bool) (val interface{}) {
+func CsvGetFloat[T constraints.Float](c *CsvMetric, key string, nullable bool, max float64) (val interface{}) {
 	var idx int
 	var ok bool
 	if idx, ok = c.pp.csvFormat[key]; !ok || c.values[idx] == "null" {
@@ -196,7 +209,12 @@ func CsvGetFloat[T constraints.Float](c *CsvMetric, key string, nullable bool) (
 		val = float64(0.0)
 		return
 	}
-	val = T(fastfloat.ParseBestEffort(c.values[idx]))
+	val2 := fastfloat.ParseBestEffort(c.values[idx])
+	if val2 > max {
+		val = T(max)
+	} else {
+		val = T(val2)
+	}
 	return
 }
 
@@ -240,29 +258,29 @@ func (c *CsvMetric) GetArray(key string, typ int) (val interface{}) {
 		}
 		val = results
 	case model.Int8:
-		val = GjsonIntArray[int8](array)
+		val = GjsonIntArray[int8](array, math.MinInt8, math.MaxInt8)
 	case model.Int16:
-		val = GjsonIntArray[int16](array)
+		val = GjsonIntArray[int16](array, math.MinInt16, math.MaxInt16)
 	case model.Int32:
-		val = GjsonIntArray[int32](array)
+		val = GjsonIntArray[int32](array, math.MinInt32, math.MaxInt32)
 	case model.Int64:
-		val = GjsonIntArray[int64](array)
+		val = GjsonIntArray[int64](array, math.MinInt64, math.MaxInt64)
 	case model.Uint8:
-		val = GjsonUintArray[uint8](array)
+		val = GjsonUintArray[uint8](array, math.MaxUint8)
 	case model.Uint16:
-		val = GjsonUintArray[uint16](array)
+		val = GjsonUintArray[uint16](array, math.MaxUint16)
 	case model.Uint32:
-		val = GjsonUintArray[uint32](array)
+		val = GjsonUintArray[uint32](array, math.MaxUint32)
 	case model.Uint64:
-		val = GjsonUintArray[uint64](array)
+		val = GjsonUintArray[uint64](array, math.MaxUint64)
 	case model.Float32:
-		val = GjsonFloatArray[float32](array)
+		val = GjsonFloatArray[float32](array, math.MaxFloat32)
 	case model.Float64:
-		val = GjsonFloatArray[float64](array)
+		val = GjsonFloatArray[float64](array, math.MaxFloat64)
 	case model.Decimal:
 		results := make([]decimal.Decimal, 0, len(array))
+		var f float64
 		for _, e := range array {
-			var f float64
 			switch e.Type {
 			case gjson.Number:
 				f = e.Num
@@ -274,8 +292,8 @@ func (c *CsvMetric) GetArray(key string, typ int) (val interface{}) {
 		val = results
 	case model.String:
 		results := make([]string, 0, len(array))
+		var s string
 		for _, e := range array {
-			var s string
 			switch e.Type {
 			case gjson.Null:
 				s = ""
@@ -289,8 +307,8 @@ func (c *CsvMetric) GetArray(key string, typ int) (val interface{}) {
 		val = results
 	case model.DateTime:
 		results := make([]time.Time, 0, len(array))
+		var t time.Time
 		for _, e := range array {
-			var t time.Time
 			switch e.Type {
 			case gjson.Number:
 				t = UnixFloat(e.Num, c.pp.timeUnit)

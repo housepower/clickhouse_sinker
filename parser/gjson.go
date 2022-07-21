@@ -17,6 +17,7 @@ package parser
 
 import (
 	"fmt"
+	"math"
 	"regexp"
 	"strconv"
 	"sync"
@@ -93,46 +94,46 @@ func (c *GjsonMetric) GetDecimal(key string, nullable bool) (val interface{}) {
 }
 
 func (c *GjsonMetric) GetInt8(key string, nullable bool) (val interface{}) {
-	return GjsonGetInt[int8](c, key, nullable)
+	return GjsonGetInt[int8](c, key, nullable, math.MinInt8, math.MaxInt8)
 }
 
 func (c *GjsonMetric) GetInt16(key string, nullable bool) (val interface{}) {
-	return GjsonGetInt[int16](c, key, nullable)
+	return GjsonGetInt[int16](c, key, nullable, math.MinInt16, math.MaxInt16)
 }
 
 func (c *GjsonMetric) GetInt32(key string, nullable bool) (val interface{}) {
-	return GjsonGetInt[int32](c, key, nullable)
+	return GjsonGetInt[int32](c, key, nullable, math.MinInt32, math.MaxInt32)
 }
 
 func (c *GjsonMetric) GetInt64(key string, nullable bool) (val interface{}) {
-	return GjsonGetInt[int64](c, key, nullable)
+	return GjsonGetInt[int64](c, key, nullable, math.MinInt64, math.MaxInt64)
 }
 
 func (c *GjsonMetric) GetUint8(key string, nullable bool) (val interface{}) {
-	return GjsonGetUint[uint8](c, key, nullable)
+	return GjsonGetUint[uint8](c, key, nullable, math.MaxUint8)
 }
 
 func (c *GjsonMetric) GetUint16(key string, nullable bool) (val interface{}) {
-	return GjsonGetUint[uint16](c, key, nullable)
+	return GjsonGetUint[uint16](c, key, nullable, math.MaxUint16)
 }
 
 func (c *GjsonMetric) GetUint32(key string, nullable bool) (val interface{}) {
-	return GjsonGetUint[uint32](c, key, nullable)
+	return GjsonGetUint[uint32](c, key, nullable, math.MaxUint32)
 }
 
 func (c *GjsonMetric) GetUint64(key string, nullable bool) (val interface{}) {
-	return GjsonGetUint[uint64](c, key, nullable)
+	return GjsonGetUint[uint64](c, key, nullable, math.MaxUint64)
 }
 
 func (c *GjsonMetric) GetFloat32(key string, nullable bool) (val interface{}) {
-	return GjsonGetFloat[float32](c, key, nullable)
+	return GjsonGetFloat[float32](c, key, nullable, math.MaxFloat32)
 }
 
 func (c *GjsonMetric) GetFloat64(key string, nullable bool) (val interface{}) {
-	return GjsonGetFloat[float64](c, key, nullable)
+	return GjsonGetFloat[float64](c, key, nullable, math.MaxFloat64)
 }
 
-func GjsonGetInt[T constraints.Signed](c *GjsonMetric, key string, nullable bool) (val interface{}) {
+func GjsonGetInt[T constraints.Signed](c *GjsonMetric, key string, nullable bool, min, max int64) (val interface{}) {
 	r := gjson.Get(c.raw, key)
 	if !gjCompatibleInt(r) {
 		val = getDefaultInt[T](nullable)
@@ -144,10 +145,14 @@ func GjsonGetInt[T constraints.Signed](c *GjsonMetric, key string, nullable bool
 	case gjson.False:
 		val = T(0)
 	case gjson.Number:
-		if v := r.Int(); float64(v) != r.Num {
+		if val2 := r.Int(); float64(val2) != r.Num {
 			val = getDefaultInt[T](nullable)
+		} else if val2 < min {
+			val = T(min)
+		} else if val2 > max {
+			val = T(max)
 		} else {
-			val = T(v)
+			val = T(val2)
 		}
 	default:
 		val = getDefaultInt[T](nullable)
@@ -155,7 +160,7 @@ func GjsonGetInt[T constraints.Signed](c *GjsonMetric, key string, nullable bool
 	return
 }
 
-func GjsonGetUint[T constraints.Unsigned](c *GjsonMetric, key string, nullable bool) (val interface{}) {
+func GjsonGetUint[T constraints.Unsigned](c *GjsonMetric, key string, nullable bool, max uint64) (val interface{}) {
 	r := gjson.Get(c.raw, key)
 	if !gjCompatibleInt(r) {
 		val = getDefaultInt[T](nullable)
@@ -167,10 +172,12 @@ func GjsonGetUint[T constraints.Unsigned](c *GjsonMetric, key string, nullable b
 	case gjson.False:
 		val = T(0)
 	case gjson.Number:
-		if v := r.Uint(); float64(v) != r.Num {
+		if val2 := r.Uint(); float64(val2) != r.Num {
 			val = getDefaultInt[T](nullable)
+		} else if val2 > max {
+			val = T(max)
 		} else {
-			val = T(v)
+			val = T(val2)
 		}
 	default:
 		val = getDefaultInt[T](nullable)
@@ -178,7 +185,7 @@ func GjsonGetUint[T constraints.Unsigned](c *GjsonMetric, key string, nullable b
 	return
 }
 
-func GjsonGetFloat[T constraints.Float](c *GjsonMetric, key string, nullable bool) (val interface{}) {
+func GjsonGetFloat[T constraints.Float](c *GjsonMetric, key string, nullable bool, max float64) (val interface{}) {
 	r := gjson.Get(c.raw, key)
 	if !gjCompatibleFloat(r) {
 		val = getDefaultFloat[T](nullable)
@@ -186,7 +193,11 @@ func GjsonGetFloat[T constraints.Float](c *GjsonMetric, key string, nullable boo
 	}
 	switch r.Type {
 	case gjson.Number:
-		val = T(r.Num)
+		if r.Num > max {
+			val = T(max)
+		} else {
+			val = T(r.Num)
+		}
 	default:
 		val = getDefaultFloat[T](nullable)
 	}
@@ -228,29 +239,29 @@ func (c *GjsonMetric) GetArray(key string, typ int) (val interface{}) {
 		}
 		val = results
 	case model.Int8:
-		val = GjsonIntArray[int8](array)
+		val = GjsonIntArray[int8](array, math.MinInt8, math.MaxInt8)
 	case model.Int16:
-		val = GjsonIntArray[int16](array)
+		val = GjsonIntArray[int16](array, math.MinInt16, math.MaxInt16)
 	case model.Int32:
-		val = GjsonIntArray[int32](array)
+		val = GjsonIntArray[int32](array, math.MinInt32, math.MaxInt32)
 	case model.Int64:
-		val = GjsonIntArray[int64](array)
+		val = GjsonIntArray[int64](array, math.MinInt64, math.MaxInt64)
 	case model.Uint8:
-		val = GjsonUintArray[uint8](array)
+		val = GjsonUintArray[uint8](array, math.MaxUint8)
 	case model.Uint16:
-		val = GjsonUintArray[uint16](array)
+		val = GjsonUintArray[uint16](array, math.MaxUint16)
 	case model.Uint32:
-		val = GjsonUintArray[uint32](array)
+		val = GjsonUintArray[uint32](array, math.MaxUint32)
 	case model.Uint64:
-		val = GjsonUintArray[uint64](array)
+		val = GjsonUintArray[uint64](array, math.MaxUint64)
 	case model.Float32:
-		val = GjsonFloatArray[float32](array)
+		val = GjsonFloatArray[float32](array, math.MaxFloat32)
 	case model.Float64:
-		val = GjsonFloatArray[float64](array)
+		val = GjsonFloatArray[float64](array, math.MaxFloat64)
 	case model.Decimal:
 		results := make([]decimal.Decimal, 0, len(array))
+		var f float64
 		for _, e := range array {
-			var f float64
 			switch e.Type {
 			case gjson.Number:
 				f = e.Num
@@ -262,8 +273,8 @@ func (c *GjsonMetric) GetArray(key string, typ int) (val interface{}) {
 		val = results
 	case model.String:
 		results := make([]string, 0, len(array))
+		var s string
 		for _, e := range array {
-			var s string
 			switch e.Type {
 			case gjson.Null:
 				s = ""
@@ -277,8 +288,8 @@ func (c *GjsonMetric) GetArray(key string, typ int) (val interface{}) {
 		val = results
 	case model.DateTime:
 		results := make([]time.Time, 0, len(array))
+		var t time.Time
 		for _, e := range array {
-			var t time.Time
 			switch e.Type {
 			case gjson.Number:
 				t = UnixFloat(e.Num, c.pp.timeUnit)
@@ -299,61 +310,69 @@ func (c *GjsonMetric) GetArray(key string, typ int) (val interface{}) {
 	return
 }
 
-func GjsonIntArray[T constraints.Signed](a []gjson.Result) (arr []T) {
+func GjsonIntArray[T constraints.Signed](a []gjson.Result, min, max int64) (arr []T) {
 	arr = make([]T, 0, len(a))
+	var val T
 	for _, e := range a {
-		var v T
 		switch e.Type {
 		case gjson.True:
-			v = T(1)
+			val = T(1)
 		case gjson.Number:
-			var tmpv int64
-			if tmpv = e.Int(); float64(tmpv) != e.Num {
-				v = T(0)
+			if val2 := e.Int(); float64(val2) != e.Num {
+				val = T(0)
+			} else if val2 < min {
+				val = T(min)
+			} else if val2 > max {
+				val = T(max)
 			} else {
-				v = T(tmpv)
+				val = T(val2)
 			}
 		default:
-			v = T(0)
+			val = T(0)
 		}
-		arr = append(arr, v)
+		arr = append(arr, val)
 	}
 	return
 }
 
-func GjsonUintArray[T constraints.Unsigned](a []gjson.Result) (arr []T) {
+func GjsonUintArray[T constraints.Unsigned](a []gjson.Result, max uint64) (arr []T) {
 	arr = make([]T, 0, len(a))
+	var val T
 	for _, e := range a {
-		var v T
 		switch e.Type {
 		case gjson.True:
-			v = T(1)
+			val = T(1)
 		case gjson.Number:
-			var tmpv uint64
-			if tmpv = e.Uint(); float64(tmpv) != e.Num {
-				v = T(0)
+			if val2 := e.Uint(); float64(val2) != e.Num {
+				val = T(0)
+			} else if val2 > max {
+				val = T(max)
 			} else {
-				v = T(tmpv)
+				val = T(val2)
 			}
 		default:
-			v = T(0)
+			val = T(0)
 		}
-		arr = append(arr, v)
+		arr = append(arr, val)
 	}
 	return
 }
 
-func GjsonFloatArray[T constraints.Float](a []gjson.Result) (arr []T) {
+func GjsonFloatArray[T constraints.Float](a []gjson.Result, max float64) (arr []T) {
 	arr = make([]T, 0, len(a))
+	var val T
 	for _, e := range a {
-		var v T
 		switch e.Type {
 		case gjson.Number:
-			v = T(e.Num)
+			if e.Num > max {
+				val = T(max)
+			} else {
+				val = T(e.Num)
+			}
 		default:
-			v = T(0.0)
+			val = T(0.0)
 		}
-		arr = append(arr, v)
+		arr = append(arr, val)
 	}
 	return
 }
