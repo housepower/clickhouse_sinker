@@ -26,7 +26,7 @@ CREATE TABLE sensor_dt_result_online ON CLUSTER abc (
 	is_missing Int32
 ) ENGINE=ReplicatedMergeTree('/clickhouse/tables/{cluster}/{database}/{table}/{shard}', '{replica}')
 PARTITION BY toYYYYMMDD(`@time`)
-ORDER BY (`@time`, `@ItemGUID`, `@MetricName`);
+ORDER BY (`@ItemGUID`, `@MetricName`, `@time`);
 
 CREATE TABLE dist_sensor_dt_result_online ON CLUSTER abc AS sensor_dt_result_online ENGINE = Distributed(abc, default, sensor_dt_result_online);
 

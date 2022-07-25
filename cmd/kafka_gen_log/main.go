@@ -30,7 +30,7 @@ CREATE TABLE apache_access_log ON CLUSTER abc (
 	xforwardfor LowCardinality(String)
 ) ENGINE=ReplicatedMergeTree('/clickhouse/tables/{cluster}/{database}/{table}/{shard}', '{replica}')
 PARTITION BY toYYYYMMDD(timestamp)
-ORDER BY (timestamp, `@hostname`, `@path`, `@lineno`);
+ORDER BY (`@hostname`, `@path`, `@lineno`, timestamp);
 
 CREATE TABLE dist_apache_access_log ON CLUSTER abc AS apache_access_log ENGINE = Distributed(abc, default, apache_access_log);
 
