@@ -28,10 +28,10 @@ const (
 	Int16
 	Int32
 	Int64
-	Uint8
-	Uint16
-	Uint32
-	Uint64
+	UInt8
+	UInt16
+	UInt32
+	UInt64
 	Float32
 	Float64
 	Decimal
@@ -49,6 +49,7 @@ var (
 	typeInfo map[string]TypeInfo
 )
 
+// GetTypeName returns the column type in ClickHouse
 func GetTypeName(typ int) (name string) {
 	switch typ {
 	case Bool:
@@ -61,14 +62,14 @@ func GetTypeName(typ int) (name string) {
 		name = "Int32"
 	case Int64:
 		name = "Int64"
-	case Uint8:
-		name = "Uint8"
-	case Uint16:
-		name = "Uint16"
-	case Uint32:
-		name = "Uint32"
-	case Uint64:
-		name = "Uint64"
+	case UInt8:
+		name = "UInt8"
+	case UInt16:
+		name = "UInt16"
+	case UInt32:
+		name = "UInt32"
+	case UInt64:
+		name = "UInt64"
 	case Float32:
 		name = "Float32"
 	case Float64:
@@ -101,13 +102,13 @@ func GetValueByType(metric Metric, cwt *ColumnWithType) (val interface{}) {
 			val = metric.GetInt32(name, cwt.Nullable)
 		case Int64:
 			val = metric.GetInt64(name, cwt.Nullable)
-		case Uint8:
+		case UInt8:
 			val = metric.GetUint8(name, cwt.Nullable)
-		case Uint16:
+		case UInt16:
 			val = metric.GetUint16(name, cwt.Nullable)
-		case Uint32:
+		case UInt32:
 			val = metric.GetUint32(name, cwt.Nullable)
-		case Uint64:
+		case UInt64:
 			val = metric.GetUint64(name, cwt.Nullable)
 		case Float32:
 			val = metric.GetFloat32(name, cwt.Nullable)
@@ -159,7 +160,7 @@ func WhichType(typ string) (dataType int, nullable bool, array bool) {
 
 func init() {
 	typeInfo = make(map[string]TypeInfo)
-	for _, t := range []int{Bool, Int8, Int16, Int32, Int64, Uint8, Uint16, Uint32, Uint64, Float32, Float64, DateTime, String} {
+	for _, t := range []int{Bool, Int8, Int16, Int32, Int64, UInt8, UInt16, UInt32, UInt64, Float32, Float64, DateTime, String} {
 		tn := GetTypeName(t)
 		typeInfo[tn] = TypeInfo{Type: t}
 		nullTn := fmt.Sprintf("Nullable(%s)", tn)

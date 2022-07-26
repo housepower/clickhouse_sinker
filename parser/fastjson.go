@@ -253,13 +253,13 @@ func (c *FastjsonMetric) GetArray(key string, typ int) (val interface{}) {
 		val = FastjsonIntArray[int32](array, math.MinInt32, math.MaxInt32)
 	case model.Int64:
 		val = FastjsonIntArray[int64](array, math.MinInt64, math.MaxInt64)
-	case model.Uint8:
+	case model.UInt8:
 		val = FastjsonUintArray[uint8](array, math.MaxUint8)
-	case model.Uint16:
+	case model.UInt16:
 		val = FastjsonUintArray[uint16](array, math.MaxUint16)
-	case model.Uint32:
+	case model.UInt32:
 		val = FastjsonUintArray[uint32](array, math.MaxUint32)
-	case model.Uint64:
+	case model.UInt64:
 		val = FastjsonUintArray[uint64](array, math.MaxUint64)
 	case model.Float32:
 		val = FastjsonFloatArray[float32](array, math.MaxFloat32)

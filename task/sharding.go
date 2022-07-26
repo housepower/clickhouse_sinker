@@ -33,7 +33,7 @@ func NewShardingPolicy(shardingKey string, shardingStripe uint64, dims []*model.
 			}
 			colSeq = i
 			switch dim.Type {
-			case model.Int8, model.Int16, model.Int32, model.Int64, model.Uint8, model.Uint16, model.Uint32, model.Uint64, model.Float32, model.Float64, model.Decimal, model.DateTime:
+			case model.Int8, model.Int16, model.Int32, model.Int64, model.UInt8, model.UInt16, model.UInt32, model.UInt64, model.Float32, model.Float64, model.Decimal, model.DateTime:
 				//numerical
 				if policy.stripe <= 0 {
 					policy.stripe = uint64(1)

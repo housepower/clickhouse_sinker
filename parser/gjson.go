@@ -246,13 +246,13 @@ func (c *GjsonMetric) GetArray(key string, typ int) (val interface{}) {
 		val = GjsonIntArray[int32](array, math.MinInt32, math.MaxInt32)
 	case model.Int64:
 		val = GjsonIntArray[int64](array, math.MinInt64, math.MaxInt64)
-	case model.Uint8:
+	case model.UInt8:
 		val = GjsonUintArray[uint8](array, math.MaxUint8)
-	case model.Uint16:
+	case model.UInt16:
 		val = GjsonUintArray[uint16](array, math.MaxUint16)
-	case model.Uint32:
+	case model.UInt32:
 		val = GjsonUintArray[uint32](array, math.MaxUint32)
-	case model.Uint64:
+	case model.UInt64:
 		val = GjsonUintArray[uint64](array, math.MaxUint64)
 	case model.Float32:
 		val = GjsonFloatArray[float32](array, math.MaxFloat32)
