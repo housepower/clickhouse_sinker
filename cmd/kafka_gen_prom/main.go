@@ -4,7 +4,8 @@ package main
 https://github.com/ClickHouse/ClickHouse/issues/38878
 performance of inserting to sparse wide table is bad
 
-CREATE TABLE prom_extend ON CLUSTER abc (
+-- Prometheus metric solution 1 - one wide table, each row is a datapoint and its series lables
+CREATE TABLE default.prom_extend ON CLUSTER abc (
     timestamp DateTime,
     value Float64,
     __name__ String,
@@ -13,9 +14,10 @@ CREATE TABLE prom_extend ON CLUSTER abc (
 PARTITION BY toYYYYMMDD(timestamp)
 ORDER BY (__name__, timestamp);
 
-CREATE TABLE dist_prom_extend ON CLUSTER abc AS prom_extend ENGINE = Distributed(abc, default, prom_extend);
+CREATE TABLE default.dist_prom_extend ON CLUSTER abc AS prom_extend ENGINE = Distributed(abc, default, prom_extend);
 
-CREATE TABLE prom_metric ON CLUSTER abc (
+-- Prometheus metric solution 2 - seperated table for datapoints and series labels can join on series id
+CREATE TABLE default.prom_metric ON CLUSTER abc (
     __series_id Int64,
     timestamp DateTime,
     value Float64
@@ -23,9 +25,9 @@ CREATE TABLE prom_metric ON CLUSTER abc (
 PARTITION BY toYYYYMMDD(timestamp)
 ORDER BY (__series_id, timestamp);
 
-CREATE TABLE dist_prom_metric ON CLUSTER abc AS prom_metric ENGINE = Distributed(abc, default, prom_metric);
+CREATE TABLE default.dist_prom_metric ON CLUSTER abc AS prom_metric ENGINE = Distributed(abc, default, prom_metric);
 
-CREATE TABLE prom_metric_series ON CLUSTER abc (
+CREATE TABLE default.prom_metric_series ON CLUSTER abc (
     __series_id Int64,
     __mgmt_id Int64,
     labels String,
@@ -33,7 +35,43 @@ CREATE TABLE prom_metric_series ON CLUSTER abc (
 ) ENGINE=ReplicatedReplacingMergeTree()
 ORDER BY (__name__, __series_id);
 
-CREATE TABLE dist_prom_metric_series ON CLUSTER abc AS prom_metric_series ENGINE = Distributed(abc, default, prom_metric_series);
+CREATE TABLE default.dist_prom_metric_series ON CLUSTER abc AS prom_metric_series ENGINE = Distributed(abc, default, prom_metric_series);
+
+CREATE TABLE default.prom_metric_agg ON CLUSTER abc (
+    __series_id Int64,
+    timestamp DateTime,
+    max_value AggregateFunction(max, Float64),
+	min_value AggregateFunction(min, Float64),
+	avg_value AggregateFunction(avg, Float64)
+) ENGINE=ReplicatedReplacingMergeTree()
+PARTITION BY toYYYYMMDD(timestamp)
+ORDER BY (__series_id, timestamp);
+
+CREATE TABLE default.dist_prom_metric_agg ON CLUSTER abc AS prom_metric_agg ENGINE = Distributed(abc, default, prom_metric_agg);
+
+SELECT __series_id,
+    toStartOfDay(timestamp) AS timestamp,
+    maxMerge(max_value) AS max_value,
+    minMerge(min_value) AS min_value,
+    avgMerge(avg_value) AS avg_value
+FROM default.dist_prom_metric_agg
+WHERE __series_id IN (-9223014754132113609, -9223015002162651005)
+GROUP BY __series_id, timestamp
+ORDER BY __series_id, timestamp;
+
+-- Activate aggregation for future datapoints by creating a materialized view
+CREATE MATERIALIZED VIEW default.prom_metric_mv ON CLUSTER abc
+TO prom_metric_agg
+AS SELECT __series_id,
+    toStartOfHour(timestamp) AS timestamp,
+    maxState(value) AS max_value,
+    minState(value) AS min_value,
+    avgState(value) AS avg_value
+FROM prom_metric
+GROUP BY __series_id, timestamp;
+
+-- Deactivate aggregation by dropping the materialized view. You can revise and create it later as you will.
+DROP TABLE default.prom_metric_mv ON CLUSTER abc SYNC;
 
 */
 
