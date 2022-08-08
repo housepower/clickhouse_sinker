@@ -54,10 +54,12 @@ func (ncm *NacosConfManager) Init(properties map[string]interface{}) (err error)
 	serverAddrs := strings.Split(properties["serverAddrs"].(string), ",")
 	for _, serverAddr := range serverAddrs {
 		serverAddrFields := strings.SplitN(serverAddr, ":", 2)
-		var nacosPort uint64
-		if nacosPort, err = strconv.ParseUint(serverAddrFields[1], 10, 64); err != nil {
-			err = errors.Wrapf(err, "")
-			return
+		var nacosPort uint64 = 8848
+		if len(serverAddrFields) >= 2 {
+			if nacosPort, err = strconv.ParseUint(serverAddrFields[1], 10, 64); err != nil {
+				err = errors.Wrapf(err, "invalid nacos serverAddrs")
+				return
+			}
 		}
 		sc = append(sc, constant.ServerConfig{
 			IpAddr: serverAddrFields[0],

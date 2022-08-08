@@ -114,7 +114,7 @@ func getDims(database, table string, excludedColumns []string, conn clickhouse.C
 func recreateDistTbls(cluster, database, table string, distTbls []string, conn clickhouse.Conn) (err error) {
 	var queries []string
 	for _, distTbl := range distTbls {
-		queries = append(queries, fmt.Sprintf("DROP TABLE IF EXISTS `%s`.`%s` ON CLUSTER `%s`", database, distTbl, cluster))
+		queries = append(queries, fmt.Sprintf("DROP TABLE IF EXISTS `%s`.`%s` ON CLUSTER `%s` SYNC", database, distTbl, cluster))
 		queries = append(queries, fmt.Sprintf("CREATE TABLE `%s`.`%s` ON CLUSTER `%s` AS `%s`.`%s` ENGINE = Distributed(`%s`, `%s`, `%s`);",
 			database, distTbl, cluster, database, table,
 			cluster, database, table))
