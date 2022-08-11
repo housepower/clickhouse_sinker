@@ -165,20 +165,13 @@ func (k *KafkaFranz) Run() {
 	defer k.wgRun.Done()
 	for {
 		fetches := k.cl.PollFetches(k.ctx)
-		if fetches == nil || fetches.IsClientClosed() {
+		err := fetches.Err()
+		if fetches == nil || fetches.IsClientClosed() || errors.Is(err, context.Canceled) {
 			break
 		}
-		var beCanceled bool
-		fetches.EachError(func(_ string, _ int32, err error) {
-			if errors.Is(err, context.Canceled) {
-				beCanceled = true
-			} else {
-				err = errors.Wrapf(err, "")
-				util.Logger.Info("kgo.Client.PollFetchs() failed", zap.Error(err))
-			}
-		})
-		if beCanceled {
-			break
+		if err != nil {
+			err = errors.Wrapf(err, "")
+			util.Logger.Info("kgo.Client.PollFetchs() got an error", zap.Error(err))
 		}
 		fetches.EachRecord(func(rec *kgo.Record) {
 			msg := &model.InputMessage{
