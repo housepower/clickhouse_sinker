@@ -20,7 +20,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
-	"io/ioutil"
 	"net"
 	"os"
 	"os/exec"
@@ -165,7 +164,7 @@ func NewTLSConfig(caCertFiles, clientCertFile, clientKeyFile string, insecureSki
 	// Load CA cert
 	caCertPool := x509.NewCertPool()
 	for _, caCertFile := range strings.Split(caCertFiles, ",") {
-		caCert, err := ioutil.ReadFile(caCertFile)
+		caCert, err := os.ReadFile(caCertFile)
 		if err != nil {
 			err = errors.Wrapf(err, "")
 			return &tlsConfig, err

@@ -17,7 +17,7 @@ package config
 
 import (
 	"encoding/json"
-	"io/ioutil"
+	"os"
 	"regexp"
 	"strings"
 
@@ -174,7 +174,7 @@ const (
 func ParseLocalCfgFile(cfgPath string) (cfg *Config, err error) {
 	cfg = &Config{}
 	var b []byte
-	b, err = ioutil.ReadFile(cfgPath)
+	b, err = os.ReadFile(cfgPath)
 	if err != nil {
 		err = errors.Wrapf(err, "")
 		return

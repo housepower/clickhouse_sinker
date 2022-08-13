@@ -23,6 +23,7 @@ import (
 	"github.com/nacos-group/nacos-sdk-go/vo"
 	"github.com/thanos-io/thanos/pkg/errors"
 	"go.uber.org/zap"
+	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 var _ RemoteConfManager = (*NacosConfManager)(nil)
@@ -67,13 +68,8 @@ func (ncm *NacosConfManager) Init(properties map[string]interface{}) (err error)
 		})
 	}
 
-	var clientDir string
-	if v, ok := properties["clientDir"]; ok {
-		clientDir, _ = v.(string)
-	} else {
-		clientDir = "/tmp/nacos"
-	}
-	var namespaceID string          //Neither DEFAULT_NAMESPACE_ID("public") nor namespace name work!
+	var namespaceID string //Neither DEFAULT_NAMESPACE_ID("public") nor namespace name work!
+	logDir := "."
 	group := constant.DEFAULT_GROUP //Empty string doesn't work!
 	if pop, ok := properties["namespaceId"]; ok {
 		namespaceID, _ = pop.(string)
@@ -81,18 +77,24 @@ func (ncm *NacosConfManager) Init(properties map[string]interface{}) (err error)
 	if pop, ok := properties["group"]; ok {
 		group, _ = pop.(string)
 	}
+	if pop, ok := properties["logDir"]; ok {
+		logDir, _ = pop.(string)
+	}
+	logDir, _ = filepath.Abs(logDir)
 	cc := constant.ClientConfig{
 		NamespaceId:         namespaceID,
 		TimeoutMs:           5000,
 		ListenInterval:      10000,
 		NotLoadCacheAtStart: true,
-		LogDir:              filepath.Join(clientDir, "log"),
-		CacheDir:            filepath.Join(clientDir, "cache"),
+		LogDir:              filepath.Join(logDir, "nacos_log"),
+		CacheDir:            filepath.Join(logDir, "nacos_cache"),
 		LogLevel:            "debug",
 		Username:            properties["username"].(string),
 		Password:            properties["password"].(string),
-		LogRollingConfig: &constant.ClientLogRollingConfig{
-			MaxAge: 3,
+		LogRollingConfig: &lumberjack.Logger{
+			MaxSize:    10, // megabytes
+			MaxBackups: 1,
+			LocalTime:  true,
 		},
 	}
 

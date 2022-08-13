@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"net/http/pprof"
 	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
@@ -215,6 +216,14 @@ func main() {
 
 		var rcm cm.RemoteConfManager
 		var properties map[string]interface{}
+		logDir := "."
+		logPaths := strings.Split(cmdOps.LogPaths, ",")
+		for _, logPath := range logPaths {
+			if logPath != "stdout" && logPath != "stderr" {
+				logDir, _ = filepath.Split(logPath)
+			}
+		}
+		logDir, _ = filepath.Abs(logDir)
 		if cmdOps.NacosDataID != "" {
 			util.Logger.Info(fmt.Sprintf("get config from nacos serverAddrs %s, namespaceId %s, group %s, dataId %s",
 				cmdOps.NacosAddr, cmdOps.NacosNamespaceID, cmdOps.NacosGroup, cmdOps.NacosDataID))
@@ -227,6 +236,7 @@ func main() {
 			properties["group"] = cmdOps.NacosGroup
 			properties["dataId"] = cmdOps.NacosDataID
 			properties["serviceName"] = cmdOps.NacosServiceName
+			properties["logDir"] = logDir
 		} else {
 			util.Logger.Info(fmt.Sprintf("get config from local file %s", cmdOps.LocalCfgFile))
 		}
