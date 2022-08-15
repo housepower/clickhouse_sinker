@@ -7,7 +7,7 @@ performance of inserting to sparse wide table is bad
 -- Prometheus metric solution 1 - one wide table, each row is a datapoint and its series lables
 CREATE TABLE default.prom_extend ON CLUSTER abc (
     timestamp DateTime,
-    value Float64,
+    value Float32,
     __name__ String,
     labels String
 ) ENGINE=ReplicatedMergeTree()
@@ -19,8 +19,8 @@ CREATE TABLE default.dist_prom_extend ON CLUSTER abc AS prom_extend ENGINE = Dis
 -- Prometheus metric solution 2 - seperated table for datapoints and series labels can join on series id
 CREATE TABLE default.prom_metric ON CLUSTER abc (
     __series_id Int64,
-    timestamp DateTime,
-    value Float64
+    timestamp DateTime CODEC(DoubleDelta, LZ4),
+    value Float32 CODEC(ZSTD(15))
 ) ENGINE=ReplicatedReplacingMergeTree()
 PARTITION BY toYYYYMMDD(timestamp)
 ORDER BY (__series_id, timestamp);
@@ -39,10 +39,10 @@ CREATE TABLE default.dist_prom_metric_series ON CLUSTER abc AS prom_metric_serie
 
 CREATE TABLE default.prom_metric_agg ON CLUSTER abc (
     __series_id Int64,
-    timestamp DateTime,
-    max_value AggregateFunction(max, Float64),
-	min_value AggregateFunction(min, Float64),
-	avg_value AggregateFunction(avg, Float64)
+    timestamp DateTime CODEC(DoubleDelta, LZ4),
+    max_value AggregateFunction(max, Float32),
+    min_value AggregateFunction(min, Float32),
+    avg_value AggregateFunction(avg, Float32)
 ) ENGINE=ReplicatedReplacingMergeTree()
 PARTITION BY toYYYYMMDD(timestamp)
 ORDER BY (__series_id, timestamp);
@@ -116,7 +116,7 @@ type Labels map[string]string
 
 type Datapoint struct {
 	Timestamp time.Time
-	Value     float64
+	Value     float32
 	Name      string `json:"__name__"`
 	Labels
 }
@@ -194,7 +194,7 @@ func generate() {
 			for i := 0; i < NumMetrics; i++ {
 				dp := Datapoint{
 					Timestamp: timestamp,
-					Value:     rand.Float64(),
+					Value:     rand.Float32(),
 					Name:      metrics[i].Name,
 					Labels:    make(Labels),
 				}
