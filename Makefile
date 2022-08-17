@@ -9,17 +9,9 @@ GOBUILD   := $(GO) build $(BUILD_FLAG)
 pre:
 	go mod tidy
 build: pre
-	$(GOBUILD) -ldflags '$(SINKER_LDFLAGS)' -o clickhouse_sinker cmd/clickhouse_sinker/main.go
-	$(GOBUILD) -ldflags '$(SINKER_LDFLAGS)' -o nacos_publish_config cmd/nacos_publish_config/main.go
-	$(GOBUILD) -ldflags '$(SINKER_LDFLAGS)' -o kafka_gen_log cmd/kafka_gen_log/main.go
-	$(GOBUILD) -ldflags '$(SINKER_LDFLAGS)' -o kafka_gen_metric cmd/kafka_gen_metric/main.go
-	$(GOBUILD) -ldflags '$(SINKER_LDFLAGS)' -o kafka_gen_prom cmd/kafka_gen_prom/main.go
+	$(GOBUILD) -ldflags '$(SINKER_LDFLAGS)' -o . ./...
 debug: pre
-	$(GOBUILD) -ldflags '$(SINKER_LDFLAGS)' -gcflags "all=-N -l" -o clickhouse_sinker cmd/clickhouse_sinker/main.go
-	$(GOBUILD) -ldflags '$(SINKER_LDFLAGS)' -gcflags "all=-N -l" -o nacos_publish_config cmd/nacos_publish_config/main.go
-	$(GOBUILD) -ldflags '$(SINKER_LDFLAGS)' -gcflags "all=-N -l" -o kafka_gen_log cmd/kafka_gen_log/main.go
-	$(GOBUILD) -ldflags '$(SINKER_LDFLAGS)' -gcflags "all=-N -l" -o kafka_gen_metric cmd/kafka_gen_metric/main.go
-	$(GOBUILD) -ldflags '$(SINKER_LDFLAGS)' -gcflags "all=-N -l" -o kafka_gen_prom cmd/kafka_gen_prom/main.go
+	$(GOBUILD) -ldflags '$(SINKER_LDFLAGS)' -gcflags "all=-N -l" -o . ./...
 unittest: pre
 	go test -v ./...
 benchtest: pre
