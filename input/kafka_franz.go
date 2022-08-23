@@ -150,7 +150,7 @@ func GetFranzConfig(kfkCfg *config.KafkaConfig) (opts []kgo.Opt, err error) {
 				auth.Client = krb5client.NewWithPassword(gssapiCfg.Username,
 					gssapiCfg.Realm, gssapiCfg.Password, krbCfg, krb5client.DisablePAFXFAST(gssapiCfg.DisablePAFXFAST))
 			}
-			mch = auth.AsMechanism()
+			mch = auth.AsMechanismWithClose()
 		}
 		if mch != nil {
 			opts = append(opts, kgo.SASL(mch))

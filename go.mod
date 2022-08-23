@@ -21,9 +21,9 @@ require (
 	github.com/thanos-io/thanos v0.27.0
 	github.com/tidwall/gjson v1.14.2
 	github.com/troian/healthcheck v0.1.4-0.20200127040058-c373fb6a0dc1
-	github.com/twmb/franz-go v1.6.0
+	github.com/twmb/franz-go v1.7.0
 	github.com/twmb/franz-go/pkg/kadm v1.2.0
-	github.com/twmb/franz-go/pkg/sasl/kerberos v1.0.0
+	github.com/twmb/franz-go/pkg/sasl/kerberos v1.1.0
 	github.com/twmb/franz-go/plugin/kzap v1.1.1
 	github.com/valyala/fastjson v1.6.3
 	github.com/xdg-go/scram v1.1.1
@@ -83,7 +83,7 @@ require (
 	go.uber.org/atomic v1.10.0 // indirect
 	go.uber.org/multierr v1.8.0 // indirect
 	golang.org/x/arch v0.0.0-20220722155209-00200b7164a7 // indirect
-	golang.org/x/crypto v0.0.0-20220722155217-630584e8d5aa // indirect
+	golang.org/x/crypto v0.0.0-20220817201139-bc19a97f63c8 // indirect
 	golang.org/x/net v0.0.0-20220812174116-3211cb980234 // indirect
 	golang.org/x/sync v0.0.0-20220722155255-886fb9371eb4 // indirect
 	golang.org/x/sys v0.0.0-20220811171246-fbc7d0a398ab // indirect
