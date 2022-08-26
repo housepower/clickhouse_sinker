@@ -3,7 +3,7 @@ module github.com/housepower/clickhouse_sinker
 go 1.19
 
 require (
-	github.com/ClickHouse/clickhouse-go/v2 v2.2.0
+	github.com/ClickHouse/clickhouse-go/v2 v2.3.0
 	github.com/RoaringBitmap/roaring v1.2.1
 	github.com/Shopify/sarama v1.36.0
 	github.com/bytedance/sonic v1.3.5
@@ -34,7 +34,9 @@ require (
 )
 
 require (
+	github.com/ClickHouse/ch-go v0.47.3 // indirect
 	github.com/aliyun/alibaba-cloud-sdk-go v1.61.1723 // indirect
+	github.com/andybalholm/brotli v1.0.4 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bits-and-blooms/bitset v1.3.0 // indirect
 	github.com/buger/jsonparser v1.1.1 // indirect
@@ -44,6 +46,8 @@ require (
 	github.com/eapache/go-xerial-snappy v0.0.0-20180814174437-776d5712da21 // indirect
 	github.com/eapache/queue v1.1.0 // indirect
 	github.com/go-errors/errors v1.4.2 // indirect
+	github.com/go-faster/city v1.0.1 // indirect
+	github.com/go-faster/errors v0.6.1 // indirect
 	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/google/uuid v1.3.0 // indirect
@@ -69,6 +73,7 @@ require (
 	github.com/prometheus/client_model v0.2.0 // indirect
 	github.com/prometheus/procfs v0.8.0 // indirect
 	github.com/rcrowley/go-metrics v0.0.0-20201227073835-cf1acfcdf475 // indirect
+	github.com/segmentio/asm v1.2.0 // indirect
 	github.com/streadway/amqp v1.0.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.0 // indirect
