@@ -374,10 +374,11 @@ github.com/twitchyliquid64/golang-asm v0.15.1 h1:SU5vSMR7hnwNxj24w34ZyCi/FmDZTkS
 github.com/twitchyliquid64/golang-asm v0.15.1/go.mod h1:a1lVb/DtPvCB8fslRZhAngC2+aY1QWCk3Cedj/Gdt08=
 github.com/twmb/franz-go v1.5.3/go.mod h1:eqHYpAuvlTArOdZ1XtPYyOQ1uUb40CSZwbpL3ccjibI=
 github.com/twmb/franz-go v1.6.0/go.mod h1:xdMwpUIQL/JDKKwerc5qJQG8TU1SNIddfjKJJyqRJIg=
-github.com/twmb/franz-go v1.7.0 h1:h0ZKMqgdtxfPlTpnjt37fOpv/Xj8h3EWxHAQAA5Zclc=
 github.com/twmb/franz-go v1.7.0/go.mod h1:PMze0jNfNghhih2XHbkmTFykbMF5sJqmNJB31DOOzro=
-github.com/twmb/franz-go/pkg/kadm v1.2.0 h1:3jtgdCi04TPGSCiaIBe2nxBNkHoCZRm/YljSFEh7BHA=
-github.com/twmb/franz-go/pkg/kadm v1.2.0/go.mod h1:izleX4EttZwes7MRiHFmPWPSqDuGr4VN6p7jCIYoU0g=
+github.com/twmb/franz-go v1.7.1 h1:VyAByZr0GHUQ4vaql01la9RjGXMXElEVxq/JvcfKTRo=
+github.com/twmb/franz-go v1.7.1/go.mod h1:PMze0jNfNghhih2XHbkmTFykbMF5sJqmNJB31DOOzro=
+github.com/twmb/franz-go/pkg/kadm v1.2.1 h1:jbPvbJgXmIREAso5WI4BU3hJLOkGDvktqWPUy/VtsSA=
+github.com/twmb/franz-go/pkg/kadm v1.2.1/go.mod h1:izleX4EttZwes7MRiHFmPWPSqDuGr4VN6p7jCIYoU0g=
 github.com/twmb/franz-go/pkg/kmsg v1.0.0/go.mod h1:SxG/xJKhgPu25SamAq0rrucfp7lbzCpEXOC+vH/ELrY=
 github.com/twmb/franz-go/pkg/kmsg v1.1.0/go.mod h1:SxG/xJKhgPu25SamAq0rrucfp7lbzCpEXOC+vH/ELrY=
 github.com/twmb/franz-go/pkg/kmsg v1.2.0 h1:jYWh2qFw5lDbNv5Gvu/sMKagzICxuA5L6m1W2Oe7XUo=
