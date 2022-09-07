@@ -47,9 +47,9 @@ type Batch struct {
 	Group    *BatchGroup
 }
 
-//BatchGroup consists of multiple batches.
-//The `before` relationship could be impossible if messages of a partition are distributed to multiple batches.
-//So those batches need to be committed after ALL of them have been written to clickhouse.
+// BatchGroup consists of multiple batches.
+// The `before` relationship could be impossible if messages of a partition are distributed to multiple batches.
+// So those batches need to be committed after ALL of them have been written to clickhouse.
 type BatchGroup struct {
 	Batchs    []*Batch
 	Offsets   map[int]int64
@@ -192,7 +192,7 @@ func MetricToRow(metric Metric, msg *InputMessage, dims []*ColumnWithType, idxSe
 			if strings.HasSuffix(dim.Name, "_topic") {
 				*row = append(*row, msg.Topic)
 			} else if strings.HasSuffix(dim.Name, "_partition") {
-				*row = append(*row, msg.Partition)
+				*row = append(*row, int32(msg.Partition))
 			} else if strings.HasSuffix(dim.Name, "_offset") {
 				*row = append(*row, msg.Offset)
 			} else if strings.HasSuffix(dim.Name, "_key") {
