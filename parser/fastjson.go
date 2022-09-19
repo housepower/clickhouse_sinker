@@ -232,6 +232,12 @@ func (c *FastjsonMetric) GetDateTime(key string, nullable bool) (val interface{}
 	return
 }
 
+func (c *FastjsonMetric) GetObject(key string, nullable bool) (val interface{}) {
+	v := c.value.Get(key)
+	val = val2map(v)
+	return
+}
+
 func (c *FastjsonMetric) GetArray(key string, typ int) (val interface{}) {
 	var array []*fastjson.Value
 	if v := c.value.Get(key); v != nil {
@@ -314,9 +320,45 @@ func (c *FastjsonMetric) GetArray(key string, typ int) (val interface{}) {
 			arr = append(arr, t)
 		}
 		val = arr
+	case model.Object:
+		arr := make([]map[string]interface{}, 0)
+		for _, e := range array {
+			m := val2map(e)
+			if m != nil {
+				arr = append(arr, m)
+			}
+		}
+		val = arr
 	default:
 		util.Logger.Fatal(fmt.Sprintf("LOGIC ERROR: unsupported array type %v", typ))
 	}
+	return
+}
+
+func val2map(v *fastjson.Value) (m map[string]interface{}) {
+	var err error
+	var obj *fastjson.Object
+	if obj, err = v.Object(); err != nil {
+		return
+	}
+	m = make(map[string]interface{}, obj.Len())
+	obj.Visit(func(key []byte, v *fastjson.Value) {
+		strKey := string(key)
+		switch v.Type() {
+		case fastjson.TypeString:
+			var vb []byte
+			if vb, err = v.StringBytes(); err != nil {
+				return
+			}
+			m[strKey] = string(vb)
+		case fastjson.TypeNumber:
+			var f float64
+			if f, err = v.Float64(); err != nil {
+				return
+			}
+			m[strKey] = f
+		}
+	})
 	return
 }
 
@@ -508,6 +550,8 @@ func fjDetectType(v *fastjson.Value, depth int) (typ int, array bool) {
 				typ = model.DateTime
 			}
 		}
+	case fastjson.TypeObject:
+		typ = model.Object
 	case fastjson.TypeArray:
 		if depth >= 1 {
 			return

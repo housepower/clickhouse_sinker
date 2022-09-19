@@ -1,10 +1,11 @@
-/*Copyright [2019] housepower
+/*
+Copyright [2019] housepower
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-   http://www.apache.org/licenses/LICENSE-2.0
+	http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -37,6 +38,7 @@ const (
 	Decimal
 	DateTime
 	String
+	Object
 )
 
 type TypeInfo struct {
@@ -80,6 +82,8 @@ func GetTypeName(typ int) (name string) {
 		name = "DateTime"
 	case String:
 		name = "String"
+	case Object:
+		name = "Object('json')"
 	default:
 		name = "Unknown"
 	}
@@ -120,6 +124,8 @@ func GetValueByType(metric Metric, cwt *ColumnWithType) (val interface{}) {
 			val = metric.GetDateTime(name, cwt.Nullable)
 		case String:
 			val = metric.GetString(name, cwt.Nullable)
+		case Object:
+			val = metric.GetObject(name, cwt.Nullable)
 		default:
 			util.Logger.Fatal("LOGIC ERROR: reached switch default condition")
 		}
@@ -160,7 +166,7 @@ func WhichType(typ string) (dataType int, nullable bool, array bool) {
 
 func init() {
 	typeInfo = make(map[string]TypeInfo)
-	for _, t := range []int{Bool, Int8, Int16, Int32, Int64, UInt8, UInt16, UInt32, UInt64, Float32, Float64, DateTime, String} {
+	for _, t := range []int{Bool, Int8, Int16, Int32, Int64, UInt8, UInt16, UInt32, UInt64, Float32, Float64, DateTime, String, Object} {
 		tn := GetTypeName(t)
 		typeInfo[tn] = TypeInfo{Type: t}
 		nullTn := fmt.Sprintf("Nullable(%s)", tn)

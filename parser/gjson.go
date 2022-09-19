@@ -224,6 +224,10 @@ func (c *GjsonMetric) GetDateTime(key string, nullable bool) (val interface{}) {
 	return
 }
 
+func (c *GjsonMetric) GetObject(key string, nullable bool) (val interface{}) {
+	return
+}
+
 func (c *GjsonMetric) GetArray(key string, typ int) (val interface{}) {
 	var array []gjson.Result
 	r := gjson.Get(c.raw, key)
@@ -475,6 +479,8 @@ func gjDetectType(v gjson.Result, depth int) (typ int, array bool) {
 			if array := v.Array(); len(array) != 0 {
 				typ, _ = gjDetectType(array[0], depth+1)
 			}
+		} else if v.IsObject() {
+			typ = model.Object
 		}
 	default:
 	}

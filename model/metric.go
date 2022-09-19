@@ -36,6 +36,7 @@ type Metric interface {
 	GetDecimal(key string, nullable bool) (val interface{})
 	GetDateTime(key string, nullable bool) (val interface{})
 	GetString(key string, nullable bool) (val interface{})
+	GetObject(key string, nullable bool) (val interface{})
 	GetArray(key string, t int) (val interface{})
 	GetNewKeys(knownKeys, newKeys, warnKeys *sync.Map, white, black *regexp.Regexp, partition int, offset int64) bool
 }

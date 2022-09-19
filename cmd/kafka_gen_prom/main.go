@@ -95,12 +95,13 @@ import (
 	"go.uber.org/zap"
 )
 
+// number of series: NumMetrics * (NumRunes^LenVal)^NumKeys
 const (
 	Alpha      = "abcdefghijklmnopqrstuvwxyz"
 	NumMetrics = 1000
-	NumKeys    = 5
+	NumKeys    = 3
 	NumRunes   = 10
-	LenVal     = 1 // 1000 * (10^1)^5 = 10^8 series
+	LenVal     = 1 // 1000 * (10^1)^3 = 10^6 series
 	NumAllKeys = 1000
 )
 
