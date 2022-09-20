@@ -24,11 +24,11 @@ import (
 
 	"golang.org/x/exp/constraints"
 
-	"github.com/housepower/clickhouse_sinker/model"
-	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/shopspring/decimal"
 	"github.com/thanos-io/thanos/pkg/errors"
 	"github.com/valyala/fastjson"
+	"github.com/viru-tech/clickhouse_sinker/model"
+	"github.com/viru-tech/clickhouse_sinker/util"
 	"go.uber.org/zap"
 )
 

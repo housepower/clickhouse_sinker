@@ -29,12 +29,12 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/housepower/clickhouse_sinker/config"
-	"github.com/housepower/clickhouse_sinker/model"
-	"github.com/housepower/clickhouse_sinker/pool"
-	"github.com/housepower/clickhouse_sinker/statistics"
-	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/thanos-io/thanos/pkg/errors"
+	"github.com/viru-tech/clickhouse_sinker/config"
+	"github.com/viru-tech/clickhouse_sinker/model"
+	"github.com/viru-tech/clickhouse_sinker/pool"
+	"github.com/viru-tech/clickhouse_sinker/statistics"
+	"github.com/viru-tech/clickhouse_sinker/util"
 	"go.uber.org/zap"
 )
 

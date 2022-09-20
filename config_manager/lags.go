@@ -3,11 +3,11 @@ package rcm
 import (
 	"context"
 
-	"github.com/housepower/clickhouse_sinker/config"
-	"github.com/housepower/clickhouse_sinker/input"
 	"github.com/thanos-io/thanos/pkg/errors"
 	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kgo"
+	"github.com/viru-tech/clickhouse_sinker/config"
+	"github.com/viru-tech/clickhouse_sinker/input"
 )
 
 type StateLag struct {

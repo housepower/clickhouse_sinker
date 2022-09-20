@@ -1,4 +1,4 @@
-module github.com/housepower/clickhouse_sinker
+module github.com/viru-tech/clickhouse_sinker
 
 go 1.19
 

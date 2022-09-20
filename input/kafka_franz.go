@@ -34,9 +34,9 @@ import (
 	"github.com/twmb/franz-go/plugin/kzap"
 	"go.uber.org/zap"
 
-	"github.com/housepower/clickhouse_sinker/config"
-	"github.com/housepower/clickhouse_sinker/model"
-	"github.com/housepower/clickhouse_sinker/util"
+	"github.com/viru-tech/clickhouse_sinker/config"
+	"github.com/viru-tech/clickhouse_sinker/model"
+	"github.com/viru-tech/clickhouse_sinker/util"
 )
 
 const (

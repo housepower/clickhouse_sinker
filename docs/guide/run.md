@@ -27,7 +27,7 @@ Let's follow up a piece of the systest script.
   - let's checkout `clickhouse_sinker`
 
   ```bash
-  $ git clone https://github.com/housepower/clickhouse_sinker.git
+  $ git clone https://github.com/viru-tech/clickhouse_sinker.git
   $ cd clickhouse_sinker
   ```
 

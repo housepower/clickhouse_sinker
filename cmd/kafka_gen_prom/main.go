@@ -89,9 +89,9 @@ import (
 
 	"github.com/bytedance/sonic"
 	"github.com/google/gops/agent"
-	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/thanos-io/thanos/pkg/errors"
 	"github.com/twmb/franz-go/pkg/kgo"
+	"github.com/viru-tech/clickhouse_sinker/util"
 	"go.uber.org/zap"
 )
 

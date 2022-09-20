@@ -2,7 +2,7 @@
 
 ## By binary files (recommended)
 
-Download the binary files from [release](https://github.com/housepower/clickhouse_sinker/releases), choose the executable binary file according to your env.
+Download the binary files from [release](https://github.com/viru-tech/clickhouse_sinker/releases), choose the executable binary file according to your env.
 
 ## By container image
 
@@ -15,7 +15,7 @@ Download the binary files from [release](https://github.com/housepower/clickhous
 - Go Get
 
 ```
-go get -u github.com/housepower/clickhouse_sinker/...
+go get -u github.com/viru-tech/clickhouse_sinker/...
 ```
 
 - Build && Run

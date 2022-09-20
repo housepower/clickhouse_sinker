@@ -21,7 +21,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/housepower/clickhouse_sinker/util"
+	"github.com/viru-tech/clickhouse_sinker/util"
 
 	"github.com/thanos-io/thanos/pkg/errors"
 )
@@ -327,7 +327,7 @@ func (cfg *Config) normallizeTask(taskCfg *TaskConfig) (err error) {
 	return
 }
 
-//convert java client style configuration into sinker
+// convert java client style configuration into sinker
 func (cfg *Config) convertKfkSecurity() {
 	if protocol, ok := cfg.Kafka.Security["security.protocol"]; ok {
 		if strings.Contains(protocol, "SASL") {

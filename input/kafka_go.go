@@ -29,10 +29,10 @@ import (
 	"github.com/thanos-io/thanos/pkg/errors"
 	"go.uber.org/zap"
 
-	"github.com/housepower/clickhouse_sinker/config"
-	"github.com/housepower/clickhouse_sinker/model"
-	"github.com/housepower/clickhouse_sinker/statistics"
-	"github.com/housepower/clickhouse_sinker/util"
+	"github.com/viru-tech/clickhouse_sinker/config"
+	"github.com/viru-tech/clickhouse_sinker/model"
+	"github.com/viru-tech/clickhouse_sinker/statistics"
+	"github.com/viru-tech/clickhouse_sinker/util"
 )
 
 var _ Inputer = (*KafkaGo)(nil)

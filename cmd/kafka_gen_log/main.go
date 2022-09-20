@@ -53,9 +53,9 @@ import (
 	"time"
 
 	"github.com/google/gops/agent"
-	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/thanos-io/thanos/pkg/errors"
 	"github.com/twmb/franz-go/pkg/kgo"
+	"github.com/viru-tech/clickhouse_sinker/util"
 	"go.uber.org/zap"
 )
 
@@ -143,7 +143,7 @@ func (g *LogGenerator) Stat() (l, s int64) {
 	return
 }
 
-//reset logfiles
+// reset logfiles
 func (g *LogGenerator) Init() error {
 	g.logfiles = nil
 	g.off = -1
@@ -186,7 +186,7 @@ func (g *LogGenerator) Init() error {
 	return nil
 }
 
-//switch to next log file
+// switch to next log file
 func (g *LogGenerator) next() (err error) {
 	g.scanner = nil
 	if g.reader != nil {

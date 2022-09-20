@@ -28,8 +28,8 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/exp/constraints"
 
-	"github.com/housepower/clickhouse_sinker/model"
-	"github.com/housepower/clickhouse_sinker/util"
+	"github.com/viru-tech/clickhouse_sinker/model"
+	"github.com/viru-tech/clickhouse_sinker/util"
 )
 
 var _ Parser = (*GjsonParser)(nil)

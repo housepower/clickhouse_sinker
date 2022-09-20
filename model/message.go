@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/cespare/xxhash/v2"
-	"github.com/housepower/clickhouse_sinker/config"
-	"github.com/housepower/clickhouse_sinker/statistics"
+	"github.com/viru-tech/clickhouse_sinker/config"
+	"github.com/viru-tech/clickhouse_sinker/statistics"
 )
 
 var (
@@ -47,9 +47,9 @@ type Batch struct {
 	Group    *BatchGroup
 }
 
-//BatchGroup consists of multiple batches.
-//The `before` relationship could be impossible if messages of a partition are distributed to multiple batches.
-//So those batches need to be committed after ALL of them have been written to clickhouse.
+// BatchGroup consists of multiple batches.
+// The `before` relationship could be impossible if messages of a partition are distributed to multiple batches.
+// So those batches need to be committed after ALL of them have been written to clickhouse.
 type BatchGroup struct {
 	Batchs    []*Batch
 	Offsets   map[int]int64
