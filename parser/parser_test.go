@@ -153,7 +153,7 @@ var (
 
 var initialize sync.Once
 var errInit error
-var names = []string{"fastjson", "gjson", "csv"}
+var names = []string{fastJsonName, gjsonName, csvName}
 var metrics map[string]model.Metric
 
 type SimpleCase struct {
@@ -181,14 +181,14 @@ func initMetrics() {
 	metrics = make(map[string]model.Metric)
 	for _, name := range names {
 		switch name {
-		case "csv":
-			pp, _ = NewParserPool("csv", csvSchema, ",", "", timeUnit)
+		case csvName:
+			pp, _ = NewParserPool(csvName, csvSchema, ",", "", timeUnit, "", nil)
 			sample = csvSample
-		case "fastjson":
-			pp, _ = NewParserPool("fastjson", nil, "", "", timeUnit)
+		case fastJsonName:
+			pp, _ = NewParserPool(fastJsonName, nil, "", "", timeUnit, "", nil)
 			sample = jsonSample
-		case "gjson":
-			pp, _ = NewParserPool("gjson", nil, "", "", timeUnit)
+		case gjsonName:
+			pp, _ = NewParserPool(gjsonName, nil, "", "", timeUnit, "", nil)
 			sample = jsonSample
 		}
 		parser = pp.Get()
@@ -210,6 +210,10 @@ func sliceContains(list []string, target string) bool {
 	return false
 }
 
+func testCaseDescription(parserName, method, field string, nullable bool) string {
+	return fmt.Sprintf(`%s.%s("%s", %s)`, parserName, method, field, strconv.FormatBool(nullable))
+}
+
 func doTestSimple(t *testing.T, method string, testCases []SimpleCase) {
 	t.Helper()
 	initialize.Do(initMetrics)
@@ -217,49 +221,55 @@ func doTestSimple(t *testing.T, method string, testCases []SimpleCase) {
 	for i := range names {
 		name := names[i]
 		metric := metrics[name]
-		var skipped []string
-		for j := range testCases {
-			var v interface{}
-			desc := fmt.Sprintf(`%s.%s("%s", %s)`, name, method, testCases[j].Field, strconv.FormatBool(testCases[j].Nullable))
-			if name == "csv" && (sliceContains([]string{"GetBool", "GetInt64", "GetFloat64", "GetDateTime"}, method) && sliceContains([]string{"str_int", "str_float"}, testCases[j].Field) || testCases[j].Nullable) {
-				skipped = append(skipped, desc)
-				continue
-			}
-			switch method {
-			case "GetBool":
-				v = metric.GetBool(testCases[j].Field, testCases[j].Nullable)
-			case "GetInt8":
-				v = metric.GetInt8(testCases[j].Field, testCases[j].Nullable)
-			case "GetInt16":
-				v = metric.GetInt16(testCases[j].Field, testCases[j].Nullable)
-			case "GetInt32":
-				v = metric.GetInt32(testCases[j].Field, testCases[j].Nullable)
-			case "GetInt64":
-				v = metric.GetInt64(testCases[j].Field, testCases[j].Nullable)
-			case "GetUint8":
-				v = metric.GetUint8(testCases[j].Field, testCases[j].Nullable)
-			case "GetUint16":
-				v = metric.GetUint16(testCases[j].Field, testCases[j].Nullable)
-			case "GetUint32":
-				v = metric.GetUint32(testCases[j].Field, testCases[j].Nullable)
-			case "GetUint64":
-				v = metric.GetUint64(testCases[j].Field, testCases[j].Nullable)
-			case "GetFloat32":
-				v = metric.GetFloat32(testCases[j].Field, testCases[j].Nullable)
-			case "GetFloat64":
-				v = metric.GetFloat64(testCases[j].Field, testCases[j].Nullable)
-			case "GetDateTime":
-				v = metric.GetDateTime(testCases[j].Field, testCases[j].Nullable)
-			case "GetString":
-				v = metric.GetString(testCases[j].Field, testCases[j].Nullable)
-			default:
-				panic("error!")
-			}
-			require.Equal(t, testCases[j].ExpVal, v, desc)
+		doTestSimpleForParser(t, name, method, testCases, metric)
+	}
+}
+
+func doTestSimpleForParser(t *testing.T, parserName, method string, testCases []SimpleCase, metric model.Metric) {
+	var skipped []string
+	for j := range testCases {
+		var v interface{}
+		desc := testCaseDescription(parserName, method, testCases[j].Field, testCases[j].Nullable)
+		if parserName == "csv" && (sliceContains([]string{"GetBool", "GetInt64", "GetFloat64", "GetDateTime"}, method) && sliceContains([]string{"str_int", "str_float"}, testCases[j].Field) || testCases[j].Nullable) {
+			skipped = append(skipped, desc)
+			continue
 		}
-		if skipped != nil {
-			log.Printf("Skipped %d cases incompatible with fastjson parser: %v\n", len(skipped), strings.Join(skipped, ", "))
+		switch method {
+		case "GetBool":
+			v = metric.GetBool(testCases[j].Field, testCases[j].Nullable)
+		case "GetInt8":
+			v = metric.GetInt8(testCases[j].Field, testCases[j].Nullable)
+		case "GetInt16":
+			v = metric.GetInt16(testCases[j].Field, testCases[j].Nullable)
+		case "GetInt32":
+			v = metric.GetInt32(testCases[j].Field, testCases[j].Nullable)
+		case "GetInt64":
+			v = metric.GetInt64(testCases[j].Field, testCases[j].Nullable)
+		case "GetUint8":
+			v = metric.GetUint8(testCases[j].Field, testCases[j].Nullable)
+		case "GetUint16":
+			v = metric.GetUint16(testCases[j].Field, testCases[j].Nullable)
+		case "GetUint32":
+			v = metric.GetUint32(testCases[j].Field, testCases[j].Nullable)
+		case "GetUint64":
+			v = metric.GetUint64(testCases[j].Field, testCases[j].Nullable)
+		case "GetFloat32":
+			v = metric.GetFloat32(testCases[j].Field, testCases[j].Nullable)
+		case "GetFloat64":
+			v = metric.GetFloat64(testCases[j].Field, testCases[j].Nullable)
+		case "GetDecimal":
+			v = metric.GetDecimal(testCases[j].Field, testCases[j].Nullable)
+		case "GetDateTime":
+			v = metric.GetDateTime(testCases[j].Field, testCases[j].Nullable)
+		case "GetString":
+			v = metric.GetString(testCases[j].Field, testCases[j].Nullable)
+		default:
+			panic("error!")
 		}
+		require.Equal(t, testCases[j].ExpVal, v, desc)
+	}
+	if skipped != nil {
+		log.Printf("Skipped %d cases incompatible with fastjson parser: %v\n", len(skipped), strings.Join(skipped, ", "))
 	}
 }
 
@@ -524,8 +534,8 @@ func TestParserArray(t *testing.T) {
 		for j := range testCases {
 			var v interface{}
 			desc := fmt.Sprintf(`%s.GetArray("%s", %s)`, name, testCases[j].Field, model.GetTypeName(testCases[j].Type))
-			if (name == "gjson" && testCases[j].Field == "array_num_float") ||
-				(name == "csv" && sliceContains([]string{"array_num_float", "array_str_float"}, testCases[j].Field)) {
+			if (name == gjsonName && testCases[j].Field == "array_num_float") ||
+				(name == csvName && sliceContains([]string{"array_num_float", "array_str_float"}, testCases[j].Field)) {
 				skipped = append(skipped, desc)
 				continue
 			}
@@ -682,7 +692,7 @@ func TestParseInt(t *testing.T) {
 }
 
 func TestFastjsonDetectSchema(t *testing.T) {
-	pp, _ := NewParserPool("fastjson", nil, "", "", timeUnit)
+	pp, _ := NewParserPool(fastJsonName, nil, "", "", timeUnit, "", nil)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
@@ -706,7 +716,7 @@ func TestFastjsonDetectSchema(t *testing.T) {
 }
 
 func TestGjsonDetectSchema(t *testing.T) {
-	pp, _ := NewParserPool("gjson", nil, "", "", timeUnit)
+	pp, _ := NewParserPool(gjsonName, nil, "", "", timeUnit, "", nil)
 	parser := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)

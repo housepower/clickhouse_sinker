@@ -1,0 +1,59 @@
+syntax = "proto3";
+
+package viru_tech.clickhouse_sinker.parser.testproto.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "viru-tech/clickhouse_sinker/parser/testproto";
+
+message Test {
+  NestedTest null = 1;
+
+  bool bool_true = 2;
+
+  bool bool_false = 3;
+
+  int32 num_int32 = 4;
+
+  int64 num_int64 = 5;
+
+  float num_float = 6;
+
+  double num_double = 7;
+
+  uint32 num_uint32 = 8;
+
+  uint64 num_uint64 = 9;
+
+  string str = 10;
+
+  string str_date = 11;
+
+  google.protobuf.Timestamp timestamp = 12;
+
+  NestedTest obj = 13;
+
+  repeated int32 array_empty = 14;
+
+  repeated bool array_bool = 15;
+
+  repeated int32 array_num_int32 = 16;
+
+  repeated int64 array_num_int64 = 17;
+
+  repeated float array_num_float = 18;
+
+  repeated double array_num_double = 19;
+
+  repeated uint32 array_num_uint32 = 20;
+
+  repeated uint64 array_num_uint64 = 21;
+
+  repeated string array_str = 22;
+
+  repeated google.protobuf.Timestamp array_timestamp = 23;
+}
+
+message NestedTest {
+  string str = 1;
+}

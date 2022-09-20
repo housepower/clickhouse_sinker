@@ -8,9 +8,12 @@ require (
 	github.com/Shopify/sarama v1.36.0
 	github.com/bytedance/sonic v1.3.5
 	github.com/cespare/xxhash/v2 v2.1.2
+	github.com/confluentinc/confluent-kafka-go v1.9.2
 	github.com/fagongzi/goetty v1.7.0
+	github.com/golang/mock v1.4.4
 	github.com/google/gops v0.3.25
 	github.com/jcmturner/gokrb5/v8 v8.4.3
+	github.com/jhump/protoreflect v1.12.0
 	github.com/jinzhu/copier v0.3.5
 	github.com/nacos-group/nacos-sdk-go v1.1.2
 	github.com/prometheus/client_golang v1.13.0
@@ -30,6 +33,7 @@ require (
 	go.uber.org/zap v1.22.0
 	golang.org/x/exp v0.0.0-20220722155223-a9213eeb770e
 	golang.org/x/time v0.0.0-20220722155302-e5dcc9cfc0b9
+	google.golang.org/protobuf v1.28.1
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0
 )
 
@@ -88,7 +92,7 @@ require (
 	golang.org/x/sync v0.0.0-20220722155255-886fb9371eb4 // indirect
 	golang.org/x/sys v0.0.0-20220811171246-fbc7d0a398ab // indirect
 	golang.org/x/text v0.3.7 // indirect
-	google.golang.org/protobuf v1.28.1 // indirect
+	google.golang.org/genproto v0.0.0-20220503193339-ba3ae3f07e29 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

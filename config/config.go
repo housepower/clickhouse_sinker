@@ -28,12 +28,13 @@ import (
 
 // Config struct used for different configurations use
 type Config struct {
-	Kafka      KafkaConfig
-	Clickhouse ClickHouseConfig
-	Task       *TaskConfig
-	Tasks      []*TaskConfig
-	Assignment Assignment
-	LogLevel   string
+	Kafka          KafkaConfig
+	SchemaRegistry SchemaRegistryConfig
+	Clickhouse     ClickHouseConfig
+	Task           *TaskConfig
+	Tasks          []*TaskConfig
+	Assignment     Assignment
+	LogLevel       string
 }
 
 // KafkaConfig configuration parameters
@@ -77,6 +78,11 @@ type KafkaConfig struct {
 			DisablePAFXFAST    bool
 		}
 	}
+}
+
+// SchemaRegistryConfig configuration parameters
+type SchemaRegistryConfig struct {
+	URL string
 }
 
 // ClickHouseConfig configuration parameters
@@ -286,6 +292,10 @@ func (cfg *Config) normallizeTask(taskCfg *TaskConfig) (err error) {
 		taskCfg.AutoSchema = true
 	} else {
 		taskCfg.PromLabelsBlackList = ""
+	}
+	if taskCfg.Parser == "proto" && cfg.SchemaRegistry.URL == "" {
+		err = errors.Newf("Schema registry is required for parser %s", taskCfg.Parser)
+		return
 	}
 	if taskCfg.DynamicSchema.Enable {
 		if taskCfg.Parser != "fastjson" && taskCfg.Parser != "gjson" {

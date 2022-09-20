@@ -1,0 +1,11 @@
+version: v1
+name: buf.build/viru-tech/clickhouse_sinker
+lint:
+  use:
+    - DEFAULT
+  except:
+    - PACKAGE_DIRECTORY_MATCH
+  enum_zero_value_suffix: _INVALID
+breaking:
+  use:
+    - WIRE

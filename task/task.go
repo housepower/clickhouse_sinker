@@ -23,6 +23,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/confluentinc/confluent-kafka-go/schemaregistry"
 	"github.com/fagongzi/goetty"
 	"github.com/thanos-io/thanos/pkg/errors"
 	"github.com/viru-tech/clickhouse_sinker/config"
@@ -39,15 +40,16 @@ import (
 // TaskService holds the configuration for each task
 type Service struct {
 	sync.Mutex
-	inputer    input.Inputer
-	clickhouse *output.ClickHouse
-	pp         *parser.Pool
-	cfg        *config.Config
-	taskCfg    *config.TaskConfig
-	whiteList  *regexp.Regexp
-	blackList  *regexp.Regexp
-	lblBlkList *regexp.Regexp
-	dims       []*model.ColumnWithType
+	inputer        input.Inputer
+	clickhouse     *output.ClickHouse
+	schemaRegistry schemaregistry.Client
+	pp             *parser.Pool
+	cfg            *config.Config
+	taskCfg        *config.TaskConfig
+	whiteList      *regexp.Regexp
+	blackList      *regexp.Regexp
+	lblBlkList     *regexp.Regexp
+	dims           []*model.ColumnWithType
 
 	idxSerID int
 	nameKey  string
@@ -72,12 +74,10 @@ type Service struct {
 // NewTaskService creates an instance of new tasks with kafka, clickhouse and paser instances
 func NewTaskService(cfg *config.Config, taskCfg *config.TaskConfig) (service *Service) {
 	ck := output.NewClickHouse(cfg, taskCfg)
-	pp, _ := parser.NewParserPool(taskCfg.Parser, taskCfg.CsvFormat, taskCfg.Delimiter, taskCfg.TimeZone, taskCfg.TimeUnit)
 	inputer := input.NewInputer(taskCfg.KafkaClient)
 	service = &Service{
 		inputer:    inputer,
 		clickhouse: ck,
-		pp:         pp,
 		cfg:        cfg,
 		taskCfg:    taskCfg,
 	}
@@ -94,7 +94,7 @@ func NewTaskService(cfg *config.Config, taskCfg *config.TaskConfig) (service *Se
 	return
 }
 
-// Init initializes the kafak and clickhouse task associated with this service
+// Init initializes the kafka and clickhouse task associated with this service
 func (service *Service) Init() (err error) {
 	taskCfg := service.taskCfg
 	util.Logger.Info("task initializing", zap.String("task", taskCfg.Name))
@@ -103,6 +103,14 @@ func (service *Service) Init() (err error) {
 	if err = service.clickhouse.Init(); err != nil {
 		return
 	}
+
+	if service.cfg.SchemaRegistry.URL != "" {
+		service.schemaRegistry, err = schemaregistry.NewClient(schemaregistry.NewConfig(service.cfg.SchemaRegistry.URL))
+		if err != nil {
+			return
+		}
+	}
+	service.pp, _ = parser.NewParserPool(taskCfg.Parser, taskCfg.CsvFormat, taskCfg.Delimiter, taskCfg.TimeZone, taskCfg.TimeUnit, taskCfg.Topic, service.schemaRegistry)
 
 	service.dims = service.clickhouse.Dims
 	service.idxSerID = service.clickhouse.IdxSerID
