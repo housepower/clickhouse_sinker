@@ -192,7 +192,7 @@ func MetricToRow(metric Metric, msg *InputMessage, dims []*ColumnWithType, idxSe
 			if strings.HasSuffix(dim.Name, "_topic") {
 				*row = append(*row, msg.Topic)
 			} else if strings.HasSuffix(dim.Name, "_partition") {
-				*row = append(*row, msg.Partition)
+				*row = append(*row, int32(msg.Partition))
 			} else if strings.HasSuffix(dim.Name, "_offset") {
 				*row = append(*row, msg.Offset)
 			} else if strings.HasSuffix(dim.Name, "_key") {
