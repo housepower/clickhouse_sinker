@@ -2,15 +2,11 @@ package model
 
 import (
 	"container/list"
-	"fmt"
-	"regexp"
 	"strconv"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/cespare/xxhash/v2"
 	"github.com/housepower/clickhouse_sinker/config"
 	"github.com/housepower/clickhouse_sinker/statistics"
 )
@@ -47,9 +43,9 @@ type Batch struct {
 	Group    *BatchGroup
 }
 
-//BatchGroup consists of multiple batches.
-//The `before` relationship could be impossible if messages of a partition are distributed to multiple batches.
-//So those batches need to be committed after ALL of them have been written to clickhouse.
+// BatchGroup consists of multiple batches.
+// The `before` relationship could be impossible if messages of a partition are distributed to multiple batches.
+// So those batches need to be committed after ALL of them have been written to clickhouse.
 type BatchGroup struct {
 	Batchs    []*Batch
 	Offsets   map[int]int64
@@ -167,69 +163,4 @@ func GetRow() *Row {
 func PutRow(r *Row) {
 	*r = (*r)[:0]
 	rowPool.Put(r)
-}
-
-func MetricToRow(metric Metric, msg *InputMessage, dims []*ColumnWithType, idxSeriesID int, nameKey string, lblBlkList *regexp.Regexp) (row *Row) {
-	row = GetRow()
-	var dig *xxhash.Digest
-	var labels []string
-	var seriesID, mgmtID int64
-	if idxSeriesID >= 0 {
-		// If some labels are not Prometheus native, ETL shall calculate and pass "__series_id", otherwise clickhouse_sinker use "__mgmt_id".
-		val := metric.GetInt64("__series_id", false)
-		seriesID = val.(int64)
-		// clickhouse_sinker calculate "__mgmt_id" based on all labels.
-		dig = xxhash.New()
-	}
-	for i, dim := range dims {
-		if idxSeriesID >= 0 && i == idxSeriesID {
-			*row = append(*row, int64(0))
-		} else if idxSeriesID >= 0 && i == idxSeriesID+1 {
-			*row = append(*row, int64(0))
-		} else if idxSeriesID >= 0 && i == idxSeriesID+2 {
-			*row = append(*row, "")
-		} else if strings.HasPrefix(dim.Name, "__kafka") {
-			if strings.HasSuffix(dim.Name, "_topic") {
-				*row = append(*row, msg.Topic)
-			} else if strings.HasSuffix(dim.Name, "_partition") {
-				*row = append(*row, msg.Partition)
-			} else if strings.HasSuffix(dim.Name, "_offset") {
-				*row = append(*row, msg.Offset)
-			} else if strings.HasSuffix(dim.Name, "_key") {
-				*row = append(*row, string(msg.Key))
-			} else if strings.HasSuffix(dim.Name, "_timestamp") {
-				*row = append(*row, *msg.Timestamp)
-			} else {
-				*row = append(*row, nil)
-			}
-		} else {
-			val := GetValueByType(metric, dim)
-			*row = append(*row, val)
-			if idxSeriesID >= 0 && dim.Type == String && val != nil {
-				if labelVal := val.(string); labelVal != "" {
-					// "__series_id" calculation envolves all Prometheus native labels (including metric name) in some order.
-					if dig != nil {
-						_, _ = dig.WriteString("###")
-						_, _ = dig.WriteString(dim.Name)
-						_, _ = dig.WriteString("###")
-						_, _ = dig.WriteString(labelVal)
-					}
-					// "labels" JSON excludes "le", so that "labels" can be used as group key for histogram queries.
-					if dim.Name != nameKey && dim.Name != "le" && (lblBlkList == nil || !lblBlkList.MatchString(dim.Name)) {
-						labels = append(labels, fmt.Sprintf(`%s: %s`, strconv.Quote(dim.Name), strconv.Quote(labelVal)))
-					}
-				}
-			}
-		}
-	}
-	if idxSeriesID >= 0 {
-		mgmtID = int64(dig.Sum64())
-		if seriesID == 0 {
-			seriesID = mgmtID
-		}
-		(*row)[idxSeriesID] = seriesID
-		(*row)[idxSeriesID+1] = mgmtID
-		(*row)[idxSeriesID+2] = fmt.Sprintf("{%s}", strings.Join(labels, ", "))
-	}
-	return
 }

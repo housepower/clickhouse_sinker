@@ -82,12 +82,14 @@ import (
 	"math/rand"
 	"os"
 	"os/signal"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/bytedance/sonic"
+	"github.com/cespare/xxhash/v2"
 	"github.com/google/gops/agent"
 	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/thanos-io/thanos/pkg/errors"
@@ -119,17 +121,27 @@ type Datapoint struct {
 	Timestamp time.Time
 	Value     float32
 	Name      string `json:"__name__"`
-	Labels
+	Labels    Labels
+	LabelKeys []string
 }
 
 // I need every label be present at the top level.
 func (dp Datapoint) MarshalJSON() ([]byte, error) {
+	var dig xxhash.Digest
+	for _, labelKey := range dp.LabelKeys {
+		_, _ = dig.WriteString("###")
+		_, _ = dig.WriteString(labelKey)
+		_, _ = dig.WriteString("###")
+		_, _ = dig.WriteString(dp.Labels[labelKey])
+	}
+	mgmtID := int64(dig.Sum64())
+	seriesID := mgmtID
 	labels, err := sonic.MarshalString(dp.Labels)
 	if err != nil {
 		return nil, err
 	}
 	labels2 := labels[1 : len(labels)-1]
-	msg := fmt.Sprintf(`{"timestamp":"%s", "value":%f,"__name__":"%s","labels":%s,%s}`, dp.Timestamp.Format(time.RFC3339), dp.Value, dp.Name, labels, labels2)
+	msg := fmt.Sprintf(`{"timestamp":"%s", "value":%f,"__name__":"%s","labels":%s,%s,"__series_id":%d,"__mgmt_id":%d}`, dp.Timestamp.Format(time.RFC3339), dp.Value, dp.Name, labels, labels2, seriesID, mgmtID)
 	return []byte(msg), nil
 }
 
@@ -158,6 +170,7 @@ func initMetrics() {
 			key := fmt.Sprintf("key_%06d", rand.Intn(NumAllKeys+1))
 			m.LabelKeys[j] = key
 		}
+		sort.Strings(m.LabelKeys)
 		metrics[i] = m
 	}
 }
@@ -198,6 +211,7 @@ func generate() {
 					Value:     rand.Float32(),
 					Name:      metrics[i].Name,
 					Labels:    make(Labels),
+					LabelKeys: metrics[i].LabelKeys,
 				}
 				for _, key := range metrics[i].LabelKeys {
 					dp.Labels[key] = randValue()

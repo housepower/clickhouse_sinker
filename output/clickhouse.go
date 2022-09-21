@@ -24,6 +24,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
@@ -53,6 +54,7 @@ var (
 // ClickHouse is an output service consumers from kafka messages
 type ClickHouse struct {
 	Dims       []*model.ColumnWithType
+	NumDims    int
 	IdxSerID   int
 	NameKey    string
 	cfg        *config.Config
@@ -64,7 +66,8 @@ type ClickHouse struct {
 	distMetricTbls []string
 	distSeriesTbls []string
 
-	bmSeries  map[uint64]bool
+	bmSeries  map[int64]struct{}
+	wrSeries  atomic.Int32
 	numFlying int32
 	mux       sync.Mutex
 	taskDone  *sync.Cond
@@ -112,23 +115,36 @@ func (c *ClickHouse) Send(batch *model.Batch) {
 	})
 }
 
-func (c *ClickHouse) writeSeries(rows model.Rows, conn clickhouse.Conn) (err error) {
-	var seriesRows model.Rows
+func (c *ClickHouse) LoadOrStoreSeries(sid int64) (loaded bool) {
 	c.mux.Lock()
-	for _, row := range rows {
-		mgmtID := uint64((*row)[c.IdxSerID+1].(int64))
-		if _, found := c.bmSeries[mgmtID]; !found {
-			seriesRows = append(seriesRows, row)
-			c.bmSeries[mgmtID] = true
-		}
+	_, loaded = c.bmSeries[sid]
+	if !loaded {
+		c.bmSeries[sid] = struct{}{}
 	}
 	c.mux.Unlock()
+	return
+}
+
+func (c *ClickHouse) IsWritingSeries() bool {
+	return c.wrSeries.Load() > 0
+}
+
+func (c *ClickHouse) writeSeries(rows model.Rows, conn clickhouse.Conn) (err error) {
+	var seriesRows model.Rows
+	for _, row := range rows {
+		if len(*row) != c.NumDims {
+			continue
+		}
+		seriesRows = append(seriesRows, row)
+	}
 	if len(seriesRows) != 0 {
 		begin := time.Now()
 		var numBad int
-		if numBad, err = writeRows(c.promSerSQL, seriesRows, c.IdxSerID, len(c.Dims), conn); err != nil {
+		c.wrSeries.Add(1)
+		if numBad, err = writeRows(c.promSerSQL, seriesRows, c.IdxSerID, c.NumDims, conn); err != nil {
 			return
 		}
+		c.wrSeries.Add(-1)
 		if numBad != 0 {
 			statistics.ParseMsgsErrorTotal.WithLabelValues(c.taskCfg.Name).Add(float64(numBad))
 		}
@@ -146,9 +162,9 @@ func (c *ClickHouse) write(batch *model.Batch, sc *pool.ShardConn, dbVer *int) (
 	if conn, *dbVer, err = sc.NextGoodReplica(*dbVer); err != nil {
 		return
 	}
-	//row[:c.IdxSerID] is for metric table
+	//row[:c.IdxSerID+1] is for metric table
 	//row[c.IdxSerID:] is for series table
-	numDims := len(c.Dims)
+	numDims := c.NumDims
 	if c.taskCfg.PrometheusSchema {
 		numDims = c.IdxSerID + 1
 		if err = c.writeSeries(*batch.Rows, conn); err != nil {
@@ -208,15 +224,15 @@ func (c *ClickHouse) initBmSeries(conn clickhouse.Conn) (err error) {
 	if c.cfg.Clickhouse.Cluster != "" {
 		tbl = c.distSeriesTbls[0]
 	}
-	c.bmSeries = make(map[uint64]bool)
+	c.bmSeries = make(map[int64]struct{})
 	if !c.taskCfg.LoadSeriesAtStartup {
 		util.Logger.Info(fmt.Sprintf("skipped loading series from %v", tbl), zap.String("task", c.taskCfg.Name))
 		return
 	}
-	query := fmt.Sprintf("SELECT toUInt64(toInt64(__mgmt_id)) AS mid FROM %s.%s ORDER BY mid", c.cfg.Clickhouse.DB, tbl)
+	query := fmt.Sprintf("SELECT toInt64(__mgmt_id) AS mid FROM %s.%s ORDER BY mid", c.cfg.Clickhouse.DB, tbl)
 	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query))
 	var rs driver.Rows
-	var mgmtID uint64
+	var mgmtID int64
 	if rs, err = conn.Query(context.Background(), query); err != nil {
 		err = errors.Wrapf(err, "")
 		return err
@@ -227,7 +243,7 @@ func (c *ClickHouse) initBmSeries(conn clickhouse.Conn) (err error) {
 			err = errors.Wrapf(err, "")
 			return err
 		}
-		c.bmSeries[mgmtID] = true
+		c.bmSeries[mgmtID] = struct{}{}
 	}
 	util.Logger.Info(fmt.Sprintf("loaded %d series from %v", len(c.bmSeries), tbl), zap.String("task", c.taskCfg.Name))
 	return
@@ -354,7 +370,8 @@ func (c *ClickHouse) initSchema() (err error) {
 		return
 	}
 	// Generate SQL for INSERT
-	numDims := len(c.Dims)
+	c.NumDims = len(c.Dims)
+	numDims := c.NumDims
 	if c.taskCfg.PrometheusSchema {
 		numDims = c.IdxSerID + 1
 	}

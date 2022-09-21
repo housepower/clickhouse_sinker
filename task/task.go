@@ -19,6 +19,8 @@ import (
 	"fmt"
 	"math"
 	"regexp"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -48,6 +50,7 @@ type Service struct {
 	blackList  *regexp.Regexp
 	lblBlkList *regexp.Regexp
 	dims       []*model.ColumnWithType
+	numDims    int
 
 	idxSerID int
 	nameKey  string
@@ -105,6 +108,7 @@ func (service *Service) Init() (err error) {
 	}
 
 	service.dims = service.clickhouse.Dims
+	service.numDims = len(service.dims)
 	service.idxSerID = service.clickhouse.IdxSerID
 	service.nameKey = service.clickhouse.NameKey
 	service.limiter1 = rate.NewLimiter(rate.Every(10*time.Second), 1)
@@ -296,7 +300,7 @@ func (service *Service) put(msg *model.InputMessage) {
 					msg.Topic, msg.Partition, msg.Offset), zap.String("message value", string(msg.Value)), zap.String("task", taskCfg.Name), zap.Error(err))
 			}
 		} else {
-			row = model.MetricToRow(metric, msg, service.dims, service.idxSerID, service.nameKey, service.lblBlkList)
+			row = service.metric2Row(metric, msg)
 			if taskCfg.DynamicSchema.Enable {
 				foundNewKeys = metric.GetNewKeys(&service.knownKeys, &service.newKeys, &service.warnKeys, service.whiteList, service.blackList, msg.Partition, msg.Offset)
 			}
@@ -418,4 +422,60 @@ func (service *Service) Stop() {
 
 	service.wgRun.Wait()
 	util.Logger.Debug("stopped task", zap.String("task", taskCfg.Name))
+}
+
+func (service *Service) metric2Row(metric model.Metric, msg *model.InputMessage) (row *model.Row) {
+	row = model.GetRow()
+	if service.idxSerID >= 0 {
+		var seriesID, mgmtID int64
+		var labels []string
+		// If some labels are not Prometheus native, ETL shall calculate and pass "__series_id" and "__mgmt_id".
+		val := metric.GetInt64("__series_id", false)
+		seriesID = val.(int64)
+		val = metric.GetInt64("__mgmt_id", false)
+		mgmtID = val.(int64)
+		for i := 0; i < service.idxSerID; i++ {
+			dim := service.dims[i]
+			val := model.GetValueByType(metric, dim)
+			*row = append(*row, val)
+		}
+		*row = append(*row, seriesID)
+		newSeries := !service.clickhouse.IsWritingSeries() && !service.clickhouse.LoadOrStoreSeries(seriesID)
+		if newSeries {
+			*row = append(*row, mgmtID, nil)
+			for i := service.idxSerID + 3; i < service.numDims; i++ {
+				dim := service.dims[i]
+				val := model.GetValueByType(metric, dim)
+				*row = append(*row, val)
+				if val != nil && dim.Type == model.String && dim.Name != service.nameKey && dim.Name != "le" && (service.lblBlkList == nil || !service.lblBlkList.MatchString(dim.Name)) {
+					// "labels" JSON excludes "le", so that "labels" can be used as group key for histogram queries.
+					labelVal := val.(string)
+					labels = append(labels, fmt.Sprintf(`%s: %s`, strconv.Quote(dim.Name), strconv.Quote(labelVal)))
+				}
+			}
+			(*row)[service.idxSerID+2] = fmt.Sprintf("{%s}", strings.Join(labels, ", "))
+		}
+	} else {
+		for _, dim := range service.dims {
+			if strings.HasPrefix(dim.Name, "__kafka") {
+				if strings.HasSuffix(dim.Name, "_topic") {
+					*row = append(*row, msg.Topic)
+				} else if strings.HasSuffix(dim.Name, "_partition") {
+					*row = append(*row, msg.Partition)
+				} else if strings.HasSuffix(dim.Name, "_offset") {
+					*row = append(*row, msg.Offset)
+				} else if strings.HasSuffix(dim.Name, "_key") {
+					*row = append(*row, string(msg.Key))
+				} else if strings.HasSuffix(dim.Name, "_timestamp") {
+					*row = append(*row, *msg.Timestamp)
+				} else {
+					*row = append(*row, nil)
+				}
+			} else {
+				val := model.GetValueByType(metric, dim)
+				*row = append(*row, val)
+			}
+		}
+	}
+	return
 }
