@@ -33,6 +33,7 @@ import (
 )
 
 var _ Parser = (*FastjsonParser)(nil)
+var EmpytObject = make(map[string]interface{})
 
 // FastjsonParser, parser for get data in json format
 type FastjsonParser struct {
@@ -338,6 +339,10 @@ func (c *FastjsonMetric) GetArray(key string, typ int) (val interface{}) {
 func val2map(v *fastjson.Value) (m map[string]interface{}) {
 	var err error
 	var obj *fastjson.Object
+	m = EmpytObject
+	if v == nil {
+		return
+	}
 	if obj, err = v.Object(); err != nil {
 		return
 	}
@@ -428,7 +433,7 @@ func (c *FastjsonMetric) GetNewKeys(knownKeys, newKeys, warnKeys *sync.Map, whit
 		if _, loaded := knownKeys.LoadOrStore(strKey, nil); !loaded {
 			if (white == nil || white.MatchString(strKey)) &&
 				(black == nil || !black.MatchString(strKey)) {
-				if typ, arr := fjDetectType(v, 0); typ != model.Unknown && !arr {
+				if typ, arr := fjDetectType(v, 0); typ != model.Unknown && typ != model.Object && !arr {
 					newKeys.Store(strKey, typ)
 					foundNew = true
 				} else if _, loaded = warnKeys.LoadOrStore(strKey, nil); !loaded {

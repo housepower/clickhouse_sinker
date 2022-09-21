@@ -33,7 +33,7 @@ services:
     security_opt:
       - label:disable
   clickhouse:
-    image: clickhouse/clickhouse-server:22.3
+    image: clickhouse/clickhouse-server:22.8
     restart: always
     ports:
       - "8123:8123"

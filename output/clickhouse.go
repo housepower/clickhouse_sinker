@@ -429,6 +429,8 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 		intVal := value.(int)
 		var strVal string
 		switch intVal {
+		case model.Bool:
+			strVal = "Nullable(Bool)"
 		case model.Int64:
 			strVal = "Nullable(Int64)"
 		case model.Float64:
@@ -437,8 +439,10 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 			strVal = "Nullable(String)"
 		case model.DateTime:
 			strVal = "Nullable(DateTime64(3))"
+		case model.Object:
+			strVal = model.GetTypeName(intVal)
 		default:
-			err = errors.Newf("%s: BUG: unsupported column type %s", taskCfg.Name, strVal)
+			err = errors.Newf("%s: BUG: unsupported column type %s", taskCfg.Name, model.GetTypeName(intVal))
 			return false
 		}
 		if c.taskCfg.PrometheusSchema {

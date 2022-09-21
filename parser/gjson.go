@@ -387,7 +387,7 @@ func (c *GjsonMetric) GetNewKeys(knownKeys, newKeys, warnKeys *sync.Map, white, 
 		if _, loaded := knownKeys.LoadOrStore(strKey, nil); !loaded {
 			if (white == nil || white.MatchString(strKey)) &&
 				(black == nil || !black.MatchString(strKey)) {
-				if typ, array := gjDetectType(v, 0); typ != model.Unknown && !array {
+				if typ, array := gjDetectType(v, 0); typ != model.Unknown && typ != model.Object && !array {
 					newKeys.Store(strKey, typ)
 					foundNew = true
 				} else if _, loaded = warnKeys.LoadOrStore(strKey, nil); !loaded {
