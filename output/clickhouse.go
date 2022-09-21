@@ -24,7 +24,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
@@ -49,6 +48,7 @@ var (
 	// src/Storages/MergeTree/ReplicatedMergeTreeBlockOutputStream.cpp
 	// ZooKeeper issues(https://issues.apache.org/jira/browse/ZOOKEEPER-4410) can cause ClickHouse exeception: "Code": 999, "Message": "Cannot allocate block number..."
 	replicaSpecificErrorCodes = []int32{242, 319, 999, 1000} //TABLE_IS_READ_ONLY, UNKNOWN_STATUS_OF_INSERT, KEEPER_EXCEPTION, POCO_EXCEPTION
+	wrSeriesQuota             = 16384
 )
 
 // ClickHouse is an output service consumers from kafka messages
@@ -67,7 +67,7 @@ type ClickHouse struct {
 	distSeriesTbls []string
 
 	bmSeries  map[int64]struct{}
-	wrSeries  atomic.Int32
+	wrSeries  int
 	numFlying int32
 	mux       sync.Mutex
 	taskDone  *sync.Cond
@@ -115,18 +115,19 @@ func (c *ClickHouse) Send(batch *model.Batch) {
 	})
 }
 
-func (c *ClickHouse) LoadOrStoreSeries(sid int64) (loaded bool) {
+func (c *ClickHouse) AllowWriteSeries(sid int64) (allowed bool) {
 	c.mux.Lock()
-	_, loaded = c.bmSeries[sid]
+	defer c.mux.Unlock()
+	if c.wrSeries >= wrSeriesQuota {
+		return
+	}
+	_, loaded := c.bmSeries[sid]
 	if !loaded {
 		c.bmSeries[sid] = struct{}{}
+		c.wrSeries++
+		allowed = true
 	}
-	c.mux.Unlock()
 	return
-}
-
-func (c *ClickHouse) IsWritingSeries() bool {
-	return c.wrSeries.Load() > 0
 }
 
 func (c *ClickHouse) writeSeries(rows model.Rows, conn clickhouse.Conn) (err error) {
@@ -140,11 +141,12 @@ func (c *ClickHouse) writeSeries(rows model.Rows, conn clickhouse.Conn) (err err
 	if len(seriesRows) != 0 {
 		begin := time.Now()
 		var numBad int
-		c.wrSeries.Add(1)
 		if numBad, err = writeRows(c.promSerSQL, seriesRows, c.IdxSerID, c.NumDims, conn); err != nil {
 			return
 		}
-		c.wrSeries.Add(-1)
+		c.mux.Lock()
+		c.wrSeries -= len(seriesRows)
+		c.mux.Unlock()
 		if numBad != 0 {
 			statistics.ParseMsgsErrorTotal.WithLabelValues(c.taskCfg.Name).Add(float64(numBad))
 		}

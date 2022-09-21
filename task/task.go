@@ -440,7 +440,7 @@ func (service *Service) metric2Row(metric model.Metric, msg *model.InputMessage)
 			*row = append(*row, val)
 		}
 		*row = append(*row, seriesID)
-		newSeries := !service.clickhouse.IsWritingSeries() && !service.clickhouse.LoadOrStoreSeries(seriesID)
+		newSeries := service.clickhouse.AllowWriteSeries(seriesID)
 		if newSeries {
 			*row = append(*row, mgmtID, nil)
 			for i := service.idxSerID + 3; i < service.numDims; i++ {
