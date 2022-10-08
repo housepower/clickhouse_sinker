@@ -259,7 +259,7 @@ func (cfg *Config) normallizeTask(taskCfg *TaskConfig) (err error) {
 
 	for i := range taskCfg.Dims {
 		if taskCfg.Dims[i].SourceName == "" {
-			taskCfg.Dims[i].SourceName = util.GetSourceName(taskCfg.Dims[i].Name)
+			taskCfg.Dims[i].SourceName = util.GetSourceName(taskCfg.Parser, taskCfg.Dims[i].Name)
 		}
 	}
 
@@ -327,7 +327,7 @@ func (cfg *Config) normallizeTask(taskCfg *TaskConfig) (err error) {
 	return
 }
 
-//convert java client style configuration into sinker
+// convert java client style configuration into sinker
 func (cfg *Config) convertKfkSecurity() {
 	if protocol, ok := cfg.Kafka.Security["security.protocol"]; ok {
 		if strings.Contains(protocol, "SASL") {

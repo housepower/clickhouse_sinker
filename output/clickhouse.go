@@ -284,7 +284,7 @@ func (c *ClickHouse) initSeriesSchema(conn clickhouse.Conn) (err error) {
 		{Name: "labels", Type: model.String},
 	}
 	var seriesDims []*model.ColumnWithType
-	if seriesDims, err = getDims(c.cfg.Clickhouse.DB, c.seriesTbl, nil, conn); err != nil {
+	if seriesDims, err = getDims(c.cfg.Clickhouse.DB, c.seriesTbl, nil, c.taskCfg.Parser, conn); err != nil {
 		if errors.Is(err, ErrTblNotExist) {
 			err = errors.Wrapf(err, "Please create series table for %s.%s", c.cfg.Clickhouse.DB, c.taskCfg.TableName)
 			return
@@ -352,7 +352,7 @@ func (c *ClickHouse) initSchema() (err error) {
 		return
 	}
 	if c.taskCfg.AutoSchema {
-		if c.Dims, err = getDims(c.cfg.Clickhouse.DB, c.taskCfg.TableName, c.taskCfg.ExcludeColumns, conn); err != nil {
+		if c.Dims, err = getDims(c.cfg.Clickhouse.DB, c.taskCfg.TableName, c.taskCfg.ExcludeColumns, c.taskCfg.Parser, conn); err != nil {
 			return
 		}
 	} else {

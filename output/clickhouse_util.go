@@ -83,7 +83,7 @@ func writeRows(prepareSQL string, rows model.Rows, idxBegin, idxEnd int, conn cl
 	return
 }
 
-func getDims(database, table string, excludedColumns []string, conn clickhouse.Conn) (dims []*model.ColumnWithType, err error) {
+func getDims(database, table string, excludedColumns []string, parser string, conn clickhouse.Conn) (dims []*model.ColumnWithType, err error) {
 	var rs driver.Rows
 	if rs, err = conn.Query(context.Background(), fmt.Sprintf(selectSQLTemplate, database, table)); err != nil {
 		err = errors.Wrapf(err, "")
@@ -101,7 +101,7 @@ func getDims(database, table string, excludedColumns []string, conn clickhouse.C
 		typ = lowCardinalityRegexp.ReplaceAllString(typ, "$1")
 		if !util.StringContains(excludedColumns, name) && defaultKind != "MATERIALIZED" {
 			tp, nullable, array := model.WhichType(typ)
-			dims = append(dims, &model.ColumnWithType{Name: name, Type: tp, Nullable: nullable, Array: array, SourceName: util.GetSourceName(name)})
+			dims = append(dims, &model.ColumnWithType{Name: name, Type: tp, Nullable: nullable, Array: array, SourceName: util.GetSourceName(parser, name)})
 		}
 	}
 	if len(dims) == 0 {

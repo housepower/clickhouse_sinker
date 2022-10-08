@@ -94,8 +94,12 @@ func StringContains(arr []string, str string) bool {
 }
 
 // GetSourceName returns the field name in message for the given ClickHouse column
-func GetSourceName(name string) (sourcename string) {
-	sourcename = strings.Replace(name, ".", "\\.", -1)
+func GetSourceName(parser, name string) (sourcename string) {
+	if parser == "gjson" {
+		sourcename = strings.Replace(name, ".", "\\.", -1)
+	} else {
+		sourcename = name
+	}
 	return
 }
 
@@ -107,7 +111,7 @@ func GetShift(s int) (shift uint) {
 }
 
 // GetOutboundIP get preferred outbound ip of this machine
-//https://stackoverflow.com/questions/23558425/how-do-i-get-the-local-ip-address-in-go
+// https://stackoverflow.com/questions/23558425/how-do-i-get-the-local-ip-address-in-go
 func GetOutboundIP() (ip net.IP, err error) {
 	var conn net.Conn
 	if conn, err = net.Dial("udp", "8.8.8.8:80"); err != nil {
