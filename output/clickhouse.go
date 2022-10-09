@@ -66,7 +66,7 @@ type ClickHouse struct {
 	distMetricTbls []string
 	distSeriesTbls []string
 
-	bmSeries  map[int64]struct{}
+	bmSeries  map[int64]int64
 	wrSeries  int
 	numFlying int32
 	mux       sync.Mutex
@@ -115,15 +115,15 @@ func (c *ClickHouse) Send(batch *model.Batch) {
 	})
 }
 
-func (c *ClickHouse) AllowWriteSeries(sid int64) (allowed bool) {
+func (c *ClickHouse) AllowWriteSeries(sid, mid int64) (allowed bool) {
 	c.mux.Lock()
 	defer c.mux.Unlock()
 	if c.wrSeries >= wrSeriesQuota {
 		return
 	}
-	_, loaded := c.bmSeries[sid]
-	if !loaded {
-		c.bmSeries[sid] = struct{}{}
+	mid2, loaded := c.bmSeries[sid]
+	if !loaded || mid != mid2 {
+		c.bmSeries[sid] = mid
 		c.wrSeries++
 		allowed = true
 	}
@@ -226,26 +226,26 @@ func (c *ClickHouse) initBmSeries(conn clickhouse.Conn) (err error) {
 	if c.cfg.Clickhouse.Cluster != "" {
 		tbl = c.distSeriesTbls[0]
 	}
-	c.bmSeries = make(map[int64]struct{})
+	c.bmSeries = make(map[int64]int64)
 	if !c.taskCfg.LoadSeriesAtStartup {
 		util.Logger.Info(fmt.Sprintf("skipped loading series from %v", tbl), zap.String("task", c.taskCfg.Name))
 		return
 	}
-	query := fmt.Sprintf("SELECT toInt64(__mgmt_id) AS mid FROM %s.%s ORDER BY mid", c.cfg.Clickhouse.DB, tbl)
+	query := fmt.Sprintf("SELECT toInt64(__series_id) AS sid, toInt64(__mgmt_id) AS mid FROM %s.%s ORDER BY sid", c.cfg.Clickhouse.DB, tbl)
 	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query))
 	var rs driver.Rows
-	var mgmtID int64
+	var seriesID, mgmtID int64
 	if rs, err = conn.Query(context.Background(), query); err != nil {
 		err = errors.Wrapf(err, "")
 		return err
 	}
 	defer rs.Close()
 	for rs.Next() {
-		if err = rs.Scan(&mgmtID); err != nil {
+		if err = rs.Scan(&seriesID, &mgmtID); err != nil {
 			err = errors.Wrapf(err, "")
 			return err
 		}
-		c.bmSeries[mgmtID] = struct{}{}
+		c.bmSeries[seriesID] = mgmtID
 	}
 	util.Logger.Info(fmt.Sprintf("loaded %d series from %v", len(c.bmSeries), tbl), zap.String("task", c.taskCfg.Name))
 	return
