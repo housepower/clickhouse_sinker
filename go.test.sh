@@ -48,9 +48,9 @@ sudo docker cp send.sh kafka:/tmp/
 sudo docker exec kafka sh /tmp/send.sh
 
 echo "start clickhouse_sinker to consume"
-timeout 30 ./clickhouse_sinker --local-cfg-file docker/test_fixed_schema.json
-timeout 30 ./clickhouse_sinker --local-cfg-file docker/test_auto_schema.json
-timeout 60 ./clickhouse_sinker --local-cfg-file docker/test_dynamic_schema.json
+timeout 30 ./bin/clickhouse_sinker --local-cfg-file docker/test_fixed_schema.json
+timeout 30 ./bin/clickhouse_sinker --local-cfg-file docker/test_auto_schema.json
+timeout 60 ./bin/clickhouse_sinker --local-cfg-file docker/test_dynamic_schema.json
 
 echo "check result 1"
 count=`curl "localhost:8123" -d 'select count() from test_fixed_schema'`
@@ -74,19 +74,19 @@ curl "localhost:8123" -d 'TRUNCATE TABLE test_auto_schema'
 curl "localhost:8123" -d 'TRUNCATE TABLE test_dynamic_schema'
 
 echo "publish clickhouse_sinker config"
-./nacos_publish_config --nacos-addr 127.0.0.1:8848 --nacos-username nacos --nacos-password nacos  --nacos-dataid test_fixed_schema --local-cfg-file docker/test_fixed_schema.json
-./nacos_publish_config --nacos-addr 127.0.0.1:8848 --nacos-username nacos --nacos-password nacos  --nacos-dataid test_auto_schema --local-cfg-file docker/test_auto_schema.json
-./nacos_publish_config --nacos-addr 127.0.0.1:8848 --nacos-username nacos --nacos-password nacos  --nacos-dataid test_dynamic_schema --local-cfg-file docker/test_dynamic_schema.json
+./bin/nacos_publish_config --nacos-addr 127.0.0.1:8848 --nacos-username nacos --nacos-password nacos  --nacos-dataid test_fixed_schema --local-cfg-file docker/test_fixed_schema.json
+./bin/nacos_publish_config --nacos-addr 127.0.0.1:8848 --nacos-username nacos --nacos-password nacos  --nacos-dataid test_auto_schema --local-cfg-file docker/test_auto_schema.json
+./bin/nacos_publish_config --nacos-addr 127.0.0.1:8848 --nacos-username nacos --nacos-password nacos  --nacos-dataid test_dynamic_schema --local-cfg-file docker/test_dynamic_schema.json
 
 echo "start clickhouse_sinker to consume"
 sudo docker exec kafka kafka-consumer-groups --bootstrap-server localhost:9093 --execute --reset-offsets --group test_fixed_schema --all-topics --to-earliest
-timeout 30 ./clickhouse_sinker --nacos-addr 127.0.0.1:8848 --nacos-username nacos --nacos-password nacos --nacos-dataid test_fixed_schema
+timeout 30 ./bin/clickhouse_sinker --nacos-addr 127.0.0.1:8848 --nacos-username nacos --nacos-password nacos --nacos-dataid test_fixed_schema
 
 sudo docker exec kafka kafka-consumer-groups --bootstrap-server localhost:9093 --execute --reset-offsets --group test_auto_schema --all-topics --to-earliest
-timeout 30 ./clickhouse_sinker --nacos-addr 127.0.0.1:8848 --nacos-username nacos --nacos-password nacos --nacos-dataid test_auto_schema
+timeout 30 ./bin/clickhouse_sinker --nacos-addr 127.0.0.1:8848 --nacos-username nacos --nacos-password nacos --nacos-dataid test_auto_schema
 
 sudo docker exec kafka kafka-consumer-groups --bootstrap-server localhost:9093 --execute --reset-offsets --group test_dynamic_schema --all-topics --to-earliest
-timeout 30 ./clickhouse_sinker --nacos-addr 127.0.0.1:8848 --nacos-username nacos --nacos-password nacos --nacos-dataid test_dynamic_schema
+timeout 30 ./bin/clickhouse_sinker --nacos-addr 127.0.0.1:8848 --nacos-username nacos --nacos-password nacos --nacos-dataid test_dynamic_schema
 
 echo "check result 2"
 count=`curl "localhost:8123" -d 'select count() from test_fixed_schema'`

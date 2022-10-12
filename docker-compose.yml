@@ -12,6 +12,7 @@ services:
       ALLOW_ANONYMOUS_LOGIN: 1
     security_opt:
       - label:disable
+
   kafka:
     image: confluentinc/cp-kafka:5.5.0
     container_name: kafka
@@ -32,6 +33,7 @@ services:
       - zookeeper
     security_opt:
       - label:disable
+
   clickhouse:
     image: clickhouse/clickhouse-server:22.3
     restart: always
@@ -46,6 +48,7 @@ services:
       - "./docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d"
     security_opt:
       - label:disable
+
   nacos:
     image: nacos/nacos-server:1.4.1
     container_name: nacos-standalone

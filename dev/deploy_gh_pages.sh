@@ -8,4 +8,4 @@ git config --global user.email 'dummy@dummy.dummy'
 git init
 git add -A
 git commit -m 'Deploy GitHub Pages'
-git push -f https://sundy-li:${TOKEN_GITHUB}@github.com/viru-tech/clickhouse_sinker.git master:gh-pages
+git push -f https://x-access-token:${GITHUB_TOKEN}@github.com/viru-tech/clickhouse_sinker.git master:gh-pages
