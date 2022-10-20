@@ -20,6 +20,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"math"
 	"net"
 	"os"
 	"os/exec"
@@ -30,18 +31,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fagongzi/goetty"
+	"github.com/thanos-io/thanos/pkg/errors"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"gopkg.in/natefinch/lumberjack.v2"
-
-	"github.com/fagongzi/goetty"
-	"github.com/thanos-io/thanos/pkg/errors"
 )
 
 var (
-	GlobalTimerWheel  *goetty.TimeoutWheel //the global timer wheel
-	GlobalParsingPool *WorkerPool          //for all tasks' parsing, cpu intensive
-	GlobalWritingPool *WorkerPool          //the all tasks' writing ClickHouse, cpu-net balance
+	GlobalTimerWheel  *goetty.TimeoutWheel // the global timer wheel
+	GlobalParsingPool *WorkerPool          // for all tasks' parsing, cpu intensive
+	GlobalWritingPool *WorkerPool          // the all tasks' writing ClickHouse, cpu-net balance
 	Logger            *zap.Logger
 	logAtomLevel      zap.AtomicLevel
 	logPaths          []string
@@ -107,7 +107,7 @@ func GetShift(s int) (shift uint) {
 }
 
 // GetOutboundIP get preferred outbound ip of this machine
-//https://stackoverflow.com/questions/23558425/how-do-i-get-the-local-ip-address-in-go
+// https://stackoverflow.com/questions/23558425/how-do-i-get-the-local-ip-address-in-go.
 func GetOutboundIP() (ip net.IP, err error) {
 	var conn net.Conn
 	if conn, err = net.Dial("udp", "8.8.8.8:80"); err != nil {
@@ -120,29 +120,24 @@ func GetOutboundIP() (ip net.IP, err error) {
 	return
 }
 
-// GetSpareTCPPort find a spare TCP port
-func GetSpareTCPPort(portBegin int) (port int) {
-LOOP:
-	for port = portBegin; ; port++ {
-		addr := fmt.Sprintf(":%d", port)
-		ln, err := net.Listen("tcp", addr)
-		if err == nil {
-			ln.Close()
-			break LOOP
+// GetSpareTCPPort finds a spare TCP port.
+func GetSpareTCPPort(portBegin int) int {
+	for port := portBegin; port < math.MaxInt; port++ {
+		if err := testListenOnPort(port); err == nil {
+			return port
 		}
 	}
-	return
+	return 0
 }
 
-// https://stackoverflow.com/questions/50428176/how-to-get-ip-and-port-from-net-addr-when-it-could-be-a-net-udpaddr-or-net-tcpad
-func GetNetAddrPort(addr net.Addr) (port int) {
-	switch addr := addr.(type) {
-	case *net.UDPAddr:
-		port = addr.Port
-	case *net.TCPAddr:
-		port = addr.Port
+func testListenOnPort(port int) error {
+	addr := fmt.Sprintf(":%d", port)
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
 	}
-	return
+	ln.Close() //nolint:errcheck
+	return nil
 }
 
 // Refers to:

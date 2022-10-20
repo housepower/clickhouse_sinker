@@ -20,7 +20,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"log"
 	"net"
 	"net/http"
 	"net/http/pprof"
@@ -32,6 +31,10 @@ import (
 	"sync"
 	"time"
 
+	_ "github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.uber.org/zap"
+
 	"github.com/viru-tech/clickhouse_sinker/config"
 	cm "github.com/viru-tech/clickhouse_sinker/config_manager"
 	"github.com/viru-tech/clickhouse_sinker/health"
@@ -39,17 +42,16 @@ import (
 	"github.com/viru-tech/clickhouse_sinker/statistics"
 	"github.com/viru-tech/clickhouse_sinker/task"
 	"github.com/viru-tech/clickhouse_sinker/util"
-	"go.uber.org/zap"
-
-	_ "github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 type CmdOptions struct {
-	ShowVer          bool
-	LogLevel         string // "debug", "info", "warn", "error", "dpanic", "panic", "fatal"
-	LogPaths         string // comma-separated paths. "stdout" means the console stdout
-	HTTPPort         int    // 0 menas a randomly OS chosen port
+	ShowVer  bool
+	LogLevel string // "debug", "info", "warn", "error", "dpanic", "panic", "fatal"
+	LogPaths string // comma-separated paths. "stdout" means the console stdout
+	// HTTPHost to bind to. If empty, outbound ip of machine
+	// is automatically determined and used.
+	HTTPHost         string
+	HTTPPort         int // 0 means a randomly chosen port.
 	PushGatewayAddrs string
 	PushInterval     int
 	LocalCfgFile     string
@@ -63,14 +65,13 @@ type CmdOptions struct {
 }
 
 var (
-	//goreleaser fill following info per https://goreleaser.com/customization/build/.
+	// goreleaser fill following info per https://goreleaser.com/customization/build/.
 	version = "None"
 	commit  = "None"
 	date    = "None"
 	builtBy = "None"
 
 	cmdOps      CmdOptions
-	selfIP      string
 	httpAddr    string
 	httpMetrics = promhttp.Handler()
 	runner      *Sinker
@@ -82,7 +83,6 @@ func initCmdOptions() {
 		ShowVer:          false,
 		LogLevel:         "info",
 		LogPaths:         "stdout,clickhouse_sinker.log",
-		HTTPPort:         0,
 		PushGatewayAddrs: "",
 		PushInterval:     10,
 		LocalCfgFile:     "/etc/clickhouse_sinker.json",
@@ -100,6 +100,7 @@ func initCmdOptions() {
 	util.EnvStringVar(&cmdOps.LogLevel, "log-level")
 	util.EnvStringVar(&cmdOps.LogPaths, "log-paths")
 	util.EnvIntVar(&cmdOps.HTTPPort, "http-port")
+	util.EnvStringVar(&cmdOps.HTTPHost, "http-host")
 	util.EnvStringVar(&cmdOps.PushGatewayAddrs, "metric-push-gateway-addrs")
 	util.EnvIntVar(&cmdOps.PushInterval, "push-interval")
 	util.EnvStringVar(&cmdOps.LocalCfgFile, "local-cfg-file")
@@ -117,6 +118,7 @@ func initCmdOptions() {
 	flag.StringVar(&cmdOps.LogLevel, "log-level", cmdOps.LogLevel, "one of debug, info, warn, error, dpanic, panic, fatal")
 	flag.StringVar(&cmdOps.LogPaths, "log-paths", cmdOps.LogPaths, "a list of comma-separated log file path. stdout means the console stdout")
 	flag.IntVar(&cmdOps.HTTPPort, "http-port", cmdOps.HTTPPort, "http listen port")
+	flag.StringVar(&cmdOps.HTTPHost, "http-host", cmdOps.HTTPHost, "http host to bind to")
 	flag.StringVar(&cmdOps.PushGatewayAddrs, "metric-push-gateway-addrs", cmdOps.PushGatewayAddrs, "a list of comma-separated prometheus push gatway address")
 	flag.IntVar(&cmdOps.PushInterval, "push-interval", cmdOps.PushInterval, "push interval in seconds")
 	flag.StringVar(&cmdOps.LocalCfgFile, "local-cfg-file", cmdOps.LocalCfgFile, "local config file")
@@ -145,12 +147,6 @@ func init() {
 	if cmdOps.ShowVer {
 		os.Exit(0)
 	}
-	var err error
-	var ip net.IP
-	if ip, err = util.GetOutboundIP(); err != nil {
-		log.Fatal("unable to determine self ip", err)
-	}
-	selfIP = ip.String()
 }
 
 func main() {
@@ -196,16 +192,25 @@ func main() {
 
 		// cmdOps.HTTPPort=0: let OS choose the listen port, and record the exact metrics URL to log.
 		httpPort := cmdOps.HTTPPort
-		if httpPort != 0 {
+		if httpPort == 0 {
 			httpPort = util.GetSpareTCPPort(httpPort)
 		}
-		httpAddr = fmt.Sprintf(":%d", httpPort)
+
+		httpHost := cmdOps.HTTPHost
+		if httpHost == "" {
+			ip, err := util.GetOutboundIP()
+			if err != nil {
+				return fmt.Errorf("failed to determine outbound ip: %w", err)
+			}
+			httpHost = ip.String()
+		}
+
+		httpAddr = fmt.Sprintf("%s:%d", httpHost, httpPort)
 		listener, err := net.Listen("tcp", httpAddr)
 		if err != nil {
-			util.Logger.Fatal("net.Listen failed", zap.String("httpAddr", httpAddr), zap.Error(err))
+			return fmt.Errorf("failed to listen on %q: %w", httpAddr, err)
 		}
-		httpPort = util.GetNetAddrPort(listener.Addr())
-		httpAddr = fmt.Sprintf("%s:%d", selfIP, httpPort)
+
 		util.Logger.Info(fmt.Sprintf("Run http server at http://%s/", httpAddr))
 
 		go func() {
@@ -245,7 +250,7 @@ func main() {
 				util.Logger.Fatal("rcm.Init failed", zap.Error(err))
 			}
 			if cmdOps.NacosServiceName != "" {
-				if err := rcm.Register(selfIP, httpPort); err != nil {
+				if err := rcm.Register(httpHost, httpPort); err != nil {
 					util.Logger.Fatal("rcm.Init failed", zap.Error(err))
 				}
 			}
@@ -489,7 +494,7 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 		sort.Strings(tasksToStart)
 		util.Logger.Info("started tasks", zap.Reflect("tasks", tasksToStart))
 	} else if !reflect.DeepEqual(newCfg.Tasks, s.curCfg.Tasks) || !reflect.DeepEqual(newCfg.Assignment.Map, s.curCfg.Assignment.Map) {
-		//1. Find tasks need to stop.
+		// 1. Find tasks need to stop.
 		var tasksToStop []string
 		curCfgTasks := make(map[string]*config.TaskConfig)
 		newCfgTasks := make(map[string]*config.TaskConfig)
