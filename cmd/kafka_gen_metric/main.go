@@ -34,6 +34,7 @@ CREATE TABLE dist_sensor_dt_result_online ON CLUSTER abc AS sensor_dt_result_onl
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"math/rand"
@@ -47,8 +48,9 @@ import (
 	"github.com/google/gops/agent"
 	"github.com/thanos-io/thanos/pkg/errors"
 	"github.com/twmb/franz-go/pkg/kgo"
-	"github.com/viru-tech/clickhouse_sinker/util"
 	"go.uber.org/zap"
+
+	"github.com/viru-tech/clickhouse_sinker/util"
 )
 
 const (
@@ -78,7 +80,7 @@ var (
 )
 
 type Metric struct {
-	Time         time.Time `json:"@time"` //seconds since epoch
+	Time         time.Time `json:"@time"` // seconds since epoch
 	ItemGUID     string    `json:"@item_guid"`
 	MetricName   string    `json:"@metric_name"`
 	AlgName      string    `json:"@alg_name"`
@@ -165,7 +167,7 @@ func generate() {
 
 					_ = wp.Submit(func() {
 						var b []byte
-						if b, err = util.JSONMarshal(&metric); err != nil {
+						if b, err = json.Marshal(&metric); err != nil {
 							err = errors.Wrapf(err, "")
 							util.Logger.Fatal("got error", zap.Error(err))
 						}

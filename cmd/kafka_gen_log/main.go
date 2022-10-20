@@ -39,6 +39,7 @@ CREATE TABLE dist_apache_access_log ON CLUSTER abc AS apache_access_log ENGINE =
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"math/rand"
@@ -55,8 +56,9 @@ import (
 	"github.com/google/gops/agent"
 	"github.com/thanos-io/thanos/pkg/errors"
 	"github.com/twmb/franz-go/pkg/kgo"
-	"github.com/viru-tech/clickhouse_sinker/util"
 	"go.uber.org/zap"
+
+	"github.com/viru-tech/clickhouse_sinker/util"
 )
 
 var (
@@ -283,7 +285,7 @@ func (g *LogGenerator) Run() {
 				Xforwardfor:     "",
 			}
 			_ = wp.Submit(func() {
-				if b, err = util.JSONMarshal(&logObj); err != nil {
+				if b, err = json.Marshal(&logObj); err != nil {
 					err = errors.Wrapf(err, "")
 					util.Logger.Fatal("got error", zap.Error(err))
 				}
