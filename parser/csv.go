@@ -29,9 +29,10 @@ import (
 	"github.com/thanos-io/thanos/pkg/errors"
 	"github.com/tidwall/gjson"
 	"github.com/valyala/fastjson/fastfloat"
+	"golang.org/x/exp/constraints"
+
 	"github.com/viru-tech/clickhouse_sinker/model"
 	"github.com/viru-tech/clickhouse_sinker/util"
-	"golang.org/x/exp/constraints"
 )
 
 var _ Parser = (*CsvParser)(nil)
@@ -80,6 +81,22 @@ func (c *CsvMetric) GetString(key string, nullable bool) (val interface{}) {
 	}
 	val = c.values[idx]
 	return
+}
+
+func (c *CsvMetric) GetUUID(key string, nullable bool) interface{} {
+	var idx int
+	var ok bool
+	if idx, ok = c.pp.csvFormat[key]; !ok || c.values[idx] == "null" {
+		if nullable {
+			return nil
+		}
+		return zeroUUID
+	}
+
+	if v := c.values[idx]; v != "" {
+		return v
+	}
+	return zeroUUID
 }
 
 // GetDecimal returns the value as decimal
@@ -302,6 +319,24 @@ func (c *CsvMetric) GetArray(key string, typ int) (val interface{}) {
 				s = e.Str
 			default:
 				s = e.Raw
+			}
+			results = append(results, s)
+		}
+		val = results
+	case model.UUID:
+		results := make([]string, 0, len(array))
+		var s string
+		for _, e := range array {
+			switch e.Type {
+			case gjson.Null:
+				s = ""
+			case gjson.String:
+				s = e.Str
+			default:
+				s = e.Raw
+			}
+			if s == "" {
+				s = zeroUUID
 			}
 			results = append(results, s)
 		}

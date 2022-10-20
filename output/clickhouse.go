@@ -26,28 +26,28 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
-
 	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/thanos-io/thanos/pkg/errors"
+	"go.uber.org/zap"
+
 	"github.com/viru-tech/clickhouse_sinker/config"
 	"github.com/viru-tech/clickhouse_sinker/model"
 	"github.com/viru-tech/clickhouse_sinker/pool"
 	"github.com/viru-tech/clickhouse_sinker/statistics"
 	"github.com/viru-tech/clickhouse_sinker/util"
-	"go.uber.org/zap"
 )
 
 var (
 	ErrTblNotExist       = errors.Newf("table doesn't exist")
-	selectSQLTemplate    = `select name, type, default_kind from system.columns where database = '%s' and table = '%s'`
+	selectSQLTemplate    = `SELECT name, type, default_kind FROM system.columns WHERE database = '%s' AND table = '%s'`
 	lowCardinalityRegexp = regexp.MustCompile(`LowCardinality\((.+)\)`)
 
 	// https://github.com/ClickHouse/ClickHouse/issues/24036
 	// src/Common/ErrorCodes.cpp
 	// src/Storages/MergeTree/ReplicatedMergeTreeBlockOutputStream.cpp
 	// ZooKeeper issues(https://issues.apache.org/jira/browse/ZOOKEEPER-4410) can cause ClickHouse exeception: "Code": 999, "Message": "Cannot allocate block number..."
-	replicaSpecificErrorCodes = []int32{242, 319, 999, 1000} //TABLE_IS_READ_ONLY, UNKNOWN_STATUS_OF_INSERT, KEEPER_EXCEPTION, POCO_EXCEPTION
+	replicaSpecificErrorCodes = []int32{242, 319, 999, 1000} // TABLE_IS_READ_ONLY, UNKNOWN_STATUS_OF_INSERT, KEEPER_EXCEPTION, POCO_EXCEPTION
 )
 
 // ClickHouse is an output service consumers from kafka messages
@@ -146,8 +146,8 @@ func (c *ClickHouse) write(batch *model.Batch, sc *pool.ShardConn, dbVer *int) (
 	if conn, *dbVer, err = sc.NextGoodReplica(*dbVer); err != nil {
 		return
 	}
-	//row[:c.IdxSerID] is for metric table
-	//row[c.IdxSerID:] is for series table
+	// row[:c.IdxSerID] is for metric table
+	// row[c.IdxSerID:] is for series table
 	numDims := len(c.Dims)
 	if c.taskCfg.PrometheusSchema {
 		numDims = c.IdxSerID + 1
@@ -341,12 +341,17 @@ func (c *ClickHouse) initSchema() (err error) {
 		c.Dims = make([]*model.ColumnWithType, 0)
 		for _, dim := range c.taskCfg.Dims {
 			tp, nullable, array := model.WhichType(dim.Type)
+			if dim.Const != "" && (tp != model.String || array) {
+				return fmt.Errorf("only non-array %s columns can be set as a constant", model.GetTypeName(tp))
+			}
+
 			c.Dims = append(c.Dims, &model.ColumnWithType{
 				Name:       dim.Name,
 				Type:       tp,
 				Nullable:   nullable,
 				Array:      array,
 				SourceName: dim.SourceName,
+				Const:      dim.Const,
 			})
 		}
 	}

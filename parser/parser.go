@@ -23,6 +23,7 @@ import (
 	"github.com/confluentinc/confluent-kafka-go/schemaregistry"
 	"github.com/confluentinc/confluent-kafka-go/schemaregistry/serde"
 	"github.com/thanos-io/thanos/pkg/errors"
+
 	"github.com/viru-tech/clickhouse_sinker/model"
 )
 
@@ -31,38 +32,40 @@ const (
 	fastJsonName = "fastjson"
 	csvName      = "csv"
 	protoName    = "proto"
+
+	zeroUUID = "00000000-0000-0000-0000-000000000000"
 )
 
 var (
 	Layouts = []string{
-		//DateTime, RFC3339
-		"2006-01-02T15:04:05Z07:00", //time.RFC3339, `date --iso-8601=s` on Ubuntu 20.04
-		"2006-01-02T15:04:05Z0700",  //`date --iso-8601=s` on CentOS 7.6
+		// DateTime, RFC3339
+		"2006-01-02T15:04:05Z07:00", // time.RFC3339, `date --iso-8601=s` on Ubuntu 20.04
+		"2006-01-02T15:04:05Z0700",  // `date --iso-8601=s` on CentOS 7.6
 		"2006-01-02T15:04:05",
-		//DateTime, ISO8601
-		"2006-01-02 15:04:05Z07:00", //`date --rfc-3339=s` output format
+		// DateTime, ISO8601
+		"2006-01-02 15:04:05Z07:00", // `date --rfc-3339=s` output format
 		"2006-01-02 15:04:05Z0700",
 		"2006-01-02 15:04:05",
-		//DateTime, other layouts supported by golang
-		"Mon Jan _2 15:04:05 2006",        //time.ANSIC
-		"Mon Jan _2 15:04:05 MST 2006",    //time.UnixDate
-		"Mon Jan 02 15:04:05 -0700 2006",  //time.RubyDate
-		"02 Jan 06 15:04 MST",             //time.RFC822
-		"02 Jan 06 15:04 -0700",           //time.RFC822Z
-		"Monday, 02-Jan-06 15:04:05 MST",  //time.RFC850
-		"Mon, 02 Jan 2006 15:04:05 MST",   //time.RFC1123
-		"Mon, 02 Jan 2006 15:04:05 -0700", //time.RFC1123Z
-		//DateTime, linux utils
+		// DateTime, other layouts supported by golang
+		"Mon Jan _2 15:04:05 2006",        // time.ANSIC
+		"Mon Jan _2 15:04:05 MST 2006",    // time.UnixDate
+		"Mon Jan 02 15:04:05 -0700 2006",  // time.RubyDate
+		"02 Jan 06 15:04 MST",             // time.RFC822
+		"02 Jan 06 15:04 -0700",           // time.RFC822Z
+		"Monday, 02-Jan-06 15:04:05 MST",  // time.RFC850
+		"Mon, 02 Jan 2006 15:04:05 MST",   // time.RFC1123
+		"Mon, 02 Jan 2006 15:04:05 -0700", // time.RFC1123Z
+		// DateTime, linux utils
 		"Mon Jan 02 15:04:05 MST 2006",    // `date` on CentOS 7.6 default output format
 		"Mon 02 Jan 2006 03:04:05 PM MST", // `date` on Ubuntu 20.4 default output format
-		//DateTime, home-brewed
+		// DateTime, home-brewed
 		"Jan 02, 2006 15:04:05Z07:00",
 		"Jan 02, 2006 15:04:05Z0700",
 		"Jan 02, 2006 15:04:05",
 		"02/Jan/2006 15:04:05 Z07:00",
 		"02/Jan/2006 15:04:05 Z0700",
 		"02/Jan/2006 15:04:05",
-		//Date
+		// Date
 		"2006-01-02",
 		"02/01/2006",
 		"02/Jan/2006",
@@ -223,7 +226,7 @@ func parseInLocation(val string, loc *time.Location) (t time.Time, layout string
 
 func UnixFloat(sec, unit float64) (t time.Time) {
 	sec *= unit
-	//2^32 seconds since epoch: 2106-02-07T06:28:16Z
+	// 2^32 seconds since epoch: 2106-02-07T06:28:16Z
 	if sec < 0 || sec >= 4294967296.0 {
 		return Epoch
 	}

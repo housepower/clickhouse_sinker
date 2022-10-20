@@ -21,9 +21,9 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/viru-tech/clickhouse_sinker/util"
-
 	"github.com/thanos-io/thanos/pkg/errors"
+
+	"github.com/viru-tech/clickhouse_sinker/util"
 )
 
 // Config struct used for different configurations use
@@ -48,13 +48,13 @@ type KafkaConfig struct {
 		ClientCertFile string // Required for client authentication. It's client cert.pem.
 		ClientKeyFile  string // Required if and only if ClientCertFile is present. It's client key.pem.
 
-		TrustStoreLocation string //JKS format of CA certificate, used to extract CA cert.pem.
+		TrustStoreLocation string // JKS format of CA certificate, used to extract CA cert.pem.
 		TrustStorePassword string
-		KeystoreLocation   string //JKS format of client certificate and key, used to extrace client cert.pem and key.pem.
+		KeystoreLocation   string // JKS format of client certificate and key, used to extrace client cert.pem and key.pem.
 		KeystorePassword   string
 		EndpIdentAlgo      string
 	}
-	//simplified sarama.Config.Net.SASL to only support SASL/PLAIN and SASL/GSSAPI(Kerberos)
+	// simplified sarama.Config.Net.SASL to only support SASL/PLAIN and SASL/GSSAPI(Kerberos)
 	Sasl struct {
 		// Whether or not to use SASL authentication when connecting to the broker
 		// (defaults to false).
@@ -68,7 +68,7 @@ type KafkaConfig struct {
 		// Password for SASL/PLAIN or SASL/SCRAM authentication
 		Password string
 		GSSAPI   struct {
-			AuthType           int //1. KRB5_USER_AUTH, 2. KRB5_KEYTAB_AUTH
+			AuthType           int // 1. KRB5_USER_AUTH, 2. KRB5_KEYTAB_AUTH
 			KeyTabPath         string
 			KerberosConfigPath string
 			ServiceName        string
@@ -100,7 +100,7 @@ type ClickHouseConfig struct {
 	// Whether skip verify clickhouse-server cert
 	InsecureSkipVerify bool
 
-	RetryTimes   int //<=0 means retry infinitely
+	RetryTimes   int // <=0 means retry infinitely
 	MaxOpenConns int
 }
 
@@ -128,6 +128,8 @@ type TaskConfig struct {
 		Name       string
 		Type       string
 		SourceName string
+		// Const is used to set column value to some constant from config.
+		Const string
 	} `json:"dims"`
 	// DynamicSchema will add columns present in message to clickhouse. Requires AutoSchema be true.
 	DynamicSchema struct {
@@ -167,8 +169,8 @@ type Assignment struct {
 }
 
 const (
-	MaxBufferSize             = 1 << 20 //1048576
-	defaultBufferSize         = 1 << 18 //262144
+	MaxBufferSize             = 1 << 20 // 1048576
+	defaultBufferSize         = 1 << 18 // 262144
 	maxFlushInterval          = 600
 	defaultFlushInterval      = 5
 	defaultTimeZone           = "Local"
@@ -263,9 +265,9 @@ func (cfg *Config) normallizeTask(taskCfg *TaskConfig) (err error) {
 		taskCfg.Parser = "fastjson"
 	}
 
-	for i := range taskCfg.Dims {
-		if taskCfg.Dims[i].SourceName == "" {
-			taskCfg.Dims[i].SourceName = util.GetSourceName(taskCfg.Dims[i].Name)
+	for _, dim := range taskCfg.Dims {
+		if dim.SourceName == "" {
+			dim.SourceName = util.GetSourceName(dim.Name)
 		}
 	}
 
@@ -390,7 +392,7 @@ func (cfg *Config) convertKfkSecurity() {
 					}
 				}
 				if cfg.Kafka.Sasl.GSSAPI.AuthType == 1 {
-					//Username and password
+					// Username and password
 					if username, ok := configMap["username"]; ok {
 						cfg.Kafka.Sasl.GSSAPI.Username = username
 					}
@@ -398,7 +400,7 @@ func (cfg *Config) convertKfkSecurity() {
 						cfg.Kafka.Sasl.GSSAPI.Password = password
 					}
 				} else {
-					//Keytab
+					// Keytab
 					if keyTab, ok := configMap["keyTab"]; ok {
 						cfg.Kafka.Sasl.GSSAPI.KeyTabPath = keyTab
 					}

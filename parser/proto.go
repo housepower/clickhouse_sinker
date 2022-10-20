@@ -3,7 +3,6 @@ package parser
 import (
 	"encoding/binary"
 	"fmt"
-	"golang.org/x/exp/constraints"
 	"io"
 	"math"
 	"reflect"
@@ -19,9 +18,11 @@ import (
 	"github.com/jhump/protoreflect/dynamic"
 	"github.com/shopspring/decimal"
 	"github.com/thanos-io/thanos/pkg/errors"
+	"golang.org/x/exp/constraints"
+	"google.golang.org/protobuf/types/known/timestamppb"
+
 	"github.com/viru-tech/clickhouse_sinker/model"
 	"github.com/viru-tech/clickhouse_sinker/util"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 //go:generate mockgen -source=../vendor/github.com/confluentinc/confluent-kafka-go/schemaregistry/schemaregistry_client.go -imports=schemaregistry=github.com/confluentinc/confluent-kafka-go/schemaregistry -package=parser -mock_names=Client=MockSchemaRegistryClient -destination=schema_registry_mock_test.go
@@ -145,7 +146,22 @@ func (m *ProtoMetric) GetString(key string, nullable bool) interface{} {
 		return ""
 	}
 
-	return getString(reflect.ValueOf(value), nullable)
+	return getString(reflect.ValueOf(value))
+}
+
+func (m *ProtoMetric) GetUUID(key string, nullable bool) interface{} {
+	value, _ := m.msg.TryGetFieldByName(key)
+	if value == nil {
+		if nullable {
+			return nil
+		}
+		return zeroUUID
+	}
+
+	if v := getString(reflect.ValueOf(value)); v != "" {
+		return v
+	}
+	return zeroUUID
 }
 
 func (m *ProtoMetric) GetArray(key string, t int) interface{} {
@@ -195,7 +211,18 @@ func (m *ProtoMetric) GetArray(key string, t int) interface{} {
 		arr := make([]string, 0)
 		rv := reflect.ValueOf(value)
 		for i := 0; i < rv.Len(); i++ {
-			item := getString(reflect.ValueOf(rv.Index(i).Interface()), false).(string)
+			item := getString(reflect.ValueOf(rv.Index(i).Interface()))
+			arr = append(arr, item)
+		}
+		return arr
+	case model.UUID:
+		arr := make([]string, 0)
+		rv := reflect.ValueOf(value)
+		for i := 0; i < rv.Len(); i++ {
+			item := getString(reflect.ValueOf(rv.Index(i).Interface()))
+			if item == "" {
+				item = zeroUUID
+			}
 			arr = append(arr, item)
 		}
 		return arr
@@ -353,7 +380,7 @@ func getDateTime(value reflect.Value, nullable bool) interface{} {
 	return getDefaultDateTime(nullable)
 }
 
-func getString(value reflect.Value, nullable bool) interface{} {
+func getString(value reflect.Value) string {
 	if value.Kind() == reflect.String {
 		return value.String()
 	}

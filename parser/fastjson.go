@@ -22,14 +22,14 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/exp/constraints"
-
 	"github.com/shopspring/decimal"
 	"github.com/thanos-io/thanos/pkg/errors"
 	"github.com/valyala/fastjson"
+	"go.uber.org/zap"
+	"golang.org/x/exp/constraints"
+
 	"github.com/viru-tech/clickhouse_sinker/model"
 	"github.com/viru-tech/clickhouse_sinker/util"
-	"go.uber.org/zap"
 )
 
 var _ Parser = (*FastjsonParser)(nil)
@@ -74,13 +74,36 @@ func (c *FastjsonMetric) GetString(key string, nullable bool) (val interface{}) 
 	return
 }
 
+func (c *FastjsonMetric) GetUUID(key string, nullable bool) interface{} {
+	v := c.value.Get(key)
+	if v == nil || v.Type() == fastjson.TypeNull {
+		if nullable {
+			return nil
+		}
+		return zeroUUID
+	}
+
+	var val string
+	if v.Type() == fastjson.TypeString {
+		b, _ := v.StringBytes()
+		val = string(b)
+	} else {
+		val = v.String()
+	}
+
+	if val != "" {
+		return val
+	}
+	return zeroUUID
+}
+
 func (c *FastjsonMetric) GetBool(key string, nullable bool) (val interface{}) {
 	v := c.value.Get(key)
 	if !fjCompatibleBool(v) {
 		val = getDefaultBool(nullable)
 		return
 	}
-	val = (v.Type() == fastjson.TypeTrue)
+	val = v.Type() == fastjson.TypeTrue
 	return
 }
 
@@ -284,6 +307,25 @@ func (c *FastjsonMetric) GetArray(key string, typ int) (val interface{}) {
 				s = string(b)
 			default:
 				s = e.String()
+			}
+			arr = append(arr, s)
+		}
+		val = arr
+	case model.UUID:
+		arr := make([]string, 0)
+		var s string
+		for _, e := range array {
+			switch e.Type() {
+			case fastjson.TypeNull:
+				s = ""
+			case fastjson.TypeString:
+				b, _ := e.StringBytes()
+				s = string(b)
+			default:
+				s = e.String()
+			}
+			if s == "" {
+				s = zeroUUID
 			}
 			arr = append(arr, s)
 		}

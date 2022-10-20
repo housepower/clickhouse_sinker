@@ -38,6 +38,7 @@ const (
 	Decimal
 	DateTime
 	String
+	UUID
 )
 
 type TypeInfo struct {
@@ -81,51 +82,58 @@ func GetTypeName(typ int) (name string) {
 		name = "DateTime"
 	case String:
 		name = "String"
+	case UUID:
+		name = "UUID"
 	default:
 		name = "Unknown"
 	}
 	return
 }
 
-func GetValueByType(metric Metric, cwt *ColumnWithType) (val interface{}) {
+func GetValueByType(metric Metric, cwt *ColumnWithType) interface{} {
 	name := cwt.SourceName
 	if cwt.Array {
-		val = metric.GetArray(name, cwt.Type)
-	} else {
-		switch cwt.Type {
-		case Bool:
-			val = metric.GetBool(name, cwt.Nullable)
-		case Int8:
-			val = metric.GetInt8(name, cwt.Nullable)
-		case Int16:
-			val = metric.GetInt16(name, cwt.Nullable)
-		case Int32:
-			val = metric.GetInt32(name, cwt.Nullable)
-		case Int64:
-			val = metric.GetInt64(name, cwt.Nullable)
-		case UInt8:
-			val = metric.GetUint8(name, cwt.Nullable)
-		case UInt16:
-			val = metric.GetUint16(name, cwt.Nullable)
-		case UInt32:
-			val = metric.GetUint32(name, cwt.Nullable)
-		case UInt64:
-			val = metric.GetUint64(name, cwt.Nullable)
-		case Float32:
-			val = metric.GetFloat32(name, cwt.Nullable)
-		case Float64:
-			val = metric.GetFloat64(name, cwt.Nullable)
-		case Decimal:
-			val = metric.GetDecimal(name, cwt.Nullable)
-		case DateTime:
-			val = metric.GetDateTime(name, cwt.Nullable)
-		case String:
-			val = metric.GetString(name, cwt.Nullable)
-		default:
-			util.Logger.Fatal("LOGIC ERROR: reached switch default condition")
-		}
+		return metric.GetArray(name, cwt.Type)
 	}
-	return
+
+	switch cwt.Type {
+	case Bool:
+		return metric.GetBool(name, cwt.Nullable)
+	case Int8:
+		return metric.GetInt8(name, cwt.Nullable)
+	case Int16:
+		return metric.GetInt16(name, cwt.Nullable)
+	case Int32:
+		return metric.GetInt32(name, cwt.Nullable)
+	case Int64:
+		return metric.GetInt64(name, cwt.Nullable)
+	case UInt8:
+		return metric.GetUint8(name, cwt.Nullable)
+	case UInt16:
+		return metric.GetUint16(name, cwt.Nullable)
+	case UInt32:
+		return metric.GetUint32(name, cwt.Nullable)
+	case UInt64:
+		return metric.GetUint64(name, cwt.Nullable)
+	case Float32:
+		return metric.GetFloat32(name, cwt.Nullable)
+	case Float64:
+		return metric.GetFloat64(name, cwt.Nullable)
+	case Decimal:
+		return metric.GetDecimal(name, cwt.Nullable)
+	case DateTime:
+		return metric.GetDateTime(name, cwt.Nullable)
+	case String:
+		if cwt.Const != "" {
+			return cwt.Const
+		}
+		return metric.GetString(name, cwt.Nullable)
+	case UUID:
+		return metric.GetUUID(name, cwt.Nullable)
+	}
+
+	util.Logger.Fatal("LOGIC ERROR: reached switch default condition")
+	return ""
 }
 
 func WhichType(typ string) (dataType int, nullable bool, array bool) {
@@ -161,7 +169,22 @@ func WhichType(typ string) (dataType int, nullable bool, array bool) {
 
 func init() {
 	typeInfo = make(map[string]TypeInfo)
-	for _, t := range []int{Bool, Int8, Int16, Int32, Int64, UInt8, UInt16, UInt32, UInt64, Float32, Float64, DateTime, String} {
+	for _, t := range []int{
+		Bool,
+		Int8,
+		Int16,
+		Int32,
+		Int64,
+		UInt8,
+		UInt16,
+		UInt32,
+		UInt64,
+		Float32,
+		Float64,
+		DateTime,
+		String,
+		UUID,
+	} {
 		tn := GetTypeName(t)
 		typeInfo[tn] = TypeInfo{Type: t}
 		nullTn := fmt.Sprintf("Nullable(%s)", tn)
@@ -169,9 +192,6 @@ func init() {
 		arrTn := fmt.Sprintf("Array(%s)", tn)
 		typeInfo[arrTn] = TypeInfo{Type: t, Array: true}
 	}
-	typeInfo["UUID"] = TypeInfo{Type: String}
-	typeInfo["Nullable(UUID)"] = TypeInfo{Type: String, Nullable: true}
-	typeInfo["Array(UUID)"] = TypeInfo{Type: String, Array: true}
 	typeInfo["Date"] = TypeInfo{Type: DateTime}
 	typeInfo["Nullable(Date)"] = TypeInfo{Type: DateTime, Nullable: true}
 	typeInfo["Array(Date)"] = TypeInfo{Type: DateTime, Array: true}

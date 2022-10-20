@@ -68,6 +68,31 @@ func (c *GjsonMetric) GetString(key string, nullable bool) (val interface{}) {
 	return
 }
 
+func (c *GjsonMetric) GetUUID(key string, nullable bool) interface{} {
+	r := gjson.Get(c.raw, key)
+	if !r.Exists() || r.Type == gjson.Null {
+		if nullable {
+			return nil
+		}
+		return zeroUUID
+	}
+
+	var val string
+	switch r.Type {
+	case gjson.Null:
+		return zeroUUID
+	case gjson.String:
+		val = r.Str
+	default:
+		val = r.Raw
+	}
+
+	if val != "" {
+		return val
+	}
+	return zeroUUID
+}
+
 func (c *GjsonMetric) GetBool(key string, nullable bool) (val interface{}) {
 	r := gjson.Get(c.raw, key)
 	if !gjCompatibleBool(r) {
@@ -282,6 +307,24 @@ func (c *GjsonMetric) GetArray(key string, typ int) (val interface{}) {
 				s = e.Str
 			default:
 				s = e.Raw
+			}
+			results = append(results, s)
+		}
+		val = results
+	case model.UUID:
+		results := make([]string, 0, len(array))
+		var s string
+		for _, e := range array {
+			switch e.Type {
+			case gjson.Null:
+				s = ""
+			case gjson.String:
+				s = e.Str
+			default:
+				s = e.Raw
+			}
+			if s == "" {
+				s = zeroUUID
 			}
 			results = append(results, s)
 		}
