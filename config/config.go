@@ -265,9 +265,9 @@ func (cfg *Config) normallizeTask(taskCfg *TaskConfig) (err error) {
 		taskCfg.Parser = "fastjson"
 	}
 
-	for _, dim := range taskCfg.Dims {
-		if dim.SourceName == "" {
-			dim.SourceName = util.GetSourceName(dim.Name)
+	for i := range taskCfg.Dims {
+		if taskCfg.Dims[i].SourceName == "" {
+			taskCfg.Dims[i].SourceName = util.GetSourceName(taskCfg.Dims[i].Name)
 		}
 	}
 
