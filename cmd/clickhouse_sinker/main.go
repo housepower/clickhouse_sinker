@@ -62,6 +62,14 @@ type CmdOptions struct {
 	NacosPassword    string
 	NacosDataID      string
 	NacosServiceName string // participate in assignment management if not empty
+	Credentials
+}
+
+type Credentials struct {
+	ClickhouseUsername string
+	ClickhousePassword string
+	KafkaUsername      string
+	KafkaPassword      string
 }
 
 var (
@@ -80,19 +88,14 @@ var (
 func initCmdOptions() {
 	// 1. Set options to default value.
 	cmdOps = CmdOptions{
-		ShowVer:          false,
-		LogLevel:         "info",
-		LogPaths:         "stdout,clickhouse_sinker.log",
-		PushGatewayAddrs: "",
-		PushInterval:     10,
-		LocalCfgFile:     "/etc/clickhouse_sinker.json",
-		NacosAddr:        "127.0.0.1:8848",
-		NacosNamespaceID: "",
-		NacosGroup:       "DEFAULT_GROUP",
-		NacosUsername:    "nacos",
-		NacosPassword:    "nacos",
-		NacosDataID:      "",
-		NacosServiceName: "",
+		LogLevel:      "info",
+		LogPaths:      "stdout,clickhouse_sinker.log",
+		PushInterval:  10,
+		LocalCfgFile:  "/etc/clickhouse_sinker.json",
+		NacosAddr:     "127.0.0.1:8848",
+		NacosGroup:    "DEFAULT_GROUP",
+		NacosUsername: "nacos",
+		NacosPassword: "nacos",
 	}
 
 	// 2. Replace options with the corresponding env variable if present.
@@ -113,6 +116,11 @@ func initCmdOptions() {
 	util.EnvStringVar(&cmdOps.NacosDataID, "nacos-dataid")
 	util.EnvStringVar(&cmdOps.NacosServiceName, "nacos-service-name")
 
+	util.EnvStringVar(&cmdOps.ClickhouseUsername, "clickhouse-username")
+	util.EnvStringVar(&cmdOps.ClickhousePassword, "clickhouse-password")
+	util.EnvStringVar(&cmdOps.KafkaUsername, "kafka-username")
+	util.EnvStringVar(&cmdOps.KafkaPassword, "kafka-password")
+
 	// 3. Replace options with the corresponding CLI parameter if present.
 	flag.BoolVar(&cmdOps.ShowVer, "v", cmdOps.ShowVer, "show build version and quit")
 	flag.StringVar(&cmdOps.LogLevel, "log-level", cmdOps.LogLevel, "one of debug, info, warn, error, dpanic, panic, fatal")
@@ -131,6 +139,12 @@ func initCmdOptions() {
 	flag.StringVar(&cmdOps.NacosGroup, "nacos-group", cmdOps.NacosGroup, `nacos group name. Empty string doesn't work!`)
 	flag.StringVar(&cmdOps.NacosDataID, "nacos-dataid", cmdOps.NacosDataID, "nacos dataid")
 	flag.StringVar(&cmdOps.NacosServiceName, "nacos-service-name", cmdOps.NacosServiceName, "nacos service name")
+
+	flag.StringVar(&cmdOps.ClickhouseUsername, "clickhouse-username", cmdOps.ClickhouseUsername, "clickhouse username")
+	flag.StringVar(&cmdOps.ClickhousePassword, "clickhouse-password", cmdOps.ClickhousePassword, "clickhouse password")
+	flag.StringVar(&cmdOps.KafkaUsername, "kafka-username", cmdOps.KafkaUsername, "kafka username")
+	flag.StringVar(&cmdOps.KafkaPassword, "kafka-password", cmdOps.KafkaPassword, "kafka password")
+
 	flag.Parse()
 }
 
@@ -311,15 +325,15 @@ func (s *Sinker) Run() {
 		go s.pusher.Run()
 	}
 	if s.rcm == nil {
-		if _, err = os.Stat(cmdOps.LocalCfgFile); err == nil {
-			if newCfg, err = config.ParseLocalCfgFile(cmdOps.LocalCfgFile); err != nil {
-				util.Logger.Fatal("config.ParseLocalCfgFile failed", zap.Error(err))
-				return
-			}
-		} else {
+		if _, err = os.Stat(cmdOps.LocalCfgFile); err != nil {
 			util.Logger.Fatal("expect --local-cfg-file or --nacos-dataid")
 			return
 		}
+		if newCfg, err = config.ParseLocalCfgFile(cmdOps.LocalCfgFile); err != nil {
+			util.Logger.Fatal("config.ParseLocalCfgFile failed", zap.Error(err))
+			return
+		}
+		applyCredentials(newCfg, cmdOps.Credentials)
 		if err = newCfg.Normallize(); err != nil {
 			util.Logger.Fatal("newCfg.Normallize failed", zap.Error(err))
 			return
@@ -421,7 +435,7 @@ func (s *Sinker) applyConfig(newCfg *config.Config) (err error) {
 }
 
 func (s *Sinker) applyFirstConfig(newCfg *config.Config) (err error) {
-	util.Logger.Info("going to apply the first config", zap.Reflect("config", newCfg))
+	util.Logger.Info("going to apply the first config")
 	// 1. Initialize clickhouse connections
 	chCfg := &newCfg.Clickhouse
 	if err = pool.InitClusterConn(chCfg.Hosts, chCfg.Port, chCfg.DB, chCfg.Username, chCfg.Password,
@@ -454,7 +468,7 @@ func (s *Sinker) applyFirstConfig(newCfg *config.Config) (err error) {
 }
 
 func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
-	util.Logger.Info("going to apply another config", zap.Int("number", s.numCfg), zap.Reflect("config", newCfg))
+	util.Logger.Info("going to apply another config", zap.Int("number", s.numCfg))
 	if !reflect.DeepEqual(newCfg.Kafka, s.curCfg.Kafka) || !reflect.DeepEqual(newCfg.Clickhouse, s.curCfg.Clickhouse) {
 		// 1. Stop tasks gracefully. Wait until all flying data be processed (write to CH and commit to Kafka).
 		s.stopAllTasks()
@@ -559,4 +573,19 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 	util.Logger.Info("applied another config", zap.Int("number", s.numCfg))
 	s.numCfg++
 	return
+}
+
+func applyCredentials(newCfg *config.Config, cred Credentials) {
+	if cred.ClickhouseUsername != "" {
+		newCfg.Clickhouse.Username = cred.ClickhouseUsername
+	}
+	if cred.ClickhousePassword != "" {
+		newCfg.Clickhouse.Password = cred.ClickhousePassword
+	}
+	if cred.KafkaUsername != "" {
+		newCfg.Kafka.Sasl.Username = cred.KafkaUsername
+	}
+	if cred.KafkaPassword != "" {
+		newCfg.Kafka.Sasl.Password = cred.KafkaPassword
+	}
 }

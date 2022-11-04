@@ -18,6 +18,7 @@ COPY --from=builder /app/kafka_gen_metric /usr/local/bin/kafka_gen_metric
 # - V
 # - LOG_LEVEL
 # - LOG_PATHS
+# - HTTP_HOST
 # - HTTP_PORT
 # - METRIC_PUSH_GATEWAY_ADDRS
 # - PUSH_INTERVAL
@@ -29,6 +30,10 @@ COPY --from=builder /app/kafka_gen_metric /usr/local/bin/kafka_gen_metric
 # - NACOS_GROUP
 # - NACOS_DATAID
 # - NACOS_SERVICE_NAME
+# - CLICKHOUSE_USERNAME
+# - CLICKHOUSE_PASSWORD
+# - KAFKA_USERNAME
+# - KAFKA_PASSWORD
 # See cmd/clickhouse_sinker/main.go for details.
 
 ENTRYPOINT ["/usr/local/bin/clickhouse_sinker"]
