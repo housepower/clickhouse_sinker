@@ -85,7 +85,7 @@ func initCmdOptions() {
 		HTTPPort:         0,
 		PushGatewayAddrs: "",
 		PushInterval:     10,
-		LocalCfgFile:     "/etc/clickhouse_sinker.json",
+		LocalCfgFile:     "/etc/clickhouse_sinker.hjson",
 		NacosAddr:        "127.0.0.1:8848",
 		NacosNamespaceID: "",
 		NacosGroup:       "DEFAULT_GROUP",

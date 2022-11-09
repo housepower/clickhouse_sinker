@@ -16,10 +16,11 @@ limitations under the License.
 package config
 
 import (
-	"encoding/json"
 	"os"
 	"regexp"
 	"strings"
+
+	"github.com/hjson/hjson-go/v4"
 
 	"github.com/housepower/clickhouse_sinker/util"
 
@@ -179,7 +180,7 @@ func ParseLocalCfgFile(cfgPath string) (cfg *Config, err error) {
 		err = errors.Wrapf(err, "")
 		return
 	}
-	if err = json.Unmarshal(b, cfg); err != nil {
+	if err = hjson.Unmarshal(b, cfg); err != nil {
 		err = errors.Wrapf(err, "")
 		return
 	}

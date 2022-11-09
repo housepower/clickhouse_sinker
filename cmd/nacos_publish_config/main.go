@@ -41,10 +41,10 @@ var (
 		`nacos namespace ID. Neither DEFAULT_NAMESPACE_ID("public") nor namespace name work!`)
 	nacosGroup = flag.String("nacos-group", "DEFAULT_GROUP",
 		`nacos group name. Empty string doesn't work!`)
-	nacosDataID = flag.String("nacos-dataid", "clickhouse_sinker.json",
+	nacosDataID = flag.String("nacos-dataid", "clickhouse_sinker.hjson",
 		`nacos data id`)
 
-	localCfgFile = flag.String("local-cfg-file", "/etc/clickhouse_sinker.json", "local config file")
+	localCfgFile = flag.String("local-cfg-file", "/etc/clickhouse_sinker.hjson", "local config file")
 	replicas     = flag.Int("replicas", 1, "replicate each task to multiple ones with the same config except task name, consumer group and table name")
 	maxOpenConns = flag.Int("max-open-conns", 0, "max open connections per shard")
 )

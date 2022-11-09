@@ -1,0 +1,37 @@
+{
+  clickhouse: {
+    hosts: [
+      [
+        192.168.110.6
+        # 192.168.110.8
+      ]
+      [
+        192.168.110.10
+        192.168.110.12
+      ]
+      [
+        192.168.110.14
+      ]
+    ]
+    port: 19000
+    db: default
+    username: ""
+    password: 123456
+    retryTimes: 0
+  }
+  kafka: {
+    brokers: 192.168.110.12:9092, 192.168.110.8:9092, 192.168.110.16:9092
+  }
+  task: {
+    name: test_ck_query
+    topic: kafka_gen_ckdata22
+    consumerGroup: test_ck_query
+    earliest: true
+    parser: json
+    autoSchema: true
+    tableName: test_ck_query_lowcardinality_r1
+    excludeColumns: []
+    bufferSize: 50000
+  }
+  logLevel: info
+}

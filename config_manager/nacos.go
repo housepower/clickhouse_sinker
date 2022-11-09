@@ -2,7 +2,6 @@ package rcm
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"math"
 	"path/filepath"
@@ -13,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hjson/hjson-go/v4"
 	"github.com/housepower/clickhouse_sinker/config"
 	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/nacos-group/nacos-sdk-go/clients"
@@ -137,7 +137,7 @@ func (ncm *NacosConfManager) GetConfig() (conf *config.Config, err error) {
 		return
 	}
 	conf = &config.Config{}
-	if err = json.Unmarshal([]byte(content), conf); err != nil {
+	if err = hjson.Unmarshal([]byte(content), conf); err != nil {
 		err = errors.Wrapf(err, "")
 		return
 	}
@@ -146,7 +146,7 @@ func (ncm *NacosConfManager) GetConfig() (conf *config.Config, err error) {
 
 func (ncm *NacosConfManager) PublishConfig(conf *config.Config) (err error) {
 	var bs []byte
-	if bs, err = json.Marshal(*conf); err != nil {
+	if bs, err = hjson.Marshal(*conf); err != nil {
 		err = errors.Wrapf(err, "")
 		return
 	}

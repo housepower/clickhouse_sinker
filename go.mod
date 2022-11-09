@@ -10,6 +10,7 @@ require (
 	github.com/cespare/xxhash/v2 v2.1.2
 	github.com/fagongzi/goetty v1.7.0
 	github.com/google/gops v0.3.25
+	github.com/hjson/hjson-go/v4 v4.2.0
 	github.com/jcmturner/gokrb5/v8 v8.4.3
 	github.com/jinzhu/copier v0.3.5
 	github.com/nacos-group/nacos-sdk-go v1.1.2

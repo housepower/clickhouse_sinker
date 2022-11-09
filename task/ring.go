@@ -23,7 +23,7 @@ type Ring struct {
 	ringCapMask      int64
 	ringGroundOff    int64 //min message offset inside the ring
 	ringCeilingOff   int64 //1 + max message offset inside the ring
-	ringFilledOffset int64 //every message which's offset inside range [ringGroundOff, ringFilledOffset) is in the ring
+	ringFilledOffset int64 //messages with offset inside range [ringGroundOff, ringFilledOffset) is a consecutive slice of ring, which should be ready to next stage
 	batchSizeShift   uint  //the shift of desired batch size
 	tid              goetty.Timeout
 	idleCnt          int
@@ -41,7 +41,7 @@ func (ring *Ring) QuitIdle() {
 		ring.isIdle = false
 		ring.ringBuf = make([]model.MsgRow, ring.ringCap)
 		util.Logger.Info(fmt.Sprintf("topic %s partition %d quit idle", ring.service.taskCfg.Topic, ring.partition), zap.String("task", ring.service.taskCfg.Name))
-		ring.scheduleForchBatchOrShard()
+		ring.scheduleForceBatchOrShard()
 	}
 }
 
@@ -67,6 +67,7 @@ func (ring *Ring) PutElem(msgRow model.MsgRow) {
 		ring.ringCeilingOff = msgOffset + 1
 	}
 
+	statistics.ParsedRingMsgs.WithLabelValues(ring.service.taskCfg.Name).Inc()
 	pMsgRow.Row = msgRow.Row
 	if ring.service.sharder != nil && msgRow.Row != &model.FakedRow {
 		if msgRow.Shard, err = ring.service.sharder.Calc(msgRow.Row); err != nil {
@@ -74,11 +75,13 @@ func (ring *Ring) PutElem(msgRow model.MsgRow) {
 		}
 		pMsgRow.Shard = msgRow.Shard
 	}
+	// the consecutive ring slice may grow because of the newly inserted row
 	for ; ring.ringFilledOffset < ring.ringCeilingOff && ring.ringBuf[ring.ringFilledOffset&(ring.ringCapMask)].Row != nil; ring.ringFilledOffset++ {
 	}
+	// generate a batch to send or flush the messages to shards when slice size reached the shifted batch size
 	if (ring.ringFilledOffset >> ring.batchSizeShift) != (ring.ringGroundOff >> ring.batchSizeShift) {
 		ring.genBatchOrShard()
-		ring.scheduleForchBatchOrShard()
+		ring.scheduleForceBatchOrShard()
 	}
 }
 
@@ -147,13 +150,13 @@ func (ring *Ring) ForceBatchOrShard(_ interface{}) {
 				return
 			}
 		}
-		ring.scheduleForchBatchOrShard()
+		ring.scheduleForceBatchOrShard()
 	}
 }
 
-// schedule ForchBatchOrShard
+// schedule ForceBatchOrShard
 // assume ring.mux is locked
-func (ring *Ring) scheduleForchBatchOrShard() {
+func (ring *Ring) scheduleForceBatchOrShard() {
 	var err error
 	ring.tid.Stop()
 	if ring.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(ring.service.taskCfg.FlushInterval)*time.Second, ring.ForceBatchOrShard, nil); err != nil {
@@ -216,6 +219,7 @@ func (ring *Ring) genBatchOrShard() {
 		}
 	}
 	statistics.RingMsgs.WithLabelValues(taskCfg.Name).Sub(float64(msgCnt))
+	statistics.ParsedRingMsgs.WithLabelValues(taskCfg.Name).Sub(float64(msgCnt))
 	ring.ringGroundOff = endOff
 	//util.Logger.Debug(fmt.Sprintf("genBatchOrShard changed ring %p ringGroundOff to %d", ring, ring.ringGroundOff))
 	if ring.ringFilledOffset < ring.ringGroundOff {

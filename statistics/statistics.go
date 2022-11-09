@@ -1,10 +1,11 @@
-/*Copyright [2019] housepower
+/*
+Copyright [2019] housepower
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-   http://www.apache.org/licenses/LICENSE-2.0
+	http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -109,6 +110,13 @@ var (
 		},
 		[]string{"task", "topic", "partition"},
 	)
+	ParsedRingMsgs = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: prefix + "parsed_ring_msgs",
+			Help: "num of parsed msgs in ring",
+		},
+		[]string{"task"},
+	)
 	RingMsgs = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: prefix + "ring_msgs",
@@ -159,6 +167,7 @@ func init() {
 	prometheus.MustRegister(FlushMsgsTotal)
 	prometheus.MustRegister(FlushMsgsErrorTotal)
 	prometheus.MustRegister(ConsumeOffsets)
+	prometheus.MustRegister(ParsedRingMsgs)
 	prometheus.MustRegister(RingMsgs)
 	prometheus.MustRegister(ShardMsgs)
 	prometheus.MustRegister(ParsingPoolBacklog)
@@ -255,6 +264,7 @@ func (p *Pusher) reconnect() {
 		Collector(FlushMsgsErrorTotal).
 		Collector(ConsumeOffsets).
 		Collector(RingMsgs).
+		Collector(ParsedRingMsgs).
 		Collector(ShardMsgs).
 		Collector(ParsingPoolBacklog).
 		Collector(WritingPoolBacklog).

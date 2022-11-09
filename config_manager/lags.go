@@ -69,6 +69,7 @@ func newClient(cfg *config.Config) (cl *kgo.Client, adm *kadm.Client, err error)
 	if opts, err = input.GetFranzConfig(&cfg.Kafka); err != nil {
 		return
 	}
+	// franz.config.go 379 - invalid autocommit options specified when a group was not specified
 	if cl, err = kgo.NewClient(opts...); err != nil {
 		err = errors.Wrapf(err, "")
 		return

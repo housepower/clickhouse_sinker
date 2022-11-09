@@ -18,6 +18,7 @@ package input
 import (
 	"context"
 	"crypto/tls"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -80,6 +81,7 @@ func (k *KafkaFranz) Init(cfg *config.Config, taskCfg *config.TaskConfig, putFn 
 	opts = append(opts,
 		kgo.ConsumeTopics(taskCfg.Topic),
 		kgo.ConsumerGroup(taskCfg.ConsumerGroup),
+		kgo.DisableAutoCommit(),
 		kgo.OnPartitionsRevoked(k.onPartitionRevoked))
 	if !taskCfg.Earliest {
 		opts = append(opts, kgo.ConsumeResetOffset(kgo.NewOffset().AtEnd()))
@@ -95,8 +97,6 @@ func (k *KafkaFranz) Init(cfg *config.Config, taskCfg *config.TaskConfig, putFn 
 func GetFranzConfig(kfkCfg *config.KafkaConfig) (opts []kgo.Opt, err error) {
 	opts = []kgo.Opt{
 		kgo.SeedBrokers(strings.Split(kfkCfg.Brokers, ",")...),
-		kgo.DisableAutoCommit(),
-		kgo.MaxConcurrentFetches(3),
 		kgo.FetchMaxBytes(1 << 27),      //134 MB
 		kgo.BrokerMaxReadBytes(1 << 27), //134 MB
 		//kgo.MetadataMaxAge(...) corresponds to sarama.Config.Metadata.RefreshFrequency
@@ -173,6 +173,7 @@ func (k *KafkaFranz) Run() {
 			err = errors.Wrapf(err, "")
 			util.Logger.Info("kgo.Client.PollFetchs() got an error", zap.Error(err))
 		}
+		util.Logger.Debug("Records fetched", zap.String("task", k.taskCfg.Name), zap.String("records", strconv.Itoa(fetches.NumRecords())))
 		fetches.EachRecord(func(rec *kgo.Record) {
 			msg := &model.InputMessage{
 				Topic:     rec.Topic,
