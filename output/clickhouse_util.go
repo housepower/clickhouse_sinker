@@ -37,9 +37,6 @@ func writeRows(prepareSQL string, rows model.Rows, idxBegin, idxEnd int, conn cl
 		err = errors.Wrapf(err, "clickhouse.Conn.PrepareBatch %s", prepareSQL)
 		return
 	}
-	defer func() {
-		_ = batch.Abort()
-	}()
 	var bmBad *roaring.Bitmap
 	for i, row := range rows {
 		if err = batch.Append((*row)[idxBegin:idxEnd]...); err != nil {
@@ -59,25 +56,23 @@ func writeRows(prepareSQL string, rows model.Rows, idxBegin, idxEnd int, conn cl
 			err = errors.Wrapf(err, "clickhouse.Conn.PrepareBatch %s", prepareSQL)
 			return
 		}
-		defer func() {
-			_ = batch.Abort()
-		}()
 		for i, row := range rows {
 			if !bmBad.ContainsInt(i) {
 				if err = batch.Append((*row)[idxBegin:idxEnd]...); err != nil {
-					err = errors.Wrapf(err, "stmt.Exec")
 					break
 				}
 			}
 		}
 		if err = batch.Send(); err != nil {
 			err = errors.Wrapf(err, "driver.Batch.Send")
+			batch.Abort()
 			return
 		}
 		return
 	}
 	if err = batch.Send(); err != nil {
 		err = errors.Wrapf(err, "driver.Batch.Send")
+		batch.Abort()
 		return
 	}
 	return
