@@ -153,6 +153,27 @@ var (
 		},
 		[]string{"task", "table"},
 	)
+	WriteSeriesDropQuota = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: prefix + "write_series_drop_quota",
+			Help: "num of disallowed write_series due to quota",
+		},
+		[]string{"task"},
+	)
+	WriteSeriesDropUnchanged = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: prefix + "write_series_drop_unchanged",
+			Help: "num of disallowed write_series due to unchanged",
+		},
+		[]string{"task"},
+	)
+	WriteSeriesAllowed = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: prefix + "write_series_allow",
+			Help: "num of allowed write_series",
+		},
+		[]string{"task"},
+	)
 )
 
 func init() {

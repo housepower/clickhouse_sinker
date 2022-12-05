@@ -122,6 +122,7 @@ func (c *ClickHouse) AllowWriteSeries(sid, mid int64) (allowed bool) {
 	c.mux.Lock()
 	defer c.mux.Unlock()
 	if c.wrSeries >= wrSeriesQuota {
+		statistics.WriteSeriesDropQuota.WithLabelValues(c.taskCfg.Name).Inc()
 		return
 	}
 	mid2, loaded := c.bmSeries[sid]
@@ -129,6 +130,9 @@ func (c *ClickHouse) AllowWriteSeries(sid, mid int64) (allowed bool) {
 		c.bmSeries[sid] = mid
 		c.wrSeries++
 		allowed = true
+		statistics.WriteSeriesAllowed.WithLabelValues(c.taskCfg.Name).Inc()
+	} else {
+		statistics.WriteSeriesDropUnchanged.WithLabelValues(c.taskCfg.Name).Inc()
 	}
 	return
 }
