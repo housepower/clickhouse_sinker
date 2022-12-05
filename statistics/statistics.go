@@ -174,6 +174,13 @@ var (
 		},
 		[]string{"task"},
 	)
+	WriteSeriesSucceed = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: prefix + "write_series_succeed",
+			Help: "num of series handled by writeSeries",
+		},
+		[]string{"task"},
+	)
 )
 
 func init() {
@@ -197,6 +204,7 @@ func init() {
 	prometheus.MustRegister(WriteSeriesDropQuota)
 	prometheus.MustRegister(WriteSeriesDropUnchanged)
 	prometheus.MustRegister(WriteSeriesAllowed)
+	prometheus.MustRegister(WriteSeriesSucceed)
 	prometheus.MustRegister(collectors.NewBuildInfoCollector())
 }
 

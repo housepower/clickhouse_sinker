@@ -151,9 +151,13 @@ func (c *ClickHouse) writeSeries(rows model.Rows, conn clickhouse.Conn) (err err
 		if numBad, err = writeRows(c.promSerSQL, seriesRows, c.IdxSerID, c.NumDims, conn); err != nil {
 			return
 		}
+		var curWrSeries int
 		c.mux.Lock()
 		c.wrSeries -= len(seriesRows)
+		curWrSeries = c.wrSeries
 		c.mux.Unlock()
+		util.Logger.Info("ClickHouse.writeSeries succeeded", zap.Int("series", len(seriesRows)), zap.Int("c.wrSeries", curWrSeries), zap.String("task", c.taskCfg.Name))
+		statistics.WriteSeriesSucceed.WithLabelValues(c.taskCfg.Name).Add(float64(len(seriesRows)))
 		if numBad != 0 {
 			statistics.ParseMsgsErrorTotal.WithLabelValues(c.taskCfg.Name).Add(float64(numBad))
 		}
