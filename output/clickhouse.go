@@ -85,6 +85,18 @@ func NewClickHouse(cfg *config.Config, taskCfg *config.TaskConfig) *ClickHouse {
 
 // Init the clickhouse intance
 func (c *ClickHouse) Init() (err error) {
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				c.mux.Lock()
+				c.wrSeries = 0
+				c.mux.Unlock()
+			}
+		}
+	}()
 	return c.initSchema()
 }
 
@@ -154,6 +166,9 @@ func (c *ClickHouse) writeSeries(rows model.Rows, conn clickhouse.Conn) (err err
 		var curWrSeries int
 		c.mux.Lock()
 		c.wrSeries -= len(seriesRows)
+		if c.wrSeries < 0 {
+			c.wrSeries = 0
+		}
 		curWrSeries = c.wrSeries
 		c.mux.Unlock()
 		util.Logger.Info("ClickHouse.writeSeries succeeded", zap.Int("series", len(seriesRows)), zap.Int("c.wrSeries", curWrSeries), zap.String("task", c.taskCfg.Name))
