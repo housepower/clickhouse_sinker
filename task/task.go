@@ -439,10 +439,10 @@ func (service *Service) metric2Row(metric model.Metric, msg *model.InputMessage)
 			val := model.GetValueByType(metric, dim)
 			*row = append(*row, val)
 		}
-		*row = append(*row, seriesID)
+		*row = append(*row, seriesID) // __series_id
 		newSeries := service.clickhouse.AllowWriteSeries(seriesID, mgmtID)
 		if newSeries {
-			*row = append(*row, mgmtID, nil)
+			*row = append(*row, mgmtID, nil) // __mgmt_id, labels
 			for i := service.idxSerID + 3; i < service.numDims; i++ {
 				dim := service.dims[i]
 				val := model.GetValueByType(metric, dim)
