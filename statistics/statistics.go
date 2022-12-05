@@ -194,6 +194,9 @@ func init() {
 	prometheus.MustRegister(ParsingPoolBacklog)
 	prometheus.MustRegister(WritingPoolBacklog)
 	prometheus.MustRegister(WritingDurations)
+	prometheus.MustRegister(WriteSeriesDropQuota)
+	prometheus.MustRegister(WriteSeriesDropUnchanged)
+	prometheus.MustRegister(WriteSeriesAllowed)
 	prometheus.MustRegister(collectors.NewBuildInfoCollector())
 }
 
