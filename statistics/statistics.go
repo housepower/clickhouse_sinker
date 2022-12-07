@@ -153,6 +153,20 @@ var (
 		},
 		[]string{"task", "table"},
 	)
+	WriteSeriesAllowNew = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: prefix + "write_series_allow_new",
+			Help: "num of allowed new series",
+		},
+		[]string{"task"},
+	)
+	WriteSeriesAllowChanged = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: prefix + "write_series_allow_changed",
+			Help: "num of allowed changed series",
+		},
+		[]string{"task"},
+	)
 	WriteSeriesDropQuota = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: prefix + "write_series_drop_quota",
@@ -167,13 +181,7 @@ var (
 		},
 		[]string{"task"},
 	)
-	WriteSeriesAllowed = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: prefix + "write_series_allow",
-			Help: "num of allowed write_series",
-		},
-		[]string{"task"},
-	)
+	// WriteSeriesSucceed = WriteSeriesAllowNew + WriteSeriesAllowChanged
 	WriteSeriesSucceed = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: prefix + "write_series_succeed",
@@ -201,9 +209,10 @@ func init() {
 	prometheus.MustRegister(ParsingPoolBacklog)
 	prometheus.MustRegister(WritingPoolBacklog)
 	prometheus.MustRegister(WritingDurations)
+	prometheus.MustRegister(WriteSeriesAllowNew)
+	prometheus.MustRegister(WriteSeriesAllowChanged)
 	prometheus.MustRegister(WriteSeriesDropQuota)
 	prometheus.MustRegister(WriteSeriesDropUnchanged)
-	prometheus.MustRegister(WriteSeriesAllowed)
 	prometheus.MustRegister(WriteSeriesSucceed)
 	prometheus.MustRegister(collectors.NewBuildInfoCollector())
 }

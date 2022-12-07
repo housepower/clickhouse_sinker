@@ -133,16 +133,18 @@ func (c *ClickHouse) Send(batch *model.Batch) {
 func (c *ClickHouse) AllowWriteSeries(sid, mid int64) (allowed bool) {
 	c.mux.Lock()
 	defer c.mux.Unlock()
-	if c.wrSeries >= wrSeriesQuota {
-		statistics.WriteSeriesDropQuota.WithLabelValues(c.taskCfg.Name).Inc()
-		return
-	}
 	mid2, loaded := c.bmSeries[sid]
-	if !loaded || mid != mid2 {
-		c.bmSeries[sid] = mid
-		c.wrSeries++
+	if !loaded {
 		allowed = true
-		statistics.WriteSeriesAllowed.WithLabelValues(c.taskCfg.Name).Inc()
+		statistics.WriteSeriesAllowNew.WithLabelValues(c.taskCfg.Name).Inc()
+	} else if mid != mid2 {
+		if c.wrSeries < wrSeriesQuota {
+			c.wrSeries++
+			allowed = true
+			statistics.WriteSeriesAllowChanged.WithLabelValues(c.taskCfg.Name).Inc()
+		} else {
+			statistics.WriteSeriesDropQuota.WithLabelValues(c.taskCfg.Name).Inc()
+		}
 	} else {
 		statistics.WriteSeriesDropUnchanged.WithLabelValues(c.taskCfg.Name).Inc()
 	}
@@ -163,15 +165,18 @@ func (c *ClickHouse) writeSeries(rows model.Rows, conn clickhouse.Conn) (err err
 		if numBad, err = writeRows(c.promSerSQL, seriesRows, c.IdxSerID, c.NumDims, conn); err != nil {
 			return
 		}
-		var curWrSeries int
+		// update c.bmSeries **after** writing series
 		c.mux.Lock()
-		c.wrSeries -= len(seriesRows)
-		if c.wrSeries < 0 {
-			c.wrSeries = 0
+		for _, row := range seriesRows {
+			sid := (*row)[c.IdxSerID].(int64)
+			mid := (*row)[c.IdxSerID+1].(int64)
+			if _, loaded := c.bmSeries[sid]; loaded {
+				c.wrSeries--
+			}
+			c.bmSeries[sid] = mid
 		}
-		curWrSeries = c.wrSeries
 		c.mux.Unlock()
-		util.Logger.Info("ClickHouse.writeSeries succeeded", zap.Int("series", len(seriesRows)), zap.Int("c.wrSeries", curWrSeries), zap.String("task", c.taskCfg.Name))
+		util.Logger.Info("ClickHouse.writeSeries succeeded", zap.Int("series", len(seriesRows)), zap.String("task", c.taskCfg.Name))
 		statistics.WriteSeriesSucceed.WithLabelValues(c.taskCfg.Name).Add(float64(len(seriesRows)))
 		if numBad != 0 {
 			statistics.ParseMsgsErrorTotal.WithLabelValues(c.taskCfg.Name).Add(float64(numBad))
