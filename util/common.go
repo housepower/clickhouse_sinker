@@ -165,17 +165,19 @@ func NewTLSConfig(caCertFiles, clientCertFile, clientKeyFile string, insecureSki
 		tlsConfig.Certificates = []tls.Certificate{cert}
 	}
 
-	// Load CA cert
-	caCertPool := x509.NewCertPool()
-	for _, caCertFile := range strings.Split(caCertFiles, ",") {
-		caCert, err := os.ReadFile(caCertFile)
-		if err != nil {
-			err = errors.Wrapf(err, "")
-			return &tlsConfig, err
+	// Load CA cert if it exists.  Not needed for OS trusted certs
+	if caCertFiles != "" {
+		caCertPool := x509.NewCertPool()
+		for _, caCertFile := range strings.Split(caCertFiles, ",") {
+			caCert, err := os.ReadFile(caCertFile)
+			if err != nil {
+				err = errors.Wrapf(err, "")
+				return &tlsConfig, err
+			}
+			caCertPool.AppendCertsFromPEM(caCert)
 		}
-		caCertPool.AppendCertsFromPEM(caCert)
+		tlsConfig.RootCAs = caCertPool
 	}
-	tlsConfig.RootCAs = caCertPool
 	tlsConfig.InsecureSkipVerify = insecureSkipVerify
 	return &tlsConfig, nil
 }
