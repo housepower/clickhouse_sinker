@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -39,9 +38,8 @@ import (
 )
 
 var (
-	ErrTblNotExist       = errors.Newf("table doesn't exist")
-	selectSQLTemplate    = `select name, type, default_kind from system.columns where database = '%s' and table = '%s'`
-	lowCardinalityRegexp = regexp.MustCompile(`LowCardinality\((.+)\)`)
+	ErrTblNotExist    = errors.Newf("table doesn't exist")
+	selectSQLTemplate = `select name, type, default_kind from system.columns where database = '%s' and table = '%s'`
 
 	// https://github.com/ClickHouse/ClickHouse/issues/24036
 	// src/Common/ErrorCodes.cpp
@@ -291,10 +289,10 @@ func (c *ClickHouse) initSeriesSchema(conn clickhouse.Conn) (err error) {
 	var dimSerID *model.ColumnWithType
 	for i := 0; i < len(c.Dims); {
 		dim := c.Dims[i]
-		if dim.Name == "__series_id" && dim.Type == model.Int64 {
+		if dim.Name == "__series_id" && dim.Type.Type == model.Int64 {
 			dimSerID = dim
 			c.Dims = append(c.Dims[:i], c.Dims[i+1:]...)
-		} else if dim.Type == model.String {
+		} else if dim.Type.Type == model.String {
 			c.Dims = append(c.Dims[:i], c.Dims[i+1:]...)
 		} else {
 			i++
@@ -310,9 +308,9 @@ func (c *ClickHouse) initSeriesSchema(conn clickhouse.Conn) (err error) {
 	// Add string columns from series table
 	c.seriesTbl = c.taskCfg.TableName + "_series"
 	expSeriesDims := []*model.ColumnWithType{
-		{Name: "__series_id", Type: model.Int64},
-		{Name: "__mgmt_id", Type: model.Int64},
-		{Name: "labels", Type: model.String},
+		{Name: "__series_id", Type: &model.TypeInfo{Type: model.Int64}},
+		{Name: "__mgmt_id", Type: &model.TypeInfo{Type: model.Int64}},
+		{Name: "labels", Type: &model.TypeInfo{Type: model.String}},
 	}
 	var seriesDims []*model.ColumnWithType
 	if seriesDims, err = getDims(c.cfg.Clickhouse.DB, c.seriesTbl, nil, c.taskCfg.Parser, conn); err != nil {
@@ -341,7 +339,7 @@ func (c *ClickHouse) initSeriesSchema(conn clickhouse.Conn) (err error) {
 	c.NameKey = "__name__" // prometheus uses internal "__name__" label for metric name
 	for i := len(expSeriesDims); i < len(seriesDims); i++ {
 		serDim := seriesDims[i]
-		if serDim.Type == model.String {
+		if serDim.Type.Type == model.String {
 			c.NameKey = serDim.Name // opentsdb uses "metric" tag for metric name
 			break
 		}
@@ -389,12 +387,9 @@ func (c *ClickHouse) initSchema() (err error) {
 	} else {
 		c.Dims = make([]*model.ColumnWithType, 0)
 		for _, dim := range c.taskCfg.Dims {
-			tp, nullable, array := model.WhichType(dim.Type)
 			c.Dims = append(c.Dims, &model.ColumnWithType{
 				Name:       dim.Name,
-				Type:       tp,
-				Nullable:   nullable,
-				Array:      array,
+				Type:       model.WhichType(dim.Type),
 				SourceName: dim.SourceName,
 			})
 		}

@@ -27,12 +27,12 @@ func NewShardingPolicy(shardingKey string, shardingStripe uint64, dims []*model.
 	colSeq := -1
 	for i, dim := range dims {
 		if dim.Name == shardingKey {
-			if dim.Nullable || dim.Array {
+			if dim.Type.Nullable || dim.Type.Array {
 				err = errors.Newf("invalid shardingKey %s, expect its type be numerical or string", shardingKey)
 				return
 			}
 			colSeq = i
-			switch dim.Type {
+			switch dim.Type.Type {
 			case model.Int8, model.Int16, model.Int32, model.Int64, model.UInt8, model.UInt16, model.UInt32, model.UInt64, model.Float32, model.Float64, model.Decimal, model.DateTime:
 				//numerical
 				if policy.stripe <= 0 {

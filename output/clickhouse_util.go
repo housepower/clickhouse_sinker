@@ -93,10 +93,8 @@ func getDims(database, table string, excludedColumns []string, parser string, co
 			err = errors.Wrapf(err, "")
 			return
 		}
-		typ = lowCardinalityRegexp.ReplaceAllString(typ, "$1")
 		if !util.StringContains(excludedColumns, name) && defaultKind != "MATERIALIZED" {
-			tp, nullable, array := model.WhichType(typ)
-			dims = append(dims, &model.ColumnWithType{Name: name, Type: tp, Nullable: nullable, Array: array, SourceName: util.GetSourceName(parser, name)})
+			dims = append(dims, &model.ColumnWithType{Name: name, Type: model.WhichType(typ), SourceName: util.GetSourceName(parser, name)})
 		}
 	}
 	if len(dims) == 0 {

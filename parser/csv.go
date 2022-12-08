@@ -241,10 +241,6 @@ func (c *CsvMetric) GetDateTime(key string, nullable bool) (val interface{}) {
 	return
 }
 
-func (c *CsvMetric) GetObject(key string, nullable bool) (val interface{}) {
-	return
-}
-
 // GetArray parse an CSV encoded array
 func (c *CsvMetric) GetArray(key string, typ int) (val interface{}) {
 	s := c.GetString(key, false)
@@ -331,6 +327,14 @@ func (c *CsvMetric) GetArray(key string, typ int) (val interface{}) {
 	default:
 		util.Logger.Fatal(fmt.Sprintf("LOGIC ERROR: unsupported array type %v", typ))
 	}
+	return
+}
+
+func (c *CsvMetric) GetObject(key string, nullable bool) (val interface{}) {
+	return
+}
+
+func (c *CsvMetric) GetMap(key string, typeinfo *model.TypeInfo) (val interface{}) {
 	return
 }
 

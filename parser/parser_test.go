@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -67,7 +68,15 @@ var jsonSample = []byte(`{
 	"array_str_date_2": ["13/07/2009","14/07/2009","15/07/2009"],
 	"array_str_time_rfc3339": ["2009-07-13T09:07:13Z", "2009-07-13T09:07:13+08:00", "2009-07-13T09:07:13.123Z", "2009-07-13T09:07:13.123+08:00"],
 	"array_str_time_clickhouse": ["2009-07-13 09:07:13", "2009-07-13 09:07:13.123"],
-	"array_obj": [{"i":[1,2,3],"f":[1.1,2.2,3.3]},{"s":["aa","bb","cc"],"e":[]}]
+	"array_obj": [{"i":[1,2,3],"f":[1.1,2.2,3.3]},{"s":["aa","bb","cc"],"e":[]}],
+	"map_str_str": {"i":"first", "j":"second"},
+	"map_str_uint": {"i":1, "j":2},
+	"map_str_int": {"i":-1, "j":-2},
+	"map_str_float": {"i":3.1415, "j":9.876},
+	"map_str_bool": {"i":true, "j":false},
+	"map_str_date": {"i":"2008-08-08", "j":"2022-01-01"},
+	"map_str_array": {"i":[1,2,3],"j":[4,5,6]},
+	"map_str_map": {"i":{"i":1, "j":2}, "j":{"i":3, "j":4}}
 }`)
 
 var jsonSchema = map[string]string{
@@ -102,6 +111,14 @@ var jsonSchema = map[string]string{
 	"array_str_time_rfc3339":    "DateTimeArray",
 	"array_str_time_clickhouse": "DateTimeArray",
 	"array_obj":                 "Object('json')Array",
+	"map_str_str":               "Object('json')",
+	"map_str_uint":              "Object('json')",
+	"map_str_int":               "Object('json')",
+	"map_str_float":             "Object('json')",
+	"map_str_bool":              "Object('json')",
+	"map_str_date":              "Object('json')",
+	"map_str_array":             "Object('json')",
+	"map_str_map":               "Object('json')",
 }
 
 var csvSample = []byte(`null,true,false,123,123.321,kube-state-metrics,"escaped_""ws",123,123.321,2009-07-13,13/07/2009,2009-07-13T09:07:13Z,2009-07-13T09:07:13.123+08:00,2009-07-13 09:07:13,2009-07-13 09:07:13.123,"{""i"":[1,2,3],""f"":[1.1,2.2,3.3],""s"":[""aa"",""bb"",""cc""],""e"":[]}",[],[null],"[true,false]","[0,255,256,65535,65536,4294967295,4294967296,18446744073709551615,18446744073709551616]","[-9223372036854775808,-2147483649,-2147483648,-32769,-32768,-129,-128,0,127,128,32767,32768,2147483647,2147483648,9223372036854775807]","[4.940656458412465441765687928682213723651e-324,1.401298464324817070923729583289916131280e-45,0.0,3.40282346638528859811704183484516925440e+38,1.797693134862315708145274237317043567981e+308]","[""aa"",""bb"",""cc""]","[""0"",""255"",""256"",""65535"",""65536"",""4294967295"",""4294967296"",""18446744073709551615"",""18446744073709551616""]","[""-9223372036854775808"",""-2147483649"",""-2147483648"",""-32769"",""-32768"",""-129"",""-128"",""0"",""127"",""128"",""32767"",""32768"",""2147483647"",""2147483648"",""9223372036854775807""]","[""4.940656458412465441765687928682213723651e-324"",""1.401298464324817070923729583289916131280e-45"",""0.0"",""3.40282346638528859811704183484516925440e+38"",""1.797693134862315708145274237317043567981e+308""]","[""2009-07-13"",""2009-07-14"",""2009-07-15""]","[""13/07/2009"",""14/07/2009"",""15/07/2009""]","[""2009-07-13T09:07:13Z"",""2009-07-13T09:07:13+08:00"",""2009-07-13T09:07:13.123Z"",""2009-07-13T09:07:13.123+08:00""]","[""2009-07-13 09:07:13"",""2009-07-13 09:07:13.123""]","[{""i"":[1,2,3],""f"":[1.1,2.2,3.3]},{""s"":[""aa"",""bb"",""cc""],""e"":[]}]"`)
@@ -169,6 +186,12 @@ type ArrayCase struct {
 	Field  string
 	Type   int
 	ExpVal interface{}
+}
+
+type MapCase struct {
+	field  string
+	typ    *model.TypeInfo
+	expVal interface{}
 }
 
 type DateTimeCase struct {
@@ -540,6 +563,90 @@ func TestParserArray(t *testing.T) {
 		if skipped != nil {
 			log.Printf("Skipped %d cases incompatible with fastjson parser: %v\n", len(skipped), strings.Join(skipped, ", "))
 		}
+	}
+}
+
+func TestParserMap(t *testing.T) {
+	initialize.Do(initMetrics)
+	require.Nil(t, errInit)
+
+	testCases := []MapCase{
+		{"map_str_str", &model.TypeInfo{Type: model.Map, MapKey: &model.TypeInfo{Type: model.String}, MapValue: &model.TypeInfo{Type: model.String}}, map[string]string{"i": "first", "j": "second"}},
+		{"map_str_uint", &model.TypeInfo{Type: model.Map, MapKey: &model.TypeInfo{Type: model.String}, MapValue: &model.TypeInfo{Type: model.UInt64}}, map[string]uint64{"i": 1, "j": 2}},
+		{"map_str_int", &model.TypeInfo{Type: model.Map, MapKey: &model.TypeInfo{Type: model.String}, MapValue: &model.TypeInfo{Type: model.Int64}}, map[string]int64{"i": -1, "j": -2}},
+		{"map_str_float", &model.TypeInfo{Type: model.Map, MapKey: &model.TypeInfo{Type: model.String}, MapValue: &model.TypeInfo{Type: model.Float64}}, map[string]float64{"i": 3.1415, "j": 9.876}},
+		{"map_str_bool", &model.TypeInfo{Type: model.Map, MapKey: &model.TypeInfo{Type: model.String}, MapValue: &model.TypeInfo{Type: model.Bool}}, map[string]bool{"i": true, "j": false}},
+		{"map_str_date", &model.TypeInfo{Type: model.Map, MapKey: &model.TypeInfo{Type: model.String}, MapValue: &model.TypeInfo{Type: model.DateTime}}, map[string]time.Time{"i": time.Date(2008, 8, 8, 0, 0, 0, 0, time.Local).UTC(), "j": time.Date(2022, 1, 1, 0, 0, 0, 0, time.Local).UTC()}},
+		{"map_str_array", &model.TypeInfo{Type: model.Map, MapKey: &model.TypeInfo{Type: model.String}, MapValue: &model.TypeInfo{Type: model.UInt64, Array: true}}, map[string][]uint64{"i": {1, 2, 3}, "j": {4, 5, 6}}},
+		{"map_str_map", &model.TypeInfo{Type: model.Map, MapKey: &model.TypeInfo{Type: model.String}, MapValue: &model.TypeInfo{Type: model.Map, MapKey: &model.TypeInfo{Type: model.String}, MapValue: &model.TypeInfo{Type: model.UInt64}}}, map[string]map[string]uint64{"i": {"i": 1, "j": 2}, "j": {"i": 3, "j": 4}}},
+	}
+	for _, name := range []string{"fastjson", "gjson"} {
+		metric := metrics[name]
+		for _, it := range testCases {
+			desc := fmt.Sprintf(`%s.GetMap("%s", %s)`, name, it.field, model.GetTypeName(it.typ.Type))
+
+			orderMap := metric.GetMap(it.field, it.typ)
+			compareMap(t, orderMap, it.expVal, desc)
+		}
+	}
+}
+
+func compareMap(t *testing.T, map1 interface{}, map2 interface{}, desc string) {
+	oMap, ok := map1.(*model.OrderedMap)
+	assert.True(t, ok, desc)
+	map1 = oMap.GetValues()
+
+	value1 := reflect.ValueOf(map1)
+	value2 := reflect.ValueOf(map2)
+	assert.Equal(t, value1.IsNil(), value2.IsNil())
+	assert.Equal(t, value1.Len(), value2.Len())
+
+	if value1.Kind() == reflect.Ptr {
+		value1 = value1.Elem()
+		value2 = value2.Elem()
+	}
+	assert.Equal(t, value1.Kind(), reflect.Map, fmt.Sprintf("ToMap only accepts struct or struct pointer; got %T", value1))
+	assert.Equal(t, value2.Kind(), reflect.Map, fmt.Sprintf("ToMap only accepts struct or struct pointer; got %T", value2))
+
+	// v1 - map[interface{}]interface{}, v2 could be any map type
+	var compareValueFunc func(v1, v2 reflect.Value) = func(v1, v2 reflect.Value) {
+		switch v2.Kind() {
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			assert.Equal(t, v1.Interface().(int64), v2.Int())
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+			assert.Equal(t, v1.Interface().(uint64), v2.Uint())
+		case reflect.String:
+			assert.Equal(t, v1.Interface().(string), v2.String())
+		case reflect.Bool:
+			assert.Equal(t, v1.Interface().(bool), v2.Bool())
+		case reflect.Float32, reflect.Float64:
+			assert.Equal(t, v1.Interface().(float64), v2.Float())
+		case reflect.Map:
+			compareMap(t, v1.Interface(), v2.Interface(), desc)
+		case reflect.Array:
+			fallthrough
+		case reflect.Slice:
+			if v2.Len() == 0 {
+				return
+			}
+			// didn't find a good way to convert interface{} to []Type
+			switch v2.Index(0).Kind() {
+			case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+				array1 := v1.Interface().([]uint64)
+				assert.Equal(t, len(array1), v2.Len())
+				for i := 0; i < v2.Len(); i++ {
+					assert.Equal(t, array1[i], v2.Index(i).Uint())
+				}
+			default:
+				assert.Fail(t, "uncovered array type comparison, update compareValueFunc accordingly")
+			}
+		default:
+			// Normal equality suffices
+			assert.Equal(t, v1.Interface(), v2.Interface())
+		}
+	}
+	for _, key := range value2.MapKeys() {
+		compareValueFunc(value1.MapIndex(key), value2.MapIndex(key))
 	}
 }
 
