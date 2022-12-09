@@ -21,4 +21,4 @@ systest: build
 lint:
 	golangci-lint run --timeout=3m
 run: pre
-	go run cmd/clickhouse_sinker/main.go --local-cfg-file docker/test_dynamic_schema.json
+	go run cmd/clickhouse_sinker/main.go --local-cfg-file docker/test_dynamic_schema.hjson

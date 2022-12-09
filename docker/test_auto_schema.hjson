@@ -2,34 +2,26 @@
   clickhouse: {
     hosts: [
       [
-        192.168.110.6
-        # 192.168.110.8
-      ]
-      [
-        192.168.110.10
-        192.168.110.12
-      ]
-      [
-        192.168.110.14
+        127.0.0.1
       ]
     ]
-    port: 19000
+    port: 9000
     db: default
     username: ""
-    password: 123456
+    password: ""
     retryTimes: 0
   }
   kafka: {
-    brokers: 192.168.110.12:9092, 192.168.110.8:9092, 192.168.110.16:9092
+    brokers: 127.0.0.1:9092
   }
   task: {
-    name: test_ck_query
-    topic: kafka_gen_ckdata22
-    consumerGroup: test_ck_query
+    name: test_auto_schema
+    topic: topic1
+    consumerGroup: test_auto_schema
     earliest: true
     parser: json
     autoSchema: true
-    tableName: test_ck_query_lowcardinality_r1
+    tableName: test_auto_schema
     excludeColumns: []
     bufferSize: 50000
   }

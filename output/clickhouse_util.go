@@ -65,14 +65,14 @@ func writeRows(prepareSQL string, rows model.Rows, idxBegin, idxEnd int, conn cl
 		}
 		if err = batch.Send(); err != nil {
 			err = errors.Wrapf(err, "driver.Batch.Send")
-			batch.Abort()
+			_ = batch.Abort()
 			return
 		}
 		return
 	}
 	if err = batch.Send(); err != nil {
 		err = errors.Wrapf(err, "driver.Batch.Send")
-		batch.Abort()
+		_ = batch.Abort()
 		return
 	}
 	return

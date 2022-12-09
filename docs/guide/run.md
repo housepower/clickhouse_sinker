@@ -10,7 +10,7 @@ Note: Ensure `clickhouse-server` and `kafka` work before running clickhouse_sink
 
 - For local file:
 
-  `clickhouse_sinker --local-cfg-file docker/test_auto_schema.json`
+  `clickhouse_sinker --local-cfg-file docker/test_auto_schema.hjson`
 
 - For Nacos:
 
@@ -71,7 +71,7 @@ Let's follow up a piece of the systest script.
 * Run clickhouse_sinker
 
   ```bash
-  $ ./clickhouse_sinker --local-cfg-file docker/test_auto_schema.json
+  $ ./clickhouse_sinker --local-cfg-file docker/test_auto_schema.hjson
   ```
 
 

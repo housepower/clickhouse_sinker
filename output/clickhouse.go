@@ -83,16 +83,14 @@ func NewClickHouse(cfg *config.Config, taskCfg *config.TaskConfig) *ClickHouse {
 
 // Init the clickhouse intance
 func (c *ClickHouse) Init() (err error) {
+	// FIXME: goroutine leak?
 	go func() {
 		ticker := time.NewTicker(10 * time.Second)
 		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				c.mux.Lock()
-				c.wrSeries = 0
-				c.mux.Unlock()
-			}
+		for range ticker.C {
+			c.mux.Lock()
+			c.wrSeries = 0
+			c.mux.Unlock()
 		}
 	}()
 	return c.initSchema()
