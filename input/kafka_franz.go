@@ -97,8 +97,9 @@ func (k *KafkaFranz) Init(cfg *config.Config, taskCfg *config.TaskConfig, putFn 
 func GetFranzConfig(kfkCfg *config.KafkaConfig) (opts []kgo.Opt, err error) {
 	opts = []kgo.Opt{
 		kgo.SeedBrokers(strings.Split(kfkCfg.Brokers, ",")...),
-		kgo.FetchMaxBytes(1 << 27),      //134 MB
-		kgo.BrokerMaxReadBytes(1 << 27), //134 MB
+		kgo.DisableAutoCommit(),
+		kgo.FetchMaxBytes(20971520), // 20 MB -- Larger numbers are likely to cause OOM.  Should be configurable
+		kgo.BrokerMaxReadBytes(20971520),
 		//kgo.MetadataMaxAge(...) corresponds to sarama.Config.Metadata.RefreshFrequency
 		kgo.WithLogger(kzap.New(util.Logger)),
 	}

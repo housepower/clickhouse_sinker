@@ -44,7 +44,7 @@ type KafkaConfig struct {
 	Security map[string]string
 	TLS      struct {
 		Enable         bool
-		CaCertFiles    string // Required. It's the CA cert.pem with which Kafka brokers certs be signed.
+		CaCertFiles    string // CA cert.pem with which Kafka brokers certs be signed.  Leave empty for certificates trusted by the OS
 		ClientCertFile string // Required for client authentication. It's client cert.pem.
 		ClientKeyFile  string // Required if and only if ClientCertFile is present. It's client key.pem.
 
@@ -97,9 +97,10 @@ type ClickHouseConfig struct {
 
 	RetryTimes   int //<=0 means retry infinitely
 	MaxOpenConns int
+	DialTimeout  int // Connection dial timeout in seconds
 }
 
-// Task configuration parameters
+// TaskConfig parameters
 type TaskConfig struct {
 	Name string
 
@@ -170,6 +171,7 @@ const (
 	defaultLogLevel           = "info"
 	defaultKerberosConfigPath = "/etc/krb5.conf"
 	defaultMaxOpenConns       = 1
+	defaultDialTimeout        = 2
 )
 
 func ParseLocalCfgFile(cfgPath string) (cfg *Config, err error) {
@@ -187,7 +189,7 @@ func ParseLocalCfgFile(cfgPath string) (cfg *Config, err error) {
 	return
 }
 
-// normallize and validate configuration
+// Normalize and validate configuration
 func (cfg *Config) Normallize() (err error) {
 	if len(cfg.Clickhouse.Hosts) == 0 || cfg.Kafka.Brokers == "" {
 		err = errors.Newf("invalid configuration")
@@ -228,6 +230,10 @@ func (cfg *Config) Normallize() (err error) {
 	}
 	if cfg.Clickhouse.MaxOpenConns <= 0 {
 		cfg.Clickhouse.MaxOpenConns = defaultMaxOpenConns
+	}
+
+	if cfg.Clickhouse.DialTimeout <= 0 {
+		cfg.Clickhouse.DialTimeout = defaultDialTimeout
 	}
 
 	if cfg.Task != nil {

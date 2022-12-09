@@ -104,7 +104,8 @@ func (sc *ShardConn) NextGoodReplica(failedVer int) (db clickhouse.Conn, dbVer i
 
 // Each shard has a clickhouse.Conn which connects to one replica inside the shard.
 // We need more control than replica single-point-failure.
-func InitClusterConn(hosts [][]string, port int, db, username, password, dsnParams string, secure, skipVerify bool, maxOpenConns int) (err error) {
+func InitClusterConn(hosts [][]string, port int, db, username, password, dsnParams string, secure, skipVerify bool,
+	maxOpenConns int, dialTimeout int) (err error) {
 	lock.Lock()
 	defer lock.Unlock()
 	freeClusterConn()
@@ -113,8 +114,11 @@ func InitClusterConn(hosts [][]string, port int, db, username, password, dsnPara
 		numReplicas := len(replicas)
 		replicaAddrs := make([]string, numReplicas)
 		for i, ip := range replicas {
-			if ips2, err := util.GetIP4Byname(ip); err == nil {
-				ip = ips2[0]
+			// Changing hostnames to IPs breaks TLS connections in many cases
+			if !secure {
+				if ips2, err := util.GetIP4Byname(ip); err == nil {
+					ip = ips2[0]
+				}
 			}
 			replicaAddrs[i] = fmt.Sprintf("%s:%d", ip, port)
 		}
@@ -126,8 +130,7 @@ func InitClusterConn(hosts [][]string, port int, db, username, password, dsnPara
 					Username: username,
 					Password: password,
 				},
-				//Debug:           true,
-				DialTimeout:     time.Second,
+				DialTimeout:     time.Second * time.Duration(dialTimeout),
 				MaxOpenConns:    maxOpenConns,
 				MaxIdleConns:    1,
 				ConnMaxLifetime: time.Hour,
