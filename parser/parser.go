@@ -34,6 +34,8 @@ const (
 	protoName    = "proto"
 
 	zeroUUID = "00000000-0000-0000-0000-000000000000"
+	zeroIPv4 = "0.0.0.0"
+	zeroIPv6 = "0:0:0:0:0:0:0:0"
 )
 
 var (

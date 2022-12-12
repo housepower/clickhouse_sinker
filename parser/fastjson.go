@@ -56,45 +56,11 @@ type FastjsonMetric struct {
 }
 
 func (c *FastjsonMetric) GetString(key string, nullable bool) (val interface{}) {
-	v := c.value.Get(key)
-	if v == nil || v.Type() == fastjson.TypeNull {
-		if nullable {
-			return
-		}
-		val = ""
-		return
-	}
-	switch v.Type() {
-	case fastjson.TypeString:
-		b, _ := v.StringBytes()
-		val = string(b)
-	default:
-		val = v.String()
-	}
-	return
+	return c.stringOrDefault(key, nullable, "")
 }
 
 func (c *FastjsonMetric) GetUUID(key string, nullable bool) interface{} {
-	v := c.value.Get(key)
-	if v == nil || v.Type() == fastjson.TypeNull {
-		if nullable {
-			return nil
-		}
-		return zeroUUID
-	}
-
-	var val string
-	if v.Type() == fastjson.TypeString {
-		b, _ := v.StringBytes()
-		val = string(b)
-	} else {
-		val = v.String()
-	}
-
-	if val != "" {
-		return val
-	}
-	return zeroUUID
+	return c.stringOrDefault(key, nullable, zeroUUID)
 }
 
 func (c *FastjsonMetric) GetBool(key string, nullable bool) (val interface{}) {
@@ -159,6 +125,37 @@ func (c *FastjsonMetric) GetFloat32(key string, nullable bool) (val interface{})
 
 func (c *FastjsonMetric) GetFloat64(key string, nullable bool) (val interface{}) {
 	return FastjsonGetFloat[float64](c, key, nullable, math.MaxFloat64)
+}
+
+func (c *FastjsonMetric) GetIPv4(key string, nullable bool) interface{} {
+	return c.stringOrDefault(key, nullable, zeroIPv4)
+}
+
+func (c *FastjsonMetric) GetIPv6(key string, nullable bool) interface{} {
+	return c.stringOrDefault(key, nullable, zeroIPv6)
+}
+
+func (c *FastjsonMetric) stringOrDefault(key string, nullable bool, defaultValue string) interface{} {
+	v := c.value.Get(key)
+	if v == nil || v.Type() == fastjson.TypeNull {
+		if nullable {
+			return nil
+		}
+		return defaultValue
+	}
+
+	var val string
+	if v.Type() == fastjson.TypeString {
+		b, _ := v.StringBytes()
+		val = string(b)
+	} else {
+		val = v.String()
+	}
+
+	if val != "" {
+		return val
+	}
+	return defaultValue
 }
 
 func FastjsonGetInt[T constraints.Signed](c *FastjsonMetric, key string, nullable bool, min, max int64) (val interface{}) {
@@ -264,7 +261,7 @@ func (c *FastjsonMetric) GetArray(key string, typ int) (val interface{}) {
 	case model.Bool:
 		arr := make([]bool, 0)
 		for _, e := range array {
-			v := (e != nil && e.Type() == fastjson.TypeTrue)
+			v := e != nil && e.Type() == fastjson.TypeTrue
 			arr = append(arr, v)
 		}
 		val = arr

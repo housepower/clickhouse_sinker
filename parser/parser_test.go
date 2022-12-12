@@ -21,53 +21,22 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/confluentinc/confluent-kafka-go/schemaregistry"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 	"github.com/valyala/fastjson"
+
 	"github.com/viru-tech/clickhouse_sinker/model"
 	"github.com/viru-tech/clickhouse_sinker/util"
 )
-
-// https://golang.org/pkg/math/, Mathematical constants
-var jsonSample = []byte(`{
-	"null": null,
-	"bool_true": true,
-	"bool_false": false,
-	"num_int": 123,
-	"num_float": 123.321,
-	"str": "escaped_\"ws",
-	"str_int": "123",
-	"str_float": "123.321",
-	"str_date_1": "2009-07-13",
-	"str_date_2": "13/07/2009",
-	"str_time_rfc3339_1": "2009-07-13T09:07:13Z",
-	"str_time_rfc3339_2": "2009-07-13T09:07:13.123+08:00",
-	"str_time_clickhouse_1": "2009-07-13 09:07:13",
-	"str_time_clickhouse_2": "2009-07-13 09:07:13.123",
-	"obj": {"i":[1,2,3],"f":[1.1,2.2,3.3],"s":["aa","bb","cc"],"e":[]},
-	"array_empty": [],
-	"array_null": [null],
-	"array_bool": [true,false],
-	"array_num_int_1": [0, 255, 256, 65535, 65536, 4294967295, 4294967296, 18446744073709551615, 18446744073709551616],
-	"array_num_int_2": [-9223372036854775808, -2147483649, -2147483648, -32769, -32768, -129, -128, 0, 127, 128, 32767, 32768, 2147483647, 2147483648, 9223372036854775807],
-	"array_num_float": [4.940656458412465441765687928682213723651e-324, 1.401298464324817070923729583289916131280e-45, 0.0, 3.40282346638528859811704183484516925440e+38, 1.797693134862315708145274237317043567981e+308, -inf, +inf],
-	"array_str": ["aa","bb","cc"],
-	"array_str_int_1": ["0", "255", "256", "65535", "65536", "4294967295", "4294967296", "18446744073709551615", "18446744073709551616"],
-	"array_str_int_2": ["-9223372036854775808", "-2147483649", "-2147483648", "-32769", "-32768", "-129", "-128", "0", "127", "128", "32767", "32768", "2147483647", "2147483648", "9223372036854775807"],
-	"array_str_float": ["4.940656458412465441765687928682213723651e-324", "1.401298464324817070923729583289916131280e-45", "0.0", "3.40282346638528859811704183484516925440e+38", "1.797693134862315708145274237317043567981e+308", "-inf", "+inf"],
-	"array_str_date_1": ["2009-07-13","2009-07-14","2009-07-15"],
-	"array_str_date_2": ["13/07/2009","14/07/2009","15/07/2009"],
-	"array_str_time_rfc3339": ["2009-07-13T09:07:13Z", "2009-07-13T09:07:13+08:00", "2009-07-13T09:07:13.123Z", "2009-07-13T09:07:13.123+08:00"],
-	"array_str_time_clickhouse": ["2009-07-13 09:07:13", "2009-07-13 09:07:13.123"],
-	"array_obj": [{"i":[1,2,3],"f":[1.1,2.2,3.3]},{"s":["aa","bb","cc"],"e":[]}]
-}`)
 
 var jsonSchema = map[string]string{
 	"null":                      "Unknown",
@@ -100,9 +69,10 @@ var jsonSchema = map[string]string{
 	"array_str_time_rfc3339":    "DateTimeArray",
 	"array_str_time_clickhouse": "DateTimeArray",
 	"array_obj":                 "Unknown",
+	"uuid":                      "String",
+	"ipv4":                      "String",
+	"ipv6":                      "String",
 }
-
-var csvSample = []byte(`null,true,false,123,123.321,"escaped_""ws",123,123.321,2009-07-13,13/07/2009,2009-07-13T09:07:13Z,2009-07-13T09:07:13.123+08:00,2009-07-13 09:07:13,2009-07-13 09:07:13.123,"{""i"":[1,2,3],""f"":[1.1,2.2,3.3],""s"":[""aa"",""bb"",""cc""],""e"":[]}",[],[null],"[true,false]","[0,255,256,65535,65536,4294967295,4294967296,18446744073709551615,18446744073709551616]","[-9223372036854775808,-2147483649,-2147483648,-32769,-32768,-129,-128,0,127,128,32767,32768,2147483647,2147483648,9223372036854775807]","[4.940656458412465441765687928682213723651e-324,1.401298464324817070923729583289916131280e-45,0.0,3.40282346638528859811704183484516925440e+38,1.797693134862315708145274237317043567981e+308]","[""aa"",""bb"",""cc""]","[""0"",""255"",""256"",""65535"",""65536"",""4294967295"",""4294967296"",""18446744073709551615"",""18446744073709551616""]","[""-9223372036854775808"",""-2147483649"",""-2147483648"",""-32769"",""-32768"",""-129"",""-128"",""0"",""127"",""128"",""32767"",""32768"",""2147483647"",""2147483648"",""9223372036854775807""]","[""4.940656458412465441765687928682213723651e-324"",""1.401298464324817070923729583289916131280e-45"",""0.0"",""3.40282346638528859811704183484516925440e+38"",""1.797693134862315708145274237317043567981e+308""]","[""2009-07-13"",""2009-07-14"",""2009-07-15""]","[""13/07/2009"",""14/07/2009"",""15/07/2009""]","[""2009-07-13T09:07:13Z"",""2009-07-13T09:07:13+08:00"",""2009-07-13T09:07:13.123Z"",""2009-07-13T09:07:13.123+08:00""]","[""2009-07-13 09:07:13"",""2009-07-13 09:07:13.123""]","[{""i"":[1,2,3],""f"":[1.1,2.2,3.3]},{""s"":[""aa"",""bb"",""cc""],""e"":[]}]"`)
 
 var csvSchema = []string{
 	"null",
@@ -135,6 +105,9 @@ var csvSchema = []string{
 	"array_str_time_rfc3339",
 	"array_str_time_clickhouse",
 	"array_obj",
+	"uuid",
+	"ipv4",
+	"ipv6",
 }
 
 var (
@@ -149,12 +122,15 @@ var (
 	bdLocalSec    = bdLocalNsOrig.Truncate(1 * time.Second).UTC()
 	bdLocalDate   = time.Date(2009, 7, 13, 0, 0, 0, 0, time.Local).UTC()
 	timeUnit      = float64(0.000001)
+
+	jsonSample []byte
+	csvSample  []byte
 )
 
-var initialize sync.Once
-var errInit error
-var names = []string{fastJsonName, gjsonName, csvName}
-var metrics map[string]model.Metric
+var (
+	names   = []string{fastJsonName, gjsonName, csvName}
+	metrics = make(map[string]model.Metric)
+)
 
 type SimpleCase struct {
 	Field    string
@@ -173,13 +149,46 @@ type DateTimeCase struct {
 	ExpVal time.Time
 }
 
-func initMetrics() {
-	var pp *Pool
-	var parser Parser
-	var metric model.Metric
-	var sample []byte
-	metrics = make(map[string]model.Metric)
+func TestMain(m *testing.M) {
+	_, currFile, _, ok := runtime.Caller(0)
+	if !ok {
+		log.Fatal("failed to get current file location")
+	}
+	testDataPath := filepath.Join(currFile, "..", "testdata")
+
+	data, err := os.ReadFile(filepath.Join(testDataPath, "test.proto"))
+	if err != nil {
+		log.Fatalf("failed to read .proto file: %v", err)
+	}
+	jsonSample, err = os.ReadFile(filepath.Join(testDataPath, "test.json"))
+	if err != nil {
+		log.Fatalf("failed to read .json file: %v", err)
+	}
+	csvSample, err = os.ReadFile(filepath.Join(testDataPath, "test.csv"))
+	if err != nil {
+		log.Fatalf("failed to read .csv file: %v", err)
+	}
+
+	schemaInfo = schemaregistry.SchemaInfo{
+		Schema:     string(data),
+		SchemaType: "PROTOBUF",
+		References: []schemaregistry.Reference{},
+	}
+
+	if err := initMetrics(); err != nil {
+		log.Fatalf("failed to init metrics: %v", err)
+	}
+
+	os.Exit(m.Run())
+}
+
+func initMetrics() error {
 	for _, name := range names {
+		var (
+			pp     *Pool
+			sample []byte
+		)
+
 		switch name {
 		case csvName:
 			pp, _ = NewParserPool(csvName, csvSchema, ",", "", timeUnit, "", nil)
@@ -191,14 +200,16 @@ func initMetrics() {
 			pp, _ = NewParserPool(gjsonName, nil, "", "", timeUnit, "", nil)
 			sample = jsonSample
 		}
-		parser = pp.Get()
-		if metric, errInit = parser.Parse(sample); errInit != nil {
-			msg := fmt.Sprintf("parser.Parse failed: %+v\n", errInit)
-			panic(msg)
+
+		metric, err := pp.Get().Parse(sample)
+		if err != nil {
+			return fmt.Errorf("failed to parse %s metrics: %w", name, err)
 		}
+
 		metrics[name] = metric
 	}
 	util.InitLogger([]string{"stdout"})
+	return nil
 }
 
 func sliceContains(list []string, target string) bool {
@@ -216,60 +227,70 @@ func testCaseDescription(parserName, method, field string, nullable bool) string
 
 func doTestSimple(t *testing.T, method string, testCases []SimpleCase) {
 	t.Helper()
-	initialize.Do(initMetrics)
-	require.Nil(t, errInit)
+
 	for i := range names {
 		name := names[i]
 		metric := metrics[name]
-		doTestSimpleForParser(t, name, method, testCases, metric)
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			doTestSimpleForParser(t, name, method, testCases, metric)
+		})
 	}
 }
 
-func doTestSimpleForParser(t *testing.T, parserName, method string, testCases []SimpleCase, metric model.Metric) {
-	var skipped []string
-	for j := range testCases {
-		var v interface{}
-		desc := testCaseDescription(parserName, method, testCases[j].Field, testCases[j].Nullable)
-		if parserName == "csv" && (sliceContains([]string{"GetBool", "GetInt64", "GetFloat64", "GetDateTime"}, method) && sliceContains([]string{"str_int", "str_float"}, testCases[j].Field) || testCases[j].Nullable) {
-			skipped = append(skipped, desc)
-			continue
-		}
-		switch method {
-		case "GetBool":
-			v = metric.GetBool(testCases[j].Field, testCases[j].Nullable)
-		case "GetInt8":
-			v = metric.GetInt8(testCases[j].Field, testCases[j].Nullable)
-		case "GetInt16":
-			v = metric.GetInt16(testCases[j].Field, testCases[j].Nullable)
-		case "GetInt32":
-			v = metric.GetInt32(testCases[j].Field, testCases[j].Nullable)
-		case "GetInt64":
-			v = metric.GetInt64(testCases[j].Field, testCases[j].Nullable)
-		case "GetUint8":
-			v = metric.GetUint8(testCases[j].Field, testCases[j].Nullable)
-		case "GetUint16":
-			v = metric.GetUint16(testCases[j].Field, testCases[j].Nullable)
-		case "GetUint32":
-			v = metric.GetUint32(testCases[j].Field, testCases[j].Nullable)
-		case "GetUint64":
-			v = metric.GetUint64(testCases[j].Field, testCases[j].Nullable)
-		case "GetFloat32":
-			v = metric.GetFloat32(testCases[j].Field, testCases[j].Nullable)
-		case "GetFloat64":
-			v = metric.GetFloat64(testCases[j].Field, testCases[j].Nullable)
-		case "GetDecimal":
-			v = metric.GetDecimal(testCases[j].Field, testCases[j].Nullable)
-		case "GetDateTime":
-			v = metric.GetDateTime(testCases[j].Field, testCases[j].Nullable)
-		case "GetString":
-			v = metric.GetString(testCases[j].Field, testCases[j].Nullable)
-		default:
-			panic("error!")
-		}
-		require.Equal(t, testCases[j].ExpVal, v, desc)
-	}
-	if skipped != nil {
-		log.Printf("Skipped %d cases incompatible with fastjson parser: %v\n", len(skipped), strings.Join(skipped, ", "))
+func doTestSimpleForParser(t *testing.T, parserName, method string, tt []SimpleCase, metric model.Metric) {
+	for i := range tt {
+		tc := tt[i]
+		t.Run(tc.Field, func(t *testing.T) {
+			t.Parallel()
+
+			desc := testCaseDescription(parserName, method, tc.Field, tc.Nullable)
+			if parserName == "csv" && (sliceContains([]string{"GetBool", "GetInt64", "GetFloat64", "GetDateTime"}, method) && sliceContains([]string{"str_int", "str_float"}, tc.Field) || tc.Nullable) {
+				t.Skipf("incompatible with %s parser: %v", parserName, desc)
+			}
+
+			var v interface{}
+			switch method {
+			case "GetBool":
+				v = metric.GetBool(tc.Field, tc.Nullable)
+			case "GetInt8":
+				v = metric.GetInt8(tc.Field, tc.Nullable)
+			case "GetInt16":
+				v = metric.GetInt16(tc.Field, tc.Nullable)
+			case "GetInt32":
+				v = metric.GetInt32(tc.Field, tc.Nullable)
+			case "GetInt64":
+				v = metric.GetInt64(tc.Field, tc.Nullable)
+			case "GetUint8":
+				v = metric.GetUint8(tc.Field, tc.Nullable)
+			case "GetUint16":
+				v = metric.GetUint16(tc.Field, tc.Nullable)
+			case "GetUint32":
+				v = metric.GetUint32(tc.Field, tc.Nullable)
+			case "GetUint64":
+				v = metric.GetUint64(tc.Field, tc.Nullable)
+			case "GetFloat32":
+				v = metric.GetFloat32(tc.Field, tc.Nullable)
+			case "GetFloat64":
+				v = metric.GetFloat64(tc.Field, tc.Nullable)
+			case "GetDecimal":
+				v = metric.GetDecimal(tc.Field, tc.Nullable)
+			case "GetDateTime":
+				v = metric.GetDateTime(tc.Field, tc.Nullable)
+			case "GetString":
+				v = metric.GetString(tc.Field, tc.Nullable)
+			case "GetUUID":
+				v = metric.GetUUID(tc.Field, tc.Nullable)
+			case "GetIPv4":
+				v = metric.GetIPv4(tc.Field, tc.Nullable)
+			case "GetIPv6":
+				v = metric.GetIPv6(tc.Field, tc.Nullable)
+			default:
+				t.Fatal("unknown method")
+			}
+			require.Equal(t, tc.ExpVal, v, desc)
+		})
 	}
 }
 
@@ -447,11 +468,59 @@ func TestParserDateTime(t *testing.T) {
 	doTestSimple(t, "GetDateTime", testCases)
 }
 
-func TestParserArray(t *testing.T) {
-	initialize.Do(initMetrics)
-	require.Nil(t, errInit)
+func TestParserGetUUID(t *testing.T) {
+	t.Parallel()
 
-	testCases := []ArrayCase{
+	testCases := []SimpleCase{
+		// nullable: false
+		{"not_exist", false, zeroUUID},
+		{"uuid", false, "2211a6ec-3799-41c1-ac41-4ab02f8e3cf2"},
+		{"array_empty", false, "[]"},
+		// nullable: true
+		{"not_exist", true, nil},
+		{"uuid", true, "2211a6ec-3799-41c1-ac41-4ab02f8e3cf2"},
+		{"array_empty", true, "[]"},
+	}
+
+	doTestSimple(t, "GetUUID", testCases)
+}
+
+func TestParserGetIPv4(t *testing.T) {
+	t.Parallel()
+
+	testCases := []SimpleCase{
+		// nullable: false
+		{"not_exist", false, zeroIPv4},
+		{"ipv4", false, "1.2.3.4"},
+		{"array_empty", false, "[]"},
+		// nullable: true
+		{"not_exist", true, nil},
+		{"ipv4", true, "1.2.3.4"},
+		{"array_empty", true, "[]"},
+	}
+
+	doTestSimple(t, "GetIPv4", testCases)
+}
+
+func TestParserGetIPv6(t *testing.T) {
+	t.Parallel()
+
+	testCases := []SimpleCase{
+		// nullable: false
+		{"not_exist", false, zeroIPv6},
+		{"ipv6", false, "fe80::74e6:b5f3:fe92:830e"},
+		{"array_empty", false, "[]"},
+		// nullable: true
+		{"not_exist", true, nil},
+		{"ipv6", true, "fe80::74e6:b5f3:fe92:830e"},
+		{"array_empty", true, "[]"},
+	}
+
+	doTestSimple(t, "GetIPv6", testCases)
+}
+
+func TestParserArray(t *testing.T) {
+	tt := []ArrayCase{
 		{"not_exist", model.Float64, []float64{}},
 		{"null", model.Float64, []float64{}},
 		{"num_int", model.Int64, []int64{}},
@@ -530,21 +599,25 @@ func TestParserArray(t *testing.T) {
 	for i := range names {
 		name := names[i]
 		metric := metrics[name]
-		var skipped []string
-		for j := range testCases {
-			var v interface{}
-			desc := fmt.Sprintf(`%s.GetArray("%s", %s)`, name, testCases[j].Field, model.GetTypeName(testCases[j].Type))
-			if (name == gjsonName && testCases[j].Field == "array_num_float") ||
-				(name == csvName && sliceContains([]string{"array_num_float", "array_str_float"}, testCases[j].Field)) {
-				skipped = append(skipped, desc)
-				continue
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			for i := range tt {
+				tc := tt[i]
+				t.Run(tc.Field, func(t *testing.T) {
+					t.Parallel()
+
+					var v interface{}
+					desc := fmt.Sprintf(`%s.GetArray("%s", %s)`, name, tc.Field, model.GetTypeName(tc.Type))
+					if (name == gjsonName && tc.Field == "array_num_float") ||
+						(name == csvName && sliceContains([]string{"array_num_float", "array_str_float"}, tc.Field)) {
+						t.Skipf("incompatible with fastjson parser: %v", desc)
+					}
+					v = metric.GetArray(tc.Field, tc.Type)
+					require.Equal(t, tc.ExpVal, v, desc)
+				})
 			}
-			v = metric.GetArray(testCases[j].Field, testCases[j].Type)
-			assert.Equal(t, testCases[j].ExpVal, v, desc)
-		}
-		if skipped != nil {
-			log.Printf("Skipped %d cases incompatible with fastjson parser: %v\n", len(skipped), strings.Join(skipped, ", "))
-		}
+		})
 	}
 }
 
@@ -568,7 +641,7 @@ func TestParseDateTime(t *testing.T) {
 		bdLocalDate = time.Date(2009, 7, 13, 0, 0, 0, 0, time.Local).UTC()
 
 		testCases := []DateTimeCase{
-			//DateTime, RFC3339
+			// DateTime, RFC3339
 			{"2009-07-13T09:07:13.123+08:00", bdShNs},
 			{"2009-07-13T09:07:13.123+0800", bdShNs},
 			{"2009-07-13T09:07:13+08:00", bdShSec},
@@ -577,7 +650,7 @@ func TestParseDateTime(t *testing.T) {
 			{"2009-07-13T09:07:13Z", bdUtcSec},
 			{"2009-07-13T09:07:13.123", bdLocalNs},
 			{"2009-07-13T09:07:13", bdLocalSec},
-			//DateTime, ISO8601
+			// DateTime, ISO8601
 			{"2009-07-13 09:07:13.123+08:00", bdShNs},
 			{"2009-07-13 09:07:13.123+0800", bdShNs},
 			{"2009-07-13 09:07:13+08:00", bdShSec},
@@ -586,7 +659,7 @@ func TestParseDateTime(t *testing.T) {
 			{"2009-07-13 09:07:13Z", bdUtcSec},
 			{"2009-07-13 09:07:13.123", bdLocalNs},
 			{"2009-07-13 09:07:13", bdLocalSec},
-			//DateTime, other layouts supported by golang
+			// DateTime, other layouts supported by golang
 			{"Mon Jul 13 09:07:13 2009", bdLocalSec},
 			{"Mon Jul 13 09:07:13 CST 2009", bdShSec},
 			{"Mon Jul 13 09:07:13 +0800 2009", bdShSec},
@@ -595,10 +668,10 @@ func TestParseDateTime(t *testing.T) {
 			{"Monday, 13-Jul-09 09:07:13 CST", bdShSec},
 			{"Mon, 13 Jul 2009 09:07:13 CST", bdShSec},
 			{"Mon, 13 Jul 2009 09:07:13 +0800", bdShSec},
-			//DateTime, linux utils
+			// DateTime, linux utils
 			{"Mon 13 Jul 2009 09:07:13 AM CST", bdShSec},
 			{"Mon Jul 13 09:07:13 CST 2009", bdShSec},
-			//DateTime, home-brewed
+			// DateTime, home-brewed
 			{"Jul 13, 2009 09:07:13.123+08:00", bdShNs},
 			{"Jul 13, 2009 09:07:13.123+0800", bdShNs},
 			{"Jul 13, 2009 09:07:13+08:00", bdShSec},
@@ -615,7 +688,7 @@ func TestParseDateTime(t *testing.T) {
 			{"13/Jul/2009 09:07:13 Z", bdUtcSec},
 			{"13/Jul/2009 09:07:13.123", bdLocalNs},
 			{"13/Jul/2009 09:07:13", bdLocalSec},
-			//Date
+			// Date
 			{"2009-07-13", bdLocalDate},
 			{"13/07/2009", bdLocalDate},
 			{"13/Jul/2009", bdLocalDate},

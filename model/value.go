@@ -39,6 +39,8 @@ const (
 	DateTime
 	String
 	UUID
+	IPv4
+	IPv6
 )
 
 type TypeInfo struct {
@@ -47,9 +49,7 @@ type TypeInfo struct {
 	Array    bool
 }
 
-var (
-	typeInfo map[string]TypeInfo
-)
+var typeInfo map[string]TypeInfo
 
 // GetTypeName returns the column type in ClickHouse
 func GetTypeName(typ int) (name string) {
@@ -84,6 +84,10 @@ func GetTypeName(typ int) (name string) {
 		name = "String"
 	case UUID:
 		name = "UUID"
+	case IPv4:
+		name = "IPv4"
+	case IPv6:
+		name = "IPv6"
 	default:
 		name = "Unknown"
 	}
@@ -130,6 +134,10 @@ func GetValueByType(metric Metric, cwt *ColumnWithType) interface{} {
 		return metric.GetString(name, cwt.Nullable)
 	case UUID:
 		return metric.GetUUID(name, cwt.Nullable)
+	case IPv4:
+		return metric.GetIPv4(name, cwt.Nullable)
+	case IPv6:
+		return metric.GetIPv6(name, cwt.Nullable)
 	}
 
 	util.Logger.Fatal("LOGIC ERROR: reached switch default condition")
@@ -184,6 +192,8 @@ func init() {
 		DateTime,
 		String,
 		UUID,
+		IPv4,
+		IPv6,
 	} {
 		tn := GetTypeName(t)
 		typeInfo[tn] = TypeInfo{Type: t}

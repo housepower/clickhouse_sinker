@@ -164,6 +164,36 @@ func (m *ProtoMetric) GetUUID(key string, nullable bool) interface{} {
 	return zeroUUID
 }
 
+func (m *ProtoMetric) GetIPv4(key string, nullable bool) interface{} {
+	value, _ := m.msg.TryGetFieldByName(key)
+	if value == nil {
+		if nullable {
+			return nil
+		}
+		return zeroIPv4
+	}
+
+	if v := getString(reflect.ValueOf(value)); v != "" {
+		return v
+	}
+	return zeroIPv4
+}
+
+func (m *ProtoMetric) GetIPv6(key string, nullable bool) interface{} {
+	value, _ := m.msg.TryGetFieldByName(key)
+	if value == nil {
+		if nullable {
+			return nil
+		}
+		return zeroIPv6
+	}
+
+	if v := getString(reflect.ValueOf(value)); v != "" {
+		return v
+	}
+	return zeroIPv6
+}
+
 func (m *ProtoMetric) GetArray(key string, t int) interface{} {
 	value, _ := m.msg.TryGetFieldByName(key)
 	if value == nil {

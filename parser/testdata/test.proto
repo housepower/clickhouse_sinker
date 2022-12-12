@@ -52,6 +52,18 @@ message Test {
   repeated string array_str = 22;
 
   repeated google.protobuf.Timestamp array_timestamp = 23;
+
+  string uuid = 24;
+
+  repeated string array_uuid = 25;
+
+  string ipv4 = 26;
+
+  repeated string array_ipv4 = 27;
+
+  string ipv6 = 28;
+
+  repeated string array_ipv6 = 29;
 }
 
 message NestedTest {
