@@ -1,36 +1,36 @@
 {
-  clickhouse: {
-    cluster: ""
-    hosts: [
-      [
-        127.0.0.1
-      ]
-    ]
-    port: 9000
-    db: default
-    username: ""
-    password: ""
-    retryTimes: 0
-  }
-  kafka: {
-    brokers: 127.0.0.1:9093
-    version: 2.6.0
-  }
-  task: {
-    name: test_dynamic_schema
-    topic: topic1
-    consumerGroup: test_dynamic_schema
-    earliest: true
-    parser: json
-    autoSchema: true
-    tableName: test_dynamic_schema
-    excludeColumns: [
-      day
-    ]
-    dynamicSchema: {
-      enable: true
+    clickhouse: {
+        cluster: ""
+        hosts: [
+            [
+                127.0.0.1
+            ]
+        ]
+        port: 9000
+        db: default
+        username: ""
+        password: ""
+        retryTimes: 0
     }
-    bufferSize: 50000
-  }
-  logLevel: info
+    kafka: {
+        brokers: 127.0.0.1:9093
+        version: 2.6.0
+    }
+    task: {
+        name: test_dynamic_schema
+        topic: topic1
+        consumerGroup: test_dynamic_schema
+        earliest: true
+        parser: json
+        autoSchema: true
+        tableName: test_dynamic_schema
+        excludeColumns: [
+            day
+        ]
+        dynamicSchema: {
+            enable: true
+        }
+        bufferSize: 50000
+    }
+    logLevel: info
 }

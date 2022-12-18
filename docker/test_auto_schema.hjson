@@ -1,29 +1,29 @@
 {
-  clickhouse: {
-    hosts: [
-      [
-        127.0.0.1
-      ]
-    ]
-    port: 9000
-    db: default
-    username: ""
-    password: ""
-    retryTimes: 0
-  }
-  kafka: {
-    brokers: 127.0.0.1:9092
-  }
-  task: {
-    name: test_auto_schema
-    topic: topic1
-    consumerGroup: test_auto_schema
-    earliest: true
-    parser: json
-    autoSchema: true
-    tableName: test_auto_schema
-    excludeColumns: []
-    bufferSize: 50000
-  }
-  logLevel: info
+    clickhouse: {
+        hosts: [
+            [
+                127.0.0.1
+            ]
+        ]
+        port: 9000
+        db: default
+        username: ""
+        password: ""
+        retryTimes: 0
+    }
+    kafka: {
+        brokers: 127.0.0.1:9092
+    }
+    task: {
+        name: test_auto_schema
+        topic: topic1
+        consumerGroup: test_auto_schema
+        earliest: true
+        parser: json
+        autoSchema: true
+        tableName: test_auto_schema
+        excludeColumns: []
+        bufferSize: 50000
+    }
+    logLevel: info
 }

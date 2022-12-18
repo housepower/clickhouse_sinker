@@ -1,42 +1,42 @@
 {
-  clickhouse: {
-    hosts: [
-      [
-        127.0.0.1
-      ]
-    ]
-    port: 9000
-    db: default
-    username: ""
-    password: ""
-    retryTimes: 0
-  }
-  kafka: {
-    brokers: 127.0.0.1:9093
-    version: 2.5.0
-  }
-  task: {
-    name: test_fixed_schema
-    topic: topic1
-    consumerGroup: test_fixed_schema
-    earliest: true
-    parser: json
-    tableName: test_fixed_schema
-    dims: [
-      {
-        name: time
-        type: DateTime
-      }
-      {
-        name: name
-        type: String
-      }
-      {
-        name: value
-        type: Float32
-      }
-    ]
-    bufferSize: 50000
-  }
-  logLevel: info
+    clickhouse: {
+        hosts: [
+            [
+                127.0.0.1
+            ]
+        ]
+        port: 9000
+        db: default
+        username: ""
+        password: ""
+        retryTimes: 0
+    }
+    kafka: {
+        brokers: 127.0.0.1:9093
+        version: 2.5.0
+    }
+    task: {
+        name: test_fixed_schema
+        topic: topic1
+        consumerGroup: test_fixed_schema
+        earliest: true
+        parser: json
+        tableName: test_fixed_schema
+        dims: [
+            {
+                name: time
+                type: DateTime
+            }
+            {
+                name: name
+                type: String
+            }
+            {
+                name: value
+                type: Float32
+            }
+        ]
+        bufferSize: 50000
+    }
+    logLevel: info
 }
