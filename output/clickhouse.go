@@ -18,7 +18,6 @@ package output
 import (
 	"context"
 	"fmt"
-	"io"
 	"math"
 	"sort"
 	"strings"
@@ -102,12 +101,9 @@ func (c *ClickHouse) Drain() {
 
 // Send a batch to clickhouse
 func (c *ClickHouse) Send(batch *model.Batch) {
-	c.mux.Lock()
-	c.numFlying++
-	c.mux.Unlock()
-	statistics.WritingPoolBacklog.WithLabelValues(c.taskCfg.Name).Inc()
-	_ = util.GlobalWritingPool.Submit(func() {
+	if err := util.GlobalWritingPool.Submit(func() {
 		c.loopWrite(batch)
+		batch.Wg.Done()
 		c.mux.Lock()
 		c.numFlying--
 		if c.numFlying == 0 {
@@ -115,7 +111,14 @@ func (c *ClickHouse) Send(batch *model.Batch) {
 		}
 		c.mux.Unlock()
 		statistics.WritingPoolBacklog.WithLabelValues(c.taskCfg.Name).Dec()
-	})
+	}); err != nil {
+		return
+	}
+
+	c.mux.Lock()
+	c.numFlying++
+	c.mux.Unlock()
+	statistics.WritingPoolBacklog.WithLabelValues(c.taskCfg.Name).Inc()
 }
 
 func (c *ClickHouse) AllowWriteSeries(sid, mid int64) (allowed bool) {
@@ -192,6 +195,8 @@ func (c *ClickHouse) write(batch *model.Batch, sc *pool.ShardConn, dbVer *int) (
 	if conn, *dbVer, err = sc.NextGoodReplica(*dbVer); err != nil {
 		return
 	}
+	util.Logger.Debug("writing batch", zap.String("task", c.taskCfg.Name), zap.String("replica", sc.GetReplica()), zap.Int("dbVer", *dbVer))
+
 	//row[:c.IdxSerID+1] is for metric table
 	//row[c.IdxSerID:] is for series table
 	numDims := c.NumDims
@@ -221,17 +226,15 @@ func (c *ClickHouse) loopWrite(batch *model.Batch) {
 	var reconnect bool
 	var dbVer int
 	sc := pool.GetShardConn(batch.BatchIdx)
+	defer func() {
+		for _, row := range *batch.Rows {
+			model.PutRow(row)
+		}
+		model.PutRows(batch.Rows)
+	}()
 	for {
 		if err = c.write(batch, sc, &dbVer); err == nil {
-			if err = batch.Commit(); err == nil {
-				return
-			}
-			// Note: kafka_go and sarama commit throws different error for context cancellation.
-			if errors.Is(err, context.Canceled) || errors.Is(err, io.ErrClosedPipe) {
-				util.Logger.Warn("Batch.Commit failed due to the context has been cancelled", zap.String("task", c.taskCfg.Name))
-				return
-			}
-			util.Logger.Fatal("Batch.Commit failed with permanent error", zap.String("task", c.taskCfg.Name), zap.Error(err))
+			return
 		}
 		if errors.Is(err, context.Canceled) {
 			util.Logger.Info("ClickHouse.write failed due to the context has been cancelled", zap.String("task", c.taskCfg.Name))

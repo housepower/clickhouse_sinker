@@ -30,6 +30,7 @@
         dynamicSchema: {
             enable: true
         }
+        shardingKey: name
         bufferSize: 50000
     }
     logLevel: info

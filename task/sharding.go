@@ -6,14 +6,12 @@ import (
 	"time"
 
 	"github.com/cespare/xxhash/v2"
-	"github.com/fagongzi/goetty"
 	"github.com/housepower/clickhouse_sinker/model"
 	"github.com/housepower/clickhouse_sinker/pool"
 	"github.com/housepower/clickhouse_sinker/statistics"
 	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/shopspring/decimal"
 	"github.com/thanos-io/thanos/pkg/errors"
-	"go.uber.org/zap"
 )
 
 type ShardingPolicy struct {
@@ -110,14 +108,11 @@ func (policy *ShardingPolicy) Calc(row *model.Row) (shard int, err error) {
 }
 
 type Sharder struct {
-	service  *Service
-	policy   *ShardingPolicy
-	batchSys *model.BatchSys
-	shards   int
-	mux      sync.Mutex
-	msgBuf   []*model.Rows
-	offsets  map[int]int64
-	tid      goetty.Timeout
+	service *Service
+	policy  *ShardingPolicy
+	shards  int
+	mux     sync.Mutex
+	msgBuf  []*model.Rows
 }
 
 func NewSharder(service *Service) (sh *Sharder, err error) {
@@ -128,12 +123,10 @@ func NewSharder(service *Service) (sh *Sharder, err error) {
 		return
 	}
 	sh = &Sharder{
-		service:  service,
-		policy:   policy,
-		batchSys: model.NewBatchSys(taskCfg, service.fnCommit),
-		shards:   shards,
-		msgBuf:   make([]*model.Rows, shards),
-		offsets:  make(map[int]int64),
+		service: service,
+		policy:  policy,
+		shards:  shards,
+		msgBuf:  make([]*model.Rows, shards),
 	}
 	for i := 0; i < shards; i++ {
 		sh.msgBuf[i] = model.GetRows()
@@ -145,57 +138,18 @@ func (sh *Sharder) Calc(row *model.Row) (int, error) {
 	return sh.policy.Calc(row)
 }
 
-func (sh *Sharder) PutElems(partition int, ringBuf []model.MsgRow, begOff, endOff, ringCapMask int64) {
-	if begOff >= endOff {
-		return
-	}
-	msgCnt := endOff - begOff
+func (sh *Sharder) PutElement(msgRow *model.MsgRow) {
 	sh.mux.Lock()
 	defer sh.mux.Unlock()
-	var parseErrs int
-	taskCfg := sh.service.taskCfg
-	for i := begOff; i < endOff; i++ {
-		msgRow := &ringBuf[i&ringCapMask]
-		//assert msg.Offset==i
-		if msgRow.Row != &model.FakedRow {
-			rows := sh.msgBuf[msgRow.Shard]
-			*rows = append(*rows, msgRow.Row)
-		} else {
-			parseErrs++
-		}
-		msgRow.Msg = nil
-		msgRow.Row = nil
-		msgRow.Shard = -1
-	}
-
-	sh.offsets[partition] = endOff - 1
-	statistics.ShardMsgs.WithLabelValues(taskCfg.Name).Add(float64(msgCnt))
-	var maxBatchSize int
-	for i := 0; i < sh.shards; i++ {
-		batchSize := len(*sh.msgBuf[i])
-		if maxBatchSize < batchSize {
-			maxBatchSize = batchSize
-		}
-	}
-	util.Logger.Debug(fmt.Sprintf("sharded a batch for topic %v patittion %d, offset [%d, %d), messages %d, parse errors: %d",
-		taskCfg.Topic, partition, begOff, endOff, msgCnt, parseErrs),
-		zap.String("task", taskCfg.Name))
-	if maxBatchSize >= taskCfg.BufferSize {
-		sh.doFlush(nil)
-	}
+	rows := sh.msgBuf[msgRow.Shard]
+	*rows = append(*rows, msgRow.Row)
+	statistics.ShardMsgs.WithLabelValues(sh.service.taskCfg.Name).Inc()
 }
 
-func (sh *Sharder) ForceFlush(arg interface{}) {
+func (sh *Sharder) Flush(wg *sync.WaitGroup) {
 	sh.mux.Lock()
-	sh.doFlush(arg)
-	sh.mux.Unlock()
-}
-
-// assmues sh.mux has been locked
-func (sh *Sharder) doFlush(_ interface{}) {
-	var err error
+	defer sh.mux.Unlock()
 	var msgCnt int
-	var batches []*model.Batch
 	taskCfg := sh.service.taskCfg
 	for i, rows := range sh.msgBuf {
 		realSize := len(*rows)
@@ -205,30 +159,15 @@ func (sh *Sharder) doFlush(_ interface{}) {
 				Rows:     rows,
 				BatchIdx: int64(i),
 				RealSize: realSize,
+				Wg:       wg,
 			}
-			batches = append(batches, batch)
+			batch.Wg.Add(1)
+			sh.service.clickhouse.Send(batch)
 			sh.msgBuf[i] = model.GetRows()
 		}
 	}
 	if msgCnt > 0 {
-		util.Logger.Info(fmt.Sprintf("created a batch group for topic %v, offsets %+v, messages %d", taskCfg.Topic, sh.offsets, msgCnt), zap.String("task", taskCfg.Name))
-		sh.batchSys.CreateBatchGroupMulti(batches, sh.offsets)
-		sh.offsets = make(map[int]int64)
-		// ALL batches in a group shall be populated before sending any one to next stage.
-		for _, batch := range batches {
-			sh.service.Flush(batch)
-		}
+		util.Logger.Info(fmt.Sprintf("created a batch group for task %v, messages %d", sh.service.taskCfg.Name, msgCnt))
 		statistics.ShardMsgs.WithLabelValues(taskCfg.Name).Sub(float64(msgCnt))
-	}
-
-	// reschedule the delayed ForceFlush
-	sh.tid.Stop()
-	if sh.tid, err = util.GlobalTimerWheel.Schedule(time.Duration(taskCfg.FlushInterval)*time.Second, sh.ForceFlush, nil); err != nil {
-		if errors.Is(err, goetty.ErrSystemStopped) {
-			util.Logger.Info("Sharder.doFlush scheduling timer to a stopped timer wheel")
-		} else {
-			err = errors.Wrapf(err, "")
-			util.Logger.Fatal("scheduling timer filed", zap.String("task", taskCfg.Name), zap.Error(err))
-		}
 	}
 }

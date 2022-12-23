@@ -18,6 +18,7 @@ package input
 import (
 	"context"
 	"crypto/tls"
+	"fmt"
 	"strconv"
 	"strings"
 	"sync"
@@ -46,18 +47,16 @@ const (
 	RetryBackoff   = 5 * time.Second
 )
 
-var _ Inputer = (*KafkaFranz)(nil)
-
 // KafkaFranz implements input.Inputer
 // refers to examples/group_consuming/main.go
 type KafkaFranz struct {
 	cfg       *config.Config
-	taskCfg   *config.TaskConfig
+	taskCfgs  []*config.TaskConfig
 	cl        *kgo.Client
 	ctx       context.Context
 	cancel    context.CancelFunc
 	wgRun     sync.WaitGroup
-	putFn     func(msg *model.InputMessage)
+	fetch     chan []*kgo.Record
 	cleanupFn func()
 }
 
@@ -67,23 +66,31 @@ func NewKafkaFranz() *KafkaFranz {
 }
 
 // Init Initialise the kafka instance with configuration
-func (k *KafkaFranz) Init(cfg *config.Config, taskCfg *config.TaskConfig, putFn func(msg *model.InputMessage), cleanupFn func()) (err error) {
+func (k *KafkaFranz) Init(cfg *config.Config, taskCfgs []*config.TaskConfig, f chan []*kgo.Record, cleanupFn func()) (err error) {
 	k.cfg = cfg
-	k.taskCfg = taskCfg
+	k.taskCfgs = taskCfgs
 	k.ctx, k.cancel = context.WithCancel(context.Background())
-	k.putFn = putFn
+	k.fetch = f
 	k.cleanupFn = cleanupFn
 	kfkCfg := &cfg.Kafka
 	var opts []kgo.Opt
 	if opts, err = GetFranzConfig(kfkCfg); err != nil {
 		return
 	}
+	var topics []string
+	for _, taskcfg := range k.taskCfgs {
+		topics = append(topics, taskcfg.Topic)
+	}
 	opts = append(opts,
-		kgo.ConsumeTopics(taskCfg.Topic),
-		kgo.ConsumerGroup(taskCfg.ConsumerGroup),
+		kgo.ConsumeTopics(topics...),
+		kgo.ConsumerGroup(taskCfgs[0].ConsumerGroup),
 		kgo.DisableAutoCommit(),
-		kgo.OnPartitionsRevoked(k.onPartitionRevoked))
-	if !taskCfg.Earliest {
+		kgo.OnPartitionsRevoked(k.onPartitionRevoked),
+		kgo.RebalanceTimeout(time.Minute*2),
+		kgo.SessionTimeout(time.Minute*2),
+		kgo.RequestTimeoutOverhead(time.Minute*1),
+	)
+	if !taskCfgs[0].Earliest {
 		opts = append(opts, kgo.ConsumeResetOffset(kgo.NewOffset().AtEnd()))
 	}
 
@@ -97,8 +104,9 @@ func (k *KafkaFranz) Init(cfg *config.Config, taskCfg *config.TaskConfig, putFn 
 func GetFranzConfig(kfkCfg *config.KafkaConfig) (opts []kgo.Opt, err error) {
 	opts = []kgo.Opt{
 		kgo.SeedBrokers(strings.Split(kfkCfg.Brokers, ",")...),
-		kgo.FetchMaxBytes(20971520), // 20 MB -- Larger numbers are likely to cause OOM.  Should be configurable
-		kgo.BrokerMaxReadBytes(20971520),
+		// kgo.FetchMaxBytes(), // 50 MB -- take the default config
+		// kgo.BrokerMaxReadBytes(), // 100 MB
+		kgo.FetchMaxPartitionBytes(1 << 24), // 16MB
 		//kgo.MetadataMaxAge(...) corresponds to sarama.Config.Metadata.RefreshFrequency
 		kgo.WithLogger(kzap.New(util.Logger)),
 	}
@@ -173,21 +181,12 @@ func (k *KafkaFranz) Run() {
 			err = errors.Wrapf(err, "")
 			util.Logger.Info("kgo.Client.PollFetchs() got an error", zap.Error(err))
 		}
-		util.Logger.Debug("Records fetched", zap.String("task", k.taskCfg.Name), zap.String("records", strconv.Itoa(fetches.NumRecords())))
-		fetches.EachRecord(func(rec *kgo.Record) {
-			msg := &model.InputMessage{
-				Topic:     rec.Topic,
-				Partition: int(rec.Partition),
-				Key:       rec.Key,
-				Value:     rec.Value,
-				Offset:    rec.Offset,
-				Timestamp: &rec.Timestamp,
-			}
-			k.putFn(msg)
-		})
+
+		util.Logger.Debug("Records fetched", zap.String("records", strconv.Itoa(fetches.NumRecords())))
+		k.fetch <- fetches.Records()
 	}
 	k.cl.Close() // will trigger k.onPartitionRevoked
-	util.Logger.Info("KafkaFranz.Run quit due to context has been canceled", zap.String("task", k.taskCfg.Name))
+	util.Logger.Info("KafkaFranz.Run quit due to context has been canceled", zap.String("consumer group", k.taskCfgs[0].ConsumerGroup))
 }
 
 func (k *KafkaFranz) CommitMessages(msg *model.InputMessage) error {
@@ -200,7 +199,7 @@ func (k *KafkaFranz) CommitMessages(msg *model.InputMessage) error {
 		}
 		err = errors.Wrapf(err, "")
 		if i < CommitRetries-1 && !errors.Is(err, context.Canceled) {
-			util.Logger.Error("cl.CommitRecords failed, will retry later", zap.String("task", k.taskCfg.Name), zap.Int("try", i), zap.Error(err))
+			util.Logger.Error("cl.CommitRecords failed, will retry later", zap.String("topic", msg.Topic), zap.Int("try", i), zap.Error(err))
 			time.Sleep(RetryBackoff)
 		}
 	}
@@ -210,20 +209,37 @@ func (k *KafkaFranz) CommitMessages(msg *model.InputMessage) error {
 // Stop kafka consumer and close all connections
 func (k *KafkaFranz) Stop() error {
 	k.cancel()
+
+	// prevent the block of k.Run
+	quit := make(chan struct{})
+	go func() {
+		select {
+		case <-k.fetch:
+		case <-quit:
+		}
+	}()
+
 	k.wgRun.Wait()
+	select {
+	case quit <- struct{}{}:
+	default:
+	}
 	return nil
 }
 
 // Description of this kafka consumer, which topic it reads from
 func (k *KafkaFranz) Description() string {
-	return "kafka consumer of topic " + k.taskCfg.Topic
+	var topics []string
+	for _, taskcfg := range k.taskCfgs {
+		topics = append(topics, taskcfg.Topic)
+	}
+	return fmt.Sprint("kafka consumer of topic ", topics)
 }
 
 func (k *KafkaFranz) onPartitionRevoked(_ context.Context, _ *kgo.Client, _ map[string][]int32) {
 	begin := time.Now()
 	k.cleanupFn()
 	util.Logger.Info("consumer group cleanup",
-		zap.String("task", k.taskCfg.Name),
-		zap.String("consumer group", k.taskCfg.ConsumerGroup),
+		zap.String("consumer group", k.taskCfgs[0].ConsumerGroup),
 		zap.Duration("cost", time.Since(begin)))
 }

@@ -36,6 +36,7 @@
                 type: Float32
             }
         ]
+        shardingKey: name
         bufferSize: 50000
     }
     logLevel: info

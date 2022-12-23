@@ -45,7 +45,7 @@ var (
 			Name: prefix + "consumer_msgs_error_total",
 			Help: "total num of consume errors",
 		},
-		[]string{"task"},
+		[]string{"group"},
 	)
 	ParseMsgsErrorTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{

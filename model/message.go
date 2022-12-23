@@ -1,14 +1,8 @@
 package model
 
 import (
-	"container/list"
-	"strconv"
 	"sync"
-	"sync/atomic"
 	"time"
-
-	"github.com/housepower/clickhouse_sinker/config"
-	"github.com/housepower/clickhouse_sinker/statistics"
 )
 
 var (
@@ -40,99 +34,12 @@ type Batch struct {
 	Rows     *Rows
 	BatchIdx int64
 	RealSize int
-	Group    *BatchGroup
-}
 
-// BatchGroup consists of multiple batches.
-// The `before` relationship could be impossible if messages of a partition are distributed to multiple batches.
-// So those batches need to be committed after ALL of them have been written to clickhouse.
-type BatchGroup struct {
-	Batchs    []*Batch
-	Offsets   map[int]int64
-	Sys       *BatchSys
-	PendWrite int32 //how many batches in this group are pending to wirte to ClickHouse
-}
-
-type BatchSys struct {
-	taskCfg  *config.TaskConfig
-	mux      sync.Mutex
-	groups   list.List
-	fnCommit func(partition int, offset int64) error
-}
-
-func NewBatchSys(taskCfg *config.TaskConfig, fnCommit func(partition int, offset int64) error) *BatchSys {
-	return &BatchSys{taskCfg: taskCfg, fnCommit: fnCommit}
-}
-
-func (bs *BatchSys) TryCommit() error {
-	bs.mux.Lock()
-	defer bs.mux.Unlock()
-	// ensure groups be committed orderly
-LOOP:
-	for e := bs.groups.Front(); e != nil; {
-		grp, _ := e.Value.(*BatchGroup)
-		if atomic.LoadInt32(&grp.PendWrite) != 0 {
-			break LOOP
-		}
-		// commit the whole group
-		for j, off := range grp.Offsets {
-			if err := bs.fnCommit(j, off); err != nil {
-				return err
-			}
-			statistics.ConsumeOffsets.WithLabelValues(bs.taskCfg.Name, bs.taskCfg.Topic, strconv.Itoa(j)).Set(float64(off))
-		}
-		eNext := e.Next()
-		bs.groups.Remove(e)
-		e = eNext
-	}
-	return nil
-}
-
-func (bs *BatchSys) CreateBatchGroupSingle(batch *Batch, partition int, offset int64) {
-	bg := &BatchGroup{
-		Sys:       bs,
-		Batchs:    []*Batch{batch},
-		Offsets:   make(map[int]int64),
-		PendWrite: 1,
-	}
-	bg.Batchs[0].Group = bg
-	bg.Offsets[partition] = offset
-	bs.mux.Lock()
-	bs.groups.PushBack(bg)
-	bs.mux.Unlock()
-}
-
-func (bs *BatchSys) CreateBatchGroupMulti(batches []*Batch, offsets map[int]int64) {
-	bg := &BatchGroup{Sys: bs, PendWrite: int32(len(batches))}
-	bg.Batchs = append(bg.Batchs, batches...)
-	bg.Offsets = offsets
-	for _, batch := range bg.Batchs {
-		batch.Group = bg
-	}
-	bs.mux.Lock()
-	bs.groups.PushBack(bg)
-	bs.mux.Unlock()
-}
-
-func NewBatch() (b *Batch) {
-	return &Batch{
-		Rows: GetRows(),
-	}
+	Wg *sync.WaitGroup
 }
 
 func (b *Batch) Size() int {
 	return len(*b.Rows)
-}
-
-// Commit is not retry-able!
-func (b *Batch) Commit() error {
-	for _, row := range *b.Rows {
-		PutRow(row)
-	}
-	PutRows(b.Rows)
-	b.Rows = nil
-	atomic.AddInt32(&b.Group.PendWrite, -1)
-	return b.Group.Sys.TryCommit()
 }
 
 func GetRows() (rs *Rows) {

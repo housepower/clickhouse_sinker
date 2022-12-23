@@ -25,52 +25,38 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"strconv"
 	"strings"
-	"time"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"gopkg.in/natefinch/lumberjack.v2"
 
-	"github.com/fagongzi/goetty"
 	"github.com/thanos-io/thanos/pkg/errors"
 )
 
 var (
-	GlobalTimerWheel  *goetty.TimeoutWheel //the global timer wheel
-	GlobalParsingPool *WorkerPool          //for all tasks' parsing, cpu intensive
-	GlobalWritingPool *WorkerPool          //the all tasks' writing ClickHouse, cpu-net balance
+	GlobalWritingPool *WorkerPool //the all tasks' writing ClickHouse, cpu-net balance
 	Logger            *zap.Logger
 	logAtomLevel      zap.AtomicLevel
 	logPaths          []string
 )
 
-// InitGlobalTimerWheel initialize the global timer wheel
-func InitGlobalTimerWheel() {
-	if GlobalTimerWheel != nil {
-		return
-	}
-	GlobalTimerWheel = goetty.NewTimeoutWheel(goetty.WithTickInterval(time.Second))
-}
-
-// InitGlobalParsingPool initialize GlobalParsingPool
-func InitGlobalParsingPool() {
-	if GlobalParsingPool != nil {
-		return
-	}
-	maxWorkers := 10
-	if runtime.NumCPU() >= 2 {
-		if maxWorkers > runtime.NumCPU()/2 {
-			maxWorkers = runtime.NumCPU() / 2
-		}
-	} else {
-		maxWorkers = 1
-	}
-	queueSize := 1 << 16
-	GlobalParsingPool = NewWorkerPool(maxWorkers, queueSize)
-	Logger.Info("initialized parsing pool", zap.Int("maxWorkers", maxWorkers), zap.Int("queueSize", queueSize))
+type CmdOptions struct {
+	ShowVer          bool
+	LogLevel         string // "debug", "info", "warn", "error", "dpanic", "panic", "fatal"
+	LogPaths         string // comma-separated paths. "stdout" means the console stdout
+	HTTPPort         int    // 0 menas a randomly OS chosen port
+	PushGatewayAddrs string
+	PushInterval     int
+	LocalCfgFile     string
+	NacosAddr        string
+	NacosNamespaceID string
+	NacosGroup       string
+	NacosUsername    string
+	NacosPassword    string
+	NacosDataID      string
+	NacosServiceName string // participate in assignment management if not empty
 }
 
 // InitGlobalWritingPool initialize GlobalWritingPool
