@@ -18,8 +18,6 @@ package task
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"io"
 	"os"
 	"reflect"
 	"strings"
@@ -48,25 +46,27 @@ type Sinker struct {
 	ctx      context.Context
 	cancel   context.CancelFunc
 
-	consumers  map[string]*Consumer
-	commits    chan *Commit
-	exit       chan struct{}
-	stopCommit chan struct{}
+	consumers       map[string]*Consumer
+	commits         chan *Commit
+	exit            chan struct{}
+	stopCommit      chan struct{}
+	consumerRestart chan *Consumer
 }
 
 // NewSinker get an instance of sinker with the task list
 func NewSinker(rcm cm.RemoteConfManager, http string, cmd *util.CmdOptions) *Sinker {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Sinker{
-		rcm:        rcm,
-		ctx:        ctx,
-		cmdOps:     cmd,
-		cancel:     cancel,
-		commits:    make(chan *Commit, 10),
-		exit:       make(chan struct{}),
-		stopCommit: make(chan struct{}),
-		consumers:  make(map[string]*Consumer),
-		httpAddr:   http,
+		rcm:             rcm,
+		ctx:             ctx,
+		cmdOps:          cmd,
+		cancel:          cancel,
+		commits:         make(chan *Commit, 10),
+		exit:            make(chan struct{}),
+		stopCommit:      make(chan struct{}),
+		consumerRestart: make(chan *Consumer),
+		consumers:       make(map[string]*Consumer),
+		httpAddr:        http,
 	}
 	return s
 }
@@ -112,7 +112,29 @@ func (s *Sinker) Run() {
 			util.Logger.Fatal("s.applyConfig failed", zap.Error(err))
 			return
 		}
-		<-s.ctx.Done()
+		for {
+			select {
+			case <-s.ctx.Done():
+				util.Logger.Info("Sinker.Run quit due to context has been canceled")
+				return
+			case c := <-s.consumerRestart:
+				// only restart the consumer which was not changed in applyAnotherConfig
+				if c == s.consumers[c.grpConfig.Name] {
+					newGroup := newConsumer(s)
+					s.consumers[c.grpConfig.Name] = newGroup
+					c.tasks.Range(func(key, value any) bool {
+						cloneTask(value.(*Service), newGroup)
+						return true
+					})
+					newGroup.start()
+					util.Logger.Info("consumer restarted because of previous offset commit error",
+						zap.String("consumer", c.grpConfig.Name))
+				} else {
+					util.Logger.Info("consumer restarted when applying another config",
+						zap.String("consumer", c.grpConfig.Name))
+				}
+			}
+		}
 	} else {
 		if s.cmdOps.NacosServiceName != "" {
 			go s.rcm.Run()
@@ -137,6 +159,22 @@ func (s *Sinker) Run() {
 				if err = s.applyConfig(newCfg); err != nil {
 					util.Logger.Error("s.applyConfig failed", zap.Error(err))
 					continue
+				}
+			case c := <-s.consumerRestart:
+				// only restart the consumer which was not changed in applyAnotherConfig
+				if c == s.consumers[c.grpConfig.Name] {
+					newGroup := newConsumer(s)
+					s.consumers[c.grpConfig.Name] = newGroup
+					c.tasks.Range(func(key, value any) bool {
+						cloneTask(value.(*Service), newGroup)
+						return true
+					})
+					newGroup.start()
+					util.Logger.Info("consumer restarted because of previous offset commit error",
+						zap.String("consumer", c.grpConfig.Name))
+				} else {
+					util.Logger.Info("consumer restarted when applying another config",
+						zap.String("consumer", c.grpConfig.Name))
 				}
 			}
 		}
@@ -169,15 +207,18 @@ func (s *Sinker) stopAllTasks() {
 		if v.state.Load() == util.StateRunning {
 			wg.Add(1)
 			go func(c *Consumer) {
-				c.stop(false)
+				c.stop()
 				wg.Done()
 			}(v)
 		}
 	}
 	wg.Wait()
-
 	util.Logger.Info("stopped all consumers")
-	s.stopCommit <- struct{}{}
+
+	select {
+	case s.stopCommit <- struct{}{}:
+	default:
+	}
 	util.Logger.Debug("stopped commit session")
 
 	for name := range s.consumers {
@@ -224,12 +265,7 @@ func (s *Sinker) applyFirstConfig(newCfg *config.Config) (err error) {
 		}
 		var c *Consumer
 		var ok bool
-		if c, ok = s.consumers[taskCfg.ConsumerGroup]; ok {
-			if taskCfg.Earliest != c.cfgs[0].Earliest {
-				util.Logger.Fatal("Tasks are sharing same consumer group, but with different Earliest property specified!",
-					zap.String("task", taskCfg.Name), zap.String("task", c.cfgs[0].Name))
-			}
-		} else {
+		if c, ok = s.consumers[taskCfg.ConsumerGroup]; !ok {
 			c = newConsumer(s)
 			s.consumers[taskCfg.ConsumerGroup] = c
 		}
@@ -276,12 +312,7 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 			}
 			var c *Consumer
 			var ok bool
-			if c, ok = s.consumers[taskCfg.ConsumerGroup]; ok {
-				if taskCfg.Earliest != c.cfgs[0].Earliest {
-					util.Logger.Fatal("Tasks are sharing same consumer group, but with different Earliest property specified!",
-						zap.String("task", taskCfg.Name), zap.String("task", c.cfgs[0].Name))
-				}
-			} else {
+			if c, ok = s.consumers[taskCfg.ConsumerGroup]; !ok {
 				c = newConsumer(s)
 				s.consumers[taskCfg.ConsumerGroup] = c
 			}
@@ -322,29 +353,31 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 			var ok bool
 			if group, ok = newConsumers[name]; !ok {
 				// consumer group no longer with this client, stop it
-				go c.stop(true)
+				go c.stop()
 				deleteConsumers = append(deleteConsumers, name)
 			} else {
 				// find the one that need to be restart
 				var groupChanged bool
-				if len(group) != len(c.cfgs) {
+				if len(group) != len(c.grpConfig.Topics) {
 					groupChanged = true
 				} else {
-					for _, cfg := range c.cfgs {
+					c.tasks.Range(func(key, value any) bool {
+						cfg := value.(*Service).taskCfg
 						var it *config.TaskConfig
 						var ok bool
 						if it, ok = group[cfg.Name]; !ok {
 							groupChanged = true
-							break
+							return false
 						} else if !reflect.DeepEqual(it, cfg) {
 							groupChanged = true
-							break
+							return false
 						}
-					}
+						return true
+					})
 				}
 				// restart the group accordingly
 				if groupChanged {
-					go c.stop(true)
+					go c.stop()
 					toCreate[name] = group
 				}
 				delete(newConsumers, name)
@@ -382,20 +415,28 @@ func (s *Sinker) commitFn() {
 		case com := <-s.commits:
 			com.wg.Wait()
 			c := com.consumer
-			c.recMux.Lock()
-			err := json.Unmarshal(com.offsets, &c.recMap)
-			c.recMux.Unlock()
-			if err != nil {
-				util.Logger.Fatal("Failed to unmarshall offsets", zap.ByteString("offsets", com.offsets), zap.Error(err))
-			}
-			for i, value := range c.recMap {
-				for k, v := range value {
-					if err := c.inputer.CommitMessages(&model.InputMessage{Topic: i, Partition: int(k), Offset: v}); err != nil {
-						// Note: kafka_go and sarama commit throws different error for context cancellation.
-						if errors.Is(err, context.Canceled) || errors.Is(err, io.ErrClosedPipe) {
-							util.Logger.Warn("Batch.Commit failed due to the context has been cancelled", zap.Error(err))
+
+			if !c.errCommit {
+				c.recMux.Lock()
+				err := json.Unmarshal(com.offsets, &c.recMap)
+				c.recMux.Unlock()
+				if err != nil {
+					util.Logger.Fatal("Failed to unmarshall offsets", zap.ByteString("offsets", com.offsets), zap.Error(err))
+				}
+			LOOP:
+				for i, value := range c.recMap {
+					for k, v := range value {
+						if err := c.inputer.CommitMessages(&model.InputMessage{Topic: i, Partition: int(k), Offset: v}); err != nil {
+							c.errCommit = true
+							// restart the consumer when facing commit error, avoid change the s.consumers outside of s.Run
+							// error could be RebalanceInProgress, IllegalGeneration, UnknownMemberID
+							go func() {
+								c.stop()
+								s.consumerRestart <- c
+							}()
+							util.Logger.Warn("Batch.Commit failed, will restart later", zap.Error(err))
+							break LOOP
 						}
-						util.Logger.Fatal("Batch.Commit failed with permanent error", zap.Error(err))
 					}
 				}
 			}

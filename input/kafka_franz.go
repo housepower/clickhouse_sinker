@@ -47,11 +47,18 @@ const (
 	RetryBackoff   = 5 * time.Second
 )
 
+type GroupConfig struct {
+	Name          string
+	Topics        []string
+	Earliest      bool
+	FlushInterval int
+}
+
 // KafkaFranz implements input.Inputer
 // refers to examples/group_consuming/main.go
 type KafkaFranz struct {
 	cfg       *config.Config
-	taskCfgs  []*config.TaskConfig
+	grpConfig *GroupConfig
 	cl        *kgo.Client
 	ctx       context.Context
 	cancel    context.CancelFunc
@@ -66,9 +73,9 @@ func NewKafkaFranz() *KafkaFranz {
 }
 
 // Init Initialise the kafka instance with configuration
-func (k *KafkaFranz) Init(cfg *config.Config, taskCfgs []*config.TaskConfig, f chan []*kgo.Record, cleanupFn func()) (err error) {
+func (k *KafkaFranz) Init(cfg *config.Config, gCfg *GroupConfig, f chan []*kgo.Record, cleanupFn func()) (err error) {
 	k.cfg = cfg
-	k.taskCfgs = taskCfgs
+	k.grpConfig = gCfg
 	k.ctx, k.cancel = context.WithCancel(context.Background())
 	k.fetch = f
 	k.cleanupFn = cleanupFn
@@ -77,20 +84,16 @@ func (k *KafkaFranz) Init(cfg *config.Config, taskCfgs []*config.TaskConfig, f c
 	if opts, err = GetFranzConfig(kfkCfg); err != nil {
 		return
 	}
-	var topics []string
-	for _, taskcfg := range k.taskCfgs {
-		topics = append(topics, taskcfg.Topic)
-	}
 	opts = append(opts,
-		kgo.ConsumeTopics(topics...),
-		kgo.ConsumerGroup(taskCfgs[0].ConsumerGroup),
+		kgo.ConsumeTopics(k.grpConfig.Topics...),
+		kgo.ConsumerGroup(k.grpConfig.Name),
 		kgo.DisableAutoCommit(),
 		kgo.OnPartitionsRevoked(k.onPartitionRevoked),
 		kgo.RebalanceTimeout(time.Minute*2),
 		kgo.SessionTimeout(time.Minute*2),
 		kgo.RequestTimeoutOverhead(time.Minute*1),
 	)
-	if !taskCfgs[0].Earliest {
+	if !k.grpConfig.Earliest {
 		opts = append(opts, kgo.ConsumeResetOffset(kgo.NewOffset().AtEnd()))
 	}
 
@@ -186,7 +189,7 @@ func (k *KafkaFranz) Run() {
 		k.fetch <- fetches.Records()
 	}
 	k.cl.Close() // will trigger k.onPartitionRevoked
-	util.Logger.Info("KafkaFranz.Run quit due to context has been canceled", zap.String("consumer group", k.taskCfgs[0].ConsumerGroup))
+	util.Logger.Info("KafkaFranz.Run quit due to context has been canceled", zap.String("consumer group", k.grpConfig.Name))
 }
 
 func (k *KafkaFranz) CommitMessages(msg *model.InputMessage) error {
@@ -229,17 +232,13 @@ func (k *KafkaFranz) Stop() error {
 
 // Description of this kafka consumer, which topic it reads from
 func (k *KafkaFranz) Description() string {
-	var topics []string
-	for _, taskcfg := range k.taskCfgs {
-		topics = append(topics, taskcfg.Topic)
-	}
-	return fmt.Sprint("kafka consumer of topic ", topics)
+	return fmt.Sprint("kafka consumer of topic ", k.grpConfig.Topics)
 }
 
 func (k *KafkaFranz) onPartitionRevoked(_ context.Context, _ *kgo.Client, _ map[string][]int32) {
 	begin := time.Now()
 	k.cleanupFn()
 	util.Logger.Info("consumer group cleanup",
-		zap.String("consumer group", k.taskCfgs[0].ConsumerGroup),
+		zap.String("consumer group", k.grpConfig.Name),
 		zap.Duration("cost", time.Since(begin)))
 }

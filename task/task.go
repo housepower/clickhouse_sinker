@@ -61,7 +61,7 @@ type Service struct {
 }
 
 // NewTaskService creates an instance of new tasks with kafka, clickhouse and paser instances
-func cloneTask(s *Service) (service *Service) {
+func cloneTask(s *Service, newGroup *Consumer) (service *Service) {
 	service = &Service{
 		clickhouse: s.clickhouse,
 		pp:         s.pp,
@@ -71,7 +71,12 @@ func cloneTask(s *Service) (service *Service) {
 		blackList:  s.blackList,
 		lblBlkList: s.lblBlkList,
 	}
-	service.Init()
+	if newGroup != nil {
+		service.consumer = newGroup
+	}
+	if err := service.Init(); err != nil {
+		util.Logger.Fatal("failed to clone task", zap.String("group", service.taskCfg.ConsumerGroup), zap.String("task", service.taskCfg.Name))
+	}
 
 	return
 }
@@ -139,8 +144,7 @@ func (service *Service) Init() (err error) {
 			atomic.StoreInt32(&service.cntNewKeys, 0)
 		}
 	}
-	service.consumer.tasks.Store(taskCfg.Name, service)
-	service.consumer.cfgs = append(service.consumer.cfgs, service.taskCfg)
+	service.consumer.addTask(service)
 
 	return
 }
@@ -190,7 +194,7 @@ func (service *Service) Put(msg *model.InputMessage, flushFn func()) error {
 			if err = service.clickhouse.ChangeSchema(&service.newKeys); err != nil {
 				util.Logger.Fatal("clickhouse.ChangeSchema failed", zap.String("task", taskCfg.Name), zap.Error(err))
 			}
-			service.consumer.tasks.Store(service.taskCfg.Name, cloneTask(service))
+			cloneTask(service, nil)
 
 			return fmt.Errorf("consumer restart required due to new key")
 		}
