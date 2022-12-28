@@ -46,27 +46,27 @@ type Sinker struct {
 	ctx      context.Context
 	cancel   context.CancelFunc
 
-	consumers       map[string]*Consumer
-	commits         chan *Commit
-	exit            chan struct{}
-	stopCommit      chan struct{}
-	consumerRestart chan *Consumer
+	consumers         map[string]*Consumer
+	commitsCh         chan *Commit
+	exitCh            chan struct{}
+	stopCommitCh      chan struct{}
+	consumerRestartCh chan *Consumer
 }
 
 // NewSinker get an instance of sinker with the task list
 func NewSinker(rcm cm.RemoteConfManager, http string, cmd *util.CmdOptions) *Sinker {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Sinker{
-		rcm:             rcm,
-		ctx:             ctx,
-		cmdOps:          cmd,
-		cancel:          cancel,
-		commits:         make(chan *Commit, 10),
-		exit:            make(chan struct{}),
-		stopCommit:      make(chan struct{}),
-		consumerRestart: make(chan *Consumer),
-		consumers:       make(map[string]*Consumer),
-		httpAddr:        http,
+		rcm:               rcm,
+		ctx:               ctx,
+		cmdOps:            cmd,
+		cancel:            cancel,
+		commitsCh:         make(chan *Commit, 10),
+		exitCh:            make(chan struct{}),
+		stopCommitCh:      make(chan struct{}),
+		consumerRestartCh: make(chan *Consumer),
+		consumers:         make(map[string]*Consumer),
+		httpAddr:          http,
 	}
 	return s
 }
@@ -84,7 +84,7 @@ func (s *Sinker) Run() {
 	var err error
 	var newCfg *config.Config
 	defer func() {
-		s.exit <- struct{}{}
+		s.exitCh <- struct{}{}
 	}()
 	if s.cmdOps.PushGatewayAddrs != "" {
 		addrs := strings.Split(s.cmdOps.PushGatewayAddrs, ",")
@@ -117,7 +117,7 @@ func (s *Sinker) Run() {
 			case <-s.ctx.Done():
 				util.Logger.Info("Sinker.Run quit due to context has been canceled")
 				return
-			case c := <-s.consumerRestart:
+			case c := <-s.consumerRestartCh:
 				// only restart the consumer which was not changed in applyAnotherConfig
 				if c == s.consumers[c.grpConfig.Name] {
 					newGroup := newConsumer(s)
@@ -160,7 +160,7 @@ func (s *Sinker) Run() {
 					util.Logger.Error("s.applyConfig failed", zap.Error(err))
 					continue
 				}
-			case c := <-s.consumerRestart:
+			case c := <-s.consumerRestartCh:
 				// only restart the consumer which was not changed in applyAnotherConfig
 				if c == s.consumers[c.grpConfig.Name] {
 					newGroup := newConsumer(s)
@@ -190,7 +190,7 @@ func (s *Sinker) Close() {
 	}
 	// 2. Quit Run mainloop
 	s.cancel()
-	<-s.exit
+	<-s.exitCh
 	// 3. Stop tasks gracefully.
 	s.stopAllTasks()
 	// 4. Stop pusher
@@ -216,7 +216,7 @@ func (s *Sinker) stopAllTasks() {
 	util.Logger.Info("stopped all consumers")
 
 	select {
-	case s.stopCommit <- struct{}{}:
+	case s.stopCommitCh <- struct{}{}:
 	default:
 	}
 	util.Logger.Debug("stopped commit session")
@@ -412,7 +412,7 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 func (s *Sinker) commitFn() {
 	for {
 		select {
-		case com := <-s.commits:
+		case com := <-s.commitsCh:
 			com.wg.Wait()
 			c := com.consumer
 
@@ -432,7 +432,7 @@ func (s *Sinker) commitFn() {
 							// error could be RebalanceInProgress, IllegalGeneration, UnknownMemberID
 							go func() {
 								c.stop()
-								s.consumerRestart <- c
+								s.consumerRestartCh <- c
 							}()
 							util.Logger.Warn("Batch.Commit failed, will restart later", zap.Error(err))
 							break LOOP
@@ -446,7 +446,7 @@ func (s *Sinker) commitFn() {
 				c.commitDone.Broadcast()
 			}
 			c.mux.Unlock()
-		case <-s.stopCommit:
+		case <-s.stopCommitCh:
 			util.Logger.Info("stopped committing loop")
 			return
 		}

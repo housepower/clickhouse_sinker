@@ -60,7 +60,7 @@ type Service struct {
 	consumer *Consumer
 }
 
-// NewTaskService creates an instance of new tasks with kafka, clickhouse and paser instances
+// cloneTask create a new task by steal members from s instead of creating a new one
 func cloneTask(s *Service, newGroup *Consumer) (service *Service) {
 	service = &Service{
 		clickhouse: s.clickhouse,
@@ -75,7 +75,7 @@ func cloneTask(s *Service, newGroup *Consumer) (service *Service) {
 		service.consumer = newGroup
 	}
 	if err := service.Init(); err != nil {
-		util.Logger.Fatal("failed to clone task", zap.String("group", service.taskCfg.ConsumerGroup), zap.String("task", service.taskCfg.Name))
+		util.Logger.Fatal("failed to clone task", zap.String("group", service.taskCfg.ConsumerGroup), zap.String("task", service.taskCfg.Name), zap.Error(err))
 	}
 
 	return
@@ -118,10 +118,8 @@ func (service *Service) Init() (err error) {
 	service.limiter1 = rate.NewLimiter(rate.Every(10*time.Second), 1)
 	service.limiter2 = rate.NewLimiter(rate.Every(10*time.Second), 1)
 
-	if taskCfg.ShardingKey != "" {
-		if service.sharder, err = NewSharder(service); err != nil {
-			return
-		}
+	if service.sharder, err = NewSharder(service); err != nil {
+		return
 	}
 
 	if taskCfg.DynamicSchema.Enable {
@@ -171,9 +169,6 @@ func (service *Service) Put(msg *model.InputMessage, flushFn func()) error {
 		if taskCfg.DynamicSchema.Enable {
 			foundNewKeys = metric.GetNewKeys(&service.knownKeys, &service.newKeys, &service.warnKeys, service.whiteList, service.blackList, msg.Partition, msg.Offset)
 		}
-		// Dumping message and result
-		//util.Logger.Debug("parsed kafka message", zap.Int("partition", msg.Partition), zap.Int64("offset", msg.Offset),
-		//	zap.String("message value", string(msg.Value)), zap.String("row(spew)", spew.Sdump(row)))
 	}
 	// WARNNING: metric.GetXXX may depend on p. Don't call them after p been freed.
 	service.pp.Put(p)
@@ -202,12 +197,12 @@ func (service *Service) Put(msg *model.InputMessage, flushFn func()) error {
 
 	if atomic.LoadInt32(&service.cntNewKeys) == 0 && service.consumer.state.Load() == util.StateRunning {
 		msgRow := model.MsgRow{Msg: msg, Row: row}
-		if service.sharder != nil {
+		if service.sharder.policy != nil {
 			if msgRow.Shard, err = service.sharder.Calc(msgRow.Row); err != nil {
 				util.Logger.Fatal("shard number calculation failed", zap.String("task", taskCfg.Name), zap.Error(err))
 			}
 		} else {
-			util.Logger.Fatal("shardingKey must be specified!")
+			msgRow.Shard = int(msgRow.Msg.Offset>>17) % service.sharder.shards
 		}
 		service.sharder.PutElement(&msgRow)
 	}

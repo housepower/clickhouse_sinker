@@ -63,7 +63,7 @@ type KafkaFranz struct {
 	ctx       context.Context
 	cancel    context.CancelFunc
 	wgRun     sync.WaitGroup
-	fetch     chan []*kgo.Record
+	fetch     chan *kgo.Fetches
 	cleanupFn func()
 }
 
@@ -73,7 +73,7 @@ func NewKafkaFranz() *KafkaFranz {
 }
 
 // Init Initialise the kafka instance with configuration
-func (k *KafkaFranz) Init(cfg *config.Config, gCfg *GroupConfig, f chan []*kgo.Record, cleanupFn func()) (err error) {
+func (k *KafkaFranz) Init(cfg *config.Config, gCfg *GroupConfig, f chan *kgo.Fetches, cleanupFn func()) (err error) {
 	k.cfg = cfg
 	k.grpConfig = gCfg
 	k.ctx, k.cancel = context.WithCancel(context.Background())
@@ -110,6 +110,7 @@ func GetFranzConfig(kfkCfg *config.KafkaConfig) (opts []kgo.Opt, err error) {
 		// kgo.FetchMaxBytes(), // 50 MB -- take the default config
 		// kgo.BrokerMaxReadBytes(), // 100 MB
 		kgo.FetchMaxPartitionBytes(1 << 24), // 16MB
+		kgo.MaxConcurrentFetches(2),
 		//kgo.MetadataMaxAge(...) corresponds to sarama.Config.Metadata.RefreshFrequency
 		kgo.WithLogger(kzap.New(util.Logger)),
 	}
@@ -185,8 +186,8 @@ func (k *KafkaFranz) Run() {
 			util.Logger.Info("kgo.Client.PollFetchs() got an error", zap.Error(err))
 		}
 
-		util.Logger.Debug("Records fetched", zap.String("records", strconv.Itoa(fetches.NumRecords())))
-		k.fetch <- fetches.Records()
+		util.Logger.Debug("Records fetched", zap.String("records", strconv.Itoa(fetches.NumRecords())), zap.String("consumer group", k.grpConfig.Name))
+		k.fetch <- &fetches
 	}
 	k.cl.Close() // will trigger k.onPartitionRevoked
 	util.Logger.Info("KafkaFranz.Run quit due to context has been canceled", zap.String("consumer group", k.grpConfig.Name))
@@ -202,7 +203,7 @@ func (k *KafkaFranz) CommitMessages(msg *model.InputMessage) error {
 		}
 		err = errors.Wrapf(err, "")
 		if i < CommitRetries-1 && !errors.Is(err, context.Canceled) {
-			util.Logger.Error("cl.CommitRecords failed, will retry later", zap.String("topic", msg.Topic), zap.Int("try", i), zap.Error(err))
+			util.Logger.Error("cl.CommitRecords failed, will retry later", zap.String("consumer group", k.grpConfig.Name), zap.Int("try", i), zap.Error(err))
 			time.Sleep(RetryBackoff)
 		}
 	}
@@ -230,9 +231,9 @@ func (k *KafkaFranz) Stop() error {
 	return nil
 }
 
-// Description of this kafka consumer, which topic it reads from
+// Description of this kafka consumer, consumer group name
 func (k *KafkaFranz) Description() string {
-	return fmt.Sprint("kafka consumer of topic ", k.grpConfig.Topics)
+	return fmt.Sprint("kafka consumer group ", k.grpConfig.Name)
 }
 
 func (k *KafkaFranz) onPartitionRevoked(_ context.Context, _ *kgo.Client, _ map[string][]int32) {

@@ -119,8 +119,10 @@ func NewSharder(service *Service) (sh *Sharder, err error) {
 	var policy *ShardingPolicy
 	shards := pool.NumShard()
 	taskCfg := service.taskCfg
-	if policy, err = NewShardingPolicy(taskCfg.ShardingKey, taskCfg.ShardingStripe, service.clickhouse.Dims, shards); err != nil {
-		return
+	if taskCfg.ShardingKey != "" {
+		if policy, err = NewShardingPolicy(taskCfg.ShardingKey, taskCfg.ShardingStripe, service.clickhouse.Dims, shards); err != nil {
+			return
+		}
 	}
 	sh = &Sharder{
 		service: service,

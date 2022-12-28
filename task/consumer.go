@@ -39,15 +39,15 @@ type Commit struct {
 }
 
 type Consumer struct {
-	sinker      *Sinker
-	inputer     *input.KafkaFranz
-	tasks       sync.Map
-	grpConfig   *input.GroupConfig
-	fetches     chan []*kgo.Record
-	processWg   sync.WaitGroup
-	stopProcess chan struct{}
-	state       atomic.Uint32
-	errCommit   bool
+	sinker    *Sinker
+	inputer   *input.KafkaFranz
+	tasks     sync.Map
+	grpConfig *input.GroupConfig
+	fetchesCh chan *kgo.Fetches
+	processWg sync.WaitGroup
+	stopCh    chan struct{}
+	state     atomic.Uint32
+	errCommit bool
 
 	recMap map[string]map[int32]int64 // committed RecMap
 	recMux sync.Mutex
@@ -64,13 +64,13 @@ const (
 
 func newConsumer(s *Sinker) *Consumer {
 	c := &Consumer{
-		sinker:      s,
-		numFlying:   0,
-		errCommit:   false,
-		grpConfig:   &input.GroupConfig{},
-		stopProcess: make(chan struct{}),
-		fetches:     make(chan []*kgo.Record),
-		recMap:      make(map[string]map[int32]int64),
+		sinker:    s,
+		numFlying: 0,
+		errCommit: false,
+		grpConfig: &input.GroupConfig{},
+		stopCh:    make(chan struct{}),
+		fetchesCh: make(chan *kgo.Fetches),
+		recMap:    make(map[string]map[int32]int64),
 	}
 	c.state.Store(util.StateStopped)
 	c.commitDone = sync.NewCond(&c.mux)
@@ -94,7 +94,7 @@ func (c *Consumer) addTask(tsk *Service) {
 func (c *Consumer) start() {
 	c.inputer = input.NewKafkaFranz()
 	c.state.Store(util.StateRunning)
-	if err := c.inputer.Init(c.sinker.curCfg, c.grpConfig, c.fetches, c.cleanupFn); err == nil {
+	if err := c.inputer.Init(c.sinker.curCfg, c.grpConfig, c.fetchesCh, c.cleanupFn); err == nil {
 		go c.inputer.Run()
 		go c.processFetch()
 	} else {
@@ -109,7 +109,7 @@ func (c *Consumer) stop() (err error) {
 	c.state.Store(util.StateStopped)
 
 	// stop the processFetch routine, make sure no more input to the- commit chan & writing pool
-	c.stopProcess <- struct{}{}
+	c.stopCh <- struct{}{}
 	c.processWg.Wait()
 	err = c.inputer.Stop()
 	return err
@@ -117,7 +117,7 @@ func (c *Consumer) stop() (err error) {
 
 func (c *Consumer) restart() {
 	if err := c.stop(); err != nil {
-		util.Logger.Fatal("failed to restart consumer group", zap.String("group", c.grpConfig.Name))
+		util.Logger.Fatal("failed to restart consumer group", zap.String("group", c.grpConfig.Name), zap.Error(err))
 	}
 	c.start()
 }
@@ -172,7 +172,7 @@ func (c *Consumer) processFetch() {
 		c.mux.Lock()
 		c.numFlying++
 		c.mux.Unlock()
-		c.sinker.commits <- &Commit{group: c.grpConfig.Name, offsets: off, wg: &wg, consumer: c}
+		c.sinker.commitsCh <- &Commit{group: c.grpConfig.Name, offsets: off, wg: &wg, consumer: c}
 	}
 
 	c.tasks.Range(func(key, value any) bool {
@@ -189,11 +189,12 @@ func (c *Consumer) processFetch() {
 	defer ticker.Stop()
 	for {
 		select {
-		case fetch := <-c.fetches:
+		case fetches := <-c.fetchesCh:
 			if c.state.Load() == util.StateStopped {
 				continue
 			}
 
+			fetch := fetches.Records()
 			items, done := int64(len(fetch)), int64(-1)
 			var concurrency int
 			if concurrency = int(items/1000) + 1; concurrency > MaxParallelism {
@@ -249,12 +250,22 @@ func (c *Consumer) processFetch() {
 			// record the latest offset in order
 			// assume the c.state was reset to stopped when facing error, so that further fetch won't get processed
 			if err == nil {
-				for i, it := range fetch {
-					if recMap[it.Topic] == nil {
-						recMap[it.Topic] = make(map[int32]int64)
+				for _, f := range *fetches {
+					for i := range f.Topics {
+						ft := &f.Topics[i]
+						if recMap[ft.Topic] == nil {
+							recMap[ft.Topic] = make(map[int32]int64)
+						}
+						for j := range ft.Partitions {
+							fpr := ft.Partitions[j].Records
+							lastOff := fpr[len(fpr)-1].Offset
+
+							old, ok := recMap[ft.Topic][ft.Partitions[j].Partition]
+							if !ok || old < lastOff {
+								recMap[ft.Topic][ft.Partitions[j].Partition] = lastOff
+							}
+						}
 					}
-					recMap[it.Topic][it.Partition] = it.Offset
-					fetch[i] = nil
 				}
 			}
 
@@ -263,7 +274,7 @@ func (c *Consumer) processFetch() {
 			}
 		case <-ticker.C:
 			flushFn()
-		case <-c.stopProcess:
+		case <-c.stopCh:
 			flushFn()
 			util.Logger.Info("stopped processing loop", zap.String("group", c.grpConfig.Name))
 			return
