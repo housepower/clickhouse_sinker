@@ -40,52 +40,10 @@ var (
 		},
 		[]string{"task"},
 	)
-	ConsumeMsgsErrorTotal = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: prefix + "consumer_msgs_error_total",
-			Help: "total num of consume errors",
-		},
-		[]string{"group"},
-	)
 	ParseMsgsErrorTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: prefix + "parse_msgs_error_total",
 			Help: "total num of msgs with parse failure",
-		},
-		[]string{"task"},
-	)
-	RingMsgsOffTooSmallErrorTotal = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: prefix + "ring_msgs_offset_too_small_error_total",
-			Help: "total num of msgs with too small offset to put into ring",
-		},
-		[]string{"task"},
-	)
-	RingMsgsOffTooLargeErrorTotal = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: prefix + "ring_msgs_offset_too_large_error_total",
-			Help: "total num of msgs with too large offset to put into ring",
-		},
-		[]string{"task"},
-	)
-	RingNormalBatchsTotal = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: prefix + "ring_normal_batchs_total",
-			Help: "total num of normal batches generated",
-		},
-		[]string{"task"},
-	)
-	RingForceBatchsTotal = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: prefix + "ring_force_batchs_total",
-			Help: "total num of force batches generated",
-		},
-		[]string{"task"},
-	)
-	RingForceBatchAllTotal = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: prefix + "ring_force_batch_all_total",
-			Help: "total num of force batch_all generated",
 		},
 		[]string{"task"},
 	)
@@ -108,33 +66,12 @@ var (
 			Name: prefix + "consume_offsets",
 			Help: "last committed offset for each topic partition pair",
 		},
-		[]string{"task", "topic", "partition"},
-	)
-	ParsedRingMsgs = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: prefix + "parsed_ring_msgs",
-			Help: "num of parsed msgs in ring",
-		},
-		[]string{"task"},
-	)
-	RingMsgs = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: prefix + "ring_msgs",
-			Help: "num of msgs in ring",
-		},
-		[]string{"task"},
+		[]string{"consumer", "topic", "partition"},
 	)
 	ShardMsgs = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: prefix + "shard_msgs",
 			Help: "num of msgs in shard",
-		},
-		[]string{"task"},
-	)
-	ParsingPoolBacklog = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: prefix + "parsing_pool_backlog",
-			Help: "GlobalParsingPool backlog",
 		},
 		[]string{"task"},
 	)
@@ -193,20 +130,11 @@ var (
 
 func init() {
 	prometheus.MustRegister(ConsumeMsgsTotal)
-	prometheus.MustRegister(ConsumeMsgsErrorTotal)
 	prometheus.MustRegister(ParseMsgsErrorTotal)
-	prometheus.MustRegister(RingMsgsOffTooSmallErrorTotal)
-	prometheus.MustRegister(RingMsgsOffTooLargeErrorTotal)
-	prometheus.MustRegister(RingNormalBatchsTotal)
-	prometheus.MustRegister(RingForceBatchsTotal)
-	prometheus.MustRegister(RingForceBatchAllTotal)
 	prometheus.MustRegister(FlushMsgsTotal)
 	prometheus.MustRegister(FlushMsgsErrorTotal)
 	prometheus.MustRegister(ConsumeOffsets)
-	prometheus.MustRegister(ParsedRingMsgs)
-	prometheus.MustRegister(RingMsgs)
 	prometheus.MustRegister(ShardMsgs)
-	prometheus.MustRegister(ParsingPoolBacklog)
 	prometheus.MustRegister(WritingPoolBacklog)
 	prometheus.MustRegister(WritingDurations)
 	prometheus.MustRegister(WriteSeriesAllowNew)
@@ -294,22 +222,18 @@ func (p *Pusher) reconnect() {
 	}
 	p.pusher = push.New(p.pgwAddrs[nextAddr], "clickhouse_sinker").
 		Collector(ConsumeMsgsTotal).
-		Collector(ConsumeMsgsErrorTotal).
 		Collector(ParseMsgsErrorTotal).
-		Collector(RingMsgsOffTooSmallErrorTotal).
-		Collector(RingMsgsOffTooLargeErrorTotal).
-		Collector(RingNormalBatchsTotal).
-		Collector(RingForceBatchsTotal).
-		Collector(RingForceBatchAllTotal).
 		Collector(FlushMsgsTotal).
 		Collector(FlushMsgsErrorTotal).
 		Collector(ConsumeOffsets).
-		Collector(RingMsgs).
-		Collector(ParsedRingMsgs).
 		Collector(ShardMsgs).
-		Collector(ParsingPoolBacklog).
 		Collector(WritingPoolBacklog).
 		Collector(WritingDurations).
+		Collector(WriteSeriesAllowNew).
+		Collector(WriteSeriesAllowChanged).
+		Collector(WriteSeriesDropQuota).
+		Collector(WriteSeriesDropUnchanged).
+		Collector(WriteSeriesSucceed).
 		Grouping("instance", p.instance).Format(expfmt.FmtText)
 	p.inUseAddr = nextAddr
 }

@@ -22,7 +22,6 @@
         parser: json
         autoSchema: true
         tableName: test_auto_schema
-        shardingKey: name
         excludeColumns: []
         bufferSize: 50000
     }

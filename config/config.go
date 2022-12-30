@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	"github.com/hjson/hjson-go/v4"
+	"go.uber.org/zap"
 
 	"github.com/housepower/clickhouse_sinker/util"
 
@@ -35,6 +36,7 @@ type Config struct {
 	Tasks      []*TaskConfig
 	Assignment Assignment
 	LogLevel   string
+	Groups     map[string]*GroupConfig `json:"-"`
 }
 
 // KafkaConfig configuration parameters
@@ -146,13 +148,22 @@ type TaskConfig struct {
 
 	// ShardingKey is the column name to which sharding against
 	ShardingKey string `json:"shardingKey,omitempty"`
-	// ShardingStripe take effect iff the sharding key is numerical
+	// ShardingStripe take effect if the sharding key is numerical
 	ShardingStripe uint64 `json:"shardingStripe,omitempty"`
 
 	FlushInterval int     `json:"flushInterval,omitempty"`
 	BufferSize    int     `json:"bufferSize,omitempty"`
 	TimeZone      string  `json:"timeZone"`
 	TimeUnit      float64 `json:"timeUnit"`
+}
+
+type GroupConfig struct {
+	Name          string
+	Topics        []string
+	Earliest      bool
+	FlushInterval int
+	BufferSize    int
+	Configs       map[string]*TaskConfig
 }
 
 type Assignment struct {
@@ -175,7 +186,9 @@ const (
 )
 
 func ParseLocalCfgFile(cfgPath string) (cfg *Config, err error) {
-	cfg = &Config{}
+	cfg = &Config{
+		Groups: make(map[string]*GroupConfig),
+	}
 	var b []byte
 	b, err = os.ReadFile(cfgPath)
 	if err != nil {
@@ -190,7 +203,7 @@ func ParseLocalCfgFile(cfgPath string) (cfg *Config, err error) {
 }
 
 // Normalize and validate configuration
-func (cfg *Config) Normallize() (err error) {
+func (cfg *Config) Normallize(constructGroup bool, httpAddr string) (err error) {
 	if len(cfg.Clickhouse.Hosts) == 0 || cfg.Kafka.Brokers == "" {
 		err = errors.Newf("invalid configuration")
 		return
@@ -243,6 +256,35 @@ func (cfg *Config) Normallize() (err error) {
 	for _, taskCfg := range cfg.Tasks {
 		if err = cfg.normallizeTask(taskCfg); err != nil {
 			return
+		}
+		if constructGroup {
+			if httpAddr != "" && !cfg.IsAssigned(httpAddr, taskCfg.Name) {
+				continue
+			}
+			gCfg, ok := cfg.Groups[taskCfg.ConsumerGroup]
+			if !ok {
+				gCfg = &GroupConfig{
+					Name:          taskCfg.ConsumerGroup,
+					Earliest:      taskCfg.Earliest,
+					Topics:        []string{taskCfg.Topic},
+					FlushInterval: taskCfg.FlushInterval,
+					BufferSize:    taskCfg.BufferSize,
+					Configs:       make(map[string]*TaskConfig),
+				}
+				gCfg.Configs[taskCfg.Name] = taskCfg
+				cfg.Groups[taskCfg.ConsumerGroup] = gCfg
+			} else {
+				if gCfg.Earliest != taskCfg.Earliest {
+					util.Logger.Fatal("Tasks are sharing same consumer group, but with different Earliest property specified!",
+						zap.String("task", gCfg.Name), zap.String("task", taskCfg.Name))
+				} else if gCfg.FlushInterval != taskCfg.FlushInterval {
+					util.Logger.Fatal("Tasks are sharing same consumer group, but with different FlushInterval property specified!",
+						zap.String("task", gCfg.Name), zap.String("task", taskCfg.Name))
+				}
+				gCfg.Topics = append(gCfg.Topics, taskCfg.Topic)
+				gCfg.BufferSize += taskCfg.BufferSize
+				gCfg.Configs[taskCfg.Name] = taskCfg
+			}
 		}
 	}
 	switch strings.ToLower(cfg.LogLevel) {

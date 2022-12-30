@@ -136,7 +136,7 @@ func (ncm *NacosConfManager) GetConfig() (conf *config.Config, err error) {
 		err = errors.Wrapf(err, "")
 		return
 	}
-	conf = &config.Config{}
+	conf = &config.Config{Groups: make(map[string]*config.GroupConfig)}
 	if err = hjson.Unmarshal([]byte(content), conf); err != nil {
 		err = errors.Wrapf(err, "")
 		return

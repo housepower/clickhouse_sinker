@@ -17,9 +17,10 @@ package task
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"reflect"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -104,7 +105,11 @@ func (s *Sinker) Run() {
 			util.Logger.Fatal("expect --local-cfg-file or --nacos-dataid")
 			return
 		}
-		if err = newCfg.Normallize(); err != nil {
+		ha := ""
+		if s.cmdOps.NacosServiceName != "" {
+			ha = s.httpAddr
+		}
+		if err = newCfg.Normallize(true, ha); err != nil {
 			util.Logger.Fatal("newCfg.Normallize failed", zap.Error(err))
 			return
 		}
@@ -120,7 +125,7 @@ func (s *Sinker) Run() {
 			case c := <-s.consumerRestartCh:
 				// only restart the consumer which was not changed in applyAnotherConfig
 				if c == s.consumers[c.grpConfig.Name] {
-					newGroup := newConsumer(s)
+					newGroup := newConsumer(s, c.grpConfig)
 					s.consumers[c.grpConfig.Name] = newGroup
 					c.tasks.Range(func(key, value any) bool {
 						cloneTask(value.(*Service), newGroup)
@@ -152,7 +157,11 @@ func (s *Sinker) Run() {
 					util.Logger.Error("s.rcm.GetConfig failed", zap.Error(err))
 					continue
 				}
-				if err = newCfg.Normallize(); err != nil {
+				ha := ""
+				if s.cmdOps.NacosServiceName != "" {
+					ha = s.httpAddr
+				}
+				if err = newCfg.Normallize(true, ha); err != nil {
 					util.Logger.Error("newCfg.Normallize failed", zap.Error(err))
 					continue
 				}
@@ -163,7 +172,7 @@ func (s *Sinker) Run() {
 			case c := <-s.consumerRestartCh:
 				// only restart the consumer which was not changed in applyAnotherConfig
 				if c == s.consumers[c.grpConfig.Name] {
-					newGroup := newConsumer(s)
+					newGroup := newConsumer(s, c.grpConfig)
 					s.consumers[c.grpConfig.Name] = newGroup
 					c.tasks.Range(func(key, value any) bool {
 						cloneTask(value.(*Service), newGroup)
@@ -259,26 +268,17 @@ func (s *Sinker) applyFirstConfig(newCfg *config.Config) (err error) {
 	go s.commitFn()
 
 	// 3. Generate, initialize and run task
-	for _, taskCfg := range newCfg.Tasks {
-		if s.cmdOps.NacosServiceName != "" && !newCfg.IsAssigned(s.httpAddr, taskCfg.Name) {
-			continue
-		}
-		var c *Consumer
-		var ok bool
-		if c, ok = s.consumers[taskCfg.ConsumerGroup]; !ok {
-			c = newConsumer(s)
-			s.consumers[taskCfg.ConsumerGroup] = c
-		}
-		task := NewTaskService(newCfg, taskCfg, c)
-		if err = task.Init(); err != nil {
-			return
-		}
-	}
-
-	// 4. Start fetching messages
 	s.curCfg = newCfg
-	for _, v := range s.consumers {
-		v.start()
+	for group, grpCfg := range newCfg.Groups {
+		c := newConsumer(s, grpCfg)
+		for _, tsk := range grpCfg.Configs {
+			task := NewTaskService(newCfg, tsk, c)
+			if err = task.Init(); err != nil {
+				return
+			}
+		}
+		c.start()
+		s.consumers[group] = c
 	}
 
 	util.Logger.Info("applied the first config")
@@ -306,104 +306,86 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 
 		// 4. Generate, initialize and run task
 		var tasksToStart []string
-		for _, taskCfg := range newCfg.Tasks {
-			if s.cmdOps.NacosServiceName != "" && !newCfg.IsAssigned(s.httpAddr, taskCfg.Name) {
-				continue
-			}
-			var c *Consumer
-			var ok bool
-			if c, ok = s.consumers[taskCfg.ConsumerGroup]; !ok {
-				c = newConsumer(s)
-				s.consumers[taskCfg.ConsumerGroup] = c
-			}
-			task := NewTaskService(newCfg, taskCfg, c)
-			if err = task.Init(); err != nil {
-				return
-			}
-			tasksToStart = append(tasksToStart, taskCfg.Name)
-		}
-
-		// 5. Start fetching messages, only after all the taskCfg loaded to consumer.cfgs
 		s.curCfg = newCfg
-		for _, v := range s.consumers {
-			v.start()
+		for group, grpCfg := range newCfg.Groups {
+			c := newConsumer(s, grpCfg)
+			for _, tsk := range grpCfg.Configs {
+				task := NewTaskService(newCfg, tsk, c)
+				if err = task.Init(); err != nil {
+					return
+				}
+				tasksToStart = append(tasksToStart, tsk.Name)
+			}
+			c.start()
+			s.consumers[group] = c
 		}
 
 		util.Logger.Info("started tasks", zap.Reflect("tasks", tasksToStart))
 	} else if !reflect.DeepEqual(newCfg.Tasks, s.curCfg.Tasks) || !reflect.DeepEqual(newCfg.Assignment.Map, s.curCfg.Assignment.Map) {
-		// 1. Find the config difference
-		newConsumers := make(map[string]map[string]*config.TaskConfig)
-		for _, taskCfg := range newCfg.Tasks {
-			if s.cmdOps.NacosServiceName != "" && !newCfg.IsAssigned(s.httpAddr, taskCfg.Name) {
-				continue
-			}
-			var group map[string]*config.TaskConfig
-			var ok bool
-			if group, ok = newConsumers[taskCfg.ConsumerGroup]; !ok {
-				group = make(map[string]*config.TaskConfig)
-				newConsumers[taskCfg.ConsumerGroup] = group
-			}
-			group[taskCfg.Name] = taskCfg
-		}
-
-		toCreate := make(map[string]map[string]*config.TaskConfig)
+		// Find the consumer difference
 		var deleteConsumers []string
 		for name, c := range s.consumers {
-			var group map[string]*config.TaskConfig
+			var group *config.GroupConfig
 			var ok bool
-			if group, ok = newConsumers[name]; !ok {
-				// consumer group no longer with this client, stop it
-				go c.stop()
+			if group, ok = newCfg.Groups[name]; !ok {
 				deleteConsumers = append(deleteConsumers, name)
 			} else {
-				// find the one that need to be restart
-				var groupChanged bool
-				if len(group) != len(c.grpConfig.Topics) {
-					groupChanged = true
+				if len(c.grpConfig.Topics) != len(group.Topics) {
+					deleteConsumers = append(deleteConsumers, name)
 				} else {
-					c.tasks.Range(func(key, value any) bool {
-						cfg := value.(*Service).taskCfg
-						var it *config.TaskConfig
-						var ok bool
-						if it, ok = group[cfg.Name]; !ok {
-							groupChanged = true
-							return false
-						} else if !reflect.DeepEqual(it, cfg) {
-							groupChanged = true
-							return false
-						}
-						return true
-					})
-				}
-				// restart the group accordingly
-				if groupChanged {
-					go c.stop()
-					toCreate[name] = group
-				}
-				delete(newConsumers, name)
-			}
-		}
-		// create new consumers
-		for name, cfgs := range newConsumers {
-			toCreate[name] = cfgs
-		}
-		for _, name := range deleteConsumers {
-			delete(s.consumers, name)
-		}
-		for name, cfgs := range toCreate {
-			c := newConsumer(s)
-			s.consumers[name] = c
-			for _, cfg := range cfgs {
-				task := NewTaskService(newCfg, cfg, c)
-				if err = task.Init(); err != nil {
-					return
+					sort.Strings(c.grpConfig.Topics)
+					sort.Strings(group.Topics)
+					if !reflect.DeepEqual(c.grpConfig.Topics, group.Topics) {
+						deleteConsumers = append(deleteConsumers, name)
+					} else {
+						c.updateGroupConfig(group)
+					}
 				}
 			}
-			c.start()
+		}
+		// 1) stop consumers no longer with newcfg
+		var wg sync.WaitGroup
+		for _, v := range deleteConsumers {
+			c := s.consumers[v]
+			if c.state.Load() == util.StateRunning {
+				wg.Add(1)
+				go func(c *Consumer) {
+					c.stop()
+					wg.Done()
+				}(c)
+			}
+			delete(s.consumers, v)
+		}
+		wg.Wait()
+		// 2) fire up new consumers
+		// Record the new config
+		s.curCfg = newCfg
+		for _, v := range newCfg.Groups {
+			if s.consumers[v.Name] == nil {
+				c := newConsumer(s, v)
+				for _, tCfg := range v.Configs {
+					task := NewTaskService(newCfg, tCfg, c)
+					if err = task.Init(); err != nil {
+						return
+					}
+				}
+				c.start()
+				s.consumers[v.Name] = c
+			}
+		}
+		// 3) apply TaskConfig Change
+		for name, c := range newCfg.Groups {
+			for _, tCfg := range c.Configs {
+				if !reflect.DeepEqual(tCfg, s.consumers[name].grpConfig.Configs[tCfg.Name]) {
+					task := NewTaskService(newCfg, tCfg, s.consumers[name])
+					if err = task.Init(); err != nil {
+						return
+					}
+				}
+			}
+			s.consumers[name].grpConfig = c
 		}
 	}
-	// Record the new config
-	s.curCfg = newCfg
 	util.Logger.Info("applied another config", zap.Int("number", s.numCfg))
 	s.numCfg++
 	return
@@ -417,14 +399,8 @@ func (s *Sinker) commitFn() {
 			c := com.consumer
 
 			if !c.errCommit {
-				c.recMux.Lock()
-				err := json.Unmarshal(com.offsets, &c.recMap)
-				c.recMux.Unlock()
-				if err != nil {
-					util.Logger.Fatal("Failed to unmarshall offsets", zap.ByteString("offsets", com.offsets), zap.Error(err))
-				}
 			LOOP:
-				for i, value := range c.recMap {
+				for i, value := range com.offsets {
 					for k, v := range value {
 						if err := c.inputer.CommitMessages(&model.InputMessage{Topic: i, Partition: int(k), Offset: v}); err != nil {
 							c.errCommit = true
@@ -436,6 +412,8 @@ func (s *Sinker) commitFn() {
 							}()
 							util.Logger.Warn("Batch.Commit failed, will restart later", zap.Error(err))
 							break LOOP
+						} else {
+							statistics.ConsumeOffsets.WithLabelValues(com.consumer.grpConfig.Name, i, strconv.Itoa(int(k))).Set(float64(v))
 						}
 					}
 				}

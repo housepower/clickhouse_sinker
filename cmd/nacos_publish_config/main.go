@@ -74,7 +74,7 @@ func PublishSinkerConfig() {
 		return
 	}
 
-	if err = cfg.Normallize(); err != nil {
+	if err = cfg.Normallize(false, ""); err != nil {
 		util.Logger.Fatal("cfg.Normallize failed", zap.Error(err))
 		return
 	}

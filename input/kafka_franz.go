@@ -47,18 +47,11 @@ const (
 	RetryBackoff   = 5 * time.Second
 )
 
-type GroupConfig struct {
-	Name          string
-	Topics        []string
-	Earliest      bool
-	FlushInterval int
-}
-
 // KafkaFranz implements input.Inputer
 // refers to examples/group_consuming/main.go
 type KafkaFranz struct {
 	cfg       *config.Config
-	grpConfig *GroupConfig
+	grpConfig *config.GroupConfig
 	cl        *kgo.Client
 	ctx       context.Context
 	cancel    context.CancelFunc
@@ -73,7 +66,7 @@ func NewKafkaFranz() *KafkaFranz {
 }
 
 // Init Initialise the kafka instance with configuration
-func (k *KafkaFranz) Init(cfg *config.Config, gCfg *GroupConfig, f chan *kgo.Fetches, cleanupFn func()) (err error) {
+func (k *KafkaFranz) Init(cfg *config.Config, gCfg *config.GroupConfig, f chan *kgo.Fetches, cleanupFn func()) (err error) {
 	k.cfg = cfg
 	k.grpConfig = gCfg
 	k.ctx, k.cancel = context.WithCancel(context.Background())

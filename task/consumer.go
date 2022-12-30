@@ -16,12 +16,11 @@ limitations under the License.
 package task
 
 import (
-	"encoding/json"
-	"reflect"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/housepower/clickhouse_sinker/config"
 	"github.com/housepower/clickhouse_sinker/input"
 	"github.com/housepower/clickhouse_sinker/model"
 	"github.com/housepower/clickhouse_sinker/util"
@@ -33,7 +32,7 @@ import (
 
 type Commit struct {
 	group    string
-	offsets  []byte
+	offsets  map[string]map[int32]int64
 	wg       *sync.WaitGroup
 	consumer *Consumer
 }
@@ -42,15 +41,12 @@ type Consumer struct {
 	sinker    *Sinker
 	inputer   *input.KafkaFranz
 	tasks     sync.Map
-	grpConfig *input.GroupConfig
+	grpConfig *config.GroupConfig
 	fetchesCh chan *kgo.Fetches
 	processWg sync.WaitGroup
 	stopCh    chan struct{}
 	state     atomic.Uint32
 	errCommit bool
-
-	recMap map[string]map[int32]int64 // committed RecMap
-	recMux sync.Mutex
 
 	numFlying  int32
 	mux        sync.Mutex
@@ -62,15 +58,14 @@ const (
 	MaxParallelism = 10
 )
 
-func newConsumer(s *Sinker) *Consumer {
+func newConsumer(s *Sinker, gCfg *config.GroupConfig) *Consumer {
 	c := &Consumer{
 		sinker:    s,
 		numFlying: 0,
 		errCommit: false,
-		grpConfig: &input.GroupConfig{},
+		grpConfig: gCfg,
 		stopCh:    make(chan struct{}),
 		fetchesCh: make(chan *kgo.Fetches),
-		recMap:    make(map[string]map[int32]int64),
 	}
 	c.state.Store(util.StateStopped)
 	c.commitDone = sync.NewCond(&c.mux)
@@ -78,17 +73,7 @@ func newConsumer(s *Sinker) *Consumer {
 }
 
 func (c *Consumer) addTask(tsk *Service) {
-	cfg := tsk.taskCfg
-	if c.grpConfig.Name != "" && cfg.Earliest != c.grpConfig.Earliest {
-		util.Logger.Fatal("Tasks are sharing same consumer group, but with different Earliest property specified!",
-			zap.String("task", cfg.Name), zap.String("task", c.grpConfig.Name))
-	}
-	c.grpConfig.Earliest = cfg.Earliest
-	c.grpConfig.Name = cfg.ConsumerGroup
-	c.grpConfig.FlushInterval = cfg.FlushInterval
-	c.grpConfig.Topics = append(c.grpConfig.Topics, cfg.Topic)
-
-	c.tasks.Store(cfg.Name, tsk)
+	c.tasks.Store(tsk.taskCfg.Name, tsk)
 }
 
 func (c *Consumer) start() {
@@ -108,7 +93,7 @@ func (c *Consumer) stop() (err error) {
 	}
 	c.state.Store(util.StateStopped)
 
-	// stop the processFetch routine, make sure no more input to the- commit chan & writing pool
+	// stop the processFetch routine, make sure no more input to the commit chan & writing pool
 	c.stopCh <- struct{}{}
 	c.processWg.Wait()
 	err = c.inputer.Stop()
@@ -145,17 +130,25 @@ func (c *Consumer) cleanupFn() {
 	c.mux.Unlock()
 }
 
+func (c *Consumer) updateGroupConfig(g *config.GroupConfig) {
+	if c.state.Load() == util.StateStopped {
+		return
+	}
+	c.grpConfig = g
+	// stop the processFetch routine, make sure no more input to the commit chan & writing pool
+	c.stopCh <- struct{}{}
+	c.processWg.Wait()
+	go c.processFetch()
+}
+
 func (c *Consumer) processFetch() {
 	c.processWg.Add(1)
 	defer c.processWg.Done()
 	recMap := make(map[string]map[int32]int64)
-	var bufLength, bufThreshold int64
+	var bufLength int
 
 	flushFn := func() {
-		c.recMux.Lock()
-		ok := reflect.DeepEqual(recMap, c.recMap)
-		c.recMux.Unlock()
-		if ok {
+		if len(recMap) == 0 {
 			return
 		}
 		var wg sync.WaitGroup
@@ -165,22 +158,15 @@ func (c *Consumer) processFetch() {
 			return true
 		})
 		bufLength = 0
-		off, err := json.Marshal(recMap)
-		if err != nil {
-			return
-		}
+
 		c.mux.Lock()
 		c.numFlying++
 		c.mux.Unlock()
-		c.sinker.commitsCh <- &Commit{group: c.grpConfig.Name, offsets: off, wg: &wg, consumer: c}
+		c.sinker.commitsCh <- &Commit{group: c.grpConfig.Name, offsets: recMap, wg: &wg, consumer: c}
+		recMap = make(map[string]map[int32]int64)
 	}
 
-	c.tasks.Range(func(key, value any) bool {
-		bufThreshold += int64(value.(*Service).taskCfg.BufferSize)
-		return true
-	})
-
-	bufThreshold = bufThreshold * int64(len(c.sinker.curCfg.Clickhouse.Hosts)) * 4 / 5
+	bufThreshold := c.grpConfig.BufferSize * len(c.sinker.curCfg.Clickhouse.Hosts) * 4 / 5
 	if bufThreshold > MaxCountInBuf {
 		bufThreshold = MaxCountInBuf
 	}
@@ -258,6 +244,9 @@ func (c *Consumer) processFetch() {
 						}
 						for j := range ft.Partitions {
 							fpr := ft.Partitions[j].Records
+							if len(fpr) == 0 {
+								continue
+							}
 							lastOff := fpr[len(fpr)-1].Offset
 
 							old, ok := recMap[ft.Topic][ft.Partitions[j].Partition]
