@@ -1,6 +1,6 @@
 # Config Items
 
-> Here we use json with comments for documentation
+> Here we use json with comments for documentation, config file in hjson format is also supported 
 
 ```json
 {
@@ -105,6 +105,7 @@
     "parser": "json",
 
     // clickhouse table name
+    // override the clickhouse.db with "db.tableName" format, eg "default.tbl1"
     "tableName": "daily",
 
     // columns of the table

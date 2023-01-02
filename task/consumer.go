@@ -218,7 +218,7 @@ func (c *Consumer) processFetch() {
 
 						c.tasks.Range(func(key, value any) bool {
 							tsk := value.(*Service)
-							if (tablename != "" && tsk.taskCfg.TableName == tablename) || tsk.taskCfg.Topic == rec.Topic {
+							if (tablename != "" && tsk.clickhouse.TableName == tablename) || tsk.taskCfg.Topic == rec.Topic {
 								bufLength++
 								if e := tsk.Put(msg, flushFn); e != nil {
 									atomic.StoreInt64(&done, items)

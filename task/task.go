@@ -60,7 +60,7 @@ type Service struct {
 	consumer *Consumer
 }
 
-// cloneTask create a new task by steal members from s instead of creating a new one
+// cloneTask create a new task by stealing members from s instead of creating a new one
 func cloneTask(s *Service, newGroup *Consumer) (service *Service) {
 	service = &Service{
 		clickhouse: s.clickhouse,
@@ -183,7 +183,6 @@ func (service *Service) Put(msg *model.InputMessage, flushFn func()) error {
 			// 3) apply the schema change.
 			// 4) recreate the service
 			util.Logger.Warn("new key detected, consumer is going to restart", zap.String("consumer group", service.taskCfg.ConsumerGroup), zap.Error(err))
-			service.consumer.state.Store(util.StateStopped)
 			go service.consumer.restart()
 			flushFn()
 			if err = service.clickhouse.ChangeSchema(&service.newKeys); err != nil {
@@ -202,7 +201,7 @@ func (service *Service) Put(msg *model.InputMessage, flushFn func()) error {
 				util.Logger.Fatal("shard number calculation failed", zap.String("task", taskCfg.Name), zap.Error(err))
 			}
 		} else {
-			msgRow.Shard = int(msgRow.Msg.Offset>>17) % service.sharder.shards
+			msgRow.Shard = int(msgRow.Msg.Offset>>int64(util.GetShift(service.taskCfg.BufferSize))) % service.sharder.shards
 		}
 		service.sharder.PutElement(&msgRow)
 	}

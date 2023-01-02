@@ -45,6 +45,7 @@ echo "send messages to kafka"
 echo "cat /tmp/a.json | kafka-console-producer --topic topic1 --broker-list localhost:9092" > send.sh
 sudo docker cp a.json kafka:/tmp/
 sudo docker cp send.sh kafka:/tmp/
+sudo docker exec kafka kafka-topics --bootstrap-server localhost:9093 --topic topic1 --delete
 sudo docker exec kafka sh /tmp/send.sh
 
 echo "start clickhouse_sinker to consume"
