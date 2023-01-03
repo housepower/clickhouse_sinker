@@ -57,6 +57,7 @@ type Service struct {
 	sharder  *Sharder
 	limiter1 *rate.Limiter
 	limiter2 *rate.Limiter
+	offShift int64
 	consumer *Consumer
 }
 
@@ -117,6 +118,7 @@ func (service *Service) Init() (err error) {
 	service.nameKey = service.clickhouse.NameKey
 	service.limiter1 = rate.NewLimiter(rate.Every(10*time.Second), 1)
 	service.limiter2 = rate.NewLimiter(rate.Every(10*time.Second), 1)
+	service.offShift = int64(util.GetShift(taskCfg.BufferSize))
 
 	if service.sharder, err = NewSharder(service); err != nil {
 		return
@@ -201,7 +203,7 @@ func (service *Service) Put(msg *model.InputMessage, flushFn func()) error {
 				util.Logger.Fatal("shard number calculation failed", zap.String("task", taskCfg.Name), zap.Error(err))
 			}
 		} else {
-			msgRow.Shard = int(msgRow.Msg.Offset>>int64(util.GetShift(service.taskCfg.BufferSize))) % service.sharder.shards
+			msgRow.Shard = int(msgRow.Msg.Offset>>service.offShift) % service.sharder.shards
 		}
 		service.sharder.PutElement(&msgRow)
 	}
