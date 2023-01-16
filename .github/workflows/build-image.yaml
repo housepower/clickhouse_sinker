@@ -3,10 +3,10 @@ name: Build Docker image for clickhouse-sinker
 on:
   push:
     branches:
-      - main
+      - master
   pull_request:
     branches:
-      - main
+      - master
     paths:
       - ".github/workflows/build-image.yaml"
   workflow_dispatch:
