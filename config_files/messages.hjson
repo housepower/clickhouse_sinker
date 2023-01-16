@@ -1,0 +1,29 @@
+{
+    clickhouse: {
+        hosts: [
+            [
+                clickhouse-clickhouse-cluster.clickhouse.svc.cluster.local
+            ]
+        ]
+        port: 9000
+        db: default
+        username: "admin"
+        password: "admin"
+        retryTimes: 0
+    }
+    kafka: {
+        brokers: kafka-headless.kafka.svc.cluster.local:9092
+    }
+    task: {
+        name: messages_sink
+        topic: cresta.topic.messages
+        consumerGroup: messages_sink
+        earliest: true
+        parser: json
+        autoSchema: true
+        tableName: messages
+        excludeColumns: []
+        bufferSize: 50000
+    }
+    logLevel: info
+}

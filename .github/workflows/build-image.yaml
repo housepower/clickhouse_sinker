@@ -1,0 +1,134 @@
+name: Build Docker image for clickhouse-sinker
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/build-image.yaml"
+  workflow_dispatch:
+    inputs:
+      push_docker:
+        description: Enable in order to push the Docker image for deployment
+        required: true
+        type: boolean
+
+# defaults:
+#   run:
+#     # Not all actions pick this up correctly so we need to set additional overrides below
+#     working-directory: backend
+
+jobs:
+  # test_lint:
+  #   name: Python tests/lint
+  #   runs-on: ubuntu-latest
+  #   if: github.repository_owner == 'cresta'
+  #   steps:
+  #     - name: Check out code
+  #       uses: actions/checkout@v3
+  #       with:
+  #         ref:  ${{ startsWith(github.head_ref	, 'hotfix/') && github.event.pull_request.head.sha || github.sha }}
+
+  #     - name: Setup Python
+  #       uses: actions/setup-python@v3
+  #       with:
+  #         python-version: "3.10"
+  #         cache: "pip"
+  #         cache-dependency-path: "**/requirements-dev.txt"
+
+  #     - name: Configure AWS Credentials
+  #       uses: aws-actions/configure-aws-credentials@v1
+  #       with:
+  #         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  #         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  #         aws-region: us-west-2
+  #         role-to-assume: ${{ secrets.S3_UPLOAD_ROLE_ARN }}
+  #         role-duration-seconds: 1200
+
+  #     - name: Use private pypi repository
+  #       run: aws codeartifact login --tool pip --repository pypi-private --domain cresta-private --domain-owner 242659714806
+
+  #     - name: Install dependencies
+  #       run: pip install -r requirements-dev.txt
+
+  #     - name: Run tests
+  #       run: python -m pytest --cov-report term-missing --cov=director/app/ --cov-fail-under=90
+
+  #     - name: Run black
+  #       run: black --check .
+
+  #     - name: Run flake8
+  #       run: flake8
+
+  #     - name: Verify SQL Schema is up to date
+  #       run: |
+  #         python generate_schema.py > ./sql-schema/schema.sql
+  #         if [[ "$(git status --porcelain)" != "" ]]; then
+  #           git diff
+
+  #           echo "!!! Re-generating the schema produced resulting in changes in sql-schema"
+  #           echo ">>> Run 'yarn generate:schema' locally, verify, and commit the changes"
+
+  #           exit 1
+  #         fi
+
+  build_container:
+    name: Build docker container
+    # Action action-build-push-docker requires self hosted
+    runs-on: [self-hosted, cpu]
+    # needs:
+    #   - test_lint
+    outputs:
+      docker_tag: ${{ steps.imagebuild.outputs.tag }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v3
+        with:
+          ref:  ${{ startsWith(github.head_ref	, 'hotfix/') && github.event.pull_request.head.sha || github.sha }}
+      - name: Build image
+        id: imagebuild
+        uses: cresta/action-build-push-docker@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          # https://github.com/actions/runner/issues/409#issuecomment-752775072
+          push: ${{ (github.ref_name == 'main' || startsWith(github.head_ref	, 'hotfix/') || inputs.push_docker == 'true') && 'true' || 'false' }}
+          name: clickhouse-sinker
+          # context: backend
+          # authenticate-private-pypi: true
+      - name: Save Deployment Reference for Releasing
+        if: (github.ref_name == 'main' || startsWith(github.head_ref	, 'hotfix/') || inputs.push_docker) && steps.imagebuild.outputs.tag != ''
+        run: |
+          DOCKER_TAG="${{ steps.imagebuild.outputs.tag }}"
+          echo -n "${DOCKER_TAG}" > .docker_tag
+          echo "::notice::Docker Image Tag: ${DOCKER_TAG}"
+        working-directory: ""
+
+      - name: Store Deployment Reference as Artifact
+        if: (github.ref_name == 'main' || startsWith(github.head_ref, 'hotfix/') || inputs.push_docker) && steps.imagebuild.outputs.tag != ''
+        uses: actions/upload-artifact@v3
+        with:
+          name: director-docker-tag
+          path: .docker_tag
+
+  publish-beta:
+    runs-on: ubuntu-latest
+    if: |
+      github.repository_owner == 'cresta' && github.ref_name == 'main'
+    needs: [test_lint, build_container]
+    steps:
+      - uses: cresta/action-pr-repo@v2.1
+        with:
+          repo: cresta/flux-deployments
+          pr_creator_pem: ${{ secrets.PR_CREATOR_PEM }}
+          filematch: apps/director-beta/*.yaml
+          pr_branch_name: update-director-backend-beta
+          line_regex_match: "(\\s*)tag:(.*) (# director:backend-beta:autoupdate)"
+          replace_with: "${1}tag: ${{ needs.build_container.outputs.docker_tag }} ${3}"
+          commit_title: "00-head: update director backend to ${{ needs.build_container.outputs.docker_tag }}"
+          auto_merge: true
+          auto_approve: true

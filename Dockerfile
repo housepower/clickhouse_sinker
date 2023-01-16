@@ -12,6 +12,7 @@ COPY --from=builder /app/clickhouse_sinker /usr/local/bin/clickhouse_sinker
 COPY --from=builder /app/nacos_publish_config /usr/local/bin/nacos_publish_config
 COPY --from=builder /app/kafka_gen_log /usr/local/bin/kafka_gen_log
 COPY --from=builder /app/kafka_gen_metric /usr/local/bin/kafka_gen_metric
+COPY --from=builder /app/config_files/messages.hjson /etc/config/messages.hjson
 
 # clickhouse_sinker gets config from local file "/etc/clickhouse_sinker.json" by default.
 # Customize behavior with following env variables:
@@ -31,4 +32,4 @@ COPY --from=builder /app/kafka_gen_metric /usr/local/bin/kafka_gen_metric
 # - NACOS_SERVICE_NAME
 # See cmd/clickhouse_sinker/main.go for details.
 
-ENTRYPOINT ["/usr/local/bin/clickhouse_sinker"]
+ENTRYPOINT /usr/local/bin/clickhouse_sinker --local-cfg-file /etc/config/messages.hjson
