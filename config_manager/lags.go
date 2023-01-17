@@ -5,6 +5,7 @@ import (
 
 	"github.com/housepower/clickhouse_sinker/config"
 	"github.com/housepower/clickhouse_sinker/input"
+	"github.com/housepower/clickhouse_sinker/statistics"
 	"github.com/thanos-io/thanos/pkg/errors"
 	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kgo"
@@ -33,6 +34,7 @@ func GetTaskStateAndLags(cfg *config.Config) (stateLags map[string]StateLag, err
 			return
 		}
 		stateLags[taskCfg.Name] = StateLag{State: state, Lag: totalLags}
+		statistics.ConsumeLags.WithLabelValues(taskCfg.ConsumerGroup, taskCfg.Topic, taskCfg.Name).Set(float64(totalLags))
 	}
 	return
 }

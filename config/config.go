@@ -42,7 +42,6 @@ type Config struct {
 // KafkaConfig configuration parameters
 type KafkaConfig struct {
 	Brokers  string
-	Version  string
 	Security map[string]string
 	TLS      struct {
 		Enable         bool
@@ -106,7 +105,6 @@ type ClickHouseConfig struct {
 type TaskConfig struct {
 	Name string
 
-	KafkaClient   string
 	Topic         string
 	ConsumerGroup string
 
@@ -117,7 +115,8 @@ type TaskConfig struct {
 	CsvFormat []string
 	Delimiter string
 
-	TableName string
+	TableName       string
+	SeriesTableName string
 
 	// AutoSchema will auto fetch the schema from clickhouse
 	AutoSchema     bool
@@ -207,15 +206,6 @@ func (cfg *Config) Normallize(constructGroup bool, httpAddr string) (err error) 
 	if len(cfg.Clickhouse.Hosts) == 0 || cfg.Kafka.Brokers == "" {
 		err = errors.Newf("invalid configuration")
 		return
-	}
-	if cfg.Kafka.Version == "" {
-		// https://cwiki.apache.org/confluence/display/KAFKA/Compatibility+Matrix
-		// KIP-35 - Retrieving protocol version introduced a mechanism for dynamically determining the functionality of a Kafka broker.
-		// https://github.com/Shopify/sarama/issues/1732,
-		// Historically Sarama has tied it's protocol usage to the Version field in Config.
-		// https://kafka.apache.org/downloads
-		// 2.0.0 is released at July 30, 2018.
-		cfg.Kafka.Version = "2.0.0"
 	}
 
 	cfg.convertKfkSecurity()

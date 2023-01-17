@@ -68,6 +68,13 @@ var (
 		},
 		[]string{"consumer", "topic", "partition"},
 	)
+	ConsumeLags = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: prefix + "consume_lags",
+			Help: "message lags for each task, work with cluster of sinker",
+		},
+		[]string{"consumer", "topic", "task"},
+	)
 	ShardMsgs = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: prefix + "shard_msgs",
@@ -134,6 +141,7 @@ func init() {
 	prometheus.MustRegister(FlushMsgsTotal)
 	prometheus.MustRegister(FlushMsgsErrorTotal)
 	prometheus.MustRegister(ConsumeOffsets)
+	prometheus.MustRegister(ConsumeLags)
 	prometheus.MustRegister(ShardMsgs)
 	prometheus.MustRegister(WritingPoolBacklog)
 	prometheus.MustRegister(WritingDurations)
@@ -226,6 +234,7 @@ func (p *Pusher) reconnect() {
 		Collector(FlushMsgsTotal).
 		Collector(FlushMsgsErrorTotal).
 		Collector(ConsumeOffsets).
+		Collector(ConsumeLags).
 		Collector(ShardMsgs).
 		Collector(WritingPoolBacklog).
 		Collector(WritingDurations).

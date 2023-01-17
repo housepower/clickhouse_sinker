@@ -49,7 +49,15 @@ var (
 	// zooKeeper Session expired issue: https://cwiki.apache.org/confluence/display/ZOOKEEPER/FAQ#:~:text=How%20should%20I%20handle%20SESSION_EXPIRED%3F
 	replicaSpecificErrorCodes = []int32{225, 242, 252, 319, 999, 1000} //NO_ZOOKEEPER, TABLE_IS_READ_ONLY, TOO_MANY_PARTS, UNKNOWN_STATUS_OF_INSERT, KEEPER_EXCEPTION, POCO_EXCEPTION
 	wrSeriesQuota             = 16384
+	seriesQuotas              sync.Map
 )
+
+type seriesQuota struct {
+	sync.Mutex
+	nextResetQuota time.Time
+	bmSeries       map[int64]int64
+	wrSeries       int
+}
 
 // ClickHouse is an output service consumers from kafka messages
 type ClickHouse struct {
@@ -60,7 +68,7 @@ type ClickHouse struct {
 	cfg       *config.Config
 	taskCfg   *config.TaskConfig
 	TableName string
-	DBName    string
+	dbName    string
 
 	prepareSQL string
 	promSerSQL string
@@ -69,19 +77,17 @@ type ClickHouse struct {
 	distMetricTbls []string
 	distSeriesTbls []string
 
-	bmSeries       map[int64]int64
-	wrSeries       int
-	numFlying      int32
-	mux            sync.Mutex
-	taskDone       *sync.Cond
-	nextResetQuota time.Time
+	seriesQuota *seriesQuota
+
+	numFlying int32
+	mux       sync.Mutex
+	taskDone  *sync.Cond
 }
 
 // NewClickHouse new a clickhouse instance
 func NewClickHouse(cfg *config.Config, taskCfg *config.TaskConfig) *ClickHouse {
 	ck := &ClickHouse{cfg: cfg, taskCfg: taskCfg}
 	ck.taskDone = sync.NewCond(&ck.mux)
-	ck.nextResetQuota = time.Now().Add(10 * time.Second)
 	return ck
 }
 
@@ -125,21 +131,21 @@ func (c *ClickHouse) Send(batch *model.Batch) {
 }
 
 func (c *ClickHouse) AllowWriteSeries(sid, mid int64) (allowed bool) {
-	c.mux.Lock()
-	defer c.mux.Unlock()
-	mid2, loaded := c.bmSeries[sid]
+	c.seriesQuota.Lock()
+	defer c.seriesQuota.Unlock()
+	mid2, loaded := c.seriesQuota.bmSeries[sid]
 	if !loaded {
 		allowed = true
 		statistics.WriteSeriesAllowNew.WithLabelValues(c.taskCfg.Name).Inc()
 	} else if mid != mid2 {
-		if c.wrSeries < wrSeriesQuota {
-			c.wrSeries++
+		if c.seriesQuota.wrSeries < wrSeriesQuota {
+			c.seriesQuota.wrSeries++
 			allowed = true
 		} else {
 			now := time.Now()
-			if now.After(c.nextResetQuota) {
-				c.nextResetQuota = now.Add(10 * time.Second)
-				c.wrSeries = 1
+			if now.After(c.seriesQuota.nextResetQuota) {
+				c.seriesQuota.nextResetQuota = now.Add(10 * time.Second)
+				c.seriesQuota.wrSeries = 1
 				allowed = true
 			}
 		}
@@ -169,16 +175,16 @@ func (c *ClickHouse) writeSeries(rows model.Rows, conn clickhouse.Conn) (err err
 			return
 		}
 		// update c.bmSeries **after** writing series
-		c.mux.Lock()
+		c.seriesQuota.Lock()
 		for _, row := range seriesRows {
 			sid := (*row)[c.IdxSerID].(int64)
 			mid := (*row)[c.IdxSerID+1].(int64)
-			if _, loaded := c.bmSeries[sid]; loaded {
-				c.wrSeries--
+			if _, loaded := c.seriesQuota.bmSeries[sid]; loaded {
+				c.seriesQuota.wrSeries--
 			}
-			c.bmSeries[sid] = mid
+			c.seriesQuota.bmSeries[sid] = mid
 		}
-		c.mux.Unlock()
+		c.seriesQuota.Unlock()
 		util.Logger.Info("ClickHouse.writeSeries succeeded", zap.Int("series", len(seriesRows)), zap.String("task", c.taskCfg.Name))
 		statistics.WriteSeriesSucceed.WithLabelValues(c.taskCfg.Name).Add(float64(len(seriesRows)))
 		if numBad != 0 {
@@ -260,12 +266,21 @@ func (c *ClickHouse) initBmSeries(conn clickhouse.Conn) (err error) {
 	if c.cfg.Clickhouse.Cluster != "" {
 		tbl = c.distSeriesTbls[0]
 	}
-	c.bmSeries = make(map[int64]int64)
+	sq := &seriesQuota{}
+	if v, ok := seriesQuotas.LoadOrStore(tbl, sq); ok {
+		c.seriesQuota = v.(*seriesQuota)
+	} else {
+		sq.Lock()
+		sq.bmSeries = make(map[int64]int64)
+		sq.nextResetQuota = time.Now().Add(10 * time.Second)
+		sq.Unlock()
+		c.seriesQuota = sq
+	}
 	if !c.taskCfg.LoadSeriesAtStartup {
 		util.Logger.Info(fmt.Sprintf("skipped loading series from %v", tbl), zap.String("task", c.taskCfg.Name))
 		return
 	}
-	query := fmt.Sprintf("SELECT toInt64(__series_id) AS sid, toInt64(__mgmt_id) AS mid FROM %s.%s ORDER BY sid", c.DBName, tbl)
+	query := fmt.Sprintf("SELECT toInt64(__series_id) AS sid, toInt64(__mgmt_id) AS mid FROM %s.%s ORDER BY sid", c.dbName, tbl)
 	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query))
 	var rs driver.Rows
 	var seriesID, mgmtID int64
@@ -274,14 +289,17 @@ func (c *ClickHouse) initBmSeries(conn clickhouse.Conn) (err error) {
 		return err
 	}
 	defer rs.Close()
+
+	c.seriesQuota.Lock()
+	defer c.seriesQuota.Unlock()
 	for rs.Next() {
 		if err = rs.Scan(&seriesID, &mgmtID); err != nil {
 			err = errors.Wrapf(err, "")
 			return err
 		}
-		c.bmSeries[seriesID] = mgmtID
+		c.seriesQuota.bmSeries[seriesID] = mgmtID
 	}
-	util.Logger.Info(fmt.Sprintf("loaded %d series from %v", len(c.bmSeries), tbl), zap.String("task", c.taskCfg.Name))
+	util.Logger.Info(fmt.Sprintf("loaded %d series from %v", len(c.seriesQuota.bmSeries), tbl), zap.String("task", c.taskCfg.Name))
 	return
 }
 
@@ -299,28 +317,31 @@ func (c *ClickHouse) initSeriesSchema(conn clickhouse.Conn) (err error) {
 			c.Dims = append(c.Dims[:i], c.Dims[i+1:]...)
 		} else if dim.Type.Type == model.String {
 			c.Dims = append(c.Dims[:i], c.Dims[i+1:]...)
+			util.Logger.Warn("non-numeric type metric ignored", zap.String("metric name", dim.Name))
 		} else {
 			i++
 		}
 	}
 	if dimSerID == nil {
-		err = errors.Newf("Metric table %s.%s shall have column `__series_id UInt64`.", c.DBName, c.TableName)
+		err = errors.Newf("Metric table %s.%s shall have column `__series_id UInt64`.", c.dbName, c.TableName)
 		return
 	}
 	c.IdxSerID = len(c.Dims)
 	c.Dims = append(c.Dims, dimSerID)
 
 	// Add string columns from series table
-	c.seriesTbl = c.TableName + "_series"
+	if c.seriesTbl == "" {
+		c.seriesTbl = c.TableName + "_series"
+	}
 	expSeriesDims := []*model.ColumnWithType{
 		{Name: "__series_id", Type: &model.TypeInfo{Type: model.Int64}},
 		{Name: "__mgmt_id", Type: &model.TypeInfo{Type: model.Int64}},
 		{Name: "labels", Type: &model.TypeInfo{Type: model.String}},
 	}
 	var seriesDims []*model.ColumnWithType
-	if seriesDims, err = getDims(c.DBName, c.seriesTbl, nil, c.taskCfg.Parser, conn); err != nil {
+	if seriesDims, err = getDims(c.dbName, c.seriesTbl, nil, c.taskCfg.Parser, conn); err != nil {
 		if errors.Is(err, ErrTblNotExist) {
-			err = errors.Wrapf(err, "Please create series table for %s.%s", c.DBName, c.TableName)
+			err = errors.Wrapf(err, "Please create series table for %s.%s", c.dbName, c.TableName)
 			return
 		}
 		return
@@ -331,7 +352,7 @@ func (c *ClickHouse) initSeriesSchema(conn clickhouse.Conn) (err error) {
 	} else {
 		for i := range expSeriesDims {
 			if seriesDims[i].Name != expSeriesDims[i].Name ||
-				seriesDims[i].Type != expSeriesDims[i].Type {
+				seriesDims[i].Type.Type != expSeriesDims[i].Type.Type {
 				badFirst = true
 				break
 			}
@@ -357,7 +378,7 @@ func (c *ClickHouse) initSeriesSchema(conn clickhouse.Conn) (err error) {
 		serDimsQuoted[i] = fmt.Sprintf("`%s`", serDim.Name)
 	}
 	c.promSerSQL = fmt.Sprintf("INSERT INTO `%s`.`%s` (%s)",
-		c.DBName,
+		c.dbName,
 		c.seriesTbl,
 		strings.Join(serDimsQuoted, ","))
 
@@ -382,18 +403,20 @@ func (c *ClickHouse) initSeriesSchema(conn clickhouse.Conn) (err error) {
 func (c *ClickHouse) initSchema() (err error) {
 	if idx := strings.Index(c.taskCfg.TableName, "."); idx > 0 {
 		c.TableName = c.taskCfg.TableName[idx+1:]
-		c.DBName = c.taskCfg.TableName[0:idx]
+		c.dbName = c.taskCfg.TableName[0:idx]
 	} else {
 		c.TableName = c.taskCfg.TableName[idx+1:]
-		c.DBName = c.cfg.Clickhouse.DB
+		c.dbName = c.cfg.Clickhouse.DB
 	}
+	c.seriesTbl = c.taskCfg.SeriesTableName
+
 	sc := pool.GetShardConn(0)
 	var conn clickhouse.Conn
 	if conn, _, err = sc.NextGoodReplica(0); err != nil {
 		return
 	}
 	if c.taskCfg.AutoSchema {
-		if c.Dims, err = getDims(c.DBName, c.TableName, c.taskCfg.ExcludeColumns, c.taskCfg.Parser, conn); err != nil {
+		if c.Dims, err = getDims(c.dbName, c.TableName, c.taskCfg.ExcludeColumns, c.taskCfg.Parser, conn); err != nil {
 			return
 		}
 	} else {
@@ -420,7 +443,7 @@ func (c *ClickHouse) initSchema() (err error) {
 		quotedDms[i] = fmt.Sprintf("`%s`", c.Dims[i].Name)
 	}
 	c.prepareSQL = fmt.Sprintf("INSERT INTO `%s`.`%s` (%s)",
-		c.DBName,
+		c.dbName,
 		c.TableName,
 		strings.Join(quotedDms, ","))
 	util.Logger.Info(fmt.Sprintf("Prepare sql=> %s", c.prepareSQL), zap.String("task", c.taskCfg.Name))
@@ -485,12 +508,12 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 		}
 		if c.taskCfg.PrometheusSchema {
 			if intVal == model.String {
-				query := fmt.Sprintf("ALTER TABLE `%s`.`%s` %s ADD COLUMN IF NOT EXISTS `%s` %s", c.DBName, c.seriesTbl, onCluster, strKey, strVal)
+				query := fmt.Sprintf("ALTER TABLE `%s`.`%s` %s ADD COLUMN IF NOT EXISTS `%s` %s", c.dbName, c.seriesTbl, onCluster, strKey, strVal)
 				queries = append(queries, query)
 				affectDistSeries = true
 			}
 		} else {
-			query := fmt.Sprintf("ALTER TABLE `%s`.`%s` %s ADD COLUMN IF NOT EXISTS `%s` %s", c.DBName, c.TableName, onCluster, strKey, strVal)
+			query := fmt.Sprintf("ALTER TABLE `%s`.`%s` %s ADD COLUMN IF NOT EXISTS `%s` %s", c.dbName, c.TableName, onCluster, strKey, strVal)
 			queries = append(queries, query)
 			affectDistMetric = true
 		}
@@ -514,12 +537,12 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 	}
 	if chCfg.Cluster != "" {
 		if affectDistMetric {
-			if err = recreateDistTbls(chCfg.Cluster, c.DBName, c.TableName, c.distMetricTbls, conn); err != nil {
+			if err = recreateDistTbls(chCfg.Cluster, c.dbName, c.TableName, c.distMetricTbls, conn); err != nil {
 				return
 			}
 		}
 		if affectDistSeries {
-			if err = recreateDistTbls(chCfg.Cluster, c.DBName, c.seriesTbl, c.distSeriesTbls, conn); err != nil {
+			if err = recreateDistTbls(chCfg.Cluster, c.dbName, c.seriesTbl, c.distSeriesTbls, conn); err != nil {
 				return
 			}
 		}
@@ -536,7 +559,7 @@ func (c *ClickHouse) getDistTbls(table string) (distTbls []string, err error) {
 		return
 	}
 	query := fmt.Sprintf(`SELECT name FROM system.tables WHERE engine='Distributed' AND database='%s' AND match(create_table_query, 'Distributed\(\'%s\', \'%s\', \'%s\'.*\)')`,
-		c.DBName, chCfg.Cluster, c.DBName, table)
+		c.dbName, chCfg.Cluster, c.dbName, table)
 	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", taskCfg.Name))
 
 	var rows driver.Rows

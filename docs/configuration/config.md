@@ -85,9 +85,6 @@
         "disablepafxfast": false
       }
     },
-
-    // kafka version, if you use sarama, the version must be specified
-    "version": "2.5.0"
   },
 
   "task": {
@@ -106,7 +103,10 @@
 
     // clickhouse table name
     // override the clickhouse.db with "db.tableName" format, eg "default.tbl1"
-    "tableName": "daily",
+    "tableName": "prom_metric",
+
+    // name of the timeseries table, by default it is tableName with a "_series" suffix
+    "seriesTableName": "prom_metric_myseries",
 
     // columns of the table
     "dims": [
@@ -152,7 +152,7 @@
 
     // shardingKey is the column name to which sharding against
     "shardingKey": "",
-    // shardingStripe take effect iff the sharding key is numerical
+    // shardingStripe take effect if the sharding key is numerical
     "shardingStripe": 0,
 
     // interval of flushing the batch. Default to 5, max to 600.
