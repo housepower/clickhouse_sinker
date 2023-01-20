@@ -267,7 +267,7 @@ func (c *ClickHouse) initBmSeries(conn clickhouse.Conn) (err error) {
 		tbl = c.distSeriesTbls[0]
 	}
 	sq := &seriesQuota{}
-	if v, ok := seriesQuotas.LoadOrStore(tbl, sq); ok {
+	if v, ok := seriesQuotas.LoadOrStore(c.GetSeriesQuotaKey(), sq); ok {
 		c.seriesQuota = v.(*seriesQuota)
 	} else {
 		sq.Lock()
@@ -276,10 +276,7 @@ func (c *ClickHouse) initBmSeries(conn clickhouse.Conn) (err error) {
 		sq.Unlock()
 		c.seriesQuota = sq
 	}
-	if !c.taskCfg.LoadSeriesAtStartup {
-		util.Logger.Info(fmt.Sprintf("skipped loading series from %v", tbl), zap.String("task", c.taskCfg.Name))
-		return
-	}
+
 	query := fmt.Sprintf("SELECT toInt64(__series_id) AS sid, toInt64(__mgmt_id) AS mid FROM %s.%s ORDER BY sid", c.dbName, tbl)
 	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query))
 	var rs driver.Rows
@@ -577,4 +574,21 @@ func (c *ClickHouse) getDistTbls(table string) (distTbls []string, err error) {
 		distTbls = append(distTbls, name)
 	}
 	return
+}
+
+func UpdateSeriesQuotas(c map[string]struct{}) {
+	seriesQuotas.Range(func(key, value any) bool {
+		k := key.(string)
+		if _, ok := c[k]; !ok {
+			seriesQuotas.Delete(k)
+		}
+		return true
+	})
+}
+
+func (c *ClickHouse) GetSeriesQuotaKey() string {
+	if c.taskCfg.PrometheusSchema {
+		return c.dbName + "." + c.seriesTbl
+	}
+	return ""
 }

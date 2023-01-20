@@ -28,6 +28,7 @@ import (
 	"github.com/housepower/clickhouse_sinker/config"
 	cm "github.com/housepower/clickhouse_sinker/config_manager"
 	"github.com/housepower/clickhouse_sinker/model"
+	"github.com/housepower/clickhouse_sinker/output"
 	"github.com/housepower/clickhouse_sinker/pool"
 	"github.com/housepower/clickhouse_sinker/statistics"
 	"github.com/housepower/clickhouse_sinker/util"
@@ -290,6 +291,8 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 	if !reflect.DeepEqual(newCfg.Kafka, s.curCfg.Kafka) || !reflect.DeepEqual(newCfg.Clickhouse, s.curCfg.Clickhouse) {
 		// 1. Stop tasks gracefully. Wait until all flying data be processed (write to CH and commit to Kafka).
 		s.stopAllTasks()
+		// 1.1 Cleanup the SeriesQuotas when stopping tasks
+		output.UpdateSeriesQuotas(make(map[string]struct{}))
 		// 2. Initialize clickhouse connections.
 		chCfg := &newCfg.Clickhouse
 		if err = pool.InitClusterConn(chCfg.Hosts, chCfg.Port, chCfg.DB, chCfg.Username, chCfg.Password,
@@ -357,6 +360,19 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 			delete(s.consumers, v)
 		}
 		wg.Wait()
+		// 1.1) Update the SeriesQuotas when stopping tasks
+		tables := make(map[string]struct{})
+		for _, c := range s.consumers {
+			c.tasks.Range(func(key, value any) bool {
+				k := value.(*Service).clickhouse.GetSeriesQuotaKey()
+				if k != "" {
+					tables[k] = struct{}{}
+				}
+				return true
+			})
+		}
+		output.UpdateSeriesQuotas(tables)
+
 		// 2) fire up new consumers
 		// Record the new config
 		s.curCfg = newCfg

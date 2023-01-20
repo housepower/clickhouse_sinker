@@ -142,8 +142,6 @@ type TaskConfig struct {
 	PrometheusSchema bool
 	// fields match PromLabelsBlackList are not considered as labels. Requires PrometheusSchema be true.
 	PromLabelsBlackList string // the regexp of black list
-	// whether load series at startup
-	LoadSeriesAtStartup bool
 
 	// ShardingKey is the column name to which sharding against
 	ShardingKey string `json:"shardingKey,omitempty"`
