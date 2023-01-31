@@ -503,13 +503,14 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 			err = errors.Newf("%s: BUG: unsupported column type %s", taskCfg.Name, model.GetTypeName(intVal))
 			return false
 		}
-		if c.taskCfg.PrometheusSchema {
-			if intVal == model.String {
-				query := fmt.Sprintf("ALTER TABLE `%s`.`%s` %s ADD COLUMN IF NOT EXISTS `%s` %s", c.dbName, c.seriesTbl, onCluster, strKey, strVal)
-				queries = append(queries, query)
-				affectDistSeries = true
-			}
+		if c.taskCfg.PrometheusSchema && intVal == model.String {
+			query := fmt.Sprintf("ALTER TABLE `%s`.`%s` %s ADD COLUMN IF NOT EXISTS `%s` %s", c.dbName, c.seriesTbl, onCluster, strKey, strVal)
+			queries = append(queries, query)
+			affectDistSeries = true
 		} else {
+			if c.taskCfg.PrometheusSchema && intVal > model.String {
+				util.Logger.Fatal("unsupported metric value type", zap.String("type", strVal), zap.String("name", strKey), zap.String("task", c.taskCfg.Name))
+			}
 			query := fmt.Sprintf("ALTER TABLE `%s`.`%s` %s ADD COLUMN IF NOT EXISTS `%s` %s", c.dbName, c.TableName, onCluster, strKey, strVal)
 			queries = append(queries, query)
 			affectDistMetric = true

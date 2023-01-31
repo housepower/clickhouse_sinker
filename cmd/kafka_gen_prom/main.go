@@ -120,6 +120,9 @@ type Labels map[string]string
 type Datapoint struct {
 	Timestamp time.Time
 	Value     float32
+	Value1    float64
+	Value2    int64
+	Value3    bool
 	Name      string `json:"__name__"`
 	Labels    Labels
 	LabelKeys []string
@@ -141,7 +144,8 @@ func (dp Datapoint) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	labels2 := labels[1 : len(labels)-1]
-	msg := fmt.Sprintf(`{"timestamp":"%s", "value":%f,"__name__":"%s","labels":%s,%s,"__series_id":%d,"__mgmt_id":%d}`, dp.Timestamp.Format(time.RFC3339), dp.Value, dp.Name, labels, labels2, seriesID, mgmtID)
+	msg := fmt.Sprintf(`{"timestamp":"%s", "value":%f, "value1":%g, "value2":%d, "value3":%t, "__name__":"%s", %s, "__series_id":%d, "__mgmt_id":%d}`,
+		dp.Timestamp.Format(time.RFC3339), dp.Value, dp.Value1, dp.Value2, dp.Value3, dp.Name, labels2, seriesID, mgmtID)
 	return []byte(msg), nil
 }
 
@@ -157,6 +161,11 @@ func randValue() (val string) {
 	}
 	val = string(b)
 	return
+}
+
+func randBool() bool {
+	rand.Seed(time.Now().UnixNano())
+	return rand.Intn(2) == 1
 }
 
 func initMetrics() {
@@ -209,6 +218,9 @@ func generate() {
 				dp := Datapoint{
 					Timestamp: timestamp,
 					Value:     rand.Float32(),
+					Value1:    rand.Float64(),
+					Value2:    rand.Int63(),
+					Value3:    randBool(),
 					Name:      metrics[i].Name,
 					Labels:    make(Labels),
 					LabelKeys: metrics[i].LabelKeys,
