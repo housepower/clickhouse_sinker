@@ -16,6 +16,8 @@ limitations under the License.
 package util
 
 import (
+	"fmt"
+
 	"go.uber.org/zap"
 )
 
@@ -31,8 +33,9 @@ func Run(appName string, initFunc, jobFunc, cleanupFunc func() error) {
 		}
 	}()
 
-	WaitForExitSign()
-	Logger.Info(appName + " got the exit signal, start to clean")
+	s := WaitForExitSign()
+	Logger.Info(fmt.Sprintf("%s got the exit signal %s, start to clean", appName, s))
+
 	if err := cleanupFunc(); err != nil {
 		Logger.Fatal(appName+" clean failed", zap.Error(err))
 	}

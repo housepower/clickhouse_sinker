@@ -143,7 +143,7 @@ func (g *LogGenerator) Stat() (l, s int64) {
 	return
 }
 
-//reset logfiles
+// reset logfiles
 func (g *LogGenerator) Init() error {
 	g.logfiles = nil
 	g.off = -1
@@ -186,7 +186,7 @@ func (g *LogGenerator) Init() error {
 	return nil
 }
 
-//switch to next log file
+// switch to next log file
 func (g *LogGenerator) next() (err error) {
 	g.scanner = nil
 	if g.reader != nil {
@@ -329,7 +329,7 @@ log_file_pattern: file name pattern, for example, '^secure.*$'`, os.Args[0], os.
 		util.Logger.Fatal("got error", zap.Error(err))
 	}
 
-	ctx, _ := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	ctx, _ := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	g := &LogGenerator{}
 	if err := g.Init(); err != nil {
 		util.Logger.Fatal("got error", zap.Error(err))
