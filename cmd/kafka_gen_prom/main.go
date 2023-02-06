@@ -267,7 +267,7 @@ topic: for example, prom_extend`, os.Args[0], os.Args[0])
 	}
 
 	var prevLines, prevSize int64
-	ctx, _ := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	ctx, _ := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	go generate()
 
 	ticker := time.NewTicker(10 * time.Second)

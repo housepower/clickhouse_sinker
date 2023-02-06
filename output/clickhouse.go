@@ -223,15 +223,13 @@ func (c *ClickHouse) loopWrite(batch *model.Batch) {
 	sc := pool.GetShardConn(batch.BatchIdx)
 	for {
 		if err = c.write(batch, sc, &dbVer); err == nil {
-			if err = batch.Commit(); err == nil {
-				return
+			if err = batch.Commit(); err != nil {
+				// Note: kafka_go and sarama commit throws different error for context cancellation.
+				if errors.Is(err, context.Canceled) || errors.Is(err, io.ErrClosedPipe) {
+					util.Logger.Warn("Batch.Commit failed due to the context has been cancelled", zap.String("task", c.taskCfg.Name))
+				}
 			}
-			// Note: kafka_go and sarama commit throws different error for context cancellation.
-			if errors.Is(err, context.Canceled) || errors.Is(err, io.ErrClosedPipe) {
-				util.Logger.Warn("Batch.Commit failed due to the context has been cancelled", zap.String("task", c.taskCfg.Name))
-				return
-			}
-			util.Logger.Fatal("Batch.Commit failed with permanent error", zap.String("task", c.taskCfg.Name), zap.Error(err))
+			return
 		}
 		if errors.Is(err, context.Canceled) {
 			util.Logger.Info("ClickHouse.write failed due to the context has been cancelled", zap.String("task", c.taskCfg.Name))

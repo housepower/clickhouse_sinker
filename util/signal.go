@@ -21,8 +21,8 @@ import (
 	"syscall"
 )
 
-func WaitForExitSign() {
+func WaitForExitSign() os.Signal {
 	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
-	<-c
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	return <-c
 }
