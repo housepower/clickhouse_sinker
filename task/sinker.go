@@ -341,6 +341,15 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 					if !reflect.DeepEqual(c.grpConfig.Topics, group.Topics) {
 						deleteConsumers = append(deleteConsumers, name)
 					} else {
+						// apply TaskConfig Change
+						for _, tCfg := range group.Configs {
+							if !reflect.DeepEqual(tCfg, s.consumers[name].grpConfig.Configs[tCfg.Name]) {
+								task := NewTaskService(newCfg, tCfg, s.consumers[name])
+								if err = task.Init(); err != nil {
+									return
+								}
+							}
+						}
 						c.updateGroupConfig(group)
 					}
 				}
@@ -388,18 +397,6 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 				c.start()
 				s.consumers[v.Name] = c
 			}
-		}
-		// 3) apply TaskConfig Change
-		for name, c := range newCfg.Groups {
-			for _, tCfg := range c.Configs {
-				if !reflect.DeepEqual(tCfg, s.consumers[name].grpConfig.Configs[tCfg.Name]) {
-					task := NewTaskService(newCfg, tCfg, s.consumers[name])
-					if err = task.Init(); err != nil {
-						return
-					}
-				}
-			}
-			s.consumers[name].grpConfig = c
 		}
 	}
 	util.Logger.Info("applied another config", zap.Int("number", s.numCfg))

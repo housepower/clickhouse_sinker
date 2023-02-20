@@ -135,7 +135,8 @@ func (c *Consumer) updateGroupConfig(g *config.GroupConfig) {
 		return
 	}
 	c.grpConfig = g
-	// stop the processFetch routine, make sure no more input to the commit chan & writing pool
+	// restart the processFetch routine because of potential BufferSize or FlushInterval change
+	// make sure no more input to the commit chan & writing pool
 	c.stopCh <- struct{}{}
 	c.processWg.Wait()
 	go c.processFetch()
