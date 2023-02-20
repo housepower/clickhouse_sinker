@@ -85,7 +85,10 @@ func cloneTask(s *Service, newGroup *Consumer) (service *Service) {
 // NewTaskService creates an instance of new tasks with kafka, clickhouse and paser instances
 func NewTaskService(cfg *config.Config, taskCfg *config.TaskConfig, c *Consumer) (service *Service) {
 	ck := output.NewClickHouse(cfg, taskCfg)
-	pp, _ := parser.NewParserPool(taskCfg.Parser, taskCfg.CsvFormat, taskCfg.Delimiter, taskCfg.TimeZone, taskCfg.TimeUnit)
+	pp, err := parser.NewParserPool(taskCfg.Parser, taskCfg.CsvFormat, taskCfg.Delimiter, taskCfg.TimeZone, taskCfg.TimeUnit)
+	if err != nil {
+		util.Logger.Fatal("failed to create task", zap.String("group", c.grpConfig.Name), zap.String("task", taskCfg.Name), zap.Error(err))
+	}
 	service = &Service{
 		clickhouse: ck,
 		pp:         pp,

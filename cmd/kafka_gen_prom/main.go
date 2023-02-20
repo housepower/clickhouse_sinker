@@ -150,8 +150,9 @@ func (dp Datapoint) MarshalJSON() ([]byte, error) {
 }
 
 type PromMetric struct {
-	Name      string
-	LabelKeys []string
+	Name        string
+	LabelKeys   []string
+	LabelValues []string
 }
 
 func randValue() (val string) {
@@ -172,12 +173,14 @@ func initMetrics() {
 	metrics = make([]PromMetric, NumMetrics)
 	for i := 0; i < NumMetrics; i++ {
 		m := PromMetric{
-			Name:      fmt.Sprintf("metric_%08d", i),
-			LabelKeys: make([]string, NumKeys),
+			Name:        fmt.Sprintf("metric_%08d", i),
+			LabelKeys:   make([]string, NumKeys),
+			LabelValues: make([]string, NumKeys),
 		}
 		for j := 0; j < NumKeys; j++ {
-			key := fmt.Sprintf("key_%06d", rand.Intn(NumAllKeys+1))
+			key := fmt.Sprintf("key_%d", rand.Intn(NumAllKeys))
 			m.LabelKeys[j] = key
+			m.LabelValues[j] = randValue()
 		}
 		sort.Strings(m.LabelKeys)
 		metrics[i] = m
@@ -225,8 +228,8 @@ func generate() {
 					Labels:    make(Labels),
 					LabelKeys: metrics[i].LabelKeys,
 				}
-				for _, key := range metrics[i].LabelKeys {
-					dp.Labels[key] = randValue()
+				for valueuIndex, key := range metrics[i].LabelKeys {
+					dp.Labels[key] = metrics[i].LabelValues[valueuIndex]
 				}
 
 				_ = wp.Submit(func() {
