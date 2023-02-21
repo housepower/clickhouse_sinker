@@ -325,7 +325,7 @@ func (c *ClickHouse) initSeriesSchema(conn clickhouse.Conn) (err error) {
 	} else {
 		for i := range expSeriesDims {
 			if seriesDims[i].Name != expSeriesDims[i].Name ||
-				seriesDims[i].Type != expSeriesDims[i].Type {
+				seriesDims[i].Type.Type != expSeriesDims[i].Type.Type {
 				badFirst = true
 				break
 			}

@@ -18,6 +18,7 @@ benchtest: pre
 	go test -bench=. ./...
 systest: build
 	bash go.test.sh
+	bash go.metrictest.sh
 lint:
 	golangci-lint run --timeout=3m
 run: pre

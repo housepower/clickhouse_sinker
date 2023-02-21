@@ -75,7 +75,10 @@ type Service struct {
 // NewTaskService creates an instance of new tasks with kafka, clickhouse and paser instances
 func NewTaskService(cfg *config.Config, taskCfg *config.TaskConfig) (service *Service) {
 	ck := output.NewClickHouse(cfg, taskCfg)
-	pp, _ := parser.NewParserPool(taskCfg.Parser, taskCfg.CsvFormat, taskCfg.Delimiter, taskCfg.TimeZone, taskCfg.TimeUnit)
+	pp, err := parser.NewParserPool(taskCfg.Parser, taskCfg.CsvFormat, taskCfg.Delimiter, taskCfg.TimeZone, taskCfg.TimeUnit)
+	if err != nil {
+		util.Logger.Fatal("failed to create task", zap.String("task", taskCfg.Name), zap.Error(err))
+	}
 	inputer := input.NewInputer(taskCfg.KafkaClient)
 	service = &Service{
 		inputer:    inputer,

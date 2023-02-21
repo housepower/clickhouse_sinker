@@ -80,7 +80,9 @@ func (ncm *NacosConfManager) Init(properties map[string]interface{}) (err error)
 	if pop, ok := properties["logDir"]; ok {
 		logDir, _ = pop.(string)
 	}
-	logDir, _ = filepath.Abs(logDir)
+	if logDir, err = filepath.Abs(logDir); err != nil {
+		return errors.Wrapf(err, "")
+	}
 	cc := constant.ClientConfig{
 		NamespaceId:         namespaceID,
 		TimeoutMs:           5000,
@@ -159,6 +161,10 @@ func (ncm *NacosConfManager) PublishConfig(conf *config.Config) (err error) {
 	if err != nil {
 		err = errors.Wrapf(err, "")
 		return
+	}
+	// update the conf so that properties with default values are no longer nil
+	if err = hjson.Unmarshal(bs, conf); err != nil {
+		err = errors.Wrapf(err, "")
 	}
 	return
 }

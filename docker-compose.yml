@@ -10,6 +10,7 @@ services:
       - "2181:2181"
     environment:
       ALLOW_ANONYMOUS_LOGIN: 1
+      ZOO_4LW_COMMANDS_WHITELIST: "*"
     security_opt:
       - label:disable
   kafka:
@@ -44,6 +45,7 @@ services:
         hard: 262144
     volumes:
       - "./docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d"
+      - "./docker/metrika.xml:/etc/clickhouse-server/config.d/metrika.xml"
     security_opt:
       - label:disable
   nacos:

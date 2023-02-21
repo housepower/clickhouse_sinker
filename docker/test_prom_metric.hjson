@@ -1,0 +1,33 @@
+{
+    clickhouse: {
+        hosts: [
+            [
+                127.0.0.1
+            ]
+        ]
+        port: 9000
+        db: default
+        username: ""
+        password: ""
+        retryTimes: 0
+    }
+    kafka: {
+        brokers: 127.0.0.1:9092
+    }
+    task: {
+        name: test_prom_metric
+        topic: test_metric_topic
+        consumerGroup: test_prom_metric
+        earliest: true
+        parser: json
+        autoSchema: true
+        tableName: test_prom_metric
+        excludeColumns: []
+        bufferSize: 50000
+        PrometheusSchema: true
+        DynamicSchema: {
+            Enable: true
+      }
+    }
+    logLevel: info
+}
