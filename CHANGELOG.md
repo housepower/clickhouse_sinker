@@ -8,6 +8,8 @@ Bug Fixes:
 - Fix illegal "TimeZone" value result in sinker crash
 - Fix wrong parsing result of Decimal type [909](https://github.com/ClickHouse/clickhouse-go/pull/909)
 
+Improvements:
+- Metrics from GoCollector and ProcessCollector are now being pushed to metric-push-gateway-addrs
 
 #### Version 3.0.0 (2023-02-07)
 

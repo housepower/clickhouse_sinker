@@ -92,6 +92,7 @@ func (s *Sinker) Run() {
 		addrs := strings.Split(s.cmdOps.PushGatewayAddrs, ",")
 		s.pusher = statistics.NewPusher(addrs, s.cmdOps.PushInterval, s.httpAddr)
 		if err = s.pusher.Init(); err != nil {
+			util.Logger.Error("failed to initialize connection to the specified push gateway address", zap.Error(err))
 			return
 		}
 		go s.pusher.Run()

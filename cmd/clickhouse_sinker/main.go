@@ -126,6 +126,7 @@ func init() {
 		log.Fatal("unable to determine self ip", err)
 	}
 	selfIP = ip.String()
+	util.Logger.Info("parsed command options:", zap.Reflect("opts", cmdOps))
 }
 
 func main() {

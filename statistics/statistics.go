@@ -190,6 +190,7 @@ func (p *Pusher) Init() error {
 
 func (p *Pusher) Run() {
 	ticker := time.NewTicker(time.Second * time.Duration(p.pushInterval))
+	util.Logger.Info("start pushing metrics to the specified push gateway address ")
 	defer ticker.Stop()
 FOR:
 	for {
@@ -243,6 +244,8 @@ func (p *Pusher) reconnect() {
 		Collector(WriteSeriesDropQuota).
 		Collector(WriteSeriesDropUnchanged).
 		Collector(WriteSeriesSucceed).
+		Collector(collectors.NewGoCollector()).
+		Collector(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{})).
 		Grouping("instance", p.instance).Format(expfmt.FmtText)
 	p.inUseAddr = nextAddr
 }
