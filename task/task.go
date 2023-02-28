@@ -215,7 +215,8 @@ func (service *Service) Put(msg *model.InputMessage, flushFn func()) error {
 }
 
 func (service *Service) metric2Row(metric model.Metric, msg *model.InputMessage) (row *model.Row) {
-	row = model.GetRow()
+	row1 := make(model.Row, 0)
+	row = &row1
 	if service.idxSerID >= 0 {
 		var seriesID, mgmtID int64
 		var labels []string

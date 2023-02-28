@@ -64,7 +64,7 @@ func InitGlobalWritingPool(maxWorkers int) {
 	if GlobalWritingPool != nil {
 		return
 	}
-	queueSize := 3
+	queueSize := 1
 	GlobalWritingPool = NewWorkerPool(maxWorkers, queueSize)
 	Logger.Info("initialized writing pool", zap.Int("maxWorkers", maxWorkers), zap.Int("queueSize", queueSize))
 }

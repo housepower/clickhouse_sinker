@@ -235,12 +235,7 @@ func (c *ClickHouse) loopWrite(batch *model.Batch) {
 	var reconnect bool
 	var dbVer int
 	sc := pool.GetShardConn(batch.BatchIdx)
-	defer func() {
-		for _, row := range *batch.Rows {
-			model.PutRow(row)
-		}
-		model.PutRows(batch.Rows)
-	}()
+
 	for {
 		if err = c.write(batch, sc, &dbVer); err == nil {
 			return

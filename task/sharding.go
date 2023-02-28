@@ -131,7 +131,8 @@ func NewSharder(service *Service) (sh *Sharder, err error) {
 		msgBuf:  make([]*model.Rows, shards),
 	}
 	for i := 0; i < shards; i++ {
-		sh.msgBuf[i] = model.GetRows()
+		rs := make(model.Rows, 0)
+		sh.msgBuf[i] = &rs
 	}
 	return
 }
@@ -165,7 +166,8 @@ func (sh *Sharder) Flush(wg *sync.WaitGroup) {
 			}
 			batch.Wg.Add(1)
 			sh.service.clickhouse.Send(batch)
-			sh.msgBuf[i] = model.GetRows()
+			rs := make(model.Rows, 0)
+			sh.msgBuf[i] = &rs
 		}
 	}
 	if msgCnt > 0 {
