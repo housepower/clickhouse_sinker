@@ -277,8 +277,8 @@ func (c *ClickHouse) initBmSeries(conn clickhouse.Conn) (err error) {
 		c.seriesQuota = sq
 	}
 
-	query := fmt.Sprintf("SELECT toInt64(__series_id) AS sid, toInt64(__mgmt_id) AS mid FROM %s.%s ORDER BY sid", c.dbName, tbl)
-	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query))
+	query := fmt.Sprintf("SELECT toInt64(__series_id) AS sid, toInt64(__mgmt_id) AS mid FROM %s.%s FINAL ORDER BY sid", c.dbName, tbl)
+	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", c.taskCfg.Name))
 	var rs driver.Rows
 	var seriesID, mgmtID int64
 	if rs, err = conn.Query(context.Background(), query); err != nil {
@@ -385,7 +385,7 @@ func (c *ClickHouse) initSeriesSchema(conn clickhouse.Conn) (err error) {
 			return
 		}
 		if c.distSeriesTbls == nil {
-			err = errors.Newf("Please create distributed table for %s.", c.seriesTbl)
+			err = errors.Newf("Please create distributed table for %s in cluster '%s'.", c.seriesTbl, c.cfg.Clickhouse.Cluster)
 			return
 		}
 	}
@@ -451,7 +451,7 @@ func (c *ClickHouse) initSchema() (err error) {
 			return
 		}
 		if c.distMetricTbls == nil {
-			err = errors.Newf("Please create distributed table for %s.", c.TableName)
+			err = errors.Newf("Please create distributed table for %s in cluster '%s'.", c.seriesTbl, c.cfg.Clickhouse.Cluster)
 			return
 		}
 	}

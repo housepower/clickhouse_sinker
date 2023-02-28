@@ -261,6 +261,7 @@ func (c *Consumer) processFetch() {
 
 			if bufLength > bufThreshold {
 				flushFn()
+				ticker.Reset(time.Duration(c.grpConfig.FlushInterval) * time.Second)
 			}
 		case <-ticker.C:
 			flushFn()
