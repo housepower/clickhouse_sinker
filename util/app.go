@@ -17,6 +17,9 @@ package util
 
 import (
 	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"go.uber.org/zap"
 )
@@ -33,11 +36,29 @@ func Run(appName string, initFunc, jobFunc, cleanupFunc func() error) {
 		}
 	}()
 
-	s := WaitForExitSign()
-	Logger.Info(fmt.Sprintf("%s got the exit signal %s, start to clean", appName, s))
-
-	if err := cleanupFunc(); err != nil {
-		Logger.Fatal(appName+" clean failed", zap.Error(err))
+	sig := make(chan os.Signal, 1)
+	done := make(chan struct{})
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+	count := 0
+	for {
+		select {
+		case s := <-sig:
+			if count == 0 {
+				Logger.Info(fmt.Sprintf("Received termination signal %s, start to clean", s))
+				count++
+				go func() {
+					if err := cleanupFunc(); err != nil {
+						Logger.Fatal(appName+" clean failed", zap.Error(err))
+					}
+					done <- struct{}{}
+				}()
+			} else {
+				Logger.Info(fmt.Sprintf("This is the second termination signal %s. Immediately terminate.", s))
+				return
+			}
+		case <-done:
+			Logger.Info(appName + " clean completed, exit")
+			return
+		}
 	}
-	Logger.Info(appName + " clean completed, exit")
 }

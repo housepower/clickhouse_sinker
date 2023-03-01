@@ -10,6 +10,7 @@ Bug Fixes:
 
 Improvements:
 - Metrics from GoCollector and ProcessCollector are now being pushed to metric-push-gateway-addrs
+- Terminate program immediately when receiving one more exit signal
 
 #### Version 3.0.0 (2023-02-07)
 
