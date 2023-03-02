@@ -261,12 +261,21 @@ func (c *ClickHouse) initBmSeries(conn clickhouse.Conn) (err error) {
 	if c.cfg.Clickhouse.Cluster != "" {
 		tbl = c.distSeriesTbls[0]
 	}
+
+	var count uint64
+	conn.QueryRow(context.Background(), fmt.Sprintf("SELECT count() FROM %s.%s FINAL", c.dbName, tbl)).Scan(&count)
 	sq := &seriesQuota{}
 	if v, ok := seriesQuotas.LoadOrStore(c.GetSeriesQuotaKey(), sq); ok {
 		c.seriesQuota = v.(*seriesQuota)
+		c.seriesQuota.Lock()
+		defer c.seriesQuota.Unlock()
+		if len(c.seriesQuota.bmSeries) == int(count) {
+			// only reload the map when there is difference detected
+			return
+		}
 	} else {
 		sq.Lock()
-		sq.bmSeries = make(map[int64]int64)
+		sq.bmSeries = make(map[int64]int64, count)
 		sq.nextResetQuota = time.Now().Add(10 * time.Second)
 		sq.Unlock()
 		c.seriesQuota = sq
@@ -284,6 +293,7 @@ func (c *ClickHouse) initBmSeries(conn clickhouse.Conn) (err error) {
 
 	c.seriesQuota.Lock()
 	defer c.seriesQuota.Unlock()
+
 	for rs.Next() {
 		if err = rs.Scan(&seriesID, &mgmtID); err != nil {
 			err = errors.Wrapf(err, "")
@@ -412,7 +422,7 @@ func (c *ClickHouse) initSchema() (err error) {
 			return
 		}
 	} else {
-		c.Dims = make([]*model.ColumnWithType, 0)
+		c.Dims = make([]*model.ColumnWithType, 0, len(c.taskCfg.Dims))
 		for _, dim := range c.taskCfg.Dims {
 			c.Dims = append(c.Dims, &model.ColumnWithType{
 				Name:       dim.Name,

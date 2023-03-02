@@ -51,7 +51,7 @@ var (
 
 // Empty is not valid namespaceID
 func getProperties() map[string]interface{} {
-	properties := make(map[string]interface{})
+	properties := make(map[string]interface{}, 6)
 	properties["serverAddrs"] = *nacosAddr
 	properties["username"] = *nacosUsername
 	properties["password"] = *nacosPassword

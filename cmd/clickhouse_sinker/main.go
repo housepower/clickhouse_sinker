@@ -204,7 +204,7 @@ func main() {
 			util.Logger.Info(fmt.Sprintf("get config from nacos serverAddrs %s, namespaceId %s, group %s, dataId %s",
 				cmdOps.NacosAddr, cmdOps.NacosNamespaceID, cmdOps.NacosGroup, cmdOps.NacosDataID))
 			rcm = &cm.NacosConfManager{}
-			properties = make(map[string]interface{})
+			properties = make(map[string]interface{}, 8)
 			properties["serverAddrs"] = cmdOps.NacosAddr
 			properties["username"] = cmdOps.NacosUsername
 			properties["password"] = cmdOps.NacosPassword

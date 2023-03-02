@@ -1,6 +1,6 @@
 # Changelog
 
-#### Version 3.0.1 (2023-03-02)
+#### Version 3.0.1 (2023-03-03)
 
 Bug Fixes:
 - Fix nacos publish config error "BUG: got different config"

@@ -107,7 +107,6 @@ func (k *KafkaFranz) Init(cfg *config.Config, gCfg *config.GroupConfig, f chan *
 func GetFranzConfig(kfkCfg *config.KafkaConfig) (opts []kgo.Opt, err error) {
 	opts = []kgo.Opt{
 		kgo.SeedBrokers(strings.Split(kfkCfg.Brokers, ",")...),
-		// kgo.FetchMaxBytes(), // 50 MB -- take the default config
 		// kgo.BrokerMaxReadBytes(), // 100 MB
 		kgo.MaxConcurrentFetches(2),
 		kgo.WithLogger(kzap.New(util.Logger)),

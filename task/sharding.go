@@ -166,7 +166,7 @@ func (sh *Sharder) Flush(wg *sync.WaitGroup) {
 			}
 			batch.Wg.Add(1)
 			sh.service.clickhouse.Send(batch)
-			rs := make(model.Rows, 0)
+			rs := make(model.Rows, 0, realSize)
 			sh.msgBuf[i] = &rs
 		}
 	}

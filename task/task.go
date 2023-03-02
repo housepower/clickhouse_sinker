@@ -214,59 +214,62 @@ func (service *Service) Put(msg *model.InputMessage, flushFn func()) error {
 	return nil
 }
 
-func (service *Service) metric2Row(metric model.Metric, msg *model.InputMessage) (row *model.Row) {
-	row1 := make(model.Row, 0)
-	row = &row1
+func (service *Service) metric2Row(metric model.Metric, msg *model.InputMessage) (r *model.Row) {
 	if service.idxSerID >= 0 {
-		var seriesID, mgmtID int64
-		var labels []string
 		// If some labels are not Prometheus native, ETL shall calculate and pass "__series_id" and "__mgmt_id".
 		val := metric.GetInt64("__series_id", false)
-		seriesID = val.(int64)
+		seriesID := val.(int64)
 		val = metric.GetInt64("__mgmt_id", false)
-		mgmtID = val.(int64)
-		for i := 0; i < service.idxSerID; i++ {
-			dim := service.dims[i]
-			val := model.GetValueByType(metric, dim)
-			*row = append(*row, val)
-		}
-		*row = append(*row, seriesID) // __series_id
+		mgmtID := val.(int64)
 		newSeries := service.clickhouse.AllowWriteSeries(seriesID, mgmtID)
+		rowcount := service.idxSerID + 1 // including __series_id
 		if newSeries {
-			*row = append(*row, mgmtID, nil) // __mgmt_id, labels
+			rowcount += (service.numDims - service.idxSerID + 3)
+		}
+
+		row := make(model.Row, 0, rowcount)
+		for i := 0; i < service.idxSerID; i++ {
+			row = append(row, model.GetValueByType(metric, service.dims[i]))
+		}
+		row = append(row, seriesID) // __series_id
+		if newSeries {
+			var labels []string
+			row = append(row, mgmtID, nil) // __mgmt_id, labels
 			for i := service.idxSerID + 3; i < service.numDims; i++ {
 				dim := service.dims[i]
 				val := model.GetValueByType(metric, dim)
-				*row = append(*row, val)
+				row = append(row, val)
 				if val != nil && dim.Type.Type == model.String && dim.Name != service.nameKey && dim.Name != "le" && (service.lblBlkList == nil || !service.lblBlkList.MatchString(dim.Name)) {
 					// "labels" JSON excludes "le", so that "labels" can be used as group key for histogram queries.
 					labelVal := val.(string)
 					labels = append(labels, fmt.Sprintf(`%s: %s`, strconv.Quote(dim.Name), strconv.Quote(labelVal)))
 				}
 			}
-			(*row)[service.idxSerID+2] = fmt.Sprintf("{%s}", strings.Join(labels, ", "))
+			row[service.idxSerID+2] = fmt.Sprintf("{%s}", strings.Join(labels, ", "))
 		}
+		return &row
 	} else {
+		row := make(model.Row, 0, len(service.dims))
 		for _, dim := range service.dims {
 			if strings.HasPrefix(dim.Name, "__kafka") {
 				if strings.HasSuffix(dim.Name, "_topic") {
-					*row = append(*row, msg.Topic)
+					row = append(row, msg.Topic)
 				} else if strings.HasSuffix(dim.Name, "_partition") {
-					*row = append(*row, msg.Partition)
+					row = append(row, msg.Partition)
 				} else if strings.HasSuffix(dim.Name, "_offset") {
-					*row = append(*row, msg.Offset)
+					row = append(row, msg.Offset)
 				} else if strings.HasSuffix(dim.Name, "_key") {
-					*row = append(*row, string(msg.Key))
+					row = append(row, string(msg.Key))
 				} else if strings.HasSuffix(dim.Name, "_timestamp") {
-					*row = append(*row, *msg.Timestamp)
+					row = append(row, *msg.Timestamp)
 				} else {
-					*row = append(*row, nil)
+					row = append(row, nil)
 				}
 			} else {
 				val := model.GetValueByType(metric, dim)
-				*row = append(*row, val)
+				row = append(row, val)
 			}
 		}
+		return &row
 	}
-	return
 }
