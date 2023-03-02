@@ -157,7 +157,8 @@
 
     // interval of flushing the batch. Default to 5, max to 600.
     "flushInterval": 5,
-    // batch size to insert into clickhouse. sinker will round upward it to the the nearest 2^n. Default to 262114, max to 1048576.
+    // Approximate batch size to insert into clickhouse per shard, also control the kafka max.partition.fetch.bytes.
+    // Sinker will round upward it to the the nearest 2^n. Default to 262114, max to 1048576.
     "bufferSize": 262114,
 
     // In the absence of time zone information, interprets the time as in the given location. Default to "Local" (aka /etc/localtime of the machine on which sinker runs)

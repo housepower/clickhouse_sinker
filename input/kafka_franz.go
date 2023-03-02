@@ -81,6 +81,13 @@ func (k *KafkaFranz) Init(cfg *config.Config, gCfg *config.GroupConfig, f chan *
 		kgo.ConsumeTopics(k.grpConfig.Topics...),
 		kgo.ConsumerGroup(k.grpConfig.Name),
 		kgo.DisableAutoCommit(),
+	)
+
+	maxPartBytes := int32(1 << (util.GetShift(100*k.grpConfig.BufferSize) - 1))
+
+	opts = append(opts,
+		kgo.FetchMaxBytes(maxPartBytes),
+		kgo.FetchMaxPartitionBytes(maxPartBytes),
 		kgo.OnPartitionsRevoked(k.onPartitionRevoked),
 		kgo.RebalanceTimeout(time.Minute*2),
 		kgo.SessionTimeout(time.Minute*2),
@@ -102,9 +109,7 @@ func GetFranzConfig(kfkCfg *config.KafkaConfig) (opts []kgo.Opt, err error) {
 		kgo.SeedBrokers(strings.Split(kfkCfg.Brokers, ",")...),
 		// kgo.FetchMaxBytes(), // 50 MB -- take the default config
 		// kgo.BrokerMaxReadBytes(), // 100 MB
-		kgo.FetchMaxPartitionBytes(1 << 24), // 16MB
 		kgo.MaxConcurrentFetches(2),
-		//kgo.MetadataMaxAge(...) corresponds to sarama.Config.Metadata.RefreshFrequency
 		kgo.WithLogger(kzap.New(util.Logger)),
 	}
 	if kfkCfg.TLS.Enable {
@@ -169,7 +174,7 @@ func (k *KafkaFranz) Run() {
 	k.wgRun.Add(1)
 	defer k.wgRun.Done()
 	for {
-		fetches := k.cl.PollFetches(k.ctx)
+		fetches := k.cl.PollRecords(k.ctx, k.grpConfig.BufferSize)
 		err := fetches.Err()
 		if fetches == nil || fetches.IsClientClosed() || errors.Is(err, context.Canceled) {
 			break

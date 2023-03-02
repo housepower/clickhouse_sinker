@@ -1,6 +1,6 @@
 # Changelog
 
-#### Version 3.0.1 (not released yet)
+#### Version 3.0.1 (2023-03-02)
 
 Bug Fixes:
 - Fix nacos publish config error "BUG: got different config"
@@ -11,6 +11,7 @@ Bug Fixes:
 Improvements:
 - Metrics from GoCollector and ProcessCollector are now being pushed to metric-push-gateway-addrs
 - Terminate program immediately when receiving one more exit signal
+- Limit the fetch size and poll size based on the BufferSize config property
 
 #### Version 3.0.0 (2023-02-07)
 
