@@ -253,6 +253,10 @@ func (s *Sinker) applyConfig(newCfg *config.Config) (err error) {
 		!reflect.DeepEqual(newCfg.Assignment.Map, s.curCfg.Assignment.Map) {
 		err = s.applyAnotherConfig(newCfg)
 	}
+
+	if len(s.consumers) == 0 && s.cmdOps.NacosServiceName != "" {
+		util.Logger.Warn("No task fetched from Nacos, make sure the program is running with correct commandline option!")
+	}
 	return
 }
 

@@ -23,7 +23,6 @@ import (
 	"github.com/nacos-group/nacos-sdk-go/vo"
 	"github.com/thanos-io/thanos/pkg/errors"
 	"go.uber.org/zap"
-	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 var _ RemoteConfManager = (*NacosConfManager)(nil)
@@ -88,16 +87,10 @@ func (ncm *NacosConfManager) Init(properties map[string]interface{}) (err error)
 		TimeoutMs:           5000,
 		ListenInterval:      10000,
 		NotLoadCacheAtStart: true,
-		LogDir:              filepath.Join(logDir, "nacos_log"),
 		CacheDir:            filepath.Join(logDir, "nacos_cache"),
-		LogLevel:            "debug",
+		CustomLogger:        &NacosLogger{util.Logger.Sugar()},
 		Username:            properties["username"].(string),
 		Password:            properties["password"].(string),
-		LogRollingConfig: &lumberjack.Logger{
-			MaxSize:    10, // megabytes
-			MaxBackups: 1,
-			LocalTime:  true,
-		},
 	}
 
 	ncm.configClient, err = clients.CreateConfigClient(map[string]interface{}{
@@ -432,4 +425,18 @@ func (ncm *NacosConfManager) assign() (err error) {
 	ncm.curVer = newVer
 
 	return
+}
+
+type NacosLogger struct {
+	*zap.SugaredLogger
+}
+
+// override the loglevel to avoid log blow up
+func (nlog *NacosLogger) Info(args ...interface{}) {
+	nlog.Debug(args...)
+}
+
+// override the loglevel to avoid log blow up
+func (nlog *NacosLogger) Infof(fmt string, args ...interface{}) {
+	nlog.Debugf(fmt, args...)
 }

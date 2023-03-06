@@ -202,7 +202,7 @@ func ParseLocalCfgFile(cfgPath string) (cfg *Config, err error) {
 // Normalize and validate configuration
 func (cfg *Config) Normallize(constructGroup bool, httpAddr string) (err error) {
 	if len(cfg.Clickhouse.Hosts) == 0 || cfg.Kafka.Brokers == "" {
-		err = errors.Newf("invalid configuration")
+		err = errors.Newf("invalid configuration, Clickhouse or Kafka section is missing!")
 		return
 	}
 
