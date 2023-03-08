@@ -19,7 +19,6 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -49,15 +48,7 @@ var (
 	// zooKeeper Session expired issue: https://cwiki.apache.org/confluence/display/ZOOKEEPER/FAQ#:~:text=How%20should%20I%20handle%20SESSION_EXPIRED%3F
 	replicaSpecificErrorCodes = []int32{225, 242, 252, 319, 999, 1000} //NO_ZOOKEEPER, TABLE_IS_READ_ONLY, TOO_MANY_PARTS, UNKNOWN_STATUS_OF_INSERT, KEEPER_EXCEPTION, POCO_EXCEPTION
 	wrSeriesQuota             = 16384
-	seriesQuotas              sync.Map
 )
-
-type seriesQuota struct {
-	sync.Mutex
-	nextResetQuota time.Time
-	bmSeries       map[int64]int64
-	wrSeries       int
-}
 
 // ClickHouse is an output service consumers from kafka messages
 type ClickHouse struct {
@@ -77,7 +68,7 @@ type ClickHouse struct {
 	distMetricTbls []string
 	distSeriesTbls []string
 
-	seriesQuota *seriesQuota
+	seriesQuota *model.SeriesQuota
 
 	numFlying int32
 	mux       sync.Mutex
@@ -133,19 +124,19 @@ func (c *ClickHouse) Send(batch *model.Batch) {
 func (c *ClickHouse) AllowWriteSeries(sid, mid int64) (allowed bool) {
 	c.seriesQuota.Lock()
 	defer c.seriesQuota.Unlock()
-	mid2, loaded := c.seriesQuota.bmSeries[sid]
+	mid2, loaded := c.seriesQuota.BmSeries[sid]
 	if !loaded {
 		allowed = true
 		statistics.WriteSeriesAllowNew.WithLabelValues(c.taskCfg.Name).Inc()
 	} else if mid != mid2 {
-		if c.seriesQuota.wrSeries < wrSeriesQuota {
-			c.seriesQuota.wrSeries++
+		if c.seriesQuota.WrSeries < wrSeriesQuota {
+			c.seriesQuota.WrSeries++
 			allowed = true
 		} else {
 			now := time.Now()
-			if now.After(c.seriesQuota.nextResetQuota) {
-				c.seriesQuota.nextResetQuota = now.Add(10 * time.Second)
-				c.seriesQuota.wrSeries = 1
+			if now.After(c.seriesQuota.NextResetQuota) {
+				c.seriesQuota.NextResetQuota = now.Add(10 * time.Second)
+				c.seriesQuota.WrSeries = 1
 				allowed = true
 			}
 		}
@@ -179,10 +170,10 @@ func (c *ClickHouse) writeSeries(rows model.Rows, conn clickhouse.Conn) (err err
 		for _, row := range seriesRows {
 			sid := (*row)[c.IdxSerID].(int64)
 			mid := (*row)[c.IdxSerID+1].(int64)
-			if _, loaded := c.seriesQuota.bmSeries[sid]; loaded {
-				c.seriesQuota.wrSeries--
+			if _, loaded := c.seriesQuota.BmSeries[sid]; loaded {
+				c.seriesQuota.WrSeries--
 			}
-			c.seriesQuota.bmSeries[sid] = mid
+			c.seriesQuota.BmSeries[sid] = mid
 		}
 		c.seriesQuota.Unlock()
 		util.Logger.Info("ClickHouse.writeSeries succeeded", zap.Int("series", len(seriesRows)), zap.String("task", c.taskCfg.Name))
@@ -254,55 +245,6 @@ func (c *ClickHouse) loopWrite(batch *model.Batch) {
 			util.Logger.Fatal("ClickHouse.loopWrite failed", zap.String("task", c.taskCfg.Name))
 		}
 	}
-}
-
-func (c *ClickHouse) initBmSeries(conn clickhouse.Conn) (err error) {
-	tbl := c.seriesTbl
-	if c.cfg.Clickhouse.Cluster != "" {
-		tbl = c.distSeriesTbls[0]
-	}
-
-	var count uint64
-	conn.QueryRow(context.Background(), fmt.Sprintf("SELECT count() FROM %s.%s FINAL", c.dbName, tbl)).Scan(&count)
-	sq := &seriesQuota{}
-	if v, ok := seriesQuotas.LoadOrStore(c.GetSeriesQuotaKey(), sq); ok {
-		c.seriesQuota = v.(*seriesQuota)
-		c.seriesQuota.Lock()
-		defer c.seriesQuota.Unlock()
-		if len(c.seriesQuota.bmSeries) == int(count) {
-			// only reload the map when there is difference detected
-			return
-		}
-	} else {
-		sq.Lock()
-		sq.bmSeries = make(map[int64]int64, count)
-		sq.nextResetQuota = time.Now().Add(10 * time.Second)
-		sq.Unlock()
-		c.seriesQuota = sq
-	}
-
-	query := fmt.Sprintf("SELECT toInt64(__series_id) AS sid, toInt64(__mgmt_id) AS mid FROM %s.%s FINAL ORDER BY sid", c.dbName, tbl)
-	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", c.taskCfg.Name))
-	var rs driver.Rows
-	var seriesID, mgmtID int64
-	if rs, err = conn.Query(context.Background(), query); err != nil {
-		err = errors.Wrapf(err, "")
-		return err
-	}
-	defer rs.Close()
-
-	c.seriesQuota.Lock()
-	defer c.seriesQuota.Unlock()
-
-	for rs.Next() {
-		if err = rs.Scan(&seriesID, &mgmtID); err != nil {
-			err = errors.Wrapf(err, "")
-			return err
-		}
-		c.seriesQuota.bmSeries[seriesID] = mgmtID
-	}
-	util.Logger.Info(fmt.Sprintf("loaded %d series from %v", len(c.seriesQuota.bmSeries), tbl), zap.String("task", c.taskCfg.Name))
-	return
 }
 
 func (c *ClickHouse) initSeriesSchema(conn clickhouse.Conn) (err error) {
@@ -395,10 +337,6 @@ func (c *ClickHouse) initSeriesSchema(conn clickhouse.Conn) (err error) {
 		}
 	}
 
-	// Initialize bmSeries
-	if err = c.initBmSeries(conn); err != nil {
-		return
-	}
 	return
 }
 
@@ -464,7 +402,6 @@ func (c *ClickHouse) initSchema() (err error) {
 }
 
 func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
-	var queries []string
 	var onCluster string
 	taskCfg := c.taskCfg
 	chCfg := &c.cfg.Clickhouse
@@ -480,8 +417,9 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 		util.Logger.Warn("number of columns reaches upper limit", zap.Int("limit", maxDims), zap.Int("current", len(c.Dims)))
 		return
 	}
+
 	var i int
-	var affectDistMetric, affectDistSeries bool
+	var alterSeries, alterMetric string
 	newKeys.Range(func(key, value interface{}) bool {
 		i++
 		if i > newKeysQuota {
@@ -509,47 +447,39 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 			return false
 		}
 		if c.taskCfg.PrometheusSchema && intVal == model.String {
-			query := fmt.Sprintf("ALTER TABLE `%s`.`%s` %s ADD COLUMN IF NOT EXISTS `%s` %s", c.dbName, c.seriesTbl, onCluster, strKey, strVal)
-			queries = append(queries, query)
-			affectDistSeries = true
+			alterSeries += fmt.Sprintf("ADD COLUMN IF NOT EXISTS `%s` %s, ", strKey, strVal)
 		} else {
 			if c.taskCfg.PrometheusSchema && intVal > model.String {
 				util.Logger.Fatal("unsupported metric value type", zap.String("type", strVal), zap.String("name", strKey), zap.String("task", c.taskCfg.Name))
 			}
-			query := fmt.Sprintf("ALTER TABLE `%s`.`%s` %s ADD COLUMN IF NOT EXISTS `%s` %s", c.dbName, c.TableName, onCluster, strKey, strVal)
-			queries = append(queries, query)
-			affectDistMetric = true
+			alterMetric += fmt.Sprintf("ADD COLUMN IF NOT EXISTS `%s` %s, ", strKey, strVal)
 		}
 		return true
 	})
 	if err != nil {
 		return
 	}
-	sort.Strings(queries)
+
 	sc := pool.GetShardConn(0)
 	var conn clickhouse.Conn
 	if conn, _, err = sc.NextGoodReplica(0); err != nil {
 		return
 	}
-	for _, query := range queries {
-		util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", taskCfg.Name))
-		if err = conn.Exec(context.Background(), query); err != nil {
-			err = errors.Wrapf(err, query)
-			return
-		}
+
+	fields := []zap.Field{zap.String("task", taskCfg.Name)}
+	if alterSeries != "" {
+		query := fmt.Sprintf("ALTER TABLE `%s`.`%s` %s %s;", c.dbName, c.seriesTbl, onCluster, alterSeries[:len(alterSeries)-2])
+		Execute(conn, context.Background(), EXEC, query, fields)
+		query = fmt.Sprintf("ALTER TABLE `%s`.`%s` %s %s;", c.dbName, c.distSeriesTbls[0], onCluster, alterSeries[:len(alterSeries)-2])
+		Execute(conn, context.Background(), EXEC, query, fields)
 	}
-	if chCfg.Cluster != "" {
-		if affectDistMetric {
-			if err = recreateDistTbls(chCfg.Cluster, c.dbName, c.TableName, c.distMetricTbls, conn); err != nil {
-				return
-			}
-		}
-		if affectDistSeries {
-			if err = recreateDistTbls(chCfg.Cluster, c.dbName, c.seriesTbl, c.distSeriesTbls, conn); err != nil {
-				return
-			}
-		}
+	if alterMetric != "" {
+		query := fmt.Sprintf("ALTER TABLE `%s`.`%s` %s %s;", c.dbName, c.TableName, onCluster, alterSeries[:len(alterSeries)-2])
+		Execute(conn, context.Background(), EXEC, query, fields)
+		query = fmt.Sprintf("ALTER TABLE `%s`.`%s` %s %s;", c.dbName, c.distMetricTbls[0], onCluster, alterSeries[:len(alterSeries)-2])
+		Execute(conn, context.Background(), EXEC, query, fields)
 	}
+
 	return
 }
 
@@ -563,13 +493,7 @@ func (c *ClickHouse) getDistTbls(table string) (distTbls []string, err error) {
 	}
 	query := fmt.Sprintf(`SELECT name FROM system.tables WHERE engine='Distributed' AND database='%s' AND match(create_table_query, 'Distributed\(\'%s\', \'%s\', \'%s\'.*\)')`,
 		c.dbName, chCfg.Cluster, c.dbName, table)
-	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", taskCfg.Name))
-
-	var rows driver.Rows
-	if rows, err = conn.Query(context.Background(), query); err != nil {
-		err = errors.Wrapf(err, "")
-		return
-	}
+	rows := Execute(conn, context.Background(), QUERY, query, []zap.Field{zap.String("task", taskCfg.Name)}).(driver.Rows)
 	defer rows.Close()
 	for rows.Next() {
 		var name string
@@ -582,19 +506,20 @@ func (c *ClickHouse) getDistTbls(table string) (distTbls []string, err error) {
 	return
 }
 
-func UpdateSeriesQuotas(c map[string]struct{}) {
-	seriesQuotas.Range(func(key, value any) bool {
-		k := key.(string)
-		if _, ok := c[k]; !ok {
-			seriesQuotas.Delete(k)
-		}
-		return true
-	})
-}
-
 func (c *ClickHouse) GetSeriesQuotaKey() string {
 	if c.taskCfg.PrometheusSchema {
-		return c.dbName + "." + c.seriesTbl
+		return c.dbName + "." + c.distSeriesTbls[0]
 	}
 	return ""
+}
+
+func (c *ClickHouse) GetDistMetricTable() string {
+	if c.taskCfg.PrometheusSchema {
+		return c.distMetricTbls[0]
+	}
+	return ""
+}
+
+func (c *ClickHouse) SetSeriesQuota(sq *model.SeriesQuota) {
+	c.seriesQuota = sq
 }

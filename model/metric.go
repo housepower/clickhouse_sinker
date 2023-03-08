@@ -18,6 +18,7 @@ package model
 import (
 	"regexp"
 	"sync"
+	"time"
 )
 
 // Metric interface for metric collection
@@ -97,4 +98,11 @@ func NewOrderedMap() *OrderedMap {
 	om.keys = []interface{}{}
 	om.values = map[interface{}]interface{}{}
 	return &om
+}
+
+type SeriesQuota struct {
+	sync.Mutex
+	NextResetQuota time.Time
+	BmSeries       map[int64]int64
+	WrSeries       int
 }

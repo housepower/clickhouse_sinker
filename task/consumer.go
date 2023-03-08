@@ -77,6 +77,9 @@ func (c *Consumer) addTask(tsk *Service) {
 }
 
 func (c *Consumer) start() {
+	if c.state.Load() == util.StateRunning {
+		return
+	}
 	c.inputer = input.NewKafkaFranz()
 	c.state.Store(util.StateRunning)
 	if err := c.inputer.Init(c.sinker.curCfg, c.grpConfig, c.fetchesCh, c.cleanupFn); err == nil {
