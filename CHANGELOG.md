@@ -1,5 +1,14 @@
 # Changelog
 
+#### Version 3.0.2 (2023-03-10)
+
+Improvements:
+- update sinker grafana dashboard
+- combine nacos log into sinker log
+- update dmseries map when applying new config, reload the records from series table every single day
+- avoid recreating dist tables, alter the table schema instead
+
+
 #### Version 3.0.1 (2023-03-03)
 
 Bug Fixes:
@@ -12,6 +21,7 @@ Improvements:
 - Metrics from GoCollector and ProcessCollector are now being pushed to metric-push-gateway-addrs
 - Terminate program immediately when receiving one more exit signal
 - Limit the fetch size and poll size based on the BufferSize config property
+
 
 #### Version 3.0.0 (2023-02-07)
 

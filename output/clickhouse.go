@@ -19,13 +19,13 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
-
 	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/housepower/clickhouse_sinker/config"
 	"github.com/housepower/clickhouse_sinker/model"
 	"github.com/housepower/clickhouse_sinker/pool"
@@ -48,6 +48,8 @@ var (
 	// zooKeeper Session expired issue: https://cwiki.apache.org/confluence/display/ZOOKEEPER/FAQ#:~:text=How%20should%20I%20handle%20SESSION_EXPIRED%3F
 	replicaSpecificErrorCodes = []int32{225, 242, 252, 319, 999, 1000} //NO_ZOOKEEPER, TABLE_IS_READ_ONLY, TOO_MANY_PARTS, UNKNOWN_STATUS_OF_INSERT, KEEPER_EXCEPTION, POCO_EXCEPTION
 	wrSeriesQuota             = 16384
+
+	SeriesQuotas sync.Map
 )
 
 // ClickHouse is an output service consumers from kafka messages
@@ -337,6 +339,13 @@ func (c *ClickHouse) initSeriesSchema(conn clickhouse.Conn) (err error) {
 		}
 	}
 
+	sq, _ := SeriesQuotas.LoadOrStore(c.GetSeriesQuotaKey(),
+		&model.SeriesQuota{
+			NextResetQuota: time.Now().Add(10 * time.Second),
+			Birth:          time.Now(),
+		})
+	c.seriesQuota = sq.(*model.SeriesQuota)
+
 	return
 }
 
@@ -419,7 +428,7 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 	}
 
 	var i int
-	var alterSeries, alterMetric string
+	var alterSeries, alterMetric []string
 	newKeys.Range(func(key, value interface{}) bool {
 		i++
 		if i > newKeysQuota {
@@ -447,12 +456,12 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 			return false
 		}
 		if c.taskCfg.PrometheusSchema && intVal == model.String {
-			alterSeries += fmt.Sprintf("ADD COLUMN IF NOT EXISTS `%s` %s, ", strKey, strVal)
+			alterSeries = append(alterSeries, fmt.Sprintf("ADD COLUMN IF NOT EXISTS `%s` %s", strKey, strVal))
 		} else {
 			if c.taskCfg.PrometheusSchema && intVal > model.String {
 				util.Logger.Fatal("unsupported metric value type", zap.String("type", strVal), zap.String("name", strKey), zap.String("task", c.taskCfg.Name))
 			}
-			alterMetric += fmt.Sprintf("ADD COLUMN IF NOT EXISTS `%s` %s, ", strKey, strVal)
+			alterMetric = append(alterMetric, fmt.Sprintf("ADD COLUMN IF NOT EXISTS `%s` %s", strKey, strVal))
 		}
 		return true
 	})
@@ -466,18 +475,35 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 		return
 	}
 
-	fields := []zap.Field{zap.String("task", taskCfg.Name)}
-	if alterSeries != "" {
-		query := fmt.Sprintf("ALTER TABLE `%s`.`%s` %s %s;", c.dbName, c.seriesTbl, onCluster, alterSeries[:len(alterSeries)-2])
-		Execute(conn, context.Background(), EXEC, query, fields)
-		query = fmt.Sprintf("ALTER TABLE `%s`.`%s` %s %s;", c.dbName, c.distSeriesTbls[0], onCluster, alterSeries[:len(alterSeries)-2])
-		Execute(conn, context.Background(), EXEC, query, fields)
+	alterTable := func(tbl, col string) error {
+		query := fmt.Sprintf("ALTER TABLE `%s`.`%s` %s %s;", c.dbName, tbl, onCluster, col)
+		util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", taskCfg.Name))
+		return util.RetryOperation(func() error { return conn.Exec(context.Background(), query) }, -1, []error{clickhouse.ErrAcquireConnTimeout})
 	}
-	if alterMetric != "" {
-		query := fmt.Sprintf("ALTER TABLE `%s`.`%s` %s %s;", c.dbName, c.TableName, onCluster, alterSeries[:len(alterSeries)-2])
-		Execute(conn, context.Background(), EXEC, query, fields)
-		query = fmt.Sprintf("ALTER TABLE `%s`.`%s` %s %s;", c.dbName, c.distMetricTbls[0], onCluster, alterSeries[:len(alterSeries)-2])
-		Execute(conn, context.Background(), EXEC, query, fields)
+
+	if len(alterSeries) != 0 {
+		sort.Strings(alterSeries)
+		columns := strings.Join(alterSeries, ",")
+		if err = alterTable(c.seriesTbl, columns); err != nil {
+			return err
+		}
+		for _, distTbl := range c.distSeriesTbls {
+			if err = alterTable(distTbl, columns); err != nil {
+				return err
+			}
+		}
+	}
+	if len(alterMetric) != 0 {
+		sort.Strings(alterMetric)
+		columns := strings.Join(alterMetric, ",")
+		if err = alterTable(c.TableName, columns); err != nil {
+			return err
+		}
+		for _, distTbl := range c.distMetricTbls {
+			if err = alterTable(distTbl, columns); err != nil {
+				return err
+			}
+		}
 	}
 
 	return
@@ -493,7 +519,12 @@ func (c *ClickHouse) getDistTbls(table string) (distTbls []string, err error) {
 	}
 	query := fmt.Sprintf(`SELECT name FROM system.tables WHERE engine='Distributed' AND database='%s' AND match(create_table_query, 'Distributed\(\'%s\', \'%s\', \'%s\'.*\)')`,
 		c.dbName, chCfg.Cluster, c.dbName, table)
-	rows := Execute(conn, context.Background(), QUERY, query, []zap.Field{zap.String("task", taskCfg.Name)}).(driver.Rows)
+	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", taskCfg.Name))
+	var rows driver.Rows
+	if rows, err = conn.Query(context.Background(), query); err != nil {
+		err = errors.Wrapf(err, "")
+		return
+	}
 	defer rows.Close()
 	for rows.Next() {
 		var name string
@@ -508,14 +539,22 @@ func (c *ClickHouse) getDistTbls(table string) (distTbls []string, err error) {
 
 func (c *ClickHouse) GetSeriesQuotaKey() string {
 	if c.taskCfg.PrometheusSchema {
-		return c.dbName + "." + c.distSeriesTbls[0]
+		if c.cfg.Clickhouse.Cluster != "" {
+			return c.dbName + "." + c.distSeriesTbls[0]
+		} else {
+			return c.dbName + "." + c.seriesTbl
+		}
 	}
 	return ""
 }
 
-func (c *ClickHouse) GetDistMetricTable() string {
+func (c *ClickHouse) GetMetricTable() string {
 	if c.taskCfg.PrometheusSchema {
-		return c.distMetricTbls[0]
+		if c.cfg.Clickhouse.Cluster != "" {
+			return c.distMetricTbls[0]
+		} else {
+			return c.TableName
+		}
 	}
 	return ""
 }

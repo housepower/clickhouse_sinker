@@ -27,7 +27,6 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 
 	"github.com/google/uuid"
 	"github.com/housepower/clickhouse_sinker/config"
@@ -37,8 +36,19 @@ import (
 	"github.com/housepower/clickhouse_sinker/pool"
 	"github.com/housepower/clickhouse_sinker/statistics"
 	"github.com/housepower/clickhouse_sinker/util"
-	"github.com/pkg/errors"
 	"go.uber.org/zap"
+)
+
+var (
+	createTableSQL = `CREATE TABLE IF NOT EXISTS %s as %s.%s ENGINE=Merge('%s', '%s')`
+	dropTableSQL   = `DROP TABLE IF EXISTS %s `
+	countSeriesSQL = `WITH (SELECT max(timestamp) FROM %s) AS m
+	SELECT count() FROM %s FINAL WHERE __series_id GLOBAL IN (
+	SELECT DISTINCT __series_id FROM %s WHERE timestamp >= addDays(m, -1));`
+	loadSeriesSQL = `WITH (SELECT max(timestamp) FROM %s) AS m
+	SELECT toInt64(__series_id) AS sid, toInt64(__mgmt_id) AS mid FROM %s FINAL WHERE sid GLOBAL IN (
+	SELECT DISTINCT toInt64(__series_id) FROM %s WHERE timestamp >= addDays(m, -1)
+	) ORDER BY sid;`
 )
 
 // Sinker object maintains number of task for each partition
@@ -57,8 +67,6 @@ type Sinker struct {
 	exitCh            chan struct{}
 	stopCommitCh      chan struct{}
 	consumerRestartCh chan *Consumer
-
-	seriesQuotas sync.Map
 }
 
 // NewSinker get an instance of sinker with the task list
@@ -103,6 +111,9 @@ func (s *Sinker) Run() {
 		}
 		go s.pusher.Run()
 	}
+
+	reloadBmSeriesTicker := time.NewTicker(time.Hour)
+	defer reloadBmSeriesTicker.Stop()
 	if s.rcm == nil {
 		if _, err = os.Stat(s.cmdOps.LocalCfgFile); err == nil {
 			if newCfg, err = config.ParseLocalCfgFile(s.cmdOps.LocalCfgFile); err != nil {
@@ -145,6 +156,11 @@ func (s *Sinker) Run() {
 				} else {
 					util.Logger.Info("consumer restarted when applying another config",
 						zap.String("consumer", c.grpConfig.Name))
+				}
+			case <-reloadBmSeriesTicker.C:
+				util.Logger.Info("offloading out-of-date series record")
+				if err = s.reloadBmSeries(); err != nil {
+					util.Logger.Error("reloadBmSeries failed", zap.Error(err))
 				}
 			}
 		}
@@ -192,6 +208,11 @@ func (s *Sinker) Run() {
 				} else {
 					util.Logger.Info("consumer restarted when applying another config",
 						zap.String("consumer", c.grpConfig.Name))
+				}
+			case <-reloadBmSeriesTicker.C:
+				util.Logger.Info("offloading out-of-date series record")
+				if err = s.reloadBmSeries(); err != nil {
+					util.Logger.Error("reloadBmSeries failed", zap.Error(err))
 				}
 			}
 		}
@@ -292,7 +313,7 @@ func (s *Sinker) applyFirstConfig(newCfg *config.Config) (err error) {
 		s.consumers[group] = c
 	}
 
-	if err = s.loadBmSeries(); err != nil {
+	if err = s.initBmSeries(); err != nil {
 		return
 	}
 	for _, c := range s.consumers {
@@ -338,7 +359,7 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 			s.consumers[group] = c
 		}
 
-		if err = s.loadBmSeries(); err != nil {
+		if err = s.initBmSeries(); err != nil {
 			return
 		}
 		for _, c := range s.consumers {
@@ -368,10 +389,6 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 						for _, tCfg := range group.Configs {
 							if !reflect.DeepEqual(tCfg, s.consumers[name].grpConfig.Configs[tCfg.Name]) {
 								task := NewTaskService(newCfg, tCfg, s.consumers[name])
-								if task.taskCfg.PrometheusSchema {
-									// stop the task for reloading the bmseries
-									s.consumers[name].stop()
-								}
 								if err = task.Init(); err != nil {
 									return
 								}
@@ -413,7 +430,7 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 			}
 		}
 
-		if err = s.loadBmSeries(); err != nil {
+		if err = s.initBmSeries(); err != nil {
 			return
 		}
 		for _, c := range s.consumers {
@@ -465,7 +482,7 @@ func (s *Sinker) commitFn() {
 	}
 }
 
-func (s *Sinker) loadBmSeries() (err error) {
+func (s *Sinker) initBmSeries() (err error) {
 	// series table could be shared between multiple tasks
 	tables := make(map[string][]*Service)
 	for _, c := range s.consumers {
@@ -479,90 +496,137 @@ func (s *Sinker) loadBmSeries() (err error) {
 	}
 
 	// delete the seriesQuota which no longer being used
-	s.seriesQuotas.Range(func(key, value any) bool {
+	output.SeriesQuotas.Range(func(key, value any) bool {
 		k := key.(string)
 		if _, ok := tables[k]; !ok {
-			s.seriesQuotas.Delete(k)
+			output.SeriesQuotas.Delete(k)
 			util.Logger.Info("dropping seriesQuota", zap.String("series table", k))
 		}
 		return true
 	})
 
-	// initialize seriesQuota for new series tables
+	var conn clickhouse.Conn
+	if conn, _, err = pool.GetShardConn(0).NextGoodReplica(0); err != nil {
+		return
+	}
+
+	// initialize seriesQuota for series tables
 	for k, v := range tables {
-		var query, dbname, mergetable string
-		var conn clickhouse.Conn
-		sq := &model.SeriesQuota{}
-		mysq := sq
-		if s, ok := s.seriesQuotas.LoadOrStore(k, sq); ok {
-			q := s.(*model.SeriesQuota)
-			mysq = q
-			for _, svc := range v {
-				svc.clickhouse.SetSeriesQuota(q)
-			}
-			mysq.Lock()
-			defer mysq.Unlock()
-			if len(mysq.BmSeries) > 0 {
-				// only reload the map when the map is empty
-				return
-			}
-		} else {
-			var count uint64
-			var reg string
-			for _, svc := range v {
-				r := svc.clickhouse.GetDistMetricTable()
-				if r != "" {
-					reg += ("^" + r + "$|")
-				}
-			}
-			reg = reg[:len(reg)-1]
-			mergetable = strings.ReplaceAll(k+uuid.New().String(), "-", "_")
-			dbname = strings.Split(k, ".")[0]
-
-			query = fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s as %s ENGINE=Merge('%s', '%s')`,
-				mergetable, v[0].clickhouse.GetDistMetricTable(), dbname, reg)
-
-			sc := pool.GetShardConn(0)
-			if conn, _, err = sc.NextGoodReplica(0); err != nil {
-				return
-			}
-			output.Execute(conn, context.Background(), output.EXEC, query, []zap.Field{zap.String("task", v[0].taskCfg.Name)})
-
-			query = fmt.Sprintf(`WITH (SELECT max(timestamp) FROM %s) AS m
-			SELECT count() FROM %s FINAL WHERE __series_id GLOBAL IN (
-			SELECT DISTINCT __series_id FROM %s WHERE timestamp >= addDays(m, -1));`, mergetable, k, mergetable)
-			output.Execute(conn, context.Background(), output.QUERYROW, query, []zap.Field{zap.String("task", v[0].taskCfg.Name)}).(driver.Row).Scan(&count)
-
-			mysq.Lock()
-			mysq.BmSeries = make(map[int64]int64, count)
-			mysq.NextResetQuota = time.Now().Add(10 * time.Second)
-			mysq.Unlock()
-			for _, svc := range v {
-				svc.clickhouse.SetSeriesQuota(mysq)
+		var sq *model.SeriesQuota
+		if sqAny, ok := output.SeriesQuotas.Load(k); ok {
+			sq = sqAny.(*model.SeriesQuota)
+			sq.Lock()
+			res := sq.BmSeries != nil && len(sq.BmSeries) > 0
+			sq.Unlock()
+			if res {
+				continue
 			}
 		}
 
-		query = fmt.Sprintf(`WITH (SELECT max(timestamp) FROM %s) AS m
-		SELECT toInt64(__series_id) AS sid, toInt64(__mgmt_id) AS mid FROM %s FINAL WHERE sid GLOBAL IN (
-		SELECT DISTINCT toInt64(__series_id) FROM %s WHERE timestamp >= addDays(m, -1)
-		) ORDER BY sid;`, mergetable, k, mergetable)
-		rs := output.Execute(conn, context.Background(), output.QUERY, query, []zap.Field{zap.String("task", v[0].taskCfg.Name)}).(driver.Rows)
-		defer rs.Close()
-
-		mysq.Lock()
-		defer mysq.Unlock()
-		var seriesID, mgmtID int64
-		for rs.Next() {
-			if err = rs.Scan(&seriesID, &mgmtID); err != nil {
-				return errors.Wrapf(err, "")
-			}
-			mysq.BmSeries[seriesID] = mgmtID
+		seriesMap, err := loadBmSeries(conn, k, v)
+		if err != nil {
+			return err
 		}
-		util.Logger.Info(fmt.Sprintf("loaded %d series from %v", len(mysq.BmSeries), k))
 
-		query = fmt.Sprintf(`DROP TABLE IF EXISTS %s `, mergetable)
-		output.Execute(conn, context.Background(), output.EXEC, query, []zap.Field{zap.String("task", v[0].taskCfg.Name)})
+		sq.Lock()
+		sq.BmSeries = seriesMap
+		sq.Birth = time.Now()
+		sq.Unlock()
 	}
 
 	return
+}
+
+func (s *Sinker) reloadBmSeries() (err error) {
+	// find the out-of-date SeriesQuota
+	sqMap := make(map[string]*model.SeriesQuota)
+	now := time.Now()
+	output.SeriesQuotas.Range(func(key, value any) bool {
+		k := key.(string)
+		v := value.(*model.SeriesQuota)
+		v.Lock()
+		if now.Sub(v.Birth) > time.Hour*24 {
+			sqMap[k] = v
+		}
+		v.Unlock()
+		return true
+	})
+
+	// series table could be shared between multiple tasks
+	tables := make(map[string][]*Service)
+	for _, c := range s.consumers {
+		c.tasks.Range(func(key, value any) bool {
+			k := value.(*Service).clickhouse.GetSeriesQuotaKey()
+			if _, ok := sqMap[k]; ok {
+				tables[k] = append(tables[k], value.(*Service))
+			}
+			return true
+		})
+	}
+
+	var conn clickhouse.Conn
+	if conn, _, err = pool.GetShardConn(0).NextGoodReplica(0); err != nil {
+		return
+	}
+
+	// reload seriesQuotas which is out-of-date
+	for k, v := range tables {
+		seriesMap, err := loadBmSeries(conn, k, v)
+		if err != nil {
+			return err
+		}
+
+		sq := sqMap[k]
+		sq.Lock()
+		sq.BmSeries = seriesMap
+		sq.Birth = time.Now()
+		sq.Unlock()
+		util.Logger.Info(fmt.Sprintf("reloaded %d series from %v", len(seriesMap), k))
+	}
+
+	return
+}
+
+func loadBmSeries(conn clickhouse.Conn, sqKey string, tasks []*Service) (result map[int64]int64, err error) {
+	// merge all metric tables to get the latest timestamp
+	// old bmseries record won't be loaded into memory to avoid OOM
+	var reg string
+	for _, svc := range tasks {
+		r := svc.clickhouse.GetMetricTable()
+		if r != "" {
+			reg += ("^" + r + "$|")
+		}
+	}
+	mergetable := strings.ReplaceAll(sqKey+uuid.New().String(), "-", "_")
+	dbname := strings.Split(sqKey, ".")[0]
+	query := fmt.Sprintf(createTableSQL, mergetable, dbname, tasks[0].clickhouse.GetMetricTable(), dbname, reg[:len(reg)-1])
+	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", tasks[0].taskCfg.Name))
+	conn.Exec(context.Background(), query)
+
+	var count int
+	query = fmt.Sprintf(countSeriesSQL, mergetable, sqKey, mergetable)
+	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", tasks[0].taskCfg.Name))
+	conn.QueryRow(context.Background(), query).Scan(&count)
+	seriesMap := make(map[int64]int64, count)
+
+	query = fmt.Sprintf(loadSeriesSQL, mergetable, sqKey, mergetable)
+	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", tasks[0].taskCfg.Name))
+	rs, err := conn.Query(context.Background(), query)
+	if err != nil {
+		return nil, err
+	}
+	defer rs.Close()
+
+	var seriesID, mgmtID int64
+	for rs.Next() {
+		if err = rs.Scan(&seriesID, &mgmtID); err != nil {
+			return nil, err
+		}
+		seriesMap[seriesID] = mgmtID
+	}
+	query = fmt.Sprintf(dropTableSQL, mergetable)
+	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", tasks[0].taskCfg.Name))
+	conn.Exec(context.Background(), query)
+
+	return seriesMap, nil
 }

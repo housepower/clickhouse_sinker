@@ -3,7 +3,6 @@ package output
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
@@ -110,39 +109,3 @@ const (
 	QUERYROW
 	QUERY
 )
-
-// LoopWrite will dead loop to write the records
-func Execute(conn driver.Conn, ctx context.Context, querykind int, query string, fields []zap.Field, args ...interface{}) (result interface{}) {
-	var times int
-	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), fields...)
-	var err error
-
-	for {
-		zapFields := fields
-		switch querykind {
-		case EXEC:
-			err = conn.Exec(ctx, query, args...)
-		case QUERYROW:
-			result = conn.QueryRow(ctx, query, args...)
-		case QUERY:
-			result, err = conn.Query(ctx, query, args...)
-		default:
-			util.Logger.Fatal("unknown query kind specified")
-		}
-
-		if err == nil {
-			return
-		} else if errors.Is(err, context.Canceled) {
-			util.Logger.Info("Execute failed due to the context has been cancelled", fields...)
-			return
-		} else if errors.Is(err, clickhouse.ErrAcquireConnTimeout) {
-			time.Sleep(10 * time.Second)
-		} else {
-			zapFields = append(zapFields, zap.Error(err))
-			util.Logger.Fatal("Query execution failed", zapFields...)
-		}
-		zapFields = append(zapFields, zap.Int("try", times), zap.Error(err))
-		util.Logger.Error("Query execution failed", zapFields...)
-		times++
-	}
-}

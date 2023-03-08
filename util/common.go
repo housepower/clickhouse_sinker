@@ -17,6 +17,7 @@ package util
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
@@ -27,6 +28,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"time"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -282,4 +284,24 @@ func SetLogLevel(newLogLevel string) {
 		}
 		logAtomLevel.SetLevel(lvl)
 	}
+}
+
+// dead loop to execute the operation
+func RetryOperation(operation func() error, times int, tolerant []error) (err error) {
+LOOP:
+	for times != 0 {
+		if err = operation(); err == nil || errors.Is(err, context.Canceled) {
+			return
+		}
+		for _, e := range tolerant {
+			if errors.Is(err, e) {
+				time.Sleep(10 * time.Second)
+				times--
+				continue LOOP
+			}
+		}
+		return
+	}
+
+	return
 }

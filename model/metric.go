@@ -105,4 +105,5 @@ type SeriesQuota struct {
 	NextResetQuota time.Time
 	BmSeries       map[int64]int64
 	WrSeries       int
+	Birth          time.Time
 }
