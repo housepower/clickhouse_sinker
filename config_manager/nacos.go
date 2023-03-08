@@ -226,6 +226,8 @@ func (ncm *NacosConfManager) Run() {
 	// Assign regularly to handle lag change
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
+	lagticker := time.NewTicker(10 * time.Second)
+	defer lagticker.Stop()
 LOOP_FOR:
 	for {
 		select {
@@ -236,6 +238,12 @@ LOOP_FOR:
 			util.Logger.Debug("assign triggered by 5 min timer")
 			if err := ncm.assign(); err != nil {
 				util.Logger.Error("assign failed", zap.Error(err))
+			} else {
+				lagticker.Reset(10 * time.Second)
+			}
+		case <-lagticker.C:
+			if err := ncm.calculateGroupLag(); err != nil {
+				util.Logger.Error("calculate lag failed", zap.Error(err))
 			}
 		}
 	}
@@ -423,6 +431,16 @@ func (ncm *NacosConfManager) assign() (err error) {
 	ncm.curCfg = newCfg
 	ncm.curInsts = newInsts
 	ncm.curVer = newVer
+
+	return
+}
+
+func (ncm *NacosConfManager) calculateGroupLag() (err error) {
+	if len(ncm.curInsts) == 0 || ncm.curCfg == nil || ncm.curInsts[0] != ncm.instance {
+		// Only the first instance is capable to report the lag
+		return
+	}
+	_, err = GetTaskStateAndLags(ncm.curCfg)
 
 	return
 }

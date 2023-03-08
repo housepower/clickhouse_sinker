@@ -7,6 +7,7 @@ Improvements:
 - combine nacos log into sinker log
 - update dmseries map when applying new config, reload the records from series table every single day
 - avoid recreating dist tables, alter the table schema instead
+- update clickhouse_sinker_consume_lags metric every 10 secs
 
 
 #### Version 3.0.1 (2023-03-03)

@@ -26,7 +26,7 @@ func GetTaskStateAndLags(cfg *config.Config) (stateLags map[string]StateLag, err
 	defer adm.Close()
 	defer cl.Close()
 
-	stateLags = make(map[string]StateLag)
+	stateLags = make(map[string]StateLag, len(cfg.Tasks))
 	for _, taskCfg := range cfg.Tasks {
 		var state string
 		var totalLags int64
