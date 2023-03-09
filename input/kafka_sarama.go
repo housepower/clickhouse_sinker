@@ -137,7 +137,7 @@ func GetSaramaConfig(kfkCfg *config.KafkaConfig) (sarCfg *sarama.Config, err err
 		case "SCRAM-SHA-256":
 			sarCfg.Net.SASL.SCRAMClientGeneratorFunc = func() sarama.SCRAMClient { return &XDGSCRAMClient{HashGeneratorFcn: SHA256} }
 		case "SCRAM-SHA-512":
-			sarCfg.Net.SASL.SCRAMClientGeneratorFunc = func() sarama.SCRAMClient { return &XDGSCRAMClient{HashGeneratorFcn: SHA256} }
+			sarCfg.Net.SASL.SCRAMClientGeneratorFunc = func() sarama.SCRAMClient { return &XDGSCRAMClient{HashGeneratorFcn: SHA512} }
 		default:
 		}
 		sarCfg.Net.SASL.User = kfkCfg.Sasl.Username
