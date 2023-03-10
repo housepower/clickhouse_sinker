@@ -29,6 +29,8 @@
         PrometheusSchema: true
         DynamicSchema: {
             Enable: true
+            whiteList: ^(key_[0-9]?|value[1-4]?|__mgmt_id|__name__|timestamp|__series_id)$
+            blackList: ^(key_3|value4)$
       }
     }
     logLevel: info
