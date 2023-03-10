@@ -1,6 +1,6 @@
 # Changelog
 
-#### Version 3.0.2 (2023-03-10)
+#### Version 3.0.2 (2023-03-13)
 
 Improvements:
 - update sinker grafana dashboard

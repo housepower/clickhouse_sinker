@@ -24,7 +24,7 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
-  "id": 32,
+  "id": 41,
   "links": [],
   "liveNow": false,
   "panels": [
@@ -669,7 +669,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": " {instance=~\"${instance}\",job=~\"${job}\",topic=~\"${topic}\"}",
+          "expr": " {instance=~\"${instance}\",job=~\"${job}\",topic=~\"${topic}\",consumer=~\"${consumer}\"}",
           "legendFormat": "__auto",
           "range": true,
           "refId": "A"
@@ -686,7 +686,37 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "thresholds"
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
           },
           "mappings": [],
           "thresholds": {
@@ -713,18 +743,16 @@
       },
       "id": 22,
       "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
         },
-        "textMode": "auto"
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
       },
       "pluginVersion": "9.1.2",
       "targets": [
@@ -734,14 +762,14 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "clickhouse_sinker_consume_lags{instance=~\"${instance}\",job=~\"${job}\",task=~\"${task}\"}",
+          "expr": "clickhouse_sinker_consume_lags{instance=~\"${instance}\",job=~\"${job}\",task=~\"${task}\",consumer=~\"${consumer}\"}",
           "legendFormat": "__auto",
           "range": true,
           "refId": "A"
         }
       ],
       "title": "clickhouse_sinker_consume_lags",
-      "type": "stat"
+      "type": "timeseries"
     },
     {
       "datasource": {
@@ -2114,6 +2142,33 @@
         "options": [],
         "query": {
           "query": "label_values(topic)",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": false,
+          "text": "metric-012-new-1",
+          "value": "metric-012-new-1"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "definition": "label_values(consumer)",
+        "hide": 0,
+        "includeAll": false,
+        "label": "consumer",
+        "multi": false,
+        "name": "consumer",
+        "options": [],
+        "query": {
+          "query": "label_values(consumer)",
           "refId": "StandardVariableQuery"
         },
         "refresh": 2,

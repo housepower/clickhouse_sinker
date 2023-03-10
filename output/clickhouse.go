@@ -26,6 +26,7 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
+	"github.com/avast/retry-go/v4"
 	"github.com/housepower/clickhouse_sinker/config"
 	"github.com/housepower/clickhouse_sinker/model"
 	"github.com/housepower/clickhouse_sinker/pool"
@@ -223,29 +224,29 @@ func (c *ClickHouse) write(batch *model.Batch, sc *pool.ShardConn, dbVer *int) (
 
 // LoopWrite will dead loop to write the records
 func (c *ClickHouse) loopWrite(batch *model.Batch) {
-	var err error
-	var times int
-	var reconnect bool
+	var retrycount int
 	var dbVer int
 	sc := pool.GetShardConn(batch.BatchIdx)
 
-	for {
-		if err = c.write(batch, sc, &dbVer); err == nil {
-			return
-		}
-		if errors.Is(err, context.Canceled) {
-			util.Logger.Info("ClickHouse.write failed due to the context has been cancelled", zap.String("task", c.taskCfg.Name))
-			return
-		}
-		util.Logger.Error("flush batch failed", zap.String("task", c.taskCfg.Name), zap.Int("try", times), zap.Error(err))
-		statistics.FlushMsgsErrorTotal.WithLabelValues(c.taskCfg.Name).Add(float64(batch.RealSize))
-		times++
-		reconnect = shouldReconnect(err, sc)
-		if reconnect && (c.cfg.Clickhouse.RetryTimes <= 0 || times < c.cfg.Clickhouse.RetryTimes) {
-			time.Sleep(10 * time.Second)
-		} else {
-			util.Logger.Fatal("ClickHouse.loopWrite failed", zap.String("task", c.taskCfg.Name))
-		}
+	times := c.cfg.Clickhouse.RetryTimes
+	if times <= 0 {
+		times = 0
+	}
+	if err := retry.Do(
+		func() error { return c.write(batch, sc, &dbVer) },
+		retry.LastErrorOnly(true),
+		retry.Attempts(uint(times)),
+		retry.Delay(10*time.Second),
+		retry.RetryIf(func(err error) bool { return shouldReconnect(err, sc) }),
+		retry.OnRetry(func(n uint, err error) {
+			retrycount++
+			if !errors.Is(err, clickhouse.ErrAcquireConnTimeout) {
+				util.Logger.Error("flush batch failed", zap.String("task", c.taskCfg.Name), zap.Int("try", int(retrycount)), zap.Error(err))
+				statistics.FlushMsgsErrorTotal.WithLabelValues(c.taskCfg.Name).Add(float64(batch.RealSize))
+			}
+		}),
+	); err != nil {
+		util.Logger.Fatal("ClickHouse.loopWrite failed", zap.String("task", c.taskCfg.Name), zap.Error(err))
 	}
 }
 
@@ -478,7 +479,13 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 	alterTable := func(tbl, col string) error {
 		query := fmt.Sprintf("ALTER TABLE `%s`.`%s` %s %s;", c.dbName, tbl, onCluster, col)
 		util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", taskCfg.Name))
-		return util.RetryOperation(func() error { return conn.Exec(context.Background(), query) }, -1, []error{clickhouse.ErrAcquireConnTimeout})
+		return retry.Do(
+			func() error { return conn.Exec(context.Background(), query) },
+			retry.Attempts(0),
+			retry.LastErrorOnly(true),
+			retry.Delay(10*time.Second),
+			retry.RetryIf(func(err error) bool { return errors.Is(err, clickhouse.ErrAcquireConnTimeout) }),
+		)
 	}
 
 	if len(alterSeries) != 0 {
@@ -521,7 +528,16 @@ func (c *ClickHouse) getDistTbls(table string) (distTbls []string, err error) {
 		c.dbName, chCfg.Cluster, c.dbName, table)
 	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", taskCfg.Name))
 	var rows driver.Rows
-	if rows, err = conn.Query(context.Background(), query); err != nil {
+	if err = retry.Do(
+		func() error {
+			rows, err = conn.Query(context.Background(), query)
+			return err
+		},
+		retry.Attempts(0),
+		retry.LastErrorOnly(true),
+		retry.Delay(10*time.Second),
+		retry.RetryIf(func(err error) bool { return errors.Is(err, clickhouse.ErrAcquireConnTimeout) }),
+	); err != nil {
 		err = errors.Wrapf(err, "")
 		return
 	}
