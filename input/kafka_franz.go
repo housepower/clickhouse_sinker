@@ -208,7 +208,7 @@ func (k *KafkaFranz) CommitMessages(msg *model.InputMessage) error {
 }
 
 // Stop kafka consumer and close all connections
-func (k *KafkaFranz) Stop() error {
+func (k *KafkaFranz) Stop() {
 	k.cancel()
 
 	// prevent the block of k.Run
@@ -225,7 +225,6 @@ func (k *KafkaFranz) Stop() error {
 	case quit <- struct{}{}:
 	default:
 	}
-	return nil
 }
 
 // Description of this kafka consumer, consumer group name

@@ -90,7 +90,7 @@ func (c *Consumer) start() {
 	}
 }
 
-func (c *Consumer) stop() (err error) {
+func (c *Consumer) stop() {
 	if c.state.Load() == util.StateStopped {
 		return
 	}
@@ -99,14 +99,11 @@ func (c *Consumer) stop() (err error) {
 	// stop the processFetch routine, make sure no more input to the commit chan & writing pool
 	c.stopCh <- struct{}{}
 	c.processWg.Wait()
-	err = c.inputer.Stop()
-	return err
+	c.inputer.Stop()
 }
 
 func (c *Consumer) restart() {
-	if err := c.stop(); err != nil {
-		util.Logger.Fatal("failed to restart consumer group", zap.String("group", c.grpConfig.Name), zap.Error(err))
-	}
+	c.stop()
 	c.start()
 }
 

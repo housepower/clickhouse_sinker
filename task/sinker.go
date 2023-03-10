@@ -601,12 +601,16 @@ func loadBmSeries(conn clickhouse.Conn, sqKey string, tasks []*Service) (result 
 	dbname := strings.Split(sqKey, ".")[0]
 	query := fmt.Sprintf(createTableSQL, mergetable, dbname, tasks[0].clickhouse.GetMetricTable(), dbname, reg[:len(reg)-1])
 	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", tasks[0].taskCfg.Name))
-	conn.Exec(context.Background(), query)
+	if err = conn.Exec(context.Background(), query); err != nil {
+		return
+	}
 
-	var count int
+	var count uint64
 	query = fmt.Sprintf(countSeriesSQL, mergetable, sqKey, mergetable)
 	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", tasks[0].taskCfg.Name))
-	conn.QueryRow(context.Background(), query).Scan(&count)
+	if err = conn.QueryRow(context.Background(), query).Scan(&count); err != nil {
+		return
+	}
 	seriesMap := make(map[int64]int64, count)
 
 	query = fmt.Sprintf(loadSeriesSQL, mergetable, sqKey, mergetable)
@@ -626,7 +630,7 @@ func loadBmSeries(conn clickhouse.Conn, sqKey string, tasks []*Service) (result 
 	}
 	query = fmt.Sprintf(dropTableSQL, mergetable)
 	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", tasks[0].taskCfg.Name))
-	conn.Exec(context.Background(), query)
+	err = conn.Exec(context.Background(), query)
 
-	return seriesMap, nil
+	return seriesMap, err
 }
