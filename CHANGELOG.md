@@ -1,5 +1,10 @@
 # Changelog
 
+#### Version 3.0.3 (not released yet)
+
+Improvements:
+- Have writingpool per shard to avoid ErrAcquireConnTimeout
+
 #### Version 3.0.2 (2023-03-13)
 
 Improvements:

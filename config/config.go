@@ -179,7 +179,7 @@ const (
 	defaultLogLevel           = "info"
 	defaultKerberosConfigPath = "/etc/krb5.conf"
 	defaultMaxOpenConns       = 1
-	defaultDialTimeout        = 2
+	defaultDialTimeout        = 5
 )
 
 func ParseLocalCfgFile(cfgPath string) (cfg *Config, err error) {

@@ -36,10 +36,9 @@ import (
 )
 
 var (
-	GlobalWritingPool *WorkerPool //the all tasks' writing ClickHouse, cpu-net balance
-	Logger            *zap.Logger
-	logAtomLevel      zap.AtomicLevel
-	logPaths          []string
+	Logger       *zap.Logger
+	logAtomLevel zap.AtomicLevel
+	logPaths     []string
 )
 
 type CmdOptions struct {
@@ -57,16 +56,6 @@ type CmdOptions struct {
 	NacosPassword    string
 	NacosDataID      string
 	NacosServiceName string // participate in assignment management if not empty
-}
-
-// InitGlobalWritingPool initialize GlobalWritingPool
-func InitGlobalWritingPool(maxWorkers int) {
-	if GlobalWritingPool != nil {
-		return
-	}
-	queueSize := 1
-	GlobalWritingPool = NewWorkerPool(maxWorkers, queueSize)
-	Logger.Info("initialized writing pool", zap.Int("maxWorkers", maxWorkers), zap.Int("queueSize", queueSize))
 }
 
 // StringContains check if contains string in array

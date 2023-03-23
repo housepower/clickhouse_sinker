@@ -263,9 +263,7 @@ func (s *Sinker) stopAllTasks() {
 		delete(s.consumers, name)
 	}
 
-	if util.GlobalWritingPool != nil {
-		util.GlobalWritingPool.StopWait()
-	}
+	pool.CloseAll()
 	util.Logger.Debug("stopped writing pool")
 }
 
@@ -297,7 +295,6 @@ func (s *Sinker) applyFirstConfig(newCfg *config.Config) (err error) {
 	}
 
 	// 2. Start goroutine pools.
-	util.InitGlobalWritingPool(len(chCfg.Hosts) * chCfg.MaxOpenConns)
 	go s.commitFn()
 
 	// 3. Generate, initialize and run task
@@ -339,8 +336,6 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 
 		// 3. Restart goroutine pools.
 		maxWorkers := len(newCfg.Clickhouse.Hosts) * newCfg.Clickhouse.MaxOpenConns
-		util.GlobalWritingPool.Resize(maxWorkers)
-		util.GlobalWritingPool.Restart()
 		util.Logger.Info("resized writing pool", zap.Int("maxWorkers", maxWorkers))
 		go s.commitFn()
 

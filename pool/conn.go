@@ -37,12 +37,17 @@ var (
 
 // ShardConn a datastructure for storing the clickhouse connection
 type ShardConn struct {
-	lock     sync.Mutex
-	db       clickhouse.Conn
-	dbVer    int
-	opts     clickhouse.Options
-	replicas []string //ip:port list of replicas
-	nextRep  int      //index of next replica
+	lock        sync.Mutex
+	db          clickhouse.Conn
+	dbVer       int
+	opts        clickhouse.Options
+	replicas    []string         //ip:port list of replicas
+	nextRep     int              //index of next replica
+	writingPool *util.WorkerPool //the all tasks' writing ClickHouse, cpu-net balance
+}
+
+func (sc *ShardConn) SubmitTask(fn func()) (err error) {
+	return sc.writingPool.Submit(fn)
 }
 
 // GetReplica returns the replica to which db connects
@@ -63,6 +68,9 @@ func (sc *ShardConn) Close() {
 	if sc.db != nil {
 		sc.db.Close()
 		sc.db = nil
+	}
+	if sc.writingPool != nil {
+		sc.writingPool.StopWait()
 	}
 }
 
@@ -132,9 +140,10 @@ func InitClusterConn(hosts [][]string, port int, db, username, password, dsnPara
 				},
 				DialTimeout:     time.Second * time.Duration(dialTimeout),
 				MaxOpenConns:    maxOpenConns,
-				MaxIdleConns:    1,
-				ConnMaxLifetime: time.Hour,
+				MaxIdleConns:    5, // TODO - update this property to maxOpenConns when the lifetime of an idle connection honours the ConnMaxLifetime
+				ConnMaxLifetime: time.Minute * 10,
 			},
+			writingPool: util.NewWorkerPool(maxOpenConns, 1),
 		}
 		if secure {
 			tlsConfig := &tls.Config{}

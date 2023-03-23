@@ -8,6 +8,7 @@ GOBUILD   := $(GO) build $(BUILD_FLAG)
 
 pre:
 	go mod tidy
+	go get -u ./...
 build: pre
 	$(GOBUILD) -ldflags '$(SINKER_LDFLAGS)' -o . ./...
 debug: pre

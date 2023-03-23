@@ -104,8 +104,9 @@ func (c *ClickHouse) Drain() {
 
 // Send a batch to clickhouse
 func (c *ClickHouse) Send(batch *model.Batch) {
-	if err := util.GlobalWritingPool.Submit(func() {
-		c.loopWrite(batch)
+	sc := pool.GetShardConn(batch.BatchIdx)
+	if err := sc.SubmitTask(func() {
+		c.loopWrite(batch, sc)
 		batch.Wg.Done()
 		c.mux.Lock()
 		c.numFlying--
@@ -223,11 +224,9 @@ func (c *ClickHouse) write(batch *model.Batch, sc *pool.ShardConn, dbVer *int) (
 }
 
 // LoopWrite will dead loop to write the records
-func (c *ClickHouse) loopWrite(batch *model.Batch) {
+func (c *ClickHouse) loopWrite(batch *model.Batch, sc *pool.ShardConn) {
 	var retrycount int
 	var dbVer int
-	sc := pool.GetShardConn(batch.BatchIdx)
-
 	times := c.cfg.Clickhouse.RetryTimes
 	if times <= 0 {
 		times = 0
