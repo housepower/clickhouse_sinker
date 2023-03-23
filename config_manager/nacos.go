@@ -270,6 +270,8 @@ func (ncm *NacosConfManager) Stop() {
 	if err = ncm.namingClient.Unsubscribe(&subParam); err != nil {
 		util.Logger.Error("ncm.namingClient.Unsubscribe failed", zap.Error(err))
 	}
+	cleanupKafkaClient()
+
 	util.Logger.Info("stopped nacos config manager")
 }
 

@@ -13,8 +13,6 @@ github.com/alecthomas/template v0.0.0-20190718012654-fb15b899a751/go.mod h1:LOuy
 github.com/alecthomas/units v0.0.0-20151022065526-2efee857e7cf/go.mod h1:ybxpYRFXyAe+OPACYpWeL0wqObRcbAqCMya13uyzqw0=
 github.com/alecthomas/units v0.0.0-20190717042225-c3de453c63f4/go.mod h1:ybxpYRFXyAe+OPACYpWeL0wqObRcbAqCMya13uyzqw0=
 github.com/aliyun/alibaba-cloud-sdk-go v1.61.18/go.mod h1:v8ESoHo4SyHmuB4b1tJqDHxfTGEciD+yhvOU/5s1Rfk=
-github.com/aliyun/alibaba-cloud-sdk-go v1.62.253 h1:hm1L9yYlK1uUy+/UgawSkuecMCCtXJsGvOJN/psM94M=
-github.com/aliyun/alibaba-cloud-sdk-go v1.62.253/go.mod h1:Api2AkmMgGaSUAhmk76oaFObkoeCPc/bKAqcyplPODs=
 github.com/aliyun/alibaba-cloud-sdk-go v1.62.254 h1:JyMWp7SrNpLjjWlRAY7WhSdAbwpg+4ia4jaegf1aD4U=
 github.com/aliyun/alibaba-cloud-sdk-go v1.62.254/go.mod h1:Api2AkmMgGaSUAhmk76oaFObkoeCPc/bKAqcyplPODs=
 github.com/andybalholm/brotli v1.0.5 h1:8uQZIdzKmjc/iuPu7O2ioW48L81FgatrcpfFmiq/cCs=

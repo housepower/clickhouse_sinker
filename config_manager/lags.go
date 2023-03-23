@@ -2,6 +2,7 @@ package rcm
 
 import (
 	"context"
+	"reflect"
 
 	"github.com/housepower/clickhouse_sinker/config"
 	"github.com/housepower/clickhouse_sinker/input"
@@ -11,6 +12,12 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
+var (
+	theCl       *kgo.Client
+	theAdm      *kadm.Client
+	kafkaConfig *config.KafkaConfig
+)
+
 type StateLag struct {
 	State string
 	Lag   int64
@@ -18,13 +25,10 @@ type StateLag struct {
 
 // GetTaskStateAndLags get state and lag of all tasks.
 func GetTaskStateAndLags(cfg *config.Config) (stateLags map[string]StateLag, err error) {
-	var cl *kgo.Client
-	var adm *kadm.Client
-	if cl, adm, err = newClient(cfg); err != nil {
+	_, adm, err := newClient(cfg.Kafka)
+	if err != nil {
 		return
 	}
-	defer adm.Close()
-	defer cl.Close()
 
 	stateLags = make(map[string]StateLag, len(cfg.Tasks))
 	for _, taskCfg := range cfg.Tasks {
@@ -39,45 +43,34 @@ func GetTaskStateAndLags(cfg *config.Config) (stateLags map[string]StateLag, err
 	return
 }
 
-// GetTaskStateAndLag get state and lag of a task.
-func GetTaskStateAndLag(cfg *config.Config, taskName string) (stateLag StateLag, err error) {
-	var cl *kgo.Client
-	var adm *kadm.Client
-	if cl, adm, err = newClient(cfg); err != nil {
-		return
+func cleanupKafkaClient() {
+	if theCl != nil {
+		theCl.Close()
 	}
-	defer adm.Close()
-	defer cl.Close()
-
-	var taskCfg *config.TaskConfig
-	for _, tskCfg := range cfg.Tasks {
-		if tskCfg.Name == taskName {
-			taskCfg = tskCfg
-			break
-		}
+	if theAdm != nil {
+		theAdm.Close()
 	}
-	if taskCfg == nil {
-		err = errors.Newf("task %q doesn't exist", taskName)
-		return
-	}
-	if stateLag.State, stateLag.Lag, err = getStateAndLag(adm, taskCfg.Topic, taskCfg.ConsumerGroup); err != nil {
-		return
-	}
-	return
 }
 
-func newClient(cfg *config.Config) (cl *kgo.Client, adm *kadm.Client, err error) {
+func newClient(cfg config.KafkaConfig) (cl *kgo.Client, adm *kadm.Client, err error) {
 	var opts []kgo.Opt
-	if opts, err = input.GetFranzConfig(&cfg.Kafka); err != nil {
+	if reflect.DeepEqual(&cfg, kafkaConfig) {
+		return theCl, theAdm, nil
+	}
+
+	cleanupKafkaClient()
+
+	kafkaConfig = &cfg
+	if opts, err = input.GetFranzConfig(&cfg); err != nil {
 		return
 	}
 	// franz.config.go 379 - invalid autocommit options specified when a group was not specified
-	if cl, err = kgo.NewClient(opts...); err != nil {
+	if theCl, err = kgo.NewClient(opts...); err != nil {
 		err = errors.Wrapf(err, "")
 		return
 	}
-	adm = kadm.NewClient(cl)
-	return
+	theAdm = kadm.NewClient(theCl)
+	return theCl, theAdm, err
 }
 
 // getStateAndLag is inspired by https://github.com/cloudhut/kminion/blob/1ffd02ba94a5edc26d4f11e57191ed3479d8a111/prometheus/collect_consumer_group_lags.go
