@@ -25,16 +25,20 @@ type StateLag struct {
 
 // GetTaskStateAndLags get state and lag of all tasks.
 func GetTaskStateAndLags(cfg *config.Config) (stateLags map[string]StateLag, err error) {
-	_, adm, err := newClient(cfg.Kafka)
-	if err != nil {
-		return
+	kconf := cfg.Kafka
+	if !reflect.DeepEqual(&kconf, kafkaConfig) {
+		cleanupKafkaClient()
+		if err = newClient(cfg.Kafka); err != nil {
+			return
+		}
+		kafkaConfig = &kconf
 	}
 
 	stateLags = make(map[string]StateLag, len(cfg.Tasks))
 	for _, taskCfg := range cfg.Tasks {
 		var state string
 		var totalLags int64
-		if state, totalLags, err = getStateAndLag(adm, taskCfg.Topic, taskCfg.ConsumerGroup); err != nil {
+		if state, totalLags, err = getStateAndLag(theAdm, taskCfg.Topic, taskCfg.ConsumerGroup); err != nil {
 			return
 		}
 		stateLags[taskCfg.Name] = StateLag{State: state, Lag: totalLags}
@@ -46,21 +50,16 @@ func GetTaskStateAndLags(cfg *config.Config) (stateLags map[string]StateLag, err
 func cleanupKafkaClient() {
 	if theCl != nil {
 		theCl.Close()
+		theCl = nil
 	}
 	if theAdm != nil {
 		theAdm.Close()
+		theAdm = nil
 	}
 }
 
-func newClient(cfg config.KafkaConfig) (cl *kgo.Client, adm *kadm.Client, err error) {
+func newClient(cfg config.KafkaConfig) (err error) {
 	var opts []kgo.Opt
-	if reflect.DeepEqual(&cfg, kafkaConfig) {
-		return theCl, theAdm, nil
-	}
-
-	cleanupKafkaClient()
-
-	kafkaConfig = &cfg
 	if opts, err = input.GetFranzConfig(&cfg); err != nil {
 		return
 	}
@@ -70,7 +69,7 @@ func newClient(cfg config.KafkaConfig) (cl *kgo.Client, adm *kadm.Client, err er
 		return
 	}
 	theAdm = kadm.NewClient(theCl)
-	return theCl, theAdm, err
+	return
 }
 
 // getStateAndLag is inspired by https://github.com/cloudhut/kminion/blob/1ffd02ba94a5edc26d4f11e57191ed3479d8a111/prometheus/collect_consumer_group_lags.go

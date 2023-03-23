@@ -89,8 +89,6 @@
 
   "task": {
     "name": "test_dynamic_schema",
-    // kafka client, possible values: sarama, kafka-go. (defaults to sarama)
-    "kafkaClient": "sarama",
     // kafka topic
     "topic": "topic",
     // kafka consume from earliest or latest

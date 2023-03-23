@@ -151,9 +151,7 @@ func (g *LogGenerator) Init() error {
 	g.lineno = 0
 	fnPatt := regexp.MustCompile(LogfilePattern)
 	d, err := os.Open(LogfileDir)
-	defer func() {
-		d.Close()
-	}()
+	defer d.Close()
 	if err != nil {
 		err = errors.Wrapf(err, "")
 		return err

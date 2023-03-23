@@ -99,14 +99,12 @@ func (s *Sinker) GetCurrentConfig() *config.Config {
 func (s *Sinker) Run() {
 	var err error
 	var newCfg *config.Config
-	defer func() {
-		s.exitCh <- struct{}{}
-	}()
+
 	if s.cmdOps.PushGatewayAddrs != "" {
 		addrs := strings.Split(s.cmdOps.PushGatewayAddrs, ",")
 		s.pusher = statistics.NewPusher(addrs, s.cmdOps.PushInterval, s.httpAddr)
 		if err = s.pusher.Init(); err != nil {
-			util.Logger.Error("failed to initialize connection to the specified push gateway address", zap.Error(err))
+			util.Logger.Fatal("failed to initialize connection to the specified push gateway address", zap.Error(err))
 			return
 		}
 		go s.pusher.Run()
@@ -136,11 +134,12 @@ func (s *Sinker) Run() {
 			util.Logger.Fatal("s.applyConfig failed", zap.Error(err))
 			return
 		}
+	LOOP:
 		for {
 			select {
 			case <-s.ctx.Done():
 				util.Logger.Info("Sinker.Run quit due to context has been canceled")
-				return
+				break LOOP
 			case c := <-s.consumerRestartCh:
 				// only restart the consumer which was not changed in applyAnotherConfig
 				if c == s.consumers[c.grpConfig.Name] {
@@ -171,11 +170,12 @@ func (s *Sinker) Run() {
 		// Golang <-time.After() is not garbage collected before expiry.
 		ticker := time.NewTicker(10 * time.Second)
 		defer ticker.Stop()
+	WORKLOOP:
 		for {
 			select {
 			case <-s.ctx.Done():
 				util.Logger.Info("Sinker.Run quit due to context has been canceled")
-				return
+				break WORKLOOP
 			case <-ticker.C:
 				if newCfg, err = s.rcm.GetConfig(); err != nil {
 					util.Logger.Error("s.rcm.GetConfig failed", zap.Error(err))
@@ -217,6 +217,8 @@ func (s *Sinker) Run() {
 			}
 		}
 	}
+
+	s.exitCh <- struct{}{}
 }
 
 // Close shutdown task

@@ -4,6 +4,12 @@
 
 Improvements:
 - Have writingpool per shard to avoid ErrAcquireConnTimeout
+- Do not create kafka client everytime when caculate lags
+- Support configuring PlainloginModule in kafka.security section
+
+Bug Fixes:
+- Avoid program running into stuck when facing fatalpanic
+
 
 #### Version 3.0.2 (2023-03-13)
 
