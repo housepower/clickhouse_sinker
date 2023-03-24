@@ -392,15 +392,6 @@ func (cfg *Config) convertKfkSecurity() {
 		}
 		if config, ok := cfg.Kafka.Security["sasl.jaas.config"]; ok {
 			configMap := readConfig(config)
-			if strings.Contains(cfg.Kafka.Sasl.Mechanism, "SCRAM") {
-				// SCRAM-SHA-256 or SCRAM-SHA-512
-				if username, ok := configMap["username"]; ok {
-					cfg.Kafka.Sasl.Username = username
-				}
-				if password, ok := configMap["password"]; ok {
-					cfg.Kafka.Sasl.Password = password
-				}
-			}
 			if strings.Contains(cfg.Kafka.Sasl.Mechanism, "GSSAPI") {
 				// GSSAPI
 				if useKeyTab, ok := configMap["useKeyTab"]; ok {
@@ -435,6 +426,14 @@ func (cfg *Config) convertKfkSecurity() {
 					if cfg.Kafka.Sasl.GSSAPI.KerberosConfigPath == "" {
 						cfg.Kafka.Sasl.GSSAPI.KerberosConfigPath = defaultKerberosConfigPath
 					}
+				}
+			} else {
+				// PLAIN, SCRAM-SHA-256 or SCRAM-SHA-512
+				if username, ok := configMap["username"]; ok {
+					cfg.Kafka.Sasl.Username = username
+				}
+				if password, ok := configMap["password"]; ok {
+					cfg.Kafka.Sasl.Password = password
 				}
 			}
 		}
