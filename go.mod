@@ -6,7 +6,7 @@ require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.7.0
 	github.com/RoaringBitmap/roaring v1.2.3
 	github.com/avast/retry-go/v4 v4.3.3
-	github.com/bytedance/sonic v1.8.5
+	github.com/bytedance/sonic v1.8.6
 	github.com/cespare/xxhash/v2 v2.2.0
 	github.com/google/gops v0.3.27
 	github.com/google/uuid v1.3.0
@@ -18,7 +18,7 @@ require (
 	github.com/prometheus/common v0.42.0
 	github.com/shopspring/decimal v1.3.1
 	github.com/stretchr/testify v1.8.2
-	github.com/thanos-io/thanos v0.30.2
+	github.com/thanos-io/thanos v0.31.0
 	github.com/tidwall/gjson v1.14.4
 	github.com/troian/healthcheck v0.1.4-0.20200127040058-c373fb6a0dc1
 	github.com/twmb/franz-go v1.13.1
@@ -33,8 +33,8 @@ require (
 )
 
 require (
-	github.com/ClickHouse/ch-go v0.53.1 // indirect
-	github.com/aliyun/alibaba-cloud-sdk-go v1.62.250 // indirect
+	github.com/ClickHouse/ch-go v0.54.0 // indirect
+	github.com/aliyun/alibaba-cloud-sdk-go v1.62.254 // indirect
 	github.com/andybalholm/brotli v1.0.5 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bits-and-blooms/bitset v1.5.0 // indirect
@@ -72,7 +72,7 @@ require (
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
-	github.com/twmb/franz-go/pkg/kmsg v1.4.0 // indirect
+	github.com/twmb/franz-go/pkg/kmsg v1.5.0 // indirect
 	go.opentelemetry.io/otel v1.14.0 // indirect
 	go.opentelemetry.io/otel/trace v1.14.0 // indirect
 	go.uber.org/atomic v1.10.0 // indirect
