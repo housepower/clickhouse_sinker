@@ -45,6 +45,7 @@ const (
 	Krb5KeytabAuth = 2
 	CommitRetries  = 6
 	RetryBackoff   = 5 * time.Second
+	processTimeOut = 10
 )
 
 // KafkaFranz implements input.Inputer
@@ -184,7 +185,15 @@ func (k *KafkaFranz) Run() {
 		}
 
 		util.Logger.Debug("Records fetched", zap.String("records", strconv.Itoa(fetches.NumRecords())), zap.String("consumer group", k.grpConfig.Name))
-		k.fetch <- &fetches
+
+		// Automatically end the program if it remains inactive for a specific duration of time.
+		t := time.NewTimer(processTimeOut * time.Minute)
+		select {
+		case k.fetch <- &fetches:
+			t.Stop()
+		case <-t.C:
+			util.Logger.Fatal(fmt.Sprintf("Sinker abort because group %s was not processing in last %d minutes", k.grpConfig.Name, processTimeOut))
+		}
 	}
 	k.cl.Close() // will trigger k.onPartitionRevoked
 	util.Logger.Info("KafkaFranz.Run quit due to context has been canceled", zap.String("consumer group", k.grpConfig.Name))

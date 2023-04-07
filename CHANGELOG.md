@@ -1,6 +1,12 @@
 # Changelog
 
-#### Version 3.0.3 (not released yet)
+#### Version 3.0.4 (TBD)
+
+Improvements:
+- Automatically end sinker if it remains inactive in last 10 mins
+
+
+#### Version 3.0.3 (2023-03-30)
 
 Improvements:
 - Have writingpool per shard to avoid ErrAcquireConnTimeout

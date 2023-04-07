@@ -181,7 +181,7 @@ func WhichType(typ string) (ti *TypeInfo) {
 		typeInfo[origTyp] = ti
 		return ti
 	} else {
-		util.Logger.Fatal(fmt.Sprintf("ClickHouse column type %v is not inside supported ones: %v", origTyp, typeInfo))
+		util.Logger.Fatal(fmt.Sprintf("ClickHouse column type %v is not inside supported ones(case-sensitive): %v", origTyp, typeInfo))
 	}
 	ti = &TypeInfo{Type: dataType, Nullable: nullable, Array: array}
 	typeInfo[origTyp] = ti

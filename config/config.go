@@ -319,6 +319,7 @@ func (cfg *Config) normallizeTask(taskCfg *TaskConfig) (err error) {
 		taskCfg.PromLabelsBlackList = ""
 	}
 	if taskCfg.DynamicSchema.Enable {
+		taskCfg.AutoSchema = true
 		if taskCfg.Parser != "fastjson" && taskCfg.Parser != "gjson" {
 			err = errors.Newf("Parser %s doesn't support DynamicSchema", taskCfg.Parser)
 			return
