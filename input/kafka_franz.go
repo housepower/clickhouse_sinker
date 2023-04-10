@@ -173,6 +173,7 @@ func GetFranzConfig(kfkCfg *config.KafkaConfig) (opts []kgo.Opt, err error) {
 func (k *KafkaFranz) Run() {
 	k.wgRun.Add(1)
 	defer k.wgRun.Done()
+LOOP:
 	for {
 		fetches := k.cl.PollRecords(k.ctx, k.grpConfig.BufferSize)
 		err := fetches.Err()
@@ -191,6 +192,9 @@ func (k *KafkaFranz) Run() {
 		select {
 		case k.fetch <- &fetches:
 			t.Stop()
+		case <-k.ctx.Done():
+			t.Stop()
+			break LOOP
 		case <-t.C:
 			util.Logger.Fatal(fmt.Sprintf("Sinker abort because group %s was not processing in last %d minutes", k.grpConfig.Name, processTimeOut))
 		}

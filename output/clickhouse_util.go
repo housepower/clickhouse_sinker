@@ -3,12 +3,10 @@ package output
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/RoaringBitmap/roaring"
-	"github.com/avast/retry-go/v4"
 	"github.com/housepower/clickhouse_sinker/model"
 	"github.com/housepower/clickhouse_sinker/pool"
 	"github.com/housepower/clickhouse_sinker/util"
@@ -82,16 +80,7 @@ func writeRows(prepareSQL string, rows model.Rows, idxBegin, idxEnd int, conn cl
 
 func getDims(database, table string, excludedColumns []string, parser string, conn clickhouse.Conn) (dims []*model.ColumnWithType, err error) {
 	var rs driver.Rows
-	if err = retry.Do(
-		func() error {
-			rs, err = conn.Query(context.Background(), fmt.Sprintf(selectSQLTemplate, database, table))
-			return err
-		},
-		retry.Attempts(0),
-		retry.LastErrorOnly(true),
-		retry.Delay(10*time.Second),
-		retry.RetryIf(func(err error) bool { return errors.Is(err, clickhouse.ErrAcquireConnTimeout) }),
-	); err != nil {
+	if rs, err = conn.Query(context.Background(), fmt.Sprintf(selectSQLTemplate, database, table)); err != nil {
 		err = errors.Wrapf(err, "")
 		return
 	}

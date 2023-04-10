@@ -239,10 +239,8 @@ func (c *ClickHouse) loopWrite(batch *model.Batch, sc *pool.ShardConn) {
 		retry.RetryIf(func(err error) bool { return shouldReconnect(err, sc) }),
 		retry.OnRetry(func(n uint, err error) {
 			retrycount++
-			if !errors.Is(err, clickhouse.ErrAcquireConnTimeout) {
-				util.Logger.Error("flush batch failed", zap.String("task", c.taskCfg.Name), zap.Int("try", int(retrycount)), zap.Error(err))
-				statistics.FlushMsgsErrorTotal.WithLabelValues(c.taskCfg.Name).Add(float64(batch.RealSize))
-			}
+			util.Logger.Error("flush batch failed", zap.String("task", c.taskCfg.Name), zap.Int("try", int(retrycount)), zap.Error(err))
+			statistics.FlushMsgsErrorTotal.WithLabelValues(c.taskCfg.Name).Add(float64(batch.RealSize))
 		}),
 	); err != nil {
 		util.Logger.Fatal("ClickHouse.loopWrite failed", zap.String("task", c.taskCfg.Name), zap.Error(err))
@@ -478,13 +476,7 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 	alterTable := func(tbl, col string) error {
 		query := fmt.Sprintf("ALTER TABLE `%s`.`%s` %s %s;", c.dbName, tbl, onCluster, col)
 		util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", taskCfg.Name))
-		return retry.Do(
-			func() error { return conn.Exec(context.Background(), query) },
-			retry.Attempts(0),
-			retry.LastErrorOnly(true),
-			retry.Delay(10*time.Second),
-			retry.RetryIf(func(err error) bool { return errors.Is(err, clickhouse.ErrAcquireConnTimeout) }),
-		)
+		return conn.Exec(context.Background(), query)
 	}
 
 	if len(alterSeries) != 0 {
@@ -527,16 +519,7 @@ func (c *ClickHouse) getDistTbls(table string) (distTbls []string, err error) {
 		c.dbName, chCfg.Cluster, c.dbName, table)
 	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", taskCfg.Name))
 	var rows driver.Rows
-	if err = retry.Do(
-		func() error {
-			rows, err = conn.Query(context.Background(), query)
-			return err
-		},
-		retry.Attempts(0),
-		retry.LastErrorOnly(true),
-		retry.Delay(10*time.Second),
-		retry.RetryIf(func(err error) bool { return errors.Is(err, clickhouse.ErrAcquireConnTimeout) }),
-	); err != nil {
+	if rows, err = conn.Query(context.Background(), query); err != nil {
 		err = errors.Wrapf(err, "")
 		return
 	}
