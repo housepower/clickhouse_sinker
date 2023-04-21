@@ -7,7 +7,7 @@ Usage of ./clickhouse_sinker:
   -http-port int
         http listen port (default 2112)
   -local-cfg-file string
-        local config file (default "/etc/clickhouse_sinker.json")
+        local config file (default "/etc/clickhouse_sinker.hjson")
   -metric-push-gateway-addrs string
         a list of comma-separated prometheus push gatway address
   -nacos-addr string

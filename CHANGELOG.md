@@ -1,6 +1,6 @@
 # Changelog
 
-#### Version 3.0.4 (TBD)
+#### Version 3.0.4 (2023-04-18)
 
 Improvements:
 - Automatically end sinker if it remains inactive in last 10 mins

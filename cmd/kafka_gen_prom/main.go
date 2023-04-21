@@ -165,7 +165,7 @@ func randValue() (val string) {
 }
 
 func randBool() bool {
-	rand.Seed(time.Now().UnixNano())
+	rand.New(rand.NewSource(time.Now().UnixNano()))
 	return rand.Intn(2) == 1
 }
 

@@ -3,7 +3,7 @@ module github.com/housepower/clickhouse_sinker
 go 1.20
 
 require (
-	github.com/ClickHouse/clickhouse-go/v2 v2.8.3
+	github.com/ClickHouse/clickhouse-go/v2 v2.9.0
 	github.com/RoaringBitmap/roaring v1.2.3
 	github.com/avast/retry-go/v4 v4.3.3
 	github.com/bytedance/sonic v1.8.7
@@ -14,7 +14,7 @@ require (
 	github.com/jcmturner/gokrb5/v8 v8.4.4
 	github.com/jinzhu/copier v0.3.5
 	github.com/nacos-group/nacos-sdk-go v1.1.4
-	github.com/prometheus/client_golang v1.14.0
+	github.com/prometheus/client_golang v1.15.0
 	github.com/prometheus/common v0.42.0
 	github.com/shopspring/decimal v1.3.1
 	github.com/stretchr/testify v1.8.2
@@ -34,7 +34,7 @@ require (
 
 require (
 	github.com/ClickHouse/ch-go v0.54.0 // indirect
-	github.com/aliyun/alibaba-cloud-sdk-go v1.62.272 // indirect
+	github.com/aliyun/alibaba-cloud-sdk-go v1.62.282 // indirect
 	github.com/andybalholm/brotli v1.0.5 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bits-and-blooms/bitset v1.5.0 // indirect
@@ -52,7 +52,7 @@ require (
 	github.com/jcmturner/rpc/v2 v2.0.3 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
-	github.com/klauspost/compress v1.16.4 // indirect
+	github.com/klauspost/compress v1.16.5 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.4 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.4 // indirect
@@ -78,7 +78,7 @@ require (
 	go.uber.org/atomic v1.10.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/arch v0.3.0 // indirect
-	golang.org/x/crypto v0.7.0 // indirect
+	golang.org/x/crypto v0.8.0 // indirect
 	golang.org/x/net v0.9.0 // indirect
 	golang.org/x/sync v0.1.0 // indirect
 	golang.org/x/sys v0.7.0 // indirect

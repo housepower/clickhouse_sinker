@@ -41,6 +41,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"log"
 	"math/rand"
 	"os"
 	"os/signal"
@@ -151,11 +152,15 @@ func (g *LogGenerator) Init() error {
 	g.lineno = 0
 	fnPatt := regexp.MustCompile(LogfilePattern)
 	d, err := os.Open(LogfileDir)
-	defer d.Close()
 	if err != nil {
 		err = errors.Wrapf(err, "")
 		return err
 	}
+	defer func() {
+		if err := d.Close(); err != nil {
+			log.Printf("error closing file: %v", err)
+		}
+	}()
 	fis, err := d.Readdir(0)
 	if err != nil {
 		err = errors.Wrapf(err, "")
