@@ -8,6 +8,9 @@ package-lock.json
 *.log
 .idea
 *.bin
+*.out
+*.pem
+*.p12
 dist
 vendor
 

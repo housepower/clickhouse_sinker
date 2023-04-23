@@ -24,10 +24,6 @@ build: pre
 debug: pre
 	$(GOBUILD) -ldflags '$(SINKER_LDFLAGS)' -gcflags "all=-N -l" -o . ./...
 
-.PHONY: unittest
-unittest: pre
-	go test -v ./...
-
 .PHONY: benchtest
 benchtest: pre
 	go test -bench=. ./...
@@ -37,10 +33,10 @@ systest: build
 	bash go.test.sh
 	bash go.metrictest.sh
 
-.PHONY: coverage
-coverage:
-	go test ./... -coverprofile=coverage.txt -covermode count
-	go tool cover -func coverage.txt
+.PHONY: gotest
+gotest: pre
+	go test -v ./... -coverprofile=coverage.out -covermode count
+	go tool cover -func coverage.out
 
 .PHONY: lint
 lint:

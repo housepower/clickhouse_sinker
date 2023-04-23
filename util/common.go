@@ -211,7 +211,9 @@ func JksToPem(jksPath, jksPassword string, overwrite bool) (certPemPath, keyPemP
 		{"openssl", "pkcs12", "-in", pkcs12Path, "-nodes", "-nocerts", "-out", keyPemPath, "-passin", "env:password"},
 	}
 	for _, cmd := range cmds {
-		Logger.Info(strings.Join(cmd, " "))
+		if Logger != nil {
+			Logger.Info(strings.Join(cmd, " "))
+		}
 		exe := exec.Command(cmd[0], cmd[1:]...)
 		if cmd[0] == "keytool" {
 			exe.Stdin = bytes.NewReader([]byte(jksPassword + "\n" + jksPassword + "\n" + jksPassword))
@@ -220,7 +222,9 @@ func JksToPem(jksPath, jksPassword string, overwrite bool) (certPemPath, keyPemP
 		}
 		var out []byte
 		out, err = exe.CombinedOutput()
-		Logger.Info(string(out))
+		if Logger != nil {
+			Logger.Info(string(out))
+		}
 		if err != nil {
 			err = errors.Wrapf(err, "")
 			return
