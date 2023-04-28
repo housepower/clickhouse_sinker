@@ -44,10 +44,10 @@ var (
 	dropTableSQL   = `DROP TABLE IF EXISTS %s `
 	countSeriesSQL = `WITH (SELECT max(timestamp) FROM %s) AS m
 	SELECT count() FROM %s FINAL WHERE __series_id GLOBAL IN (
-	SELECT DISTINCT __series_id FROM %s WHERE timestamp >= addDays(m, -1));`
+	SELECT DISTINCT __series_id FROM %s WHERE timestamp >= addSeconds(m, -%d));`
 	loadSeriesSQL = `WITH (SELECT max(timestamp) FROM %s) AS m
 	SELECT toInt64(__series_id) AS sid, toInt64(__mgmt_id) AS mid FROM %s FINAL WHERE sid GLOBAL IN (
-	SELECT DISTINCT toInt64(__series_id) FROM %s WHERE timestamp >= addDays(m, -1)
+	SELECT DISTINCT toInt64(__series_id) FROM %s WHERE timestamp >= addSeconds(m, -%d)
 	) ORDER BY sid;`
 )
 
@@ -110,8 +110,6 @@ func (s *Sinker) Run() {
 		go s.pusher.Run()
 	}
 
-	reloadBmSeriesTicker := time.NewTicker(time.Hour)
-	defer reloadBmSeriesTicker.Stop()
 	if s.rcm == nil {
 		if _, err = os.Stat(s.cmdOps.LocalCfgFile); err == nil {
 			if newCfg, err = config.ParseLocalCfgFile(s.cmdOps.LocalCfgFile); err != nil {
@@ -134,6 +132,9 @@ func (s *Sinker) Run() {
 			util.Logger.Fatal("s.applyConfig failed", zap.Error(err))
 			return
 		}
+
+		reloadBmSeriesTicker := time.NewTicker(time.Duration(s.curCfg.ReloadSeriesMapInterval) * time.Second)
+		defer reloadBmSeriesTicker.Stop()
 	LOOP:
 		for {
 			select {
@@ -170,6 +171,11 @@ func (s *Sinker) Run() {
 		// Golang <-time.After() is not garbage collected before expiry.
 		ticker := time.NewTicker(10 * time.Second)
 		defer ticker.Stop()
+
+		// start the ticker with default value 1 hour
+		curInterval := 3600
+		reloadBmSeriesTicker := time.NewTicker(time.Second * time.Duration(curInterval))
+		defer reloadBmSeriesTicker.Stop()
 	WORKLOOP:
 		for {
 			select {
@@ -189,9 +195,15 @@ func (s *Sinker) Run() {
 					util.Logger.Error("newCfg.Normallize failed", zap.Error(err))
 					continue
 				}
+				if s.curCfg != nil {
+					curInterval = s.curCfg.ReloadSeriesMapInterval
+				}
 				if err = s.applyConfig(newCfg); err != nil {
 					util.Logger.Error("s.applyConfig failed", zap.Error(err))
 					continue
+				}
+				if curInterval != newCfg.ReloadSeriesMapInterval {
+					reloadBmSeriesTicker.Reset(time.Duration(newCfg.ReloadSeriesMapInterval) * time.Second)
 				}
 			case c := <-s.consumerRestartCh:
 				// only restart the consumer which was not changed in applyAnotherConfig
@@ -280,6 +292,8 @@ func (s *Sinker) applyConfig(newCfg *config.Config) (err error) {
 		!reflect.DeepEqual(newCfg.Assignment.Map, s.curCfg.Assignment.Map) {
 		err = s.applyAnotherConfig(newCfg)
 	}
+	s.curCfg.ActiveSeriesRange = newCfg.ActiveSeriesRange
+	s.curCfg.ReloadSeriesMapInterval = newCfg.ReloadSeriesMapInterval
 
 	if len(s.consumers) == 0 && s.cmdOps.NacosServiceName != "" {
 		util.Logger.Warn("No task fetched from Nacos, make sure the program is running with correct commandline option!")
@@ -292,7 +306,7 @@ func (s *Sinker) applyFirstConfig(newCfg *config.Config) (err error) {
 	// 1. Initialize clickhouse connections
 	chCfg := &newCfg.Clickhouse
 	if err = pool.InitClusterConn(chCfg.Hosts, chCfg.Port, chCfg.DB, chCfg.Username, chCfg.Password,
-		chCfg.DsnParams, chCfg.Secure, chCfg.InsecureSkipVerify, chCfg.MaxOpenConns, chCfg.DialTimeout); err != nil {
+		chCfg.Secure, chCfg.InsecureSkipVerify, chCfg.MaxOpenConns); err != nil {
 		return
 	}
 
@@ -332,7 +346,7 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 		// 2. Initialize clickhouse connections.
 		chCfg := &newCfg.Clickhouse
 		if err = pool.InitClusterConn(chCfg.Hosts, chCfg.Port, chCfg.DB, chCfg.Username, chCfg.Password,
-			chCfg.DsnParams, chCfg.Secure, chCfg.InsecureSkipVerify, chCfg.MaxOpenConns, chCfg.DialTimeout); err != nil {
+			chCfg.Secure, chCfg.InsecureSkipVerify, chCfg.MaxOpenConns); err != nil {
 			return
 		}
 
@@ -520,7 +534,7 @@ func (s *Sinker) initBmSeries() (err error) {
 			}
 		}
 
-		seriesMap, err := loadBmSeries(conn, k, v)
+		seriesMap, err := loadBmSeries(conn, k, v, s.curCfg.ActiveSeriesRange)
 		if err != nil {
 			return err
 		}
@@ -542,12 +556,17 @@ func (s *Sinker) reloadBmSeries() (err error) {
 		k := key.(string)
 		v := value.(*model.SeriesQuota)
 		v.Lock()
-		if now.Sub(v.Birth) > time.Hour*24 {
+		if now.Sub(v.Birth).Seconds() > float64(s.curCfg.ReloadSeriesMapInterval) {
 			sqMap[k] = v
 		}
 		v.Unlock()
 		return true
 	})
+
+	if len(sqMap) == 0 {
+		util.Logger.Info("SeriesMap cache is up to date!")
+		return
+	}
 
 	// series table could be shared between multiple tasks
 	tables := make(map[string][]*Service)
@@ -561,6 +580,10 @@ func (s *Sinker) reloadBmSeries() (err error) {
 		})
 	}
 
+	if len(tables) == 0 {
+		return
+	}
+
 	var conn clickhouse.Conn
 	if conn, _, err = pool.GetShardConn(0).NextGoodReplica(0); err != nil {
 		return
@@ -568,7 +591,7 @@ func (s *Sinker) reloadBmSeries() (err error) {
 
 	// reload seriesQuotas which is out-of-date
 	for k, v := range tables {
-		seriesMap, err := loadBmSeries(conn, k, v)
+		seriesMap, err := loadBmSeries(conn, k, v, s.curCfg.ActiveSeriesRange)
 		if err != nil {
 			return err
 		}
@@ -578,13 +601,13 @@ func (s *Sinker) reloadBmSeries() (err error) {
 		sq.BmSeries = seriesMap
 		sq.Birth = time.Now()
 		sq.Unlock()
-		util.Logger.Info(fmt.Sprintf("reloaded %d series from %v", len(seriesMap), k))
+		util.Logger.Info(fmt.Sprintf("reloaded %d series from %v, SeriesMap cache is up to date!", len(seriesMap), k))
 	}
 
 	return
 }
 
-func loadBmSeries(conn clickhouse.Conn, sqKey string, tasks []*Service) (result map[int64]int64, err error) {
+func loadBmSeries(conn clickhouse.Conn, sqKey string, tasks []*Service, activeSeriesRange int) (result map[int64]int64, err error) {
 	// merge all metric tables to get the latest timestamp
 	// old bmseries record won't be loaded into memory to avoid OOM
 	var reg string
@@ -603,14 +626,14 @@ func loadBmSeries(conn clickhouse.Conn, sqKey string, tasks []*Service) (result 
 	}
 
 	var count uint64
-	query = fmt.Sprintf(countSeriesSQL, mergetable, sqKey, mergetable)
+	query = fmt.Sprintf(countSeriesSQL, mergetable, sqKey, mergetable, activeSeriesRange)
 	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", tasks[0].taskCfg.Name))
 	if err = conn.QueryRow(context.Background(), query).Scan(&count); err != nil {
 		return
 	}
 	seriesMap := make(map[int64]int64, count)
 
-	query = fmt.Sprintf(loadSeriesSQL, mergetable, sqKey, mergetable)
+	query = fmt.Sprintf(loadSeriesSQL, mergetable, sqKey, mergetable, activeSeriesRange)
 	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", tasks[0].taskCfg.Name))
 	rs, err := conn.Query(context.Background(), query)
 	if err != nil {

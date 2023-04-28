@@ -30,13 +30,16 @@ import (
 
 // Config struct used for different configurations use
 type Config struct {
-	Kafka      KafkaConfig
-	Clickhouse ClickHouseConfig
-	Task       *TaskConfig
-	Tasks      []*TaskConfig
-	Assignment Assignment
-	LogLevel   string
-	Groups     map[string]*GroupConfig `json:"-"`
+	Kafka                   KafkaConfig
+	Clickhouse              ClickHouseConfig
+	Task                    *TaskConfig
+	Tasks                   []*TaskConfig
+	Assignment              Assignment
+	LogLevel                string
+	ReloadSeriesMapInterval int
+	ActiveSeriesRange       int
+
+	Groups map[string]*GroupConfig `json:"-"`
 }
 
 // KafkaConfig configuration parameters
@@ -83,13 +86,12 @@ type KafkaConfig struct {
 
 // ClickHouseConfig configuration parameters
 type ClickHouseConfig struct {
-	Cluster   string
-	DB        string
-	Hosts     [][]string
-	Port      int
-	Username  string
-	Password  string
-	DsnParams string
+	Cluster  string
+	DB       string
+	Hosts    [][]string
+	Port     int
+	Username string
+	Password string
 
 	// Whether enable TLS encryption with clickhouse-server
 	Secure bool
@@ -98,7 +100,6 @@ type ClickHouseConfig struct {
 
 	RetryTimes   int //<=0 means retry infinitely
 	MaxOpenConns int
-	DialTimeout  int // Connection dial timeout in seconds
 }
 
 // TaskConfig parameters
@@ -171,15 +172,16 @@ type Assignment struct {
 }
 
 const (
-	MaxBufferSize             = 1 << 20 //1048576
-	defaultBufferSize         = 1 << 18 //262144
-	maxFlushInterval          = 600
-	defaultFlushInterval      = 5
-	defaultTimeZone           = "Local"
-	defaultLogLevel           = "info"
-	defaultKerberosConfigPath = "/etc/krb5.conf"
-	defaultMaxOpenConns       = 1
-	defaultDialTimeout        = 5
+	MaxBufferSize                  = 1 << 20 //1048576
+	defaultBufferSize              = 1 << 18 //262144
+	maxFlushInterval               = 600
+	defaultFlushInterval           = 10
+	defaultTimeZone                = "Local"
+	defaultLogLevel                = "info"
+	defaultKerberosConfigPath      = "/etc/krb5.conf"
+	defaultMaxOpenConns            = 1
+	defaultReloadSeriesMapInterval = 3600  // 1 hour
+	defaultActiveSeriesRange       = 86400 // 1 day
 )
 
 func ParseLocalCfgFile(cfgPath string) (cfg *Config, err error) {
@@ -233,10 +235,6 @@ func (cfg *Config) Normallize(constructGroup bool, httpAddr string) (err error) 
 		cfg.Clickhouse.MaxOpenConns = defaultMaxOpenConns
 	}
 
-	if cfg.Clickhouse.DialTimeout <= 0 {
-		cfg.Clickhouse.DialTimeout = defaultDialTimeout
-	}
-
 	if cfg.Task != nil {
 		cfg.Tasks = append(cfg.Tasks, cfg.Task)
 		cfg.Task = nil
@@ -280,6 +278,13 @@ func (cfg *Config) Normallize(constructGroup bool, httpAddr string) (err error) 
 	default:
 		cfg.LogLevel = defaultLogLevel
 	}
+	if cfg.ReloadSeriesMapInterval <= 0 {
+		cfg.ReloadSeriesMapInterval = defaultReloadSeriesMapInterval
+	}
+	if cfg.ActiveSeriesRange <= 0 {
+		cfg.ActiveSeriesRange = defaultActiveSeriesRange
+	}
+
 	return
 }
 

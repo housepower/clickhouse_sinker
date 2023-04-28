@@ -3,7 +3,7 @@ sh
 .vscode
 node_modules/
 package-lock.json
-
+nacos_cache
 .DS_Store
 *.log
 .idea

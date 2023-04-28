@@ -1,9 +1,10 @@
 # Config Items
 
-> Here we use json with comments for documentation, config file in hjson format is also supported 
+> Here we use json with comments for documentation, config file in hjson format is also supported
 
 ```json
-{
+	ReloadSeriesMapInterval int
+	ActiveSeriesRange       int{
   // ClickHouse config
   "clickhouse": {
     // cluster the ClickHouse node belongs
@@ -42,7 +43,7 @@
   // Kafka config
   "kafka": {
     "brokers": "127.0.0.1:9093",
-    
+  
     // jave client style security authentication
     "security":{
         "security.protocol": "SASL_PLAINTEXT",
@@ -148,6 +149,12 @@
       "blackList": "@"
     },
 
+    // PrometheusSchema expects each message is a Prometheus metric(timestamp, value, metric name and a list of labels).
+    "prometheusSchema": true,
+    // the regexp of labels black list, fields match promLabelsBlackList are not considered as part of labels column in series table
+    // Requires PrometheusSchema be true.
+    "promLabelsBlackList": "",
+
     // shardingKey is the column name to which sharding against
     "shardingKey": "",
     // shardingStripe take effect if the sharding key is numerical
@@ -167,6 +174,13 @@
   },
 
   // log level, possible value: "debug", "info", "warn", "error", "dpanic", "panic", "fatal". Default to "info".
-  "logLevel": "debug"
+  "logLevel": "debug",
+  // The Series table may contain hundreds of columns, and writing this table every time a datapoint is persisted can result in significant
+  // performance overhead. This should be unnecessary since the lables from the same timeseries usually do not change(mid could be an exception).
+  // Therefore, it would be reasonable to keep the map between "sid" and "mid" in cache to avoid frequent write operations. To optimize the memory
+  // utilization, only active series from the last "activeSeriesRange" seconds will be cached, and the map in the cache will be updated every
+  // "reloadSeriesMapInterval" seconds. By default, series from the last 24 hours will be cached, and the cache will be updated every hour.
+	"reloadSeriesMapInterval": 3600,
+	"activeSeriesRange": 86400
 }
 ```

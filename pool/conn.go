@@ -112,8 +112,8 @@ func (sc *ShardConn) NextGoodReplica(failedVer int) (db clickhouse.Conn, dbVer i
 
 // Each shard has a clickhouse.Conn which connects to one replica inside the shard.
 // We need more control than replica single-point-failure.
-func InitClusterConn(hosts [][]string, port int, db, username, password, dsnParams string, secure, skipVerify bool,
-	maxOpenConns int, dialTimeout int) (err error) {
+func InitClusterConn(hosts [][]string, port int, db, username, password string, secure, skipVerify bool,
+	maxOpenConns int) (err error) {
 	lock.Lock()
 	defer lock.Unlock()
 	freeClusterConn()
@@ -138,7 +138,7 @@ func InitClusterConn(hosts [][]string, port int, db, username, password, dsnPara
 					Username: username,
 					Password: password,
 				},
-				DialTimeout:     time.Second * time.Duration(dialTimeout),
+				DialTimeout:     time.Minute * 10,
 				MaxOpenConns:    maxOpenConns,
 				MaxIdleConns:    5, // TODO - update this property to maxOpenConns when the lifetime of an idle connection honours the ConnMaxLifetime
 				ConnMaxLifetime: time.Minute * 10,
