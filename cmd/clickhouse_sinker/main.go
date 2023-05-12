@@ -169,6 +169,7 @@ func main() {
 		mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
 		mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
 		mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+		mux.Handle("/debug/vars", http.DefaultServeMux)
 
 		// cmdOps.HTTPPort=0: let OS choose the listen port, and record the exact metrics URL to log.
 		httpPort := cmdOps.HTTPPort

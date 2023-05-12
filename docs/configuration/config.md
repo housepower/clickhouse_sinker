@@ -3,8 +3,7 @@
 > Here we use json with comments for documentation, config file in hjson format is also supported
 
 ```json
-	ReloadSeriesMapInterval int
-	ActiveSeriesRange       int{
+{
   // ClickHouse config
   "clickhouse": {
     // cluster the ClickHouse node belongs

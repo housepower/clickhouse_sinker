@@ -101,9 +101,9 @@ func NewOrderedMap() *OrderedMap {
 }
 
 type SeriesQuota struct {
-	sync.Mutex
+	sync.Mutex     `json:"-"`
 	NextResetQuota time.Time
-	BmSeries       map[int64]int64
+	BmSeries       map[int64]int64 // sid:mid
 	WrSeries       int
 	Birth          time.Time
 }

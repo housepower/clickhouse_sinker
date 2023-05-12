@@ -1,6 +1,6 @@
 # Changelog
 
-#### Version 3.0.5 (TBD)
+#### Version 3.0.5 (2023-05-12)
 
 New Features:
 
@@ -8,6 +8,7 @@ New Features:
   - "ReloadSeriesMapInterval", allows you to manage how frequently the cached seriesMap is reloaded.
   - "ActiveSeriesRange", allows you to manage the amount of cached information.
     Refer to the "config.md" file for more info.
+- Add a new http endpoint "/debug/vars" for viewing contents of seriesMap
 
 #### Version 3.0.4 (2023-04-18)
 

@@ -17,6 +17,8 @@ package output
 
 import (
 	"context"
+	"encoding/json"
+	"expvar"
 	"fmt"
 	"math"
 	"sort"
@@ -76,6 +78,23 @@ type ClickHouse struct {
 	numFlying int32
 	mux       sync.Mutex
 	taskDone  *sync.Cond
+}
+
+func init() {
+	expvar.Publish("SeriesMap", expvar.Func(func() interface{} {
+		var result = make(map[string]string)
+		SeriesQuotas.Range(func(key, value interface{}) bool {
+			if sq, ok := value.(*model.SeriesQuota); ok {
+				sq.Lock()
+				if bs, err := json.Marshal(sq); err == nil {
+					result[key.(string)] = string(bs)
+				}
+				sq.Unlock()
+			}
+			return true
+		})
+		return result
+	}))
 }
 
 // NewClickHouse new a clickhouse instance
