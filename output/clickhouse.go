@@ -80,6 +80,11 @@ type ClickHouse struct {
 	taskDone  *sync.Cond
 }
 
+type DistTblInfo struct {
+	name    string
+	cluster string
+}
+
 func init() {
 	expvar.Publish("SeriesMap", expvar.Func(func() interface{} {
 		var result = make(map[string]string)
@@ -347,10 +352,18 @@ func (c *ClickHouse) initSeriesSchema(conn clickhouse.Conn) (err error) {
 
 	// Check distributed series table
 	if chCfg := &c.cfg.Clickhouse; chCfg.Cluster != "" {
-		if c.distSeriesTbls, err = c.getDistTbls(c.seriesTbl); err != nil {
-			return
+		withDistTable := false
+		info, e := c.getDistTbls(c.seriesTbl)
+		if e != nil {
+			return e
 		}
-		if c.distSeriesTbls == nil {
+		for _, i := range info {
+			c.distSeriesTbls = append(c.distSeriesTbls, i.name)
+			if i.cluster == c.cfg.Clickhouse.Cluster {
+				withDistTable = true
+			}
+		}
+		if !withDistTable {
 			err = errors.Newf("Please create distributed table for %s in cluster '%s'.", c.seriesTbl, c.cfg.Clickhouse.Cluster)
 			return
 		}
@@ -416,10 +429,18 @@ func (c *ClickHouse) initSchema() (err error) {
 
 	// Check distributed metric table
 	if chCfg := &c.cfg.Clickhouse; chCfg.Cluster != "" {
-		if c.distMetricTbls, err = c.getDistTbls(c.TableName); err != nil {
-			return
+		withDistTable := false
+		info, e := c.getDistTbls(c.TableName)
+		if e != nil {
+			return e
 		}
-		if c.distMetricTbls == nil {
+		for _, i := range info {
+			c.distMetricTbls = append(c.distMetricTbls, i.name)
+			if i.cluster == c.cfg.Clickhouse.Cluster {
+				withDistTable = true
+			}
+		}
+		if !withDistTable {
 			err = errors.Newf("Please create distributed table for %s in cluster '%s'.", c.seriesTbl, c.cfg.Clickhouse.Cluster)
 			return
 		}
@@ -526,16 +547,16 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 	return
 }
 
-func (c *ClickHouse) getDistTbls(table string) (distTbls []string, err error) {
+func (c *ClickHouse) getDistTbls(table string) (distTbls []DistTblInfo, err error) {
 	taskCfg := c.taskCfg
-	chCfg := &c.cfg.Clickhouse
 	sc := pool.GetShardConn(0)
 	var conn clickhouse.Conn
 	if conn, _, err = sc.NextGoodReplica(0); err != nil {
 		return
 	}
-	query := fmt.Sprintf(`SELECT name FROM system.tables WHERE engine='Distributed' AND database='%s' AND match(create_table_query, 'Distributed\(\'%s\', \'%s\', \'%s\'.*\)')`,
-		c.dbName, chCfg.Cluster, c.dbName, table)
+	query := fmt.Sprintf(`SELECT name, (extractAllGroups(engine_full, '(Distributed\\(\')(.*)\',\\s+\'(.*)\',\\s+\'(.*)\'(.*)')[1])[2] AS cluster
+	 FROM system.tables WHERE engine='Distributed' AND database='%s' AND match(engine_full, 'Distributed\(\'.*\', \'%s\', \'%s\'.*\)')`,
+		c.dbName, c.dbName, table)
 	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", taskCfg.Name))
 	var rows driver.Rows
 	if rows, err = conn.Query(context.Background(), query); err != nil {
@@ -544,12 +565,12 @@ func (c *ClickHouse) getDistTbls(table string) (distTbls []string, err error) {
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var name string
-		if err = rows.Scan(&name); err != nil {
+		var name, cluster string
+		if err = rows.Scan(&name, &cluster); err != nil {
 			err = errors.Wrapf(err, "")
 			return
 		}
-		distTbls = append(distTbls, name)
+		distTbls = append(distTbls, DistTblInfo{name: name, cluster: cluster})
 	}
 	return
 }

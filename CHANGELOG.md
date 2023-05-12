@@ -1,5 +1,11 @@
 # Changelog
 
+#### Version 3.0.6 (TBD)
+
+Improvements:
+
+- When idenfying new columns, also update the schema of tables that are part of a logical cluster 
+
 #### Version 3.0.5 (2023-05-12)
 
 New Features:
@@ -9,6 +15,10 @@ New Features:
   - "ActiveSeriesRange", allows you to manage the amount of cached information.
     Refer to the "config.md" file for more info.
 - Add a new http endpoint "/debug/vars" for viewing contents of seriesMap
+
+Deprecations:
+
+- DialTimeout option is deprecated.
 
 #### Version 3.0.4 (2023-04-18)
 
