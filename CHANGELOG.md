@@ -1,10 +1,11 @@
 # Changelog
 
-#### Version 3.0.6 (TBD)
+#### Version 3.0.6 (2023-05-19)
 
 Improvements:
 
-- When idenfying new columns, also update the schema of tables that are part of a logical cluster 
+- When idenfying new columns, also update the schema of tables that are part of a logical cluster
+- Allow writing non-numeric type metric
 
 #### Version 3.0.5 (2023-05-12)
 

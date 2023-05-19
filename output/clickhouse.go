@@ -283,9 +283,6 @@ func (c *ClickHouse) initSeriesSchema(conn clickhouse.Conn) (err error) {
 		if dim.Name == "__series_id" && dim.Type.Type == model.Int64 {
 			dimSerID = dim
 			c.Dims = append(c.Dims[:i], c.Dims[i+1:]...)
-		} else if dim.Type.Type == model.String {
-			c.Dims = append(c.Dims[:i], c.Dims[i+1:]...)
-			util.Logger.Warn("non-numeric type metric ignored", zap.String("metric name", dim.Name))
 		} else {
 			i++
 		}
@@ -441,7 +438,7 @@ func (c *ClickHouse) initSchema() (err error) {
 			}
 		}
 		if !withDistTable {
-			err = errors.Newf("Please create distributed table for %s in cluster '%s'.", c.seriesTbl, c.cfg.Clickhouse.Cluster)
+			err = errors.Newf("Please create distributed table for %s in cluster '%s'.", c.TableName, c.cfg.Clickhouse.Cluster)
 			return
 		}
 	}
