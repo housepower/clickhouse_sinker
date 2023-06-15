@@ -32,7 +32,7 @@ import (
 var (
 	prefix = "clickhouse_sinker_"
 
-	// ConsumeMsgsTotal = ParseMsgsErrorTotal + RingMsgsOffTooSmallErrorTotal + FlushMsgsTotal + FlushMsgsErrorTotal
+	// ConsumeMsgsTotal = ParseMsgsErrorTotal + FlushMsgsTotal + FlushMsgsErrorTotal
 	ConsumeMsgsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: prefix + "consume_msgs_total",
