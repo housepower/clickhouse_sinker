@@ -1,10 +1,10 @@
 # Changelog
 
-#### Version 3.0.7 (2023-06-05)
+#### Version 3.0.7 (2023-0)
 
-New Features:
+Improvements:
 
-- Introduced a new configuration property "OverrideSeries", which allows you to override the existing records in series table.
+- when run sinker in cluster mode, caculate lag failure of certain task should not block the entire rebalance work. Instead, the current task should not be assigned to any running sinker instance.
 
 #### Version 3.0.6 (2023-05-19)
 
