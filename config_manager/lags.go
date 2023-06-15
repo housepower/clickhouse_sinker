@@ -7,9 +7,11 @@ import (
 	"github.com/housepower/clickhouse_sinker/config"
 	"github.com/housepower/clickhouse_sinker/input"
 	"github.com/housepower/clickhouse_sinker/statistics"
+	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/thanos-io/thanos/pkg/errors"
 	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kgo"
+	"go.uber.org/zap"
 )
 
 var (
@@ -39,7 +41,10 @@ func GetTaskStateAndLags(cfg *config.Config) (stateLags map[string]StateLag, err
 		var state string
 		var totalLags int64
 		if state, totalLags, err = getStateAndLag(theAdm, taskCfg.Topic, taskCfg.ConsumerGroup); err != nil {
-			return
+			// skip this task for now, wait next assign cycle
+			util.Logger.Error("retrieve lag failed", zap.String("task", taskCfg.Name), zap.Error(err))
+			statistics.ConsumeLags.WithLabelValues(taskCfg.ConsumerGroup, taskCfg.Topic, taskCfg.Name).Set(float64(-1))
+			continue
 		}
 		stateLags[taskCfg.Name] = StateLag{State: state, Lag: totalLags}
 		statistics.ConsumeLags.WithLabelValues(taskCfg.ConsumerGroup, taskCfg.Topic, taskCfg.Name).Set(float64(totalLags))
