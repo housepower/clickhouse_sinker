@@ -140,7 +140,7 @@ func InitClusterConn(hosts [][]string, port int, db, username, password string, 
 				},
 				DialTimeout:     time.Minute * 10,
 				MaxOpenConns:    maxOpenConns,
-				MaxIdleConns:    5, // TODO - update this property to maxOpenConns when the lifetime of an idle connection honours the ConnMaxLifetime
+				MaxIdleConns:    maxOpenConns,
 				ConnMaxLifetime: time.Minute * 10,
 			},
 			writingPool: util.NewWorkerPool(maxOpenConns, 1),

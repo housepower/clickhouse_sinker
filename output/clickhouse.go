@@ -276,13 +276,14 @@ func (c *ClickHouse) initSeriesSchema(conn clickhouse.Conn) (err error) {
 		c.IdxSerID = -1
 		return
 	}
-	// Strip away string columns from metric table, and move column "__series_id" to the last.
+	// Move column "__series_id" to the last.
 	var dimSerID *model.ColumnWithType
 	for i := 0; i < len(c.Dims); {
 		dim := c.Dims[i]
 		if dim.Name == "__series_id" && dim.Type.Type == model.Int64 {
 			dimSerID = dim
 			c.Dims = append(c.Dims[:i], c.Dims[i+1:]...)
+			break
 		} else {
 			i++
 		}
@@ -346,6 +347,7 @@ func (c *ClickHouse) initSeriesSchema(conn clickhouse.Conn) (err error) {
 		c.dbName,
 		c.seriesTbl,
 		strings.Join(serDimsQuoted, ","))
+	util.Logger.Info(fmt.Sprintf("promSer sql=> %s", c.promSerSQL), zap.String("task", c.taskCfg.Name))
 
 	// Check distributed series table
 	if chCfg := &c.cfg.Clickhouse; chCfg.Cluster != "" {
