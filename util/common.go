@@ -20,7 +20,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -81,45 +80,6 @@ func GetSourceName(parser, name string) (sourcename string) {
 // GetShift returns the smallest `shift` which 1<<shift is no smaller than s
 func GetShift(s int) (shift uint) {
 	for shift = 0; (1 << shift) < s; shift++ {
-	}
-	return
-}
-
-// GetOutboundIP get preferred outbound ip of this machine
-// https://stackoverflow.com/questions/23558425/how-do-i-get-the-local-ip-address-in-go
-func GetOutboundIP() (ip net.IP, err error) {
-	var conn net.Conn
-	if conn, err = net.Dial("udp", "8.8.8.8:80"); err != nil {
-		err = errors.Wrapf(err, "")
-		return
-	}
-	defer conn.Close()
-	localAddr, _ := conn.LocalAddr().(*net.UDPAddr)
-	ip = localAddr.IP
-	return
-}
-
-// GetSpareTCPPort find a spare TCP port
-func GetSpareTCPPort(portBegin int) (port int) {
-LOOP:
-	for port = portBegin; ; port++ {
-		addr := fmt.Sprintf(":%d", port)
-		ln, err := net.Listen("tcp", addr)
-		if err == nil {
-			ln.Close()
-			break LOOP
-		}
-	}
-	return
-}
-
-// https://stackoverflow.com/questions/50428176/how-to-get-ip-and-port-from-net-addr-when-it-could-be-a-net-udpaddr-or-net-tcpad
-func GetNetAddrPort(addr net.Addr) (port int) {
-	switch addr := addr.(type) {
-	case *net.UDPAddr:
-		port = addr.Port
-	case *net.TCPAddr:
-		port = addr.Port
 	}
 	return
 }

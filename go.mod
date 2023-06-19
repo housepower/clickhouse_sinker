@@ -14,7 +14,7 @@ require (
 	github.com/jcmturner/gokrb5/v8 v8.4.4
 	github.com/jinzhu/copier v0.3.5
 	github.com/nacos-group/nacos-sdk-go v1.1.4
-	github.com/prometheus/client_golang v1.15.1
+	github.com/prometheus/client_golang v1.16.0
 	github.com/prometheus/common v0.44.0
 	github.com/shopspring/decimal v1.3.1
 	github.com/stretchr/testify v1.8.4
@@ -65,7 +65,7 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/prometheus/client_model v0.4.0 // indirect
-	github.com/prometheus/procfs v0.10.1 // indirect
+	github.com/prometheus/procfs v0.11.0 // indirect
 	github.com/segmentio/asm v1.2.0 // indirect
 	github.com/streadway/amqp v1.0.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect

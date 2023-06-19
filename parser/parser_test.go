@@ -30,10 +30,12 @@ import (
 
 	"github.com/housepower/clickhouse_sinker/model"
 	"github.com/housepower/clickhouse_sinker/util"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 	"github.com/valyala/fastjson"
+	"golang.org/x/exp/constraints"
 )
 
 // https://golang.org/pkg/math/, Mathematical constants
@@ -157,6 +159,8 @@ var csvSchema = []string{
 	"array_obj",
 }
 
+var csvSpecificOp = []string{"GetBool", "GetInt8", "GetInt16", "GetInt32", "GetInt64",
+	"GetUint8", "GetUint16", "GetUint32", "GetUint64", "GetFloat32", "GetFloat64", "GetDateTime", "GetDecimal"}
 var (
 	bdUtcNs       = time.Date(2009, 7, 13, 9, 7, 13, 123000000, time.UTC)
 	bdUtcSec      = bdUtcNs.Truncate(1 * time.Second)
@@ -247,7 +251,10 @@ func doTestSimple(t *testing.T, method string, testCases []SimpleCase) {
 		for j := range testCases {
 			var v interface{}
 			desc := fmt.Sprintf(`%s.%s("%s", %s)`, name, method, testCases[j].Field, strconv.FormatBool(testCases[j].Nullable))
-			if (name == "csv" && (sliceContains([]string{"GetBool", "GetInt64", "GetFloat64", "GetDateTime"}, method) && sliceContains([]string{"str_int", "str_float"}, testCases[j].Field) || testCases[j].Nullable)) || (name == "gjson" && strings.Contains(testCases[j].Field, ".")) {
+			if (name == "csv" && (sliceContains(csvSpecificOp, method) &&
+				sliceContains([]string{"str_int", "str_float"}, testCases[j].Field) ||
+				testCases[j].Nullable)) ||
+				(name == "gjson" && strings.Contains(testCases[j].Field, ".")) {
 				skipped = append(skipped, desc)
 				continue
 			}
@@ -278,6 +285,8 @@ func doTestSimple(t *testing.T, method string, testCases []SimpleCase) {
 				v = metric.GetDateTime(testCases[j].Field, testCases[j].Nullable)
 			case "GetString":
 				v = metric.GetString(testCases[j].Field, testCases[j].Nullable)
+			case "GetDecimal":
+				v = metric.GetDecimal(testCases[j].Field, testCases[j].Nullable)
 			default:
 				panic("error!")
 			}
@@ -354,27 +363,33 @@ func TestParserInt(t *testing.T) {
 }
 
 func TestParserFloat(t *testing.T) {
+	testFloatType[float32](t, "GetFloat32")
+	testFloatType[float64](t, "GetFloat64")
+}
+
+func testFloatType[T constraints.Float](t *testing.T, method string) {
+	defaultVal := T(0.0)
 	testCases := []SimpleCase{
 		// nullable: false
-		{"not_exist", false, 0.0},
-		{"null", false, 0.0},
-		{"bool_true", false, 0.0},
-		{"bool_false", false, 0.0},
-		{"num_int", false, 123.0},
-		{"num_float", false, 123.321},
-		{"str", false, 0.0},
-		{"str_int", false, 0.0},
-		{"str_float", false, 0.0},
-		{"str_date_1", false, 0.0},
-		{"obj", false, 0.0},
-		{"array_empty", false, 0.0},
+		{"not_exist", false, defaultVal},
+		{"null", false, defaultVal},
+		{"bool_true", false, defaultVal},
+		{"bool_false", false, defaultVal},
+		{"num_int", false, T(123.0)},
+		{"num_float", false, T(123.321)},
+		{"str", false, defaultVal},
+		{"str_int", false, defaultVal},
+		{"str_float", false, defaultVal},
+		{"str_date_1", false, defaultVal},
+		{"obj", false, defaultVal},
+		{"array_empty", false, defaultVal},
 		// nullable: true
 		{"not_exist", true, nil},
 		{"null", true, nil},
 		{"bool_true", true, nil},
 		{"bool_false", true, nil},
-		{"num_int", true, 123.0},
-		{"num_float", true, 123.321},
+		{"num_int", true, T(123.0)},
+		{"num_float", true, T(123.321)},
 		{"str", true, nil},
 		{"str_int", true, nil},
 		{"str_float", true, nil},
@@ -382,7 +397,7 @@ func TestParserFloat(t *testing.T) {
 		{"obj", true, nil},
 		{"array_empty", true, nil},
 	}
-	doTestSimple(t, "GetFloat64", testCases)
+	doTestSimple(t, method, testCases)
 }
 
 func TestParserString(t *testing.T) {
@@ -589,6 +604,8 @@ func TestParserMap(t *testing.T) {
 			compareMap(t, orderMap, it.expVal, desc)
 		}
 	}
+	// GetMap is not supported for csv format
+	require.Equal(t, nil, metrics["csv"].GetMap("whatever", &model.TypeInfo{Type: model.String}))
 }
 
 func compareMap(t *testing.T, map1 interface{}, map2 interface{}, desc string) {
@@ -648,6 +665,55 @@ func compareMap(t *testing.T, map1 interface{}, map2 interface{}, desc string) {
 	for _, key := range value2.MapKeys() {
 		compareValueFunc(value1.MapIndex(key), value2.MapIndex(key))
 	}
+}
+
+func TestParseObject(t *testing.T) {
+	compareObj := func(t *testing.T, map1 interface{}, map2 interface{}, desc string) {
+		value1 := reflect.ValueOf(map1)
+		value2 := reflect.ValueOf(map2)
+		assert.Equal(t, value1.Len(), value2.Len())
+
+		// v1 - map[interface{}]interface{}, v2 could be map[string][string] or map[string][float64]
+		var compareValueFunc func(v1, v2 reflect.Value) = func(v1, v2 reflect.Value) {
+			switch v2.Kind() {
+			case reflect.String:
+				assert.Equal(t, v1.Interface().(string), v2.String())
+			case reflect.Float32, reflect.Float64:
+				assert.Equal(t, v1.Interface().(float64), v2.Float())
+			default:
+				// Normal equality suffices
+				assert.Equal(t, v1.Interface(), v2.Interface())
+			}
+		}
+		for _, key := range value2.MapKeys() {
+			compareValueFunc(value1.MapIndex(key), value2.MapIndex(key))
+		}
+	}
+
+	initialize.Do(initMetrics)
+	require.Nil(t, errInit)
+	testCases := []struct {
+		name   string
+		expVal interface{}
+	}{
+		// ParseObject only result a map[string][string] or map[string][float64]
+		{"map_str_str", map[string]string{"i": "first", "j": "second"}},
+		{"map_str_uint", map[string]float64{"i": float64(1), "j": float64(2)}},
+		{"map_str_int", map[string]float64{"i": float64(-1), "j": float64(-2)}},
+		{"map_str_float", map[string]float64{"i": float64(3.1415), "j": float64(9.876)}},
+		{"map_str_bool", map[string]interface{}{}}, // type with non fastjson.TypeNumber will be discarded
+		{"map_str_date", map[string]string{"i": "2008-08-08", "j": "2022-01-01"}},
+	}
+
+	for _, it := range testCases {
+		desc := fmt.Sprintf(`fastjson.GetObject("%s", false)`, it.name)
+		result := metrics["fastjson"].GetObject(it.name, false)
+		compareObj(t, result, it.expVal, desc)
+	}
+
+	// GetObject is not supported for csv ang gjson parser
+	require.Equal(t, nil, metrics["csv"].GetObject("whatever", false))
+	require.Equal(t, nil, metrics["gjson"].GetObject("whatever", false))
 }
 
 func TestParseDateTime(t *testing.T) {
@@ -791,6 +857,81 @@ func TestParseInt(t *testing.T) {
 			}
 		}
 	}
+
+	testIntType[int8](t, "GetInt8")
+	testIntType[int16](t, "GetInt16")
+	testIntType[int32](t, "GetInt32")
+	testIntType[int64](t, "GetInt64")
+	testIntType[uint8](t, "GetUint8")
+	testIntType[uint16](t, "GetUint16")
+	testIntType[uint32](t, "GetUint32")
+	testIntType[uint64](t, "GetUint64")
+}
+
+func testIntType[T constraints.Integer](t *testing.T, method string) {
+	defaultVal := T(0)
+	testCases := []SimpleCase{
+		// nullable: false
+		{"not_exist", false, defaultVal},
+		{"null", false, defaultVal},
+		{"bool_true", false, T(1)},
+		{"bool_false", false, defaultVal},
+		{"num_int", false, T(123)},
+		{"num_float", false, defaultVal},
+		{"str", false, defaultVal},
+		{"str_int", false, defaultVal},
+		{"str_float", false, defaultVal},
+		{"str_date_1", false, defaultVal},
+		{"obj", false, defaultVal},
+		{"array_empty", false, defaultVal},
+		// nullable: true
+		{"not_exist", true, nil},
+		{"null", true, nil},
+		{"bool_true", true, T(1)},
+		{"bool_false", true, defaultVal},
+		{"num_int", true, T(123)},
+		{"num_float", true, nil},
+		{"str", true, nil},
+		{"str_int", true, nil},
+		{"str_float", true, nil},
+		{"str_date_1", true, nil},
+		{"obj", true, nil},
+		{"array_empty", true, nil},
+	}
+	doTestSimple(t, method, testCases)
+}
+
+func TestParseDecimal(t *testing.T) {
+	expvar := decimal.NewFromInt(0)
+	testCases := []SimpleCase{
+		// nullable: false
+		{"not_exist", false, expvar},
+		{"null", false, expvar},
+		{"bool_true", false, expvar},
+		{"bool_false", false, expvar},
+		{"num_int", false, decimal.NewFromInt(123)},
+		{"num_float", false, decimal.NewFromFloat(123.321)},
+		{"str", false, expvar},
+		{"str_int", false, expvar},
+		{"str_float", false, expvar},
+		{"str_date_1", false, expvar},
+		{"obj", false, expvar},
+		{"array_empty", false, expvar},
+		// // nullable: true
+		{"not_exist", true, nil},
+		{"null", true, nil},
+		{"bool_true", true, nil},
+		{"bool_false", true, nil},
+		{"num_int", true, decimal.NewFromInt(123)},
+		{"num_float", true, decimal.NewFromFloat(123.321)},
+		{"str", true, nil},
+		{"str_int", true, nil},
+		{"str_float", true, nil},
+		{"str_date_1", true, nil},
+		{"obj", true, nil},
+		{"array_empty", true, nil},
+	}
+	doTestSimple(t, "GetDecimal", testCases)
 }
 
 func TestFastjsonDetectSchema(t *testing.T) {
