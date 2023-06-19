@@ -24,3 +24,77 @@ func TestJksToPem(t *testing.T) {
 		t.Logf("converted %s to %s, %s\n", jksPath, certPemPath, keyPemPath)
 	}
 }
+
+func TestStringContains(t *testing.T) {
+	tests := []struct {
+		name   string
+		array  []string
+		result bool
+	}{
+		{
+			name:   "false",
+			array:  []string{""},
+			result: false,
+		},
+		{
+			name:   "true",
+			array:  []string{"true", "hi"},
+			result: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := StringContains(tt.array, tt.name)
+			require.Equal(t, result, tt.result)
+		})
+	}
+}
+
+func TestGetSourceName(t *testing.T) {
+	tests := []struct {
+		parser, name, result string
+	}{
+		{
+			parser: "gjson",
+			name:   "a.b.c",
+			result: "a\\.b\\.c",
+		},
+		{
+			parser: "csv",
+			name:   "a.b.c",
+			result: "a.b.c",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := GetSourceName(tt.parser, tt.name)
+			require.Equal(t, result, tt.result)
+		})
+	}
+}
+
+func TestMisc(t *testing.T) {
+	require.Equal(t, uint(6), GetShift(64))
+	require.Equal(t, uint(7), GetShift(65))
+
+	tests := []struct {
+		parser, name, result string
+	}{
+		{
+			parser: "gjson",
+			name:   "a.b.c",
+			result: "a\\.b\\.c",
+		},
+		{
+			parser: "csv",
+			name:   "a.b.c",
+			result: "a.b.c",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := GetSourceName(tt.parser, tt.name)
+			require.Equal(t, result, tt.result)
+		})
+	}
+}
