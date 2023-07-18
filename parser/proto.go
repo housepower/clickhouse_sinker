@@ -27,6 +27,8 @@ import (
 
 //go:generate mockgen -source=../vendor/github.com/confluentinc/confluent-kafka-go/schemaregistry/schemaregistry_client.go -imports=schemaregistry=github.com/confluentinc/confluent-kafka-go/schemaregistry -package=parser -mock_names=Client=MockSchemaRegistryClient -destination=schema_registry_mock_test.go
 
+const magicByte byte = 0x0
+
 // ProtoParser knows how to get data from proto format.
 type ProtoParser struct {
 	pp           *Pool
@@ -421,6 +423,7 @@ func getString(value reflect.Value) string {
 type ProtoDeserializer struct {
 	schemaRegistry   schemaregistry.Client
 	baseDeserializer *serde.BaseDeserializer
+	fileDescriptors  *fileDescriptorsCache
 	topic            string
 }
 
@@ -429,14 +432,33 @@ func (p *ProtoDeserializer) ToDynamicMessage(bytes []byte) (*dynamic.Message, er
 		return nil, nil
 	}
 
-	schemaInfo, err := p.baseDeserializer.GetSchema(p.topic, bytes)
+	var (
+		key schemaKey
+		err error
+	)
+	key.schemaID, err = getSchemaID(bytes)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get schema info: %w", err)
+		return nil, fmt.Errorf("failed to get schema ID: %w", err)
 	}
-	fileDesc, err := p.toFileDescriptor(schemaInfo)
+	var schemaInfo schemaregistry.SchemaInfo
+	key.subject, err = p.baseDeserializer.SubjectNameStrategy(p.topic, p.baseDeserializer.SerdeType, schemaInfo)
 	if err != nil {
 		return nil, err
 	}
+
+	fileDesc, ok := p.fileDescriptors.get(key)
+	if !ok {
+		schemaInfo, err = p.baseDeserializer.Client.GetBySubjectAndID(key.subject, int(key.schemaID))
+		if err != nil {
+			return nil, fmt.Errorf("failed to get schema info: %w", err)
+		}
+		fileDesc, err = p.toFileDescriptor(schemaInfo)
+		if err != nil {
+			return nil, err
+		}
+		p.fileDescriptors.add(key, fileDesc)
+	}
+
 	bytesRead, msgIndexes, err := readMessageIndexes(bytes[5:])
 	if err != nil {
 		return nil, err
@@ -487,6 +509,13 @@ func (p *ProtoDeserializer) toFileDescriptor(info schemaregistry.SchemaInfo) (*d
 	return fileDescriptors[0], nil
 }
 
+func getSchemaID(bytes []byte) (uint32, error) {
+	if bytes[0] != magicByte {
+		return 0, fmt.Errorf("unknown magic byte")
+	}
+	return binary.BigEndian.Uint32(bytes[1:5]), nil
+}
+
 func readMessageIndexes(bytes []byte) (int, []int, error) {
 	arrayLen, bytesRead := binary.Varint(bytes)
 	if bytesRead <= 0 {
@@ -525,4 +554,35 @@ func toMessageDescriptor(descriptor desc.Descriptor, msgIndexes []int) (*desc.Me
 	default:
 		return nil, fmt.Errorf("unexpected type")
 	}
+}
+
+type schemaKey struct {
+	subject  string
+	schemaID uint32
+}
+
+type fileDescriptorsCache struct {
+	values map[schemaKey]*desc.FileDescriptor
+	lock   sync.RWMutex
+}
+
+func newFileDescriptorsCache() *fileDescriptorsCache {
+	return &fileDescriptorsCache{
+		values: make(map[schemaKey]*desc.FileDescriptor),
+	}
+}
+
+func (p *fileDescriptorsCache) add(key schemaKey, value *desc.FileDescriptor) {
+	p.lock.Lock()
+	defer p.lock.Unlock()
+
+	p.values[key] = value
+}
+
+func (p *fileDescriptorsCache) get(key schemaKey) (*desc.FileDescriptor, bool) {
+	p.lock.RLock()
+	defer p.lock.RUnlock()
+
+	val, ok := p.values[key]
+	return val, ok
 }

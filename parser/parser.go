@@ -158,6 +158,7 @@ func (pp *Pool) Get() Parser {
 			deserializer := &ProtoDeserializer{
 				schemaRegistry:   pp.schemaRegistry,
 				baseDeserializer: pp.deserializer,
+				fileDescriptors:  newFileDescriptorsCache(),
 				topic:            pp.topic,
 			}
 			return &ProtoParser{
