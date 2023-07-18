@@ -349,8 +349,10 @@ func (ncm *NacosConfManager) assign() (err error) {
 
 	var validTasks []string
 	for _, taskCfg := range newCfg.Tasks {
-		if _, ok := stateLags[taskCfg.Name]; ok {
-			validTasks = append(validTasks, taskCfg.Name)
+		// make sure all tasks get properly assigned
+		validTasks = append(validTasks, taskCfg.Name)
+		if _, ok := stateLags[taskCfg.Name]; !ok {
+			stateLags[taskCfg.Name] = StateLag{State: "NA", Lag: 0}
 		}
 	}
 	sort.Slice(validTasks, func(i, j int) bool {

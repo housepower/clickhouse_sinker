@@ -1,10 +1,11 @@
 # Changelog
 
-#### Version 3.0.7 (2023-0)
+#### Version 3.0.7 (2023-07-19)
 
 Improvements:
 
 - when run sinker in cluster mode, caculate lag failure of certain task should not block the entire rebalance work. Instead, the current task should not be assigned to any running sinker instance.
+- sinker will not crash when handling incompatible map type.
 
 #### Version 3.0.6 (2023-05-19)
 
