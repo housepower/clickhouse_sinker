@@ -26,7 +26,7 @@ func NewShardingPolicy(shardingKey string, shardingStripe uint64, dims []*model.
 	for i, dim := range dims {
 		if dim.Name == shardingKey {
 			if dim.Type.Nullable || dim.Type.Array {
-				err = errors.Newf("invalid shardingKey %s, expect its type be numerical or string", shardingKey)
+				err = errors.Newf("invalid shardingKey '%s', expect its type be numerical or string", shardingKey)
 				return
 			}
 			colSeq = i
@@ -40,13 +40,13 @@ func NewShardingPolicy(shardingKey string, shardingStripe uint64, dims []*model.
 				//string
 				policy.stripe = 0
 			default:
-				err = errors.Newf("invalid shardingKey %s, expect its type be numerical or string", shardingKey)
+				err = errors.Newf("invalid shardingKey '%s', expect its type be numerical or string", shardingKey)
 				return
 			}
 		}
 	}
 	if colSeq < 0 {
-		err = errors.Newf("invalid shardingKey %s, no such column", shardingKey)
+		err = errors.Newf("invalid shardingKey '%s', no such column", shardingKey)
 		return
 	}
 	policy.colSeq = colSeq
@@ -121,7 +121,7 @@ func NewSharder(service *Service) (sh *Sharder, err error) {
 	taskCfg := service.taskCfg
 	if taskCfg.ShardingKey != "" {
 		if policy, err = NewShardingPolicy(taskCfg.ShardingKey, taskCfg.ShardingStripe, service.clickhouse.Dims, shards); err != nil {
-			return
+			return sh, errors.Wrapf(err, "error when creating sharding policy for task '%s'", service.taskCfg.Name)
 		}
 	}
 	sh = &Sharder{

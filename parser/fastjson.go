@@ -403,8 +403,10 @@ func getArray(c *FastjsonMetric, sourcename string, v *fastjson.Value, typ int) 
 }
 
 func getMap(c *FastjsonMetric, v *fastjson.Value, typeinfo *model.TypeInfo) (val interface{}) {
-	if v != nil && v.Type() == fastjson.TypeObject {
+	if v == nil || v.Type() == fastjson.TypeObject {
 		val = c.val2OrderedMap(v, typeinfo)
+	} else {
+		util.Logger.Fatal(fmt.Sprintf("SOURCE ERROR: unsupported map type: %v", v.Type()))
 	}
 	return
 }
@@ -468,6 +470,12 @@ func (c *FastjsonMetric) castMapKeyByType(key []byte, typeinfo *model.TypeInfo) 
 		val = getDefaultDateTime(typeinfo.Nullable)
 	case model.String:
 		return string(key)
+	case model.Float32:
+		fallthrough
+	case model.Float64:
+		fallthrough
+	case model.Bool:
+		util.Logger.Fatal("unsupported map key type")
 	default:
 		util.Logger.Fatal("LOGIC ERROR: reached switch default condition")
 	}
