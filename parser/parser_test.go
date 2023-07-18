@@ -78,7 +78,9 @@ var jsonSample = []byte(`{
 	"map_str_bool": {"i":true, "j":false},
 	"map_str_date": {"i":"2008-08-08", "j":"2022-01-01"},
 	"map_str_array": {"i":[1,2,3],"j":[4,5,6]},
-	"map_str_map": {"i":{"i":1, "j":2}, "j":{"i":3, "j":4}}
+	"map_str_map": {"i":{"i":1, "j":2}, "j":{"i":3, "j":4}},
+	"map_uint_uint": {"1":1, "2":2},
+	"map_int_string": {"1":"3.1415", "2":"9.876"}
 }`)
 
 var jsonSchema = map[string]string{
@@ -121,6 +123,8 @@ var jsonSchema = map[string]string{
 	"map_str_date":              "Object('json')",
 	"map_str_array":             "Object('json')",
 	"map_str_map":               "Object('json')",
+	"map_uint_uint":             "Object('json')",
+	"map_int_string":            "Object('json')",
 }
 
 var csvSample = []byte(`null,true,false,123,123.321,kube-state-metrics,"escaped_""ws",123,123.321,2009-07-13,13/07/2009,2009-07-13T09:07:13Z,2009-07-13T09:07:13.123+08:00,2009-07-13 09:07:13,2009-07-13 09:07:13.123,"{""i"":[1,2,3],""f"":[1.1,2.2,3.3],""s"":[""aa"",""bb"",""cc""],""e"":[]}",[],[null],"[true,false]","[0,255,256,65535,65536,4294967295,4294967296,18446744073709551615,18446744073709551616]","[-9223372036854775808,-2147483649,-2147483648,-32769,-32768,-129,-128,0,127,128,32767,32768,2147483647,2147483648,9223372036854775807]","[4.940656458412465441765687928682213723651e-324,1.401298464324817070923729583289916131280e-45,0.0,3.40282346638528859811704183484516925440e+38,1.797693134862315708145274237317043567981e+308]","[""aa"",""bb"",""cc""]","[""0"",""255"",""256"",""65535"",""65536"",""4294967295"",""4294967296"",""18446744073709551615"",""18446744073709551616""]","[""-9223372036854775808"",""-2147483649"",""-2147483648"",""-32769"",""-32768"",""-129"",""-128"",""0"",""127"",""128"",""32767"",""32768"",""2147483647"",""2147483648"",""9223372036854775807""]","[""4.940656458412465441765687928682213723651e-324"",""1.401298464324817070923729583289916131280e-45"",""0.0"",""3.40282346638528859811704183484516925440e+38"",""1.797693134862315708145274237317043567981e+308""]","[""2009-07-13"",""2009-07-14"",""2009-07-15""]","[""13/07/2009"",""14/07/2009"",""15/07/2009""]","[""2009-07-13T09:07:13Z"",""2009-07-13T09:07:13+08:00"",""2009-07-13T09:07:13.123Z"",""2009-07-13T09:07:13.123+08:00""]","[""2009-07-13 09:07:13"",""2009-07-13 09:07:13.123""]","[{""i"":[1,2,3],""f"":[1.1,2.2,3.3]},{""s"":[""aa"",""bb"",""cc""],""e"":[]}]"`)
@@ -606,6 +610,17 @@ func TestParserMap(t *testing.T) {
 	}
 	// GetMap is not supported for csv format
 	require.Equal(t, nil, metrics["csv"].GetMap("whatever", &model.TypeInfo{Type: model.String}))
+
+	// map key as int type, only supported by fastjson parser
+	testCases = []MapCase{
+		{"map_uint_uint", &model.TypeInfo{Type: model.Map, MapKey: &model.TypeInfo{Type: model.UInt64}, MapValue: &model.TypeInfo{Type: model.UInt64}}, map[uint64]uint64{1: 1, 2: 2}},
+		{"map_int_string", &model.TypeInfo{Type: model.Map, MapKey: &model.TypeInfo{Type: model.Int64}, MapValue: &model.TypeInfo{Type: model.String}}, map[int64]string{1: "3.1415", 2: "9.876"}},
+	}
+	for _, it := range testCases {
+		desc := fmt.Sprintf(`%s.GetMap("%s", %s)`, "fastjson", it.field, model.GetTypeName(it.typ.Type))
+		orderMap := metrics["fastjson"].GetMap(it.field, it.typ)
+		compareMap(t, orderMap, it.expVal, desc)
+	}
 }
 
 func compareMap(t *testing.T, map1 interface{}, map2 interface{}, desc string) {
