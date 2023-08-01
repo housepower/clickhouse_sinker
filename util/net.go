@@ -17,6 +17,7 @@ package util
 
 import (
 	"fmt"
+	"math"
 	"net"
 
 	"github.com/thanos-io/thanos/pkg/errors"
@@ -36,8 +37,8 @@ func GetIP4Byname(host string) (ips []string, err error) {
 	return
 }
 
-// GetOutboundIP get preferred outbound ip of this machine
-// https://stackoverflow.com/questions/23558425/how-do-i-get-the-local-ip-address-in-go
+// GetOutboundIP gets preferred outbound ip of this machine
+// https://stackoverflow.com/questions/23558425/how-do-i-get-the-local-ip-address-in-go.
 func GetOutboundIP() (ip net.IP, err error) {
 	var conn net.Conn
 	if conn, err = net.Dial("udp", "8.8.8.8:80"); err != nil {
@@ -50,18 +51,14 @@ func GetOutboundIP() (ip net.IP, err error) {
 	return
 }
 
-// GetSpareTCPPort find a spare TCP port
-func GetSpareTCPPort(portBegin int) (port int) {
-LOOP:
-	for port = portBegin; ; port++ {
-		addr := fmt.Sprintf(":%d", port)
-		ln, err := net.Listen("tcp", addr)
-		if err == nil {
-			ln.Close()
-			break LOOP
+// GetSpareTCPPort finds a spare TCP port.
+func GetSpareTCPPort(portBegin int) int {
+	for port := portBegin; port < math.MaxInt; port++ {
+		if err := testListenOnPort(port); err == nil {
+			return port
 		}
 	}
-	return
+	return 0
 }
 
 // https://stackoverflow.com/questions/50428176/how-to-get-ip-and-port-from-net-addr-when-it-could-be-a-net-udpaddr-or-net-tcpad
@@ -73,4 +70,14 @@ func GetNetAddrPort(addr net.Addr) (port int) {
 		port = addr.Port
 	}
 	return
+}
+
+func testListenOnPort(port int) error {
+	addr := fmt.Sprintf(":%d", port)
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
+	}
+	ln.Close() //nolint:errcheck
+	return nil
 }
