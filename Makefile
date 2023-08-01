@@ -14,7 +14,7 @@ GOBUILD   := $(GO) build $(BUILD_FLAG)
 
 .PHONY: pre
 pre:
-	go mod tidy
+	go mod tidy -compat="1.20"
 
 .PHONY: build
 build: pre
