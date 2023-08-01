@@ -20,8 +20,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
-	"math"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -43,10 +41,15 @@ var (
 )
 
 type CmdOptions struct {
-	ShowVer          bool
-	LogLevel         string // "debug", "info", "warn", "error", "dpanic", "panic", "fatal"
-	LogPaths         string // comma-separated paths. "stdout" means the console stdout
-	HTTPPort         int    // 0 menas a randomly OS chosen port
+	ShowVer  bool
+	LogLevel string // "debug", "info", "warn", "error", "dpanic", "panic", "fatal"
+	LogPaths string // comma-separated paths. "stdout" means the console stdout
+
+	// HTTPHost to bind to. If empty, outbound ip of machine
+	// is automatically determined and used.
+	HTTPHost string
+	HTTPPort int // 0 means a randomly chosen port.
+
 	PushGatewayAddrs string
 	PushInterval     int
 	LocalCfgFile     string
@@ -82,51 +85,6 @@ func GetSourceName(parser, name string) (sourcename string) {
 // GetShift returns the smallest `shift` which 1<<shift is no smaller than s
 func GetShift(s int) (shift uint) {
 	for shift = 0; (1 << shift) < s; shift++ {
-	}
-	return
-}
-
-// GetOutboundIP gets preferred outbound ip of this machine
-// https://stackoverflow.com/questions/23558425/how-do-i-get-the-local-ip-address-in-go.
-func GetOutboundIP() (ip net.IP, err error) {
-	var conn net.Conn
-	if conn, err = net.Dial("udp", "8.8.8.8:80"); err != nil {
-		err = errors.Wrapf(err, "")
-		return
-	}
-	defer conn.Close()
-	localAddr, _ := conn.LocalAddr().(*net.UDPAddr)
-	ip = localAddr.IP
-	return
-}
-
-// GetSpareTCPPort finds a spare TCP port.
-func GetSpareTCPPort(portBegin int) int {
-	for port := portBegin; port < math.MaxInt; port++ {
-		if err := testListenOnPort(port); err == nil {
-			return port
-		}
-	}
-	return 0
-}
-
-func testListenOnPort(port int) error {
-	addr := fmt.Sprintf(":%d", port)
-	ln, err := net.Listen("tcp", addr)
-	if err != nil {
-		return err
-	}
-	ln.Close() //nolint:errcheck
-	return nil
-}
-
-// https://stackoverflow.com/questions/50428176/how-to-get-ip-and-port-from-net-addr-when-it-could-be-a-net-udpaddr-or-net-tcpad
-func GetNetAddrPort(addr net.Addr) (port int) {
-	switch addr := addr.(type) {
-	case *net.UDPAddr:
-		port = addr.Port
-	case *net.TCPAddr:
-		port = addr.Port
 	}
 	return
 }
