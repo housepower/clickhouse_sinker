@@ -43,10 +43,15 @@ var (
 )
 
 type CmdOptions struct {
-	ShowVer          bool
-	LogLevel         string // "debug", "info", "warn", "error", "dpanic", "panic", "fatal"
-	LogPaths         string // comma-separated paths. "stdout" means the console stdout
-	HTTPPort         int    // 0 menas a randomly OS chosen port
+	ShowVer  bool
+	LogLevel string // "debug", "info", "warn", "error", "dpanic", "panic", "fatal"
+	LogPaths string // comma-separated paths. "stdout" means the console stdout
+
+	// HTTPHost to bind to. If empty, outbound ip of machine
+	// is automatically determined and used.
+	HTTPHost string
+	HTTPPort int // 0 means a randomly chosen port.
+
 	PushGatewayAddrs string
 	PushInterval     int
 	LocalCfgFile     string

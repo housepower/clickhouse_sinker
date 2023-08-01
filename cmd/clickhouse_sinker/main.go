@@ -19,7 +19,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"log"
 	"net"
 	"net/http"
 	"net/http/pprof"
@@ -38,14 +37,13 @@ import (
 )
 
 var (
-	//goreleaser fill following info per https://goreleaser.com/customization/build/.
+	// goreleaser fills the following info per https://goreleaser.com/customization/build/.
 	version = "None"
 	commit  = "None"
 	date    = "None"
 	builtBy = "None"
 
 	cmdOps      util.CmdOptions
-	selfIP      string
 	httpAddr    string
 	httpMetrics = promhttp.Handler()
 	runner      *task.Sinker
@@ -54,20 +52,14 @@ var (
 func initCmdOptions() {
 	// 1. Set options to default value.
 	cmdOps = util.CmdOptions{
-		ShowVer:          false,
-		LogLevel:         "info",
-		LogPaths:         "stdout,clickhouse_sinker.log",
-		HTTPPort:         0,
-		PushGatewayAddrs: "",
-		PushInterval:     10,
-		LocalCfgFile:     "/etc/clickhouse_sinker.hjson",
-		NacosAddr:        "127.0.0.1:8848",
-		NacosNamespaceID: "",
-		NacosGroup:       "DEFAULT_GROUP",
-		NacosUsername:    "nacos",
-		NacosPassword:    "nacos",
-		NacosDataID:      "",
-		NacosServiceName: "",
+		LogLevel:      "info",
+		LogPaths:      "stdout,clickhouse_sinker.log",
+		PushInterval:  10,
+		LocalCfgFile:  "/etc/clickhouse_sinker.hjson",
+		NacosAddr:     "127.0.0.1:8848",
+		NacosGroup:    "DEFAULT_GROUP",
+		NacosUsername: "nacos",
+		NacosPassword: "nacos",
 	}
 
 	// 2. Replace options with the corresponding env variable if present.
@@ -75,6 +67,7 @@ func initCmdOptions() {
 	util.EnvStringVar(&cmdOps.LogLevel, "log-level")
 	util.EnvStringVar(&cmdOps.LogPaths, "log-paths")
 	util.EnvIntVar(&cmdOps.HTTPPort, "http-port")
+	util.EnvStringVar(&cmdOps.HTTPHost, "http-host")
 	util.EnvStringVar(&cmdOps.PushGatewayAddrs, "metric-push-gateway-addrs")
 	util.EnvIntVar(&cmdOps.PushInterval, "push-interval")
 	util.EnvStringVar(&cmdOps.LocalCfgFile, "local-cfg-file")
@@ -92,6 +85,7 @@ func initCmdOptions() {
 	flag.StringVar(&cmdOps.LogLevel, "log-level", cmdOps.LogLevel, "one of debug, info, warn, error, dpanic, panic, fatal")
 	flag.StringVar(&cmdOps.LogPaths, "log-paths", cmdOps.LogPaths, "a list of comma-separated log file path. stdout means the console stdout")
 	flag.IntVar(&cmdOps.HTTPPort, "http-port", cmdOps.HTTPPort, "http listen port")
+	flag.StringVar(&cmdOps.HTTPHost, "http-host", cmdOps.HTTPHost, "http host to bind to")
 	flag.StringVar(&cmdOps.PushGatewayAddrs, "metric-push-gateway-addrs", cmdOps.PushGatewayAddrs, "a list of comma-separated prometheus push gatway address")
 	flag.IntVar(&cmdOps.PushInterval, "push-interval", cmdOps.PushInterval, "push interval in seconds")
 	flag.StringVar(&cmdOps.LocalCfgFile, "local-cfg-file", cmdOps.LocalCfgFile, "local config file")
@@ -120,12 +114,6 @@ func init() {
 	if cmdOps.ShowVer {
 		os.Exit(0)
 	}
-	var err error
-	var ip net.IP
-	if ip, err = util.GetOutboundIP(); err != nil {
-		log.Fatal("unable to determine self ip", err)
-	}
-	selfIP = ip.String()
 	util.Logger.Info("parsed command options:", zap.Reflect("opts", cmdOps))
 }
 
@@ -173,16 +161,25 @@ func main() {
 
 		// cmdOps.HTTPPort=0: let OS choose the listen port, and record the exact metrics URL to log.
 		httpPort := cmdOps.HTTPPort
-		if httpPort != 0 {
+		if httpPort == 0 {
 			httpPort = util.GetSpareTCPPort(httpPort)
 		}
-		httpAddr = fmt.Sprintf(":%d", httpPort)
+
+		httpHost := cmdOps.HTTPHost
+		if httpHost == "" {
+			ip, err := util.GetOutboundIP()
+			if err != nil {
+				return fmt.Errorf("failed to determine outbound ip: %w", err)
+			}
+			httpHost = ip.String()
+		}
+
+		httpAddr = fmt.Sprintf("%s:%d", httpHost, httpPort)
 		listener, err := net.Listen("tcp", httpAddr)
 		if err != nil {
-			util.Logger.Fatal("net.Listen failed", zap.String("httpAddr", httpAddr), zap.Error(err))
+			return fmt.Errorf("failed to listen on %q: %w", httpAddr, err)
 		}
-		httpPort = util.GetNetAddrPort(listener.Addr())
-		httpAddr = fmt.Sprintf("%s:%d", selfIP, httpPort)
+
 		util.Logger.Info(fmt.Sprintf("Run http server at http://%s/", httpAddr))
 
 		go func() {
@@ -222,7 +219,7 @@ func main() {
 				util.Logger.Fatal("rcm.Init failed", zap.Error(err))
 			}
 			if cmdOps.NacosServiceName != "" {
-				if err := rcm.Register(selfIP, httpPort); err != nil {
+				if err := rcm.Register(httpHost, httpPort); err != nil {
 					util.Logger.Fatal("rcm.Init failed", zap.Error(err))
 				}
 			}
