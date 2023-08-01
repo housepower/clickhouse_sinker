@@ -62,6 +62,15 @@ type CmdOptions struct {
 	NacosPassword    string
 	NacosDataID      string
 	NacosServiceName string // participate in assignment management if not empty
+
+	Credentials
+}
+
+type Credentials struct {
+	ClickhouseUsername string
+	ClickhousePassword string
+	KafkaUsername      string
+	KafkaPassword      string
 }
 
 // StringContains check if contains string in array
