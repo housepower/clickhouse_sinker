@@ -120,13 +120,12 @@ func (s *Sinker) Run() {
 			util.Logger.Fatal("config.ParseLocalCfgFile failed", zap.Error(err))
 			return
 		}
-		applyCredentials(newCfg, s.cmdOps.Credentials)
 
 		ha := ""
 		if s.cmdOps.NacosServiceName != "" {
 			ha = s.httpAddr
 		}
-		if err = newCfg.Normallize(true, ha); err != nil {
+		if err = newCfg.Normallize(true, ha, s.cmdOps.Credentials); err != nil {
 			util.Logger.Fatal("newCfg.Normallize failed", zap.Error(err))
 			return
 		}
@@ -193,7 +192,7 @@ func (s *Sinker) Run() {
 				if s.cmdOps.NacosServiceName != "" {
 					ha = s.httpAddr
 				}
-				if err = newCfg.Normallize(true, ha); err != nil {
+				if err = newCfg.Normallize(true, ha, s.cmdOps.Credentials); err != nil {
 					util.Logger.Error("newCfg.Normallize failed", zap.Error(err))
 					continue
 				}
@@ -453,21 +452,6 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 	util.Logger.Info("applied another config", zap.Int("number", s.numCfg))
 	s.numCfg++
 	return
-}
-
-func applyCredentials(newCfg *config.Config, cred util.Credentials) {
-	if cred.ClickhouseUsername != "" {
-		newCfg.Clickhouse.Username = cred.ClickhouseUsername
-	}
-	if cred.ClickhousePassword != "" {
-		newCfg.Clickhouse.Password = cred.ClickhousePassword
-	}
-	if cred.KafkaUsername != "" {
-		newCfg.Kafka.Sasl.Username = cred.KafkaUsername
-	}
-	if cred.KafkaPassword != "" {
-		newCfg.Kafka.Sasl.Password = cred.KafkaPassword
-	}
 }
 
 func (s *Sinker) commitFn() {

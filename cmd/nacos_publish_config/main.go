@@ -47,6 +47,11 @@ var (
 	localCfgFile = flag.String("local-cfg-file", "/etc/clickhouse_sinker.hjson", "local config file")
 	replicas     = flag.Int("replicas", 1, "replicate each task to multiple ones with the same config except task name, consumer group and table name")
 	maxOpenConns = flag.Int("max-open-conns", 0, "max open connections per shard")
+
+	clickhouseUsername = flag.String("clickhouse-username", "", "clickhouse username")
+	clickhousePassword = flag.String("clickhouse-password", "", "clickhouse password")
+	kafkaUsername      = flag.String("kafka-username", "", "kafka username")
+	kafkaPassword      = flag.String("kafka-password", "", "kafka password")
 )
 
 // Empty is not valid namespaceID
@@ -74,7 +79,12 @@ func PublishSinkerConfig() {
 		return
 	}
 
-	if err = cfg.Normallize(false, ""); err != nil {
+	if err = cfg.Normallize(false, "", util.Credentials{
+		ClickhouseUsername: *clickhouseUsername,
+		ClickhousePassword: *clickhousePassword,
+		KafkaUsername:      *kafkaUsername,
+		KafkaPassword:      *kafkaPassword,
+	}); err != nil {
 		util.Logger.Fatal("cfg.Normallize failed", zap.Error(err))
 		return
 	}
