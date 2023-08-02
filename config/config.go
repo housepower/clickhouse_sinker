@@ -70,14 +70,14 @@ type KafkaConfig struct {
 		// SASL/PLAIN or SASL/SCRAM authentication
 		Username string
 		// Password for SASL/PLAIN or SASL/SCRAM authentication
-		Password string
+		Password string `json:"-"`
 		GSSAPI   struct {
 			AuthType           int // 1. KRB5_USER_AUTH, 2. KRB5_KEYTAB_AUTH
 			KeyTabPath         string
 			KerberosConfigPath string
 			ServiceName        string
 			Username           string
-			Password           string
+			Password           string `json:"-"`
 			Realm              string
 			DisablePAFXFAST    bool
 		}
@@ -91,7 +91,7 @@ type ClickHouseConfig struct {
 	Hosts    [][]string
 	Port     int
 	Username string
-	Password string
+	Password string `json:"-"`
 
 	// Whether enable TLS encryption with clickhouse-server
 	Secure bool
