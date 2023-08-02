@@ -67,10 +67,12 @@ type CmdOptions struct {
 }
 
 type Credentials struct {
-	ClickhouseUsername string
-	ClickhousePassword string
-	KafkaUsername      string
-	KafkaPassword      string
+	ClickhouseUsername  string
+	ClickhousePassword  string
+	KafkaUsername       string
+	KafkaPassword       string
+	KafkaGSSAPIUsername string
+	KafkaGSSAPIPassword string
 }
 
 // StringContains check if contains string in array

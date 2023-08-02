@@ -34,6 +34,8 @@ COPY --from=builder /app/kafka_gen_metric /usr/local/bin/kafka_gen_metric
 # - CLICKHOUSE_PASSWORD
 # - KAFKA_USERNAME
 # - KAFKA_PASSWORD
+# - KAFKA_GSSAPI_USERNAME
+# - KAFKA_GSSAPI_PASSWORD
 # See cmd/clickhouse_sinker/main.go for details.
 
 ENTRYPOINT ["/usr/local/bin/clickhouse_sinker"]

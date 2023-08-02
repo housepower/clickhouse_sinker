@@ -84,6 +84,8 @@ func initCmdOptions() {
 	util.EnvStringVar(&cmdOps.ClickhousePassword, "clickhouse-password")
 	util.EnvStringVar(&cmdOps.KafkaUsername, "kafka-username")
 	util.EnvStringVar(&cmdOps.KafkaPassword, "kafka-password")
+	util.EnvStringVar(&cmdOps.KafkaGSSAPIUsername, "kafka-gssapi-username")
+	util.EnvStringVar(&cmdOps.KafkaGSSAPIPassword, "kafka-gssapi-password")
 
 	// 3. Replace options with the corresponding CLI parameter if present.
 	flag.BoolVar(&cmdOps.ShowVer, "v", cmdOps.ShowVer, "show build version and quit")
@@ -108,6 +110,8 @@ func initCmdOptions() {
 	flag.StringVar(&cmdOps.ClickhousePassword, "clickhouse-password", cmdOps.ClickhousePassword, "clickhouse password")
 	flag.StringVar(&cmdOps.KafkaUsername, "kafka-username", cmdOps.KafkaUsername, "kafka username")
 	flag.StringVar(&cmdOps.KafkaPassword, "kafka-password", cmdOps.KafkaPassword, "kafka password")
+	flag.StringVar(&cmdOps.KafkaGSSAPIUsername, "kafka-gssapi-username", cmdOps.KafkaGSSAPIUsername, "kafka GSSAPI username")
+	flag.StringVar(&cmdOps.KafkaGSSAPIPassword, "kafka-gssapi-password", cmdOps.KafkaGSSAPIPassword, "kafka GSSAPI password")
 
 	flag.Parse()
 }

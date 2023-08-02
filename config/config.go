@@ -215,6 +215,12 @@ func (cfg *Config) Normallize(constructGroup bool, httpAddr string, cred util.Cr
 	if cred.KafkaPassword != "" {
 		cfg.Kafka.Sasl.Password = cred.KafkaPassword
 	}
+	if cred.KafkaGSSAPIUsername != "" {
+		cfg.Kafka.Sasl.GSSAPI.Username = cred.KafkaGSSAPIUsername
+	}
+	if cred.KafkaGSSAPIPassword != "" {
+		cfg.Kafka.Sasl.GSSAPI.Password = cred.KafkaGSSAPIPassword
+	}
 
 	if len(cfg.Clickhouse.Hosts) == 0 || cfg.Kafka.Brokers == "" {
 		err = errors.Newf("invalid configuration, Clickhouse or Kafka section is missing!")
