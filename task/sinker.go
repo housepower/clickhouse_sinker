@@ -40,7 +40,7 @@ import (
 )
 
 var (
-	createTableSQL = `CREATE TABLE IF NOT EXISTS %s as %s.%s ENGINE=Merge('%s', '%s')`
+	createTableSQL = `CREATE TABLE IF NOT EXISTS %s AS %s.%s ENGINE=Merge('%s', '%s')`
 	dropTableSQL   = `DROP TABLE IF EXISTS %s `
 	countSeriesSQL = `WITH (SELECT max(timestamp) FROM %s) AS m
 	SELECT count() FROM %s FINAL WHERE __series_id GLOBAL IN (
@@ -111,20 +111,21 @@ func (s *Sinker) Run() {
 	}
 
 	if s.rcm == nil {
-		if _, err = os.Stat(s.cmdOps.LocalCfgFile); err == nil {
-			if newCfg, err = config.ParseLocalCfgFile(s.cmdOps.LocalCfgFile); err != nil {
-				util.Logger.Fatal("config.ParseLocalCfgFile failed", zap.Error(err))
-				return
-			}
-		} else {
+		if _, err := os.Stat(s.cmdOps.LocalCfgFile); err != nil {
 			util.Logger.Fatal("expect --local-cfg-file or --nacos-dataid")
 			return
 		}
+
+		if newCfg, err = config.ParseLocalCfgFile(s.cmdOps.LocalCfgFile); err != nil {
+			util.Logger.Fatal("config.ParseLocalCfgFile failed", zap.Error(err))
+			return
+		}
+
 		ha := ""
 		if s.cmdOps.NacosServiceName != "" {
 			ha = s.httpAddr
 		}
-		if err = newCfg.Normallize(true, ha); err != nil {
+		if err = newCfg.Normallize(true, ha, s.cmdOps.Credentials); err != nil {
 			util.Logger.Fatal("newCfg.Normallize failed", zap.Error(err))
 			return
 		}
@@ -191,7 +192,7 @@ func (s *Sinker) Run() {
 				if s.cmdOps.NacosServiceName != "" {
 					ha = s.httpAddr
 				}
-				if err = newCfg.Normallize(true, ha); err != nil {
+				if err = newCfg.Normallize(true, ha, s.cmdOps.Credentials); err != nil {
 					util.Logger.Error("newCfg.Normallize failed", zap.Error(err))
 					continue
 				}
@@ -302,7 +303,7 @@ func (s *Sinker) applyConfig(newCfg *config.Config) (err error) {
 }
 
 func (s *Sinker) applyFirstConfig(newCfg *config.Config) (err error) {
-	util.Logger.Info("going to apply the first config", zap.Reflect("config", newCfg))
+	util.Logger.Info("going to apply the first config", zap.Any("config", newCfg))
 	// 1. Initialize clickhouse connections
 	chCfg := &newCfg.Clickhouse
 	if err = pool.InitClusterConn(chCfg.Hosts, chCfg.Port, chCfg.DB, chCfg.Username, chCfg.Password,
@@ -338,7 +339,7 @@ func (s *Sinker) applyFirstConfig(newCfg *config.Config) (err error) {
 }
 
 func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
-	util.Logger.Info("going to apply another config", zap.Int("number", s.numCfg), zap.Reflect("config", newCfg))
+	util.Logger.Info("going to apply another config", zap.Int("number", s.numCfg), zap.Any("config", newCfg))
 	if !reflect.DeepEqual(newCfg.Kafka, s.curCfg.Kafka) || !reflect.DeepEqual(newCfg.Clickhouse, s.curCfg.Clickhouse) {
 		// 1. Stop tasks gracefully. Wait until all flying data be processed (write to CH and commit to Kafka).
 		s.stopAllTasks()

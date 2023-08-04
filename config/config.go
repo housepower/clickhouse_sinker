@@ -52,13 +52,13 @@ type KafkaConfig struct {
 		ClientCertFile string // Required for client authentication. It's client cert.pem.
 		ClientKeyFile  string // Required if and only if ClientCertFile is present. It's client key.pem.
 
-		TrustStoreLocation string //JKS format of CA certificate, used to extract CA cert.pem.
+		TrustStoreLocation string // JKS format of CA certificate, used to extract CA cert.pem.
 		TrustStorePassword string
-		KeystoreLocation   string //JKS format of client certificate and key, used to extrace client cert.pem and key.pem.
+		KeystoreLocation   string // JKS format of client certificate and key, used to extrace client cert.pem and key.pem.
 		KeystorePassword   string
 		EndpIdentAlgo      string
 	}
-	//simplified sarama.Config.Net.SASL to only support SASL/PLAIN and SASL/GSSAPI(Kerberos)
+	// simplified sarama.Config.Net.SASL to only support SASL/PLAIN and SASL/GSSAPI(Kerberos)
 	Sasl struct {
 		// Whether or not to use SASL authentication when connecting to the broker
 		// (defaults to false).
@@ -72,7 +72,7 @@ type KafkaConfig struct {
 		// Password for SASL/PLAIN or SASL/SCRAM authentication
 		Password string
 		GSSAPI   struct {
-			AuthType           int //1. KRB5_USER_AUTH, 2. KRB5_KEYTAB_AUTH
+			AuthType           int // 1. KRB5_USER_AUTH, 2. KRB5_KEYTAB_AUTH
 			KeyTabPath         string
 			KerberosConfigPath string
 			ServiceName        string
@@ -98,7 +98,7 @@ type ClickHouseConfig struct {
 	// Whether skip verify clickhouse-server cert
 	InsecureSkipVerify bool
 
-	RetryTimes   int //<=0 means retry infinitely
+	RetryTimes   int // <=0 means retry infinitely
 	MaxOpenConns int
 }
 
@@ -172,8 +172,8 @@ type Assignment struct {
 }
 
 const (
-	MaxBufferSize                  = 1 << 20 //1048576
-	defaultBufferSize              = 1 << 18 //262144
+	MaxBufferSize                  = 1 << 20 // 1048576
+	defaultBufferSize              = 1 << 18 // 262144
 	maxFlushInterval               = 600
 	defaultFlushInterval           = 10
 	defaultTimeZone                = "Local"
@@ -202,7 +202,26 @@ func ParseLocalCfgFile(cfgPath string) (cfg *Config, err error) {
 }
 
 // Normalize and validate configuration
-func (cfg *Config) Normallize(constructGroup bool, httpAddr string) (err error) {
+func (cfg *Config) Normallize(constructGroup bool, httpAddr string, cred util.Credentials) (err error) {
+	if cred.ClickhouseUsername != "" {
+		cfg.Clickhouse.Username = cred.ClickhouseUsername
+	}
+	if cred.ClickhousePassword != "" {
+		cfg.Clickhouse.Password = cred.ClickhousePassword
+	}
+	if cred.KafkaUsername != "" {
+		cfg.Kafka.Sasl.Username = cred.KafkaUsername
+	}
+	if cred.KafkaPassword != "" {
+		cfg.Kafka.Sasl.Password = cred.KafkaPassword
+	}
+	if cred.KafkaGSSAPIUsername != "" {
+		cfg.Kafka.Sasl.GSSAPI.Username = cred.KafkaGSSAPIUsername
+	}
+	if cred.KafkaGSSAPIPassword != "" {
+		cfg.Kafka.Sasl.GSSAPI.Password = cred.KafkaGSSAPIPassword
+	}
+
 	if len(cfg.Clickhouse.Hosts) == 0 || cfg.Kafka.Brokers == "" {
 		err = errors.Newf("invalid configuration, Clickhouse or Kafka section is missing!")
 		return
@@ -388,12 +407,12 @@ func (cfg *Config) convertKfkSecurity() {
 			if strings.Contains(cfg.Kafka.Sasl.Mechanism, "GSSAPI") {
 				// GSSAPI
 				if configMap["useKeyTab"] != "true" {
-					//Username and password
+					// Username and password
 					cfg.Kafka.Sasl.GSSAPI.AuthType = 1
 					cfg.Kafka.Sasl.GSSAPI.Username = configMap["username"]
 					cfg.Kafka.Sasl.GSSAPI.Password = configMap["password"]
 				} else {
-					//Keytab
+					// Keytab
 					cfg.Kafka.Sasl.GSSAPI.AuthType = 2
 					cfg.Kafka.Sasl.GSSAPI.KeyTabPath = configMap["keyTab"]
 					if principal, ok := configMap["principal"]; ok {
