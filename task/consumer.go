@@ -16,6 +16,8 @@ limitations under the License.
 package task
 
 import (
+	"context"
+	"math"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -32,7 +34,7 @@ import (
 
 type Commit struct {
 	group    string
-	offsets  map[string]map[int32]int64
+	offsets  model.RecordMap
 	wg       *sync.WaitGroup
 	consumer *Consumer
 }
@@ -44,7 +46,8 @@ type Consumer struct {
 	grpConfig *config.GroupConfig
 	fetchesCh chan *kgo.Fetches
 	processWg sync.WaitGroup
-	stopCh    chan struct{}
+	ctx       context.Context
+	cancel    context.CancelFunc
 	state     atomic.Uint32
 	errCommit bool
 
@@ -64,7 +67,6 @@ func newConsumer(s *Sinker, gCfg *config.GroupConfig) *Consumer {
 		numFlying: 0,
 		errCommit: false,
 		grpConfig: gCfg,
-		stopCh:    make(chan struct{}),
 		fetchesCh: make(chan *kgo.Fetches),
 	}
 	c.state.Store(util.StateStopped)
@@ -80,6 +82,7 @@ func (c *Consumer) start() {
 	if c.state.Load() == util.StateRunning {
 		return
 	}
+	c.ctx, c.cancel = context.WithCancel(context.Background())
 	c.inputer = input.NewKafkaFranz()
 	c.state.Store(util.StateRunning)
 	if err := c.inputer.Init(c.sinker.curCfg, c.grpConfig, c.fetchesCh, c.cleanupFn); err == nil {
@@ -97,7 +100,7 @@ func (c *Consumer) stop() {
 	c.state.Store(util.StateStopped)
 
 	// stop the processFetch routine, make sure no more input to the commit chan & writing pool
-	c.stopCh <- struct{}{}
+	c.cancel()
 	c.processWg.Wait()
 	c.inputer.Stop()
 }
@@ -137,7 +140,7 @@ func (c *Consumer) updateGroupConfig(g *config.GroupConfig) {
 	c.grpConfig = g
 	// restart the processFetch routine because of potential BufferSize or FlushInterval change
 	// make sure no more input to the commit chan & writing pool
-	c.stopCh <- struct{}{}
+	c.cancel()
 	c.processWg.Wait()
 	go c.processFetch()
 }
@@ -145,7 +148,7 @@ func (c *Consumer) updateGroupConfig(g *config.GroupConfig) {
 func (c *Consumer) processFetch() {
 	c.processWg.Add(1)
 	defer c.processWg.Done()
-	recMap := make(map[string]map[int32]int64)
+	recMap := make(model.RecordMap)
 	var bufLength int
 
 	flushFn := func() {
@@ -155,7 +158,8 @@ func (c *Consumer) processFetch() {
 		var wg sync.WaitGroup
 		c.tasks.Range(func(key, value any) bool {
 			// flush to shard, ck
-			value.(*Service).sharder.Flush(&wg)
+			task := value.(*Service)
+			task.sharder.Flush(c.ctx, &wg, recMap[task.taskCfg.Topic])
 			return true
 		})
 		bufLength = 0
@@ -164,7 +168,7 @@ func (c *Consumer) processFetch() {
 		c.numFlying++
 		c.mux.Unlock()
 		c.sinker.commitsCh <- &Commit{group: c.grpConfig.Name, offsets: recMap, wg: &wg, consumer: c}
-		recMap = make(map[string]map[int32]int64)
+		recMap = make(model.RecordMap)
 	}
 
 	bufThreshold := c.grpConfig.BufferSize * len(c.sinker.curCfg.Clickhouse.Hosts) * 4 / 5
@@ -241,7 +245,7 @@ func (c *Consumer) processFetch() {
 					for i := range f.Topics {
 						ft := &f.Topics[i]
 						if recMap[ft.Topic] == nil {
-							recMap[ft.Topic] = make(map[int32]int64)
+							recMap[ft.Topic] = make(map[int32]*model.BatchRange)
 						}
 						for j := range ft.Partitions {
 							fpr := ft.Partitions[j].Records
@@ -249,10 +253,18 @@ func (c *Consumer) processFetch() {
 								continue
 							}
 							lastOff := fpr[len(fpr)-1].Offset
+							firstOff := fpr[0].Offset
 
-							old, ok := recMap[ft.Topic][ft.Partitions[j].Partition]
-							if !ok || old < lastOff {
-								recMap[ft.Topic][ft.Partitions[j].Partition] = lastOff
+							or, ok := recMap[ft.Topic][ft.Partitions[j].Partition]
+							if !ok {
+								or = &model.BatchRange{Begin: math.MaxInt64, End: -1}
+								recMap[ft.Topic][ft.Partitions[j].Partition] = or
+							}
+							if or.End < lastOff {
+								or.End = lastOff
+							}
+							if or.Begin > firstOff {
+								or.Begin = firstOff
 							}
 						}
 					}
@@ -265,8 +277,7 @@ func (c *Consumer) processFetch() {
 			}
 		case <-ticker.C:
 			flushFn()
-		case <-c.stopCh:
-			flushFn()
+		case <-c.ctx.Done():
 			util.Logger.Info("stopped processing loop", zap.String("group", c.grpConfig.Name))
 			return
 		}

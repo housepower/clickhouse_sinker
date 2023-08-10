@@ -465,7 +465,7 @@ func (s *Sinker) commitFn() {
 			LOOP:
 				for i, value := range com.offsets {
 					for k, v := range value {
-						if err := c.inputer.CommitMessages(&model.InputMessage{Topic: i, Partition: int(k), Offset: v}); err != nil {
+						if err := c.inputer.CommitMessages(&model.InputMessage{Topic: i, Partition: int(k), Offset: v.End}); err != nil {
 							c.errCommit = true
 							// restart the consumer when facing commit error, avoid change the s.consumers outside of s.Run
 							// error could be RebalanceInProgress, IllegalGeneration, UnknownMemberID
@@ -476,7 +476,7 @@ func (s *Sinker) commitFn() {
 							util.Logger.Warn("Batch.Commit failed, will restart later", zap.Error(err))
 							break LOOP
 						} else {
-							statistics.ConsumeOffsets.WithLabelValues(com.consumer.grpConfig.Name, i, strconv.Itoa(int(k))).Set(float64(v))
+							statistics.ConsumeOffsets.WithLabelValues(com.consumer.grpConfig.Name, i, strconv.Itoa(int(k))).Set(float64(v.End))
 						}
 					}
 				}
