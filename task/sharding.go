@@ -1,6 +1,7 @@
 package task
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -10,8 +11,10 @@ import (
 	"github.com/housepower/clickhouse_sinker/pool"
 	"github.com/housepower/clickhouse_sinker/statistics"
 	"github.com/housepower/clickhouse_sinker/util"
+	nanoid "github.com/matoous/go-nanoid/v2"
 	"github.com/shopspring/decimal"
 	"github.com/thanos-io/thanos/pkg/errors"
+	"go.uber.org/zap"
 )
 
 type ShardingPolicy struct {
@@ -149,29 +152,39 @@ func (sh *Sharder) PutElement(msgRow *model.MsgRow) {
 	statistics.ShardMsgs.WithLabelValues(sh.service.taskCfg.Name).Inc()
 }
 
-func (sh *Sharder) Flush(wg *sync.WaitGroup) {
+func (sh *Sharder) Flush(c context.Context, wg *sync.WaitGroup, rmap map[int32]*model.BatchRange) {
 	sh.mux.Lock()
 	defer sh.mux.Unlock()
-	var msgCnt int
-	taskCfg := sh.service.taskCfg
-	for i, rows := range sh.msgBuf {
-		realSize := len(*rows)
-		if realSize > 0 {
-			msgCnt += realSize
-			batch := &model.Batch{
-				Rows:     rows,
-				BatchIdx: int64(i),
-				RealSize: realSize,
-				Wg:       wg,
+	select {
+	case <-c.Done():
+		util.Logger.Info("batch abandoned because of context canceled")
+		return
+	default:
+		var msgCnt int
+		taskCfg := sh.service.taskCfg
+		batchId, _ := nanoid.New()
+		for i, rows := range sh.msgBuf {
+			realSize := len(*rows)
+			if realSize > 0 {
+				msgCnt += realSize
+				batch := &model.Batch{
+					Rows:     rows,
+					BatchIdx: int64(i),
+					GroupId:  batchId,
+					RealSize: realSize,
+					Wg:       wg,
+				}
+				batch.Wg.Add(1)
+				sh.service.clickhouse.Send(batch)
+				rs := make(model.Rows, 0, realSize)
+				sh.msgBuf[i] = &rs
 			}
-			batch.Wg.Add(1)
-			sh.service.clickhouse.Send(batch)
-			rs := make(model.Rows, 0, realSize)
-			sh.msgBuf[i] = &rs
 		}
-	}
-	if msgCnt > 0 {
-		util.Logger.Info(fmt.Sprintf("created a batch group for task %v with %d shards, total messages %d", sh.service.taskCfg.Name, len(sh.msgBuf), msgCnt))
-		statistics.ShardMsgs.WithLabelValues(taskCfg.Name).Sub(float64(msgCnt))
+		if msgCnt > 0 {
+			util.Logger.Info(fmt.Sprintf("created a batch group for task %v with %d shards, total messages %d", sh.service.taskCfg.Name, len(sh.msgBuf), msgCnt),
+				zap.String("group", batchId),
+				zap.Reflect("offsets", rmap))
+			statistics.ShardMsgs.WithLabelValues(taskCfg.Name).Sub(float64(msgCnt))
+		}
 	}
 }

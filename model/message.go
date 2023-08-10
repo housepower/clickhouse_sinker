@@ -28,6 +28,7 @@ type MsgRow struct {
 type Batch struct {
 	Rows     *Rows
 	BatchIdx int64
+	GroupId  string
 	RealSize int
 
 	Wg *sync.WaitGroup
@@ -36,3 +37,10 @@ type Batch struct {
 func (b *Batch) Size() int {
 	return len(*b.Rows)
 }
+
+type BatchRange struct {
+	Begin int64
+	End   int64
+}
+
+type RecordMap = map[string]map[int32]*BatchRange
