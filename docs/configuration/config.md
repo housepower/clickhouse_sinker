@@ -148,6 +148,10 @@
       "blackList": "@"
     },
 
+    // additional fields to be appended to each input message, should be a valid json string
+    // e.g. fields: "{\"Enable\":true,\"MaxDims\":0,\"Earliest\":false,\"Parser\":\"fastjson\"}"
+    "fields": "",
+
     // PrometheusSchema expects each message is a Prometheus metric(timestamp, value, metric name and a list of labels).
     "prometheusSchema": true,
     // the regexp of labels black list, fields match promLabelsBlackList are not considered as part of labels column in series table

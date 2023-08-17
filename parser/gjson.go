@@ -48,56 +48,64 @@ type GjsonMetric struct {
 	raw string
 }
 
+func (c *GjsonMetric) getField(key string) gjson.Result {
+	ret := gjson.Get(c.pp.fields, key)
+	if !ret.Exists() {
+		ret = gjson.Get(c.raw, key)
+	}
+	return ret
+}
+
 func (c *GjsonMetric) GetString(key string, nullable bool) (val interface{}) {
-	return getGJsonString(gjson.Get(c.raw, key), nullable)
+	return getGJsonString(c.getField(key), nullable)
 }
 
 func (c *GjsonMetric) GetBool(key string, nullable bool) (val interface{}) {
-	return getGJsonBool(gjson.Get(c.raw, key), nullable)
+	return getGJsonBool(c.getField(key), nullable)
 }
 
 func (c *GjsonMetric) GetDecimal(key string, nullable bool) (val interface{}) {
-	return getGJsonDecimal(gjson.Get(c.raw, key), nullable)
+	return getGJsonDecimal(c.getField(key), nullable)
 }
 
 func (c *GjsonMetric) GetInt8(key string, nullable bool) (val interface{}) {
-	return GjsonGetInt[int8](c, gjson.Get(c.raw, key), nullable, math.MinInt8, math.MaxInt8)
+	return GjsonGetInt[int8](c, c.getField(key), nullable, math.MinInt8, math.MaxInt8)
 }
 
 func (c *GjsonMetric) GetInt16(key string, nullable bool) (val interface{}) {
-	return GjsonGetInt[int16](c, gjson.Get(c.raw, key), nullable, math.MinInt16, math.MaxInt16)
+	return GjsonGetInt[int16](c, c.getField(key), nullable, math.MinInt16, math.MaxInt16)
 }
 
 func (c *GjsonMetric) GetInt32(key string, nullable bool) (val interface{}) {
-	return GjsonGetInt[int32](c, gjson.Get(c.raw, key), nullable, math.MinInt32, math.MaxInt32)
+	return GjsonGetInt[int32](c, c.getField(key), nullable, math.MinInt32, math.MaxInt32)
 }
 
 func (c *GjsonMetric) GetInt64(key string, nullable bool) (val interface{}) {
-	return GjsonGetInt[int64](c, gjson.Get(c.raw, key), nullable, math.MinInt64, math.MaxInt64)
+	return GjsonGetInt[int64](c, c.getField(key), nullable, math.MinInt64, math.MaxInt64)
 }
 
 func (c *GjsonMetric) GetUint8(key string, nullable bool) (val interface{}) {
-	return GjsonGetUint[uint8](c, gjson.Get(c.raw, key), nullable, math.MaxUint8)
+	return GjsonGetUint[uint8](c, c.getField(key), nullable, math.MaxUint8)
 }
 
 func (c *GjsonMetric) GetUint16(key string, nullable bool) (val interface{}) {
-	return GjsonGetUint[uint16](c, gjson.Get(c.raw, key), nullable, math.MaxUint16)
+	return GjsonGetUint[uint16](c, c.getField(key), nullable, math.MaxUint16)
 }
 
 func (c *GjsonMetric) GetUint32(key string, nullable bool) (val interface{}) {
-	return GjsonGetUint[uint32](c, gjson.Get(c.raw, key), nullable, math.MaxUint32)
+	return GjsonGetUint[uint32](c, c.getField(key), nullable, math.MaxUint32)
 }
 
 func (c *GjsonMetric) GetUint64(key string, nullable bool) (val interface{}) {
-	return GjsonGetUint[uint64](c, gjson.Get(c.raw, key), nullable, math.MaxUint64)
+	return GjsonGetUint[uint64](c, c.getField(key), nullable, math.MaxUint64)
 }
 
 func (c *GjsonMetric) GetFloat32(key string, nullable bool) (val interface{}) {
-	return GjsonGetFloat[float32](c, gjson.Get(c.raw, key), nullable, math.MaxFloat32)
+	return GjsonGetFloat[float32](c, c.getField(key), nullable, math.MaxFloat32)
 }
 
 func (c *GjsonMetric) GetFloat64(key string, nullable bool) (val interface{}) {
-	return GjsonGetFloat[float64](c, gjson.Get(c.raw, key), nullable, math.MaxFloat64)
+	return GjsonGetFloat[float64](c, c.getField(key), nullable, math.MaxFloat64)
 }
 
 func GjsonGetInt[T constraints.Signed](c *GjsonMetric, r gjson.Result, nullable bool, min, max int64) (val interface{}) {
@@ -169,7 +177,7 @@ func GjsonGetFloat[T constraints.Float](c *GjsonMetric, r gjson.Result, nullable
 }
 
 func (c *GjsonMetric) GetDateTime(key string, nullable bool) (val interface{}) {
-	return getGJsonDateTime(c, key, gjson.Get(c.raw, key), nullable)
+	return getGJsonDateTime(c, key, c.getField(key), nullable)
 }
 
 func (c *GjsonMetric) GetObject(key string, nullable bool) (val interface{}) {
@@ -177,11 +185,11 @@ func (c *GjsonMetric) GetObject(key string, nullable bool) (val interface{}) {
 }
 
 func (c *GjsonMetric) GetArray(key string, typ int) (val interface{}) {
-	return getGJsonArray(c, key, gjson.Get(c.raw, key), typ)
+	return getGJsonArray(c, key, c.getField(key), typ)
 }
 
 func (c *GjsonMetric) GetMap(key string, typeinfo *model.TypeInfo) (val interface{}) {
-	return getGJsonMap(c, gjson.Get(c.raw, key), typeinfo)
+	return getGJsonMap(c, c.getField(key), typeinfo)
 }
 
 func (c *GjsonMetric) val2OrderedMap(v gjson.Result, typeinfo *model.TypeInfo) (m *model.OrderedMap) {
@@ -263,7 +271,7 @@ func GjsonFloatArray[T constraints.Float](a []gjson.Result, max float64) (arr []
 }
 
 func (c *GjsonMetric) GetNewKeys(knownKeys, newKeys, warnKeys *sync.Map, white, black *regexp.Regexp, partition int, offset int64) (foundNew bool) {
-	gjson.Parse(c.raw).ForEach(func(k, v gjson.Result) bool {
+	ite := func(k, v gjson.Result) bool {
 		strKey := k.Str
 		if _, loaded := knownKeys.LoadOrStore(strKey, nil); !loaded {
 			if (white == nil || white.MatchString(strKey)) &&
@@ -280,7 +288,11 @@ func (c *GjsonMetric) GetNewKeys(knownKeys, newKeys, warnKeys *sync.Map, white, 
 			}
 		}
 		return true
-	})
+	}
+
+	c.pp.once.Do(func() { gjson.Parse(c.pp.fields).ForEach(ite) })
+	gjson.Parse(c.raw).ForEach(ite)
+
 	return
 }
 

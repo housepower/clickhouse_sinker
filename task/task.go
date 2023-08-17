@@ -85,7 +85,7 @@ func cloneTask(s *Service, newGroup *Consumer) (service *Service) {
 // NewTaskService creates an instance of new tasks with kafka, clickhouse and paser instances
 func NewTaskService(cfg *config.Config, taskCfg *config.TaskConfig, c *Consumer) (service *Service) {
 	ck := output.NewClickHouse(cfg, taskCfg)
-	pp, err := parser.NewParserPool(taskCfg.Parser, taskCfg.CsvFormat, taskCfg.Delimiter, taskCfg.TimeZone, taskCfg.TimeUnit)
+	pp, err := parser.NewParserPool(taskCfg.Parser, taskCfg.CsvFormat, taskCfg.Delimiter, taskCfg.TimeZone, taskCfg.TimeUnit, taskCfg.Fields)
 	if err != nil {
 		util.Logger.Fatal("failed to create task", zap.String("group", c.grpConfig.Name), zap.String("task", taskCfg.Name), zap.Error(err))
 	}
@@ -160,7 +160,10 @@ func (service *Service) Put(msg *model.InputMessage, flushFn func()) error {
 	var foundNewKeys bool
 	var metric model.Metric
 
-	p := service.pp.Get()
+	p, err := service.pp.Get()
+	if err != nil {
+		util.Logger.Fatal("error initializing json parser", zap.String("task", taskCfg.Name), zap.Error(err))
+	}
 	if metric, err = p.Parse(msg.Value); err != nil {
 		// directly return, ignore the row with parsing errors
 		statistics.ParseMsgsErrorTotal.WithLabelValues(taskCfg.Name).Inc()

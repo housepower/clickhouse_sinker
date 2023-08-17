@@ -38,8 +38,9 @@ var EmpytObject = make(map[string]interface{})
 
 // FastjsonParser, parser for get data in json format
 type FastjsonParser struct {
-	pp  *Pool
-	fjp fastjson.Parser
+	pp     *Pool
+	fjp    fastjson.Parser
+	fields *fastjson.Object
 }
 
 func (p *FastjsonParser) Parse(bs []byte) (metric model.Metric, err error) {
@@ -48,6 +49,13 @@ func (p *FastjsonParser) Parse(bs []byte) (metric model.Metric, err error) {
 		err = errors.Wrapf(err, "")
 		return
 	}
+
+	if p.fields != nil {
+		p.fields.Visit(func(key []byte, v *fastjson.Value) {
+			value.Set(string(key), v)
+		})
+	}
+
 	metric = &FastjsonMetric{pp: p.pp, value: value}
 	return
 }

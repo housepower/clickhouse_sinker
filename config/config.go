@@ -139,6 +139,8 @@ type TaskConfig struct {
 		WhiteList string // the regexp of white list
 		BlackList string // the regexp of black list
 	}
+	// additional fields to be appended to each input message, should be a valid json string
+	Fields string `json:"fields,omitempty"`
 	// PrometheusSchema expects each message is a Prometheus metric(timestamp, value, metric name and a list of labels).
 	PrometheusSchema bool
 	// fields match PromLabelsBlackList are not considered as labels. Requires PrometheusSchema be true.
