@@ -142,6 +142,7 @@ func (c *Consumer) updateGroupConfig(g *config.GroupConfig) {
 	// make sure no more input to the commit chan & writing pool
 	c.cancel()
 	c.processWg.Wait()
+	c.ctx, c.cancel = context.WithCancel(context.Background())
 	go c.processFetch()
 }
 

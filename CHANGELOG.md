@@ -1,5 +1,17 @@
 # Changelog
 
+#### Version 3.0.8 (2023-08-xx)
+
+Improvements:
+
+- "too many simultaneous queries" from ClickHouse will no longer be a fatal error, instead sinker will keep retrying untill complete the write operation
+- Output the offset range per batch
+
+New Features:
+
+- Introduced a task level configuration property "field", which accepts a valid json string and allows additional
+fields to be appened to each input message.
+
 #### Version 3.0.7 (2023-07-19)
 
 Improvements:
