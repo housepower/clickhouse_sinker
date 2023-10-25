@@ -475,21 +475,26 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 		var strVal string
 		switch intVal {
 		case model.Bool:
-			strVal = "Nullable(Bool)"
+			strVal = "Bool"
 		case model.Int64:
-			strVal = "Nullable(Int64)"
+			strVal = "Int64"
 		case model.Float64:
-			strVal = "Nullable(Float64)"
+			strVal = "Float64"
 		case model.String:
-			strVal = "Nullable(String)"
+			strVal = "String"
 		case model.DateTime:
-			strVal = "Nullable(DateTime64(3))"
+			strVal = "DateTime64(3)"
 		case model.Object:
 			strVal = model.GetTypeName(intVal)
 		default:
 			err = errors.Newf("%s: BUG: unsupported column type %s", taskCfg.Name, model.GetTypeName(intVal))
 			return false
 		}
+
+		if !taskCfg.DynamicSchema.NotNullable {
+			strVal = fmt.Sprintf("Nullable(%v)", strVal)
+		}
+
 		if c.taskCfg.PrometheusSchema && intVal == model.String {
 			alterSeries = append(alterSeries, fmt.Sprintf("ADD COLUMN IF NOT EXISTS `%s` %s", strKey, strVal))
 		} else {
