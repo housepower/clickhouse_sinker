@@ -133,8 +133,9 @@ type TaskConfig struct {
 	} `json:"dims"`
 	// DynamicSchema will add columns present in message to clickhouse. Requires AutoSchema be true.
 	DynamicSchema struct {
-		Enable  bool
-		MaxDims int // the upper limit of dynamic columns number, <=0 means math.MaxInt16. protecting dirty data attack
+		Enable      bool
+		NotNullable bool
+		MaxDims     int // the upper limit of dynamic columns number, <=0 means math.MaxInt16. protecting dirty data attack
 		// A column is added for new key K if all following conditions are true:
 		// - K isn't in ExcludeColumns
 		// - number of existing columns doesn't reach MaxDims-1
