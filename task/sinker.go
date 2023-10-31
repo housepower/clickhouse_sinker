@@ -41,11 +41,11 @@ var (
 	createTableSQL = `CREATE TABLE IF NOT EXISTS %s AS %s.%s ENGINE=Merge('%s', '%s')`
 	dropTableSQL   = `DROP TABLE IF EXISTS %s `
 	countSeriesSQL = `WITH (SELECT max(timestamp) FROM %s) AS m
-	SELECT count() FROM %s FINAL WHERE __series_id GLOBAL IN (
-	SELECT DISTINCT __series_id FROM %s WHERE timestamp >= addSeconds(m, -%d));`
+	SELECT count() FROM %s FINAL WHERE __series_id__ GLOBAL IN (
+	SELECT DISTINCT __series_id__ FROM %s WHERE timestamp >= addSeconds(m, -%d));`
 	loadSeriesSQL = `WITH (SELECT max(timestamp) FROM %s) AS m
-	SELECT toInt64(__series_id) AS sid, toInt64(__mgmt_id) AS mid FROM %s FINAL WHERE sid GLOBAL IN (
-	SELECT DISTINCT toInt64(__series_id) FROM %s WHERE timestamp >= addSeconds(m, -%d)
+	SELECT toInt64(__series_id__) AS sid, toInt64(__mgmt_id__) AS mid FROM %s FINAL WHERE sid GLOBAL IN (
+	SELECT DISTINCT toInt64(__series_id__) FROM %s WHERE timestamp >= addSeconds(m, -%d)
 	) ORDER BY sid;`
 )
 
