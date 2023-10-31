@@ -279,11 +279,11 @@ func (c *ClickHouse) initSeriesSchema(conn *pool.Conn) (err error) {
 		c.IdxSerID = -1
 		return
 	}
-	// Move column "__series_id" to the last.
+	// Move column "__series_id__" to the last.
 	var dimSerID *model.ColumnWithType
 	for i := 0; i < len(c.Dims); {
 		dim := c.Dims[i]
-		if dim.Name == "__series_id" && dim.Type.Type == model.Int64 {
+		if dim.Name == "__series_id__" && dim.Type.Type == model.Int64 {
 			dimSerID = dim
 			c.Dims = append(c.Dims[:i], c.Dims[i+1:]...)
 			break
@@ -292,7 +292,7 @@ func (c *ClickHouse) initSeriesSchema(conn *pool.Conn) (err error) {
 		}
 	}
 	if dimSerID == nil {
-		err = errors.Newf("Metric table %s.%s shall have column `__series_id UInt64`.", c.dbName, c.TableName)
+		err = errors.Newf("Metric table %s.%s shall have column `__series_id__ UInt64`.", c.dbName, c.TableName)
 		return
 	}
 	c.IdxSerID = len(c.Dims)
@@ -303,8 +303,8 @@ func (c *ClickHouse) initSeriesSchema(conn *pool.Conn) (err error) {
 		c.seriesTbl = c.TableName + "_series"
 	}
 	expSeriesDims := []*model.ColumnWithType{
-		{Name: "__series_id", Type: &model.TypeInfo{Type: model.Int64}},
-		{Name: "__mgmt_id", Type: &model.TypeInfo{Type: model.Int64}},
+		{Name: "__series_id__", Type: &model.TypeInfo{Type: model.Int64}},
+		{Name: "__mgmt_id__", Type: &model.TypeInfo{Type: model.Int64}},
 		{Name: "labels", Type: &model.TypeInfo{Type: model.String}},
 	}
 	var seriesDims []*model.ColumnWithType
@@ -328,7 +328,7 @@ func (c *ClickHouse) initSeriesSchema(conn *pool.Conn) (err error) {
 		}
 	}
 	if badFirst {
-		err = errors.Newf(`First columns of %s are expect to be "__series_id Int64, __mgmt_id Int64, labels String".`, c.seriesTbl)
+		err = errors.Newf(`First columns of %s are expect to be "__series_id__ Int64, __mgmt_id__ Int64, labels String".`, c.seriesTbl)
 		return
 	}
 	c.NameKey = "__name__" // prometheus uses internal "__name__" label for metric name

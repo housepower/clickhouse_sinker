@@ -18,57 +18,57 @@ CREATE TABLE default.dist_prom_extend ON CLUSTER abc AS prom_extend ENGINE = Dis
 
 -- Prometheus metric solution 2 - seperated table for datapoints and series labels can join on series id
 CREATE TABLE default.prom_metric ON CLUSTER abc (
-    __series_id Int64,
+    __series_id__ Int64,
     timestamp DateTime CODEC(DoubleDelta, LZ4),
     value Float32 CODEC(ZSTD(15))
 ) ENGINE=ReplicatedReplacingMergeTree()
 PARTITION BY toYYYYMMDD(timestamp)
-ORDER BY (__series_id, timestamp);
+ORDER BY (__series_id__, timestamp);
 
 CREATE TABLE default.dist_prom_metric ON CLUSTER abc AS prom_metric ENGINE = Distributed(abc, default, prom_metric);
 
 CREATE TABLE default.prom_metric_series ON CLUSTER abc (
-    __series_id Int64,
-    __mgmt_id Int64,
+    __series_id__ Int64,
+    __mgmt_id__ Int64,
     labels String,
     __name__ String
 ) ENGINE=ReplicatedReplacingMergeTree()
-ORDER BY (__name__, __series_id);
+ORDER BY (__name__, __series_id__);
 
 CREATE TABLE default.dist_prom_metric_series ON CLUSTER abc AS prom_metric_series ENGINE = Distributed(abc, default, prom_metric_series);
 
 CREATE TABLE default.prom_metric_agg ON CLUSTER abc (
-    __series_id Int64,
+    __series_id__ Int64,
     timestamp DateTime CODEC(DoubleDelta, LZ4),
     max_value AggregateFunction(max, Float32),
     min_value AggregateFunction(min, Float32),
     avg_value AggregateFunction(avg, Float32)
 ) ENGINE=ReplicatedReplacingMergeTree()
 PARTITION BY toYYYYMMDD(timestamp)
-ORDER BY (__series_id, timestamp);
+ORDER BY (__series_id__, timestamp);
 
 CREATE TABLE default.dist_prom_metric_agg ON CLUSTER abc AS prom_metric_agg ENGINE = Distributed(abc, default, prom_metric_agg);
 
-SELECT __series_id,
+SELECT __series_id__,
     toStartOfDay(timestamp) AS timestamp,
     maxMerge(max_value) AS max_value,
     minMerge(min_value) AS min_value,
     avgMerge(avg_value) AS avg_value
 FROM default.dist_prom_metric_agg
-WHERE __series_id IN (-9223014754132113609, -9223015002162651005)
-GROUP BY __series_id, timestamp
-ORDER BY __series_id, timestamp;
+WHERE __series_id__ IN (-9223014754132113609, -9223015002162651005)
+GROUP BY __series_id__, timestamp
+ORDER BY __series_id__, timestamp;
 
 -- Activate aggregation for future datapoints by creating a materialized view
 CREATE MATERIALIZED VIEW default.prom_metric_mv ON CLUSTER abc
 TO prom_metric_agg
-AS SELECT __series_id,
+AS SELECT __series_id__,
     toStartOfHour(timestamp) AS timestamp,
     maxState(value) AS max_value,
     minState(value) AS min_value,
     avgState(value) AS avg_value
 FROM prom_metric
-GROUP BY __series_id, timestamp;
+GROUP BY __series_id__, timestamp;
 
 -- Deactivate aggregation by dropping the materialized view. You can revise and create it later as you will.
 DROP TABLE default.prom_metric_mv ON CLUSTER abc SYNC;
@@ -144,7 +144,7 @@ func (dp Datapoint) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	labels2 := labels[1 : len(labels)-1]
-	msg := fmt.Sprintf(`{"timestamp":"%s", "value":%f, "value1":%g, "value2":%d, "value3":%t, "__name__":"%s", %s, "__series_id":%d, "__mgmt_id":%d}`,
+	msg := fmt.Sprintf(`{"timestamp":"%s", "value":%f, "value1":%g, "value2":%d, "value3":%t, "__name__":"%s", %s, "__series_id__":%d, "__mgmt_id__":%d}`,
 		dp.Timestamp.Format(time.RFC3339), dp.Value, dp.Value1, dp.Value2, dp.Value3, dp.Name, labels2, seriesID, mgmtID)
 	return []byte(msg), nil
 }
