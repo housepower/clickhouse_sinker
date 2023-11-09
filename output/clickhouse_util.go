@@ -1,12 +1,9 @@
 package output
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
-	"github.com/RoaringBitmap/roaring"
 	"github.com/housepower/clickhouse_sinker/model"
 	"github.com/housepower/clickhouse_sinker/pool"
 	"github.com/housepower/clickhouse_sinker/util"
@@ -30,57 +27,13 @@ func shouldReconnect(err error, sc *pool.ShardConn) bool {
 	return true
 }
 
-func writeRows(prepareSQL string, rows model.Rows, idxBegin, idxEnd int, conn clickhouse.Conn) (numBad int, err error) {
-	var errExec error
-	var batch driver.Batch
-	if batch, err = conn.PrepareBatch(context.Background(), prepareSQL); err != nil {
-		err = errors.Wrapf(err, "clickhouse.Conn.PrepareBatch %s", prepareSQL)
-		return
-	}
-	var bmBad *roaring.Bitmap
-	for i, row := range rows {
-		if err = batch.Append((*row)[idxBegin:idxEnd]...); err != nil {
-			if bmBad == nil {
-				errExec = errors.Wrapf(err, "driver.Batch.Append")
-				bmBad = roaring.NewBitmap()
-			}
-			bmBad.AddInt(i)
-		}
-	}
-	if errExec != nil {
-		_ = batch.Abort()
-		numBad = int(bmBad.GetCardinality())
-		util.Logger.Warn(fmt.Sprintf("writeRows skipped %d rows of %d due to invalid content", numBad, len(rows)), zap.Error(errExec))
-		// write rows again, skip bad ones
-		if batch, err = conn.PrepareBatch(context.Background(), prepareSQL); err != nil {
-			err = errors.Wrapf(err, "clickhouse.Conn.PrepareBatch %s", prepareSQL)
-			return
-		}
-		for i, row := range rows {
-			if !bmBad.ContainsInt(i) {
-				if err = batch.Append((*row)[idxBegin:idxEnd]...); err != nil {
-					break
-				}
-			}
-		}
-		if err = batch.Send(); err != nil {
-			err = errors.Wrapf(err, "driver.Batch.Send")
-			_ = batch.Abort()
-			return
-		}
-		return
-	}
-	if err = batch.Send(); err != nil {
-		err = errors.Wrapf(err, "driver.Batch.Send")
-		_ = batch.Abort()
-		return
-	}
-	return
+func writeRows(prepareSQL string, rows model.Rows, idxBegin, idxEnd int, conn *pool.Conn) (numBad int, err error) {
+	return conn.Write(prepareSQL, rows, idxBegin, idxEnd)
 }
 
-func getDims(database, table string, excludedColumns []string, parser string, conn clickhouse.Conn) (dims []*model.ColumnWithType, err error) {
-	var rs driver.Rows
-	if rs, err = conn.Query(context.Background(), fmt.Sprintf(selectSQLTemplate, database, table)); err != nil {
+func getDims(database, table string, excludedColumns []string, parser string, conn *pool.Conn) (dims []*model.ColumnWithType, err error) {
+	var rs *pool.Rows
+	if rs, err = conn.Query(fmt.Sprintf(selectSQLTemplate, database, table)); err != nil {
 		err = errors.Wrapf(err, "")
 		return
 	}

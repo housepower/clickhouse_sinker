@@ -20,6 +20,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/hjson/hjson-go/v4"
 	"go.uber.org/zap"
 
@@ -92,6 +93,7 @@ type ClickHouseConfig struct {
 	Port     int
 	Username string
 	Password string
+	Protocol string //native, http
 
 	// Whether enable TLS encryption with clickhouse-server
 	Secure bool
@@ -235,6 +237,18 @@ func (cfg *Config) Normallize(constructGroup bool, httpAddr string) (err error) 
 	}
 	if cfg.Clickhouse.MaxOpenConns <= 0 {
 		cfg.Clickhouse.MaxOpenConns = defaultMaxOpenConns
+	}
+
+	if cfg.Clickhouse.Protocol == "" {
+		cfg.Clickhouse.Protocol = clickhouse.Native.String()
+	}
+
+	if cfg.Clickhouse.Port == 0 {
+		if cfg.Clickhouse.Protocol == clickhouse.HTTP.String() {
+			cfg.Clickhouse.Port = 8123
+		} else {
+			cfg.Clickhouse.Port = 9000
+		}
 	}
 
 	if cfg.Task != nil {

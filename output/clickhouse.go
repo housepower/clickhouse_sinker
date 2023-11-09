@@ -16,7 +16,6 @@ limitations under the License.
 package output
 
 import (
-	"context"
 	"encoding/json"
 	"expvar"
 	"fmt"
@@ -27,7 +26,6 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/avast/retry-go/v4"
 	"github.com/housepower/clickhouse_sinker/config"
 	"github.com/housepower/clickhouse_sinker/model"
@@ -180,7 +178,7 @@ func (c *ClickHouse) AllowWriteSeries(sid, mid int64) (allowed bool) {
 	return
 }
 
-func (c *ClickHouse) writeSeries(rows model.Rows, conn clickhouse.Conn) (err error) {
+func (c *ClickHouse) writeSeries(rows model.Rows, conn *pool.Conn) (err error) {
 	var seriesRows model.Rows
 	for _, row := range rows {
 		if len(*row) != c.NumDims {
@@ -220,7 +218,7 @@ func (c *ClickHouse) write(batch *model.Batch, sc *pool.ShardConn, dbVer *int) (
 	if len(*batch.Rows) == 0 {
 		return
 	}
-	var conn clickhouse.Conn
+	var conn *pool.Conn
 	if conn, *dbVer, err = sc.NextGoodReplica(*dbVer); err != nil {
 		return
 	}
@@ -276,7 +274,7 @@ func (c *ClickHouse) loopWrite(batch *model.Batch, sc *pool.ShardConn) {
 	}
 }
 
-func (c *ClickHouse) initSeriesSchema(conn clickhouse.Conn) (err error) {
+func (c *ClickHouse) initSeriesSchema(conn *pool.Conn) (err error) {
 	if !c.taskCfg.PrometheusSchema {
 		c.IdxSerID = -1
 		return
@@ -344,14 +342,27 @@ func (c *ClickHouse) initSeriesSchema(conn clickhouse.Conn) (err error) {
 	c.Dims = append(c.Dims, seriesDims[1:]...)
 
 	// Generate SQL for series INSERT
-	serDimsQuoted := make([]string, len(seriesDims))
-	for i, serDim := range seriesDims {
-		serDimsQuoted[i] = fmt.Sprintf("`%s`", serDim.Name)
+	if c.cfg.Clickhouse.Protocol == clickhouse.HTTP.String() {
+		serDimsQuoted := make([]string, len(seriesDims))
+		for i, serDim := range seriesDims {
+			serDimsQuoted[i] = fmt.Sprintf("`%s`", serDim.Name)
+		}
+		var params = make([]string, len(seriesDims))
+		for i := range params {
+			params[i] = "?"
+		}
+		c.promSerSQL = "INSERT INTO " + c.cfg.Clickhouse.DB + "." + c.TableName + " (" + strings.Join(serDimsQuoted, ",") + ") " +
+			"VALUES (" + strings.Join(params, ",") + ")"
+	} else {
+		serDimsQuoted := make([]string, len(seriesDims))
+		for i, serDim := range seriesDims {
+			serDimsQuoted[i] = fmt.Sprintf("`%s`", serDim.Name)
+		}
+		c.promSerSQL = fmt.Sprintf("INSERT INTO `%s`.`%s` (%s)",
+			c.dbName,
+			c.seriesTbl,
+			strings.Join(serDimsQuoted, ","))
 	}
-	c.promSerSQL = fmt.Sprintf("INSERT INTO `%s`.`%s` (%s)",
-		c.dbName,
-		c.seriesTbl,
-		strings.Join(serDimsQuoted, ","))
 	util.Logger.Info(fmt.Sprintf("promSer sql=> %s", c.promSerSQL), zap.String("task", c.taskCfg.Name))
 
 	// Check distributed series table
@@ -394,7 +405,7 @@ func (c *ClickHouse) initSchema() (err error) {
 	c.seriesTbl = c.taskCfg.SeriesTableName
 
 	sc := pool.GetShardConn(0)
-	var conn clickhouse.Conn
+	var conn *pool.Conn
 	if conn, _, err = sc.NextGoodReplica(0); err != nil {
 		return
 	}
@@ -416,19 +427,38 @@ func (c *ClickHouse) initSchema() (err error) {
 		return
 	}
 	// Generate SQL for INSERT
-	c.NumDims = len(c.Dims)
-	numDims := c.NumDims
-	if c.taskCfg.PrometheusSchema {
-		numDims = c.IdxSerID + 1
+	if c.cfg.Clickhouse.Protocol == clickhouse.HTTP.String() {
+		c.NumDims = len(c.Dims)
+		numDims := c.NumDims
+		if c.taskCfg.PrometheusSchema {
+			numDims = c.IdxSerID + 1
+		}
+		quotedDms := make([]string, numDims)
+		for i := 0; i < numDims; i++ {
+			quotedDms[i] = fmt.Sprintf("`%s`", c.Dims[i].Name)
+		}
+		var params = make([]string, c.NumDims)
+		for i := range params {
+			params[i] = "?"
+		}
+		c.prepareSQL = "INSERT INTO " + c.cfg.Clickhouse.DB + "." + c.TableName + " (" + strings.Join(quotedDms, ",") + ") " +
+			"VALUES (" + strings.Join(params, ",") + ")"
+
+	} else {
+		c.NumDims = len(c.Dims)
+		numDims := c.NumDims
+		if c.taskCfg.PrometheusSchema {
+			numDims = c.IdxSerID + 1
+		}
+		quotedDms := make([]string, numDims)
+		for i := 0; i < numDims; i++ {
+			quotedDms[i] = fmt.Sprintf("`%s`", c.Dims[i].Name)
+		}
+		c.prepareSQL = fmt.Sprintf("INSERT INTO `%s`.`%s` (%s)",
+			c.dbName,
+			c.TableName,
+			strings.Join(quotedDms, ","))
 	}
-	quotedDms := make([]string, numDims)
-	for i := 0; i < numDims; i++ {
-		quotedDms[i] = fmt.Sprintf("`%s`", c.Dims[i].Name)
-	}
-	c.prepareSQL = fmt.Sprintf("INSERT INTO `%s`.`%s` (%s)",
-		c.dbName,
-		c.TableName,
-		strings.Join(quotedDms, ","))
 	util.Logger.Info(fmt.Sprintf("Prepare sql=> %s", c.prepareSQL), zap.String("task", c.taskCfg.Name))
 
 	// Check distributed metric table
@@ -512,7 +542,7 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 	}
 
 	sc := pool.GetShardConn(0)
-	var conn clickhouse.Conn
+	var conn *pool.Conn
 	if conn, _, err = sc.NextGoodReplica(0); err != nil {
 		return
 	}
@@ -520,7 +550,7 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 	alterTable := func(tbl, col string) error {
 		query := fmt.Sprintf("ALTER TABLE `%s`.`%s` %s %s;", c.dbName, tbl, onCluster, col)
 		util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", taskCfg.Name))
-		return conn.Exec(context.Background(), query)
+		return conn.Exec(query)
 	}
 
 	if len(alterSeries) != 0 {
@@ -554,7 +584,7 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 func (c *ClickHouse) getDistTbls(table string) (distTbls []DistTblInfo, err error) {
 	taskCfg := c.taskCfg
 	sc := pool.GetShardConn(0)
-	var conn clickhouse.Conn
+	var conn *pool.Conn
 	if conn, _, err = sc.NextGoodReplica(0); err != nil {
 		return
 	}
@@ -562,8 +592,8 @@ func (c *ClickHouse) getDistTbls(table string) (distTbls []DistTblInfo, err erro
 	 FROM system.tables WHERE engine='Distributed' AND database='%s' AND match(engine_full, 'Distributed\(\'.*\', \'%s\', \'%s\'.*\)')`,
 		c.dbName, c.dbName, table)
 	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", taskCfg.Name))
-	var rows driver.Rows
-	if rows, err = conn.Query(context.Background(), query); err != nil {
+	var rows *pool.Rows
+	if rows, err = conn.Query(query); err != nil {
 		err = errors.Wrapf(err, "")
 		return
 	}
