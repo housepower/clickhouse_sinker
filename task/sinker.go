@@ -26,8 +26,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ClickHouse/clickhouse-go/v2"
-
 	"github.com/google/uuid"
 	"github.com/housepower/clickhouse_sinker/config"
 	cm "github.com/housepower/clickhouse_sinker/config_manager"
@@ -307,7 +305,7 @@ func (s *Sinker) applyFirstConfig(newCfg *config.Config) (err error) {
 	// 1. Initialize clickhouse connections
 	chCfg := &newCfg.Clickhouse
 	if err = pool.InitClusterConn(chCfg.Hosts, chCfg.Port, chCfg.DB, chCfg.Username, chCfg.Password,
-		chCfg.Secure, chCfg.InsecureSkipVerify, chCfg.MaxOpenConns); err != nil {
+		chCfg.Secure, chCfg.InsecureSkipVerify, chCfg.MaxOpenConns, chCfg.Protocol); err != nil {
 		return
 	}
 
@@ -347,7 +345,7 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 		// 2. Initialize clickhouse connections.
 		chCfg := &newCfg.Clickhouse
 		if err = pool.InitClusterConn(chCfg.Hosts, chCfg.Port, chCfg.DB, chCfg.Username, chCfg.Password,
-			chCfg.Secure, chCfg.InsecureSkipVerify, chCfg.MaxOpenConns); err != nil {
+			chCfg.Secure, chCfg.InsecureSkipVerify, chCfg.MaxOpenConns, chCfg.Protocol); err != nil {
 			return
 		}
 
@@ -517,7 +515,7 @@ func (s *Sinker) initBmSeries() (err error) {
 		return true
 	})
 
-	var conn clickhouse.Conn
+	var conn *pool.Conn
 	if conn, _, err = pool.GetShardConn(0).NextGoodReplica(0); err != nil {
 		return
 	}
@@ -585,7 +583,7 @@ func (s *Sinker) reloadBmSeries() (err error) {
 		return
 	}
 
-	var conn clickhouse.Conn
+	var conn *pool.Conn
 	if conn, _, err = pool.GetShardConn(0).NextGoodReplica(0); err != nil {
 		return
 	}
@@ -608,7 +606,7 @@ func (s *Sinker) reloadBmSeries() (err error) {
 	return
 }
 
-func loadBmSeries(conn clickhouse.Conn, sqKey string, tasks []*Service, activeSeriesRange int) (result map[int64]int64, err error) {
+func loadBmSeries(conn *pool.Conn, sqKey string, tasks []*Service, activeSeriesRange int) (result map[int64]int64, err error) {
 	// merge all metric tables to get the latest timestamp
 	// old bmseries record won't be loaded into memory to avoid OOM
 	var reg string
@@ -622,21 +620,21 @@ func loadBmSeries(conn clickhouse.Conn, sqKey string, tasks []*Service, activeSe
 	dbname := strings.Split(sqKey, ".")[0]
 	query := fmt.Sprintf(createTableSQL, mergetable, dbname, tasks[0].clickhouse.GetMetricTable(), dbname, reg[:len(reg)-1])
 	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", tasks[0].taskCfg.Name))
-	if err = conn.Exec(context.Background(), query); err != nil {
+	if err = conn.Exec(query); err != nil {
 		return
 	}
 
 	var count uint64
 	query = fmt.Sprintf(countSeriesSQL, mergetable, sqKey, mergetable, activeSeriesRange)
 	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", tasks[0].taskCfg.Name))
-	if err = conn.QueryRow(context.Background(), query).Scan(&count); err != nil {
+	if err = conn.QueryRow(query).Scan(&count); err != nil {
 		return
 	}
 	seriesMap := make(map[int64]int64, count)
 
 	query = fmt.Sprintf(loadSeriesSQL, mergetable, sqKey, mergetable, activeSeriesRange)
 	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", tasks[0].taskCfg.Name))
-	rs, err := conn.Query(context.Background(), query)
+	rs, err := conn.Query(query)
 	if err != nil {
 		return nil, err
 	}
@@ -651,7 +649,7 @@ func loadBmSeries(conn clickhouse.Conn, sqKey string, tasks []*Service, activeSe
 	}
 	query = fmt.Sprintf(dropTableSQL, mergetable)
 	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", tasks[0].taskCfg.Name))
-	err = conn.Exec(context.Background(), query)
+	err = conn.Exec(query)
 
 	return seriesMap, err
 }
