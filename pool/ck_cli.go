@@ -29,50 +29,42 @@ func (r *Row) Scan(dest ...any) error {
 }
 
 type Rows struct {
-	Proto clickhouse.Protocol
-	Rs1   *sql.Rows
-	Rs2   driver.Rows
+	protocol clickhouse.Protocol
+	rs1      *sql.Rows
+	rs2      driver.Rows
 }
 
 func (r *Rows) Close() error {
-	if r.Proto == clickhouse.HTTP {
-		return r.Rs1.Close()
+	if r.protocol == clickhouse.HTTP {
+		return r.rs1.Close()
 	} else {
-		return r.Rs2.Close()
+		return r.rs2.Close()
 	}
 }
 
 func (r *Rows) Columns() ([]string, error) {
-	if r.Proto == clickhouse.HTTP {
-		return r.Rs1.Columns()
+	if r.protocol == clickhouse.HTTP {
+		return r.rs1.Columns()
 	} else {
-		return r.Rs2.Columns(), nil
+		return r.rs2.Columns(), nil
 	}
 }
 
 func (r *Rows) Next() bool {
-	if r.Proto == clickhouse.HTTP {
-		return r.Rs1.Next()
+	if r.protocol == clickhouse.HTTP {
+		return r.rs1.Next()
 	} else {
-		return r.Rs2.Next()
+		return r.rs2.Next()
 	}
 }
 
 func (r *Rows) Scan(dest ...any) error {
-	if r.Proto == clickhouse.HTTP {
-		return r.Rs1.Scan(dest...)
+	if r.protocol == clickhouse.HTTP {
+		return r.rs1.Scan(dest...)
 	} else {
-		return r.Rs2.Scan(dest...)
+		return r.rs2.Scan(dest...)
 	}
 }
-
-// func (r *Rows) ColumnTypes() (interface{}, error) {
-// 	if r.Proto == clickhouse.HTTP {
-// 		return r.Rs1.ColumnTypes()
-// 	} else {
-// 		return r.Rs2.ColumnTypes(), nil
-// 	}
-// }
 
 type Conn struct {
 	protocol clickhouse.Protocol
@@ -83,20 +75,20 @@ type Conn struct {
 
 func (c *Conn) Query(query string, args ...any) (*Rows, error) {
 	var rs Rows
-	rs.Proto = c.protocol
+	rs.protocol = c.protocol
 	if c.protocol == clickhouse.HTTP {
 		rows, err := c.db.Query(query, args)
 		if err != nil {
 			return &rs, err
 		} else {
-			rs.Rs1 = rows
+			rs.rs1 = rows
 		}
 	} else {
 		rows, err := c.c.Query(c.ctx, query, args)
 		if err != nil {
 			return &rs, err
 		} else {
-			rs.Rs2 = rows
+			rs.rs2 = rows
 		}
 	}
 	return &rs, nil
