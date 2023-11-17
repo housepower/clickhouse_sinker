@@ -327,7 +327,7 @@ Metrics are exposed at `http://ip:port/metrics`. IP is the outbound IP of this m
 
 Sinker registers with Nacos if CLI `--consul-cfg-enable` or env `CONSUL_REGISTER_ENABLE` is present. However Prometheus is [unable](https://github.com/alibaba/nacos/issues/1032) to obtain dynamic service list from nacos server.
 
-- Push to promethues
+- Push to prometheus
 
 If CLI `--metric-push-gateway-addrs` or env `METRIC_PUSH_GATEWAY_ADDRS` (a list of comma-separated urls) is present, metrics are pushed to one of given URLs regualarly.
 
