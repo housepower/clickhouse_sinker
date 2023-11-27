@@ -5,6 +5,7 @@ go 1.20
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.15.0
 	github.com/RoaringBitmap/roaring v1.3.0
+	github.com/YenchangChan/franz-go/pkg/sasl/kerberos v0.0.0-20231127011105-840a25342a2e
 	github.com/avast/retry-go/v4 v4.5.0
 	github.com/bytedance/sonic v1.10.0-rc3
 	github.com/cespare/xxhash/v2 v2.2.0
@@ -24,7 +25,6 @@ require (
 	github.com/troian/healthcheck v0.1.4-0.20200127040058-c373fb6a0dc1
 	github.com/twmb/franz-go v1.14.3
 	github.com/twmb/franz-go/pkg/kadm v1.9.0
-	github.com/twmb/franz-go/pkg/sasl/kerberos v1.1.0
 	github.com/twmb/franz-go/plugin/kzap v1.1.2
 	github.com/valyala/fastjson v1.6.4
 	go.uber.org/zap v1.25.0
