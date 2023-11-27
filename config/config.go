@@ -16,6 +16,7 @@ limitations under the License.
 package config
 
 import (
+	"net"
 	"os"
 	"regexp"
 	"strings"
@@ -45,9 +46,10 @@ type Config struct {
 
 // KafkaConfig configuration parameters
 type KafkaConfig struct {
-	Brokers  string
-	Security map[string]string
-	TLS      struct {
+	Brokers        string
+	ResetSaslRealm bool
+	Security       map[string]string
+	TLS            struct {
 		Enable         bool
 		CaCertFiles    string // CA cert.pem with which Kafka brokers certs be signed.  Leave empty for certificates trusted by the OS
 		ClientCertFile string // Required for client authentication. It's client cert.pem.
@@ -249,6 +251,11 @@ func (cfg *Config) Normallize(constructGroup bool, httpAddr string, cred util.Cr
 		default:
 			err = errors.Newf("kafka SASL mechanism %s is unsupported", cfg.Kafka.Sasl.Mechanism)
 			return
+		}
+
+		if cfg.Kafka.ResetSaslRealm {
+			port := getKfkPort(cfg.Kafka.Brokers)
+			os.Setenv("DOMAIN_REALM", net.JoinHostPort("hadoop."+strings.ToLower(cfg.Kafka.Sasl.GSSAPI.Realm), port))
 		}
 	}
 	if cfg.Clickhouse.RetryTimes < 0 {
@@ -476,4 +483,17 @@ func readConfig(config string) map[string]string {
 		}
 	}
 	return configMap
+}
+
+func getKfkPort(brokers string) string {
+	hosts := strings.Split(brokers, ",")
+	var port string
+	for _, host := range hosts {
+		_, p, err := net.SplitHostPort(host)
+		if err != nil {
+			port = p
+			break
+		}
+	}
+	return port
 }
