@@ -4,6 +4,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -97,4 +98,36 @@ func TestMisc(t *testing.T) {
 			require.Equal(t, result, tt.result)
 		})
 	}
+}
+
+func TestSetValue(t *testing.T) {
+	a := 5
+	TrySetValue(&a, 10)
+	assert.Equal(t, a, 5)
+	var b string
+	TrySetValue(&b, "hello")
+	assert.Equal(t, b, "hello")
+	TrySetValue(&b, "world")
+	assert.Equal(t, b, "hello")
+
+	var c uint32
+	TrySetValue(&c, uint32(100))
+	assert.Equal(t, c, uint32(100))
+	TrySetValue(&c, uint32(500))
+	assert.Equal(t, c, uint32(100))
+
+	var d float32
+	TrySetValue(&d, float32(6.998))
+	assert.Equal(t, d, float32(6.998))
+	TrySetValue(&d, float32(3.14))
+	assert.Equal(t, d, float32(6.998))
+
+	var e int
+	TrySetValue(&e, 25)
+	assert.Equal(t, e, 25)
+
+	// f := 0
+	// TrySetValue(&f, 25)
+	// assert.Equal(t, f, 0)
+
 }
