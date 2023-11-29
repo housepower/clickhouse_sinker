@@ -414,45 +414,43 @@ func (cfg *Config) convertKfkSecurity() {
 	}
 
 	if strings.Contains(protocol, "SSL") {
-		cfg.Kafka.TLS.Enable = true
-		cfg.Kafka.TLS.EndpIdentAlgo = cfg.Kafka.Security["ssl.endpoint.identification.algorithm"]
-		cfg.Kafka.TLS.TrustStoreLocation = cfg.Kafka.Security["ssl.truststore.location"]
-		cfg.Kafka.TLS.TrustStorePassword = cfg.Kafka.Security["ssl.truststore.password"]
-		cfg.Kafka.TLS.KeystoreLocation = cfg.Kafka.Security["ssl.keystore.location"]
-		cfg.Kafka.TLS.KeystorePassword = cfg.Kafka.Security["ssl.keystore.password"]
+		util.TrySetValue(&cfg.Kafka.TLS.Enable, true)
+		util.TrySetValue(&cfg.Kafka.TLS.EndpIdentAlgo, cfg.Kafka.Security["ssl.endpoint.identification.algorithm"])
+		util.TrySetValue(&cfg.Kafka.TLS.TrustStoreLocation, cfg.Kafka.Security["ssl.truststore.location"])
+		util.TrySetValue(&cfg.Kafka.TLS.TrustStorePassword, cfg.Kafka.Security["ssl.truststore.password"])
+		util.TrySetValue(&cfg.Kafka.TLS.KeystoreLocation, cfg.Kafka.Security["ssl.keystore.location"])
+		util.TrySetValue(&cfg.Kafka.TLS.KeystorePassword, cfg.Kafka.Security["ssl.keystore.password"])
 	}
 
 	if strings.Contains(protocol, "SASL") {
-		cfg.Kafka.Sasl.Enable = true
-		cfg.Kafka.Sasl.Mechanism = cfg.Kafka.Security["sasl.mechanism"]
+		util.TrySetValue(&cfg.Kafka.Sasl.Enable, true)
+		util.TrySetValue(&cfg.Kafka.Sasl.Mechanism, cfg.Kafka.Security["sasl.mechanism"])
 		if config, ok := cfg.Kafka.Security["sasl.jaas.config"]; ok {
 			configMap := readConfig(config)
 			if strings.Contains(cfg.Kafka.Sasl.Mechanism, "GSSAPI") {
 				// GSSAPI
 				if configMap["useKeyTab"] != "true" {
-					// Username and password
-					cfg.Kafka.Sasl.GSSAPI.AuthType = 1
-					cfg.Kafka.Sasl.GSSAPI.Username = configMap["username"]
-					cfg.Kafka.Sasl.GSSAPI.Password = configMap["password"]
+					//Username and password
+					util.TrySetValue(&cfg.Kafka.Sasl.GSSAPI.AuthType, 1)
+					util.TrySetValue(&cfg.Kafka.Sasl.GSSAPI.Username, configMap["username"])
+					util.TrySetValue(&cfg.Kafka.Sasl.GSSAPI.Password, configMap["password"])
 				} else {
-					// Keytab
-					cfg.Kafka.Sasl.GSSAPI.AuthType = 2
-					cfg.Kafka.Sasl.GSSAPI.KeyTabPath = configMap["keyTab"]
+					//Keytab
+					util.TrySetValue(&cfg.Kafka.Sasl.GSSAPI.AuthType, 2)
+					util.TrySetValue(&cfg.Kafka.Sasl.GSSAPI.KeyTabPath, configMap["keyTab"])
 					if principal, ok := configMap["principal"]; ok {
 						username := strings.Split(principal, "@")[0]
 						realm := strings.Split(principal, "@")[1]
-						cfg.Kafka.Sasl.GSSAPI.Username = username
-						cfg.Kafka.Sasl.GSSAPI.Realm = realm
+						util.TrySetValue(&cfg.Kafka.Sasl.GSSAPI.Username, username)
+						util.TrySetValue(&cfg.Kafka.Sasl.GSSAPI.Realm, realm)
 					}
-					cfg.Kafka.Sasl.GSSAPI.ServiceName = cfg.Kafka.Security["sasl.kerberos.service.name"]
-					if cfg.Kafka.Sasl.GSSAPI.KerberosConfigPath == "" {
-						cfg.Kafka.Sasl.GSSAPI.KerberosConfigPath = defaultKerberosConfigPath
-					}
+					util.TrySetValue(&cfg.Kafka.Sasl.GSSAPI.ServiceName, cfg.Kafka.Security["sasl.kerberos.service.name"])
+					util.TrySetValue(&cfg.Kafka.Sasl.GSSAPI.KerberosConfigPath, defaultKerberosConfigPath)
 				}
 			} else {
 				// PLAIN, SCRAM-SHA-256 or SCRAM-SHA-512
-				cfg.Kafka.Sasl.Username = configMap["username"]
-				cfg.Kafka.Sasl.Password = configMap["password"]
+				util.TrySetValue(&cfg.Kafka.Sasl.Username, configMap["username"])
+				util.TrySetValue(&cfg.Kafka.Sasl.Password, configMap["password"])
 			}
 		}
 	}
