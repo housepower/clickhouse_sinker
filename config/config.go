@@ -439,10 +439,11 @@ func (cfg *Config) convertKfkSecurity() {
 					util.TrySetValue(&cfg.Kafka.Sasl.GSSAPI.AuthType, 2)
 					util.TrySetValue(&cfg.Kafka.Sasl.GSSAPI.KeyTabPath, configMap["keyTab"])
 					if principal, ok := configMap["principal"]; ok {
-						username := strings.Split(principal, "@")[0]
-						realm := strings.Split(principal, "@")[1]
-						util.TrySetValue(&cfg.Kafka.Sasl.GSSAPI.Username, username)
-						util.TrySetValue(&cfg.Kafka.Sasl.GSSAPI.Realm, realm)
+						prins := strings.Split(principal, "@")
+						util.TrySetValue(&cfg.Kafka.Sasl.GSSAPI.Username, prins[0])
+						if len(prins) > 1 {
+							util.TrySetValue(&cfg.Kafka.Sasl.GSSAPI.Realm, prins[1])
+						}
 					}
 					util.TrySetValue(&cfg.Kafka.Sasl.GSSAPI.ServiceName, cfg.Kafka.Security["sasl.kerberos.service.name"])
 					util.TrySetValue(&cfg.Kafka.Sasl.GSSAPI.KerberosConfigPath, defaultKerberosConfigPath)
