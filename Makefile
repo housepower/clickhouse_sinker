@@ -18,11 +18,11 @@ pre:
 
 .PHONY: build
 build: pre
-	$(GOBUILD) -ldflags '$(SINKER_LDFLAGS)' -o . ./...
+	$(GOBUILD) -ldflags '$(SINKER_LDFLAGS)' -o bin/ ./...
 
 .PHONY: debug
 debug: pre
-	$(GOBUILD) -ldflags '$(SINKER_LDFLAGS)' -gcflags "all=-N -l" -o . ./...
+	$(GOBUILD) -ldflags '$(SINKER_LDFLAGS)' -gcflags "all=-N -l" -o bin/ ./...
 
 .PHONY: benchtest
 benchtest: pre
