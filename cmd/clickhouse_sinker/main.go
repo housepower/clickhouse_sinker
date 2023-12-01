@@ -49,6 +49,10 @@ var (
 	runner      *task.Sinker
 )
 
+const (
+	HttpPortBase = 10000
+)
+
 func initCmdOptions() {
 	// 1. Set options to default value.
 	cmdOps = util.CmdOptions{
@@ -162,7 +166,7 @@ func main() {
 		// cmdOps.HTTPPort=0: let OS choose the listen port, and record the exact metrics URL to log.
 		httpPort := cmdOps.HTTPPort
 		if httpPort == 0 {
-			httpPort = util.GetSpareTCPPort(httpPort)
+			httpPort = util.GetSpareTCPPort(HttpPortBase)
 		}
 
 		httpHost := cmdOps.HTTPHost
