@@ -13,4 +13,5 @@ nacos_cache
 *.p12
 dist
 vendor
+bin/
 
