@@ -38,8 +38,9 @@ var EmpytObject = make(map[string]interface{})
 
 // FastjsonParser, parser for get data in json format
 type FastjsonParser struct {
-	pp  *Pool
-	fjp fastjson.Parser
+	pp     *Pool
+	fjp    fastjson.Parser
+	fields *fastjson.Object
 }
 
 func (p *FastjsonParser) Parse(bs []byte) (metric model.Metric, err error) {
@@ -48,6 +49,13 @@ func (p *FastjsonParser) Parse(bs []byte) (metric model.Metric, err error) {
 		err = errors.Wrapf(err, "")
 		return
 	}
+
+	if p.fields != nil {
+		p.fields.Visit(func(key []byte, v *fastjson.Value) {
+			value.Set(string(key), v)
+		})
+	}
+
 	metric = &FastjsonMetric{pp: p.pp, value: value}
 	return
 }
@@ -403,8 +411,10 @@ func getArray(c *FastjsonMetric, sourcename string, v *fastjson.Value, typ int) 
 }
 
 func getMap(c *FastjsonMetric, v *fastjson.Value, typeinfo *model.TypeInfo) (val interface{}) {
-	if v != nil && v.Type() == fastjson.TypeObject {
+	if v == nil || v.Type() == fastjson.TypeObject {
 		val = c.val2OrderedMap(v, typeinfo)
+	} else {
+		util.Logger.Fatal(fmt.Sprintf("SOURCE ERROR: unsupported map type: %v", v.Type()))
 	}
 	return
 }
@@ -468,6 +478,12 @@ func (c *FastjsonMetric) castMapKeyByType(key []byte, typeinfo *model.TypeInfo) 
 		val = getDefaultDateTime(typeinfo.Nullable)
 	case model.String:
 		return string(key)
+	case model.Float32:
+		fallthrough
+	case model.Float64:
+		fallthrough
+	case model.Bool:
+		util.Logger.Fatal("unsupported map key type")
 	default:
 		util.Logger.Fatal("LOGIC ERROR: reached switch default condition")
 	}

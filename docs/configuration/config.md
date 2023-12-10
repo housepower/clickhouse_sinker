@@ -36,7 +36,9 @@
     // retryTimes when error occurs in inserting datas
     "retryTimes": 0,
     // max open connections with each clickhouse node. default to 1.
-    "maxOpenConns": 1
+    "maxOpenConns": 1,
+    // native or http, if configured secure and http both, means support https. default to native.
+    "protocol": "native"
   },
 
   // Kafka config
@@ -50,6 +52,8 @@
         "sasl.mechanism":"GSSAPI",
         "sasl.jaas.config":"com.sun.security.auth.module.Krb5LoginModule required useKeyTab=true storeKey=true debug=true keyTab=\"/etc/security/mmmtest.keytab\" principal=\"mmm@ALANWANG.COM\";"
     },
+    // whether reset domain realm. if this option is true, domain realm will replaced by "hadoop.{toLower(GSSAPI.Realm)}:{port}", this feature is worked when clickhouse_sinker connect to HUAWEI MRS kerberos kafka.
+    "resetSaslRealm": false,
 
     // SSL
     "tls": {
@@ -147,6 +151,10 @@
       // the regexp of black list
       "blackList": "@"
     },
+
+    // additional fields to be appended to each input message, should be a valid json string
+    // e.g. fields: "{\"Enable\":true,\"MaxDims\":0,\"Earliest\":false,\"Parser\":\"fastjson\"}"
+    "fields": "",
 
     // PrometheusSchema expects each message is a Prometheus metric(timestamp, value, metric name and a list of labels).
     "prometheusSchema": true,

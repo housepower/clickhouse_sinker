@@ -1,5 +1,24 @@
 # Changelog
 
+#### Version 3.0.8 (2023-08-xx)
+
+Improvements:
+
+- "too many simultaneous queries" from ClickHouse will no longer be a fatal error, instead sinker will keep retrying untill complete the write operation
+- Output the offset range per batch
+
+New Features:
+
+- Introduced a task level configuration property "field", which accepts a valid json string and allows additional
+fields to be appened to each input message.
+
+#### Version 3.0.7 (2023-07-19)
+
+Improvements:
+
+- when run sinker in cluster mode, caculate lag failure of certain task should not block the entire rebalance work. Instead, the current task should not be assigned to any running sinker instance.
+- sinker will not crash when handling incompatible map type.
+
 #### Version 3.0.6 (2023-05-19)
 
 Improvements:

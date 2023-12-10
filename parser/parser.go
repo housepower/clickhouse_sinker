@@ -21,7 +21,9 @@ import (
 	"time"
 
 	"github.com/housepower/clickhouse_sinker/model"
+	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/thanos-io/thanos/pkg/errors"
+	"github.com/valyala/fastjson"
 )
 
 var (
@@ -78,10 +80,12 @@ type Pool struct {
 	timeUnit     float64
 	knownLayouts sync.Map
 	pool         sync.Pool
+	once         sync.Once // only need to detect new keys from fields once
+	fields       string
 }
 
 // NewParserPool creates a parser pool
-func NewParserPool(name string, csvFormat []string, delimiter string, timezone string, timeunit float64) (pp *Pool, err error) {
+func NewParserPool(name string, csvFormat []string, delimiter string, timezone string, timeunit float64, fields string) (pp *Pool, err error) {
 	var tz *time.Location
 	if timezone == "" {
 		tz = time.Local
@@ -94,6 +98,7 @@ func NewParserPool(name string, csvFormat []string, delimiter string, timezone s
 		delimiter: delimiter,
 		timeZone:  tz,
 		timeUnit:  timeunit,
+		fields:    fields,
 	}
 	if csvFormat != nil {
 		pp.csvFormat = make(map[string]int, len(csvFormat))
@@ -107,21 +112,37 @@ func NewParserPool(name string, csvFormat []string, delimiter string, timezone s
 // Get returns a Parser from pp.
 //
 // The Parser must be Put to pp after use.
-func (pp *Pool) Get() Parser {
+func (pp *Pool) Get() (Parser, error) {
 	v := pp.pool.Get()
 	if v == nil {
 		switch pp.name {
 		case "gjson":
-			return &GjsonParser{pp: pp}
-		case "fastjson":
-			return &FastjsonParser{pp: pp}
+			return &GjsonParser{pp: pp}, nil
 		case "csv":
-			return &CsvParser{pp: pp}
+			if pp.fields != "" {
+				util.Logger.Warn("extra fields for csv parser is not supported, fields ignored")
+			}
+			return &CsvParser{pp: pp}, nil
+		case "fastjson":
+			fallthrough
 		default:
-			return &FastjsonParser{pp: pp}
+			var obj *fastjson.Object
+			if pp.fields != "" {
+				value, err := fastjson.Parse(pp.fields)
+				if err != nil {
+					err = errors.Wrapf(err, "failed to parse fields as a valid json object")
+					return nil, err
+				}
+				obj, err = value.Object()
+				if err != nil {
+					err = errors.Wrapf(err, "failed to retrive fields member")
+					return nil, err
+				}
+			}
+			return &FastjsonParser{pp: pp, fields: obj}, nil
 		}
 	}
-	return v.(Parser)
+	return v.(Parser), nil
 }
 
 // Put returns p to pp.

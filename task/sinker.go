@@ -26,8 +26,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ClickHouse/clickhouse-go/v2"
-
 	"github.com/google/uuid"
 	"github.com/housepower/clickhouse_sinker/config"
 	cm "github.com/housepower/clickhouse_sinker/config_manager"
@@ -306,8 +304,7 @@ func (s *Sinker) applyFirstConfig(newCfg *config.Config) (err error) {
 	util.Logger.Info("going to apply the first config", zap.Any("config", newCfg))
 	// 1. Initialize clickhouse connections
 	chCfg := &newCfg.Clickhouse
-	if err = pool.InitClusterConn(chCfg.Hosts, chCfg.Port, chCfg.DB, chCfg.Username, chCfg.Password,
-		chCfg.Secure, chCfg.InsecureSkipVerify, chCfg.MaxOpenConns); err != nil {
+	if err = pool.InitClusterConn(chCfg); err != nil {
 		return
 	}
 
@@ -346,8 +343,7 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 
 		// 2. Initialize clickhouse connections.
 		chCfg := &newCfg.Clickhouse
-		if err = pool.InitClusterConn(chCfg.Hosts, chCfg.Port, chCfg.DB, chCfg.Username, chCfg.Password,
-			chCfg.Secure, chCfg.InsecureSkipVerify, chCfg.MaxOpenConns); err != nil {
+		if err = pool.InitClusterConn(chCfg); err != nil {
 			return
 		}
 
@@ -465,7 +461,7 @@ func (s *Sinker) commitFn() {
 			LOOP:
 				for i, value := range com.offsets {
 					for k, v := range value {
-						if err := c.inputer.CommitMessages(&model.InputMessage{Topic: i, Partition: int(k), Offset: v}); err != nil {
+						if err := c.inputer.CommitMessages(&model.InputMessage{Topic: i, Partition: int(k), Offset: v.End}); err != nil {
 							c.errCommit = true
 							// restart the consumer when facing commit error, avoid change the s.consumers outside of s.Run
 							// error could be RebalanceInProgress, IllegalGeneration, UnknownMemberID
@@ -476,7 +472,7 @@ func (s *Sinker) commitFn() {
 							util.Logger.Warn("Batch.Commit failed, will restart later", zap.Error(err))
 							break LOOP
 						} else {
-							statistics.ConsumeOffsets.WithLabelValues(com.consumer.grpConfig.Name, i, strconv.Itoa(int(k))).Set(float64(v))
+							statistics.ConsumeOffsets.WithLabelValues(com.consumer.grpConfig.Name, i, strconv.Itoa(int(k))).Set(float64(v.End))
 						}
 					}
 				}
@@ -517,7 +513,7 @@ func (s *Sinker) initBmSeries() (err error) {
 		return true
 	})
 
-	var conn clickhouse.Conn
+	var conn *pool.Conn
 	if conn, _, err = pool.GetShardConn(0).NextGoodReplica(0); err != nil {
 		return
 	}
@@ -585,7 +581,7 @@ func (s *Sinker) reloadBmSeries() (err error) {
 		return
 	}
 
-	var conn clickhouse.Conn
+	var conn *pool.Conn
 	if conn, _, err = pool.GetShardConn(0).NextGoodReplica(0); err != nil {
 		return
 	}
@@ -608,7 +604,7 @@ func (s *Sinker) reloadBmSeries() (err error) {
 	return
 }
 
-func loadBmSeries(conn clickhouse.Conn, sqKey string, tasks []*Service, activeSeriesRange int) (result map[int64]int64, err error) {
+func loadBmSeries(conn *pool.Conn, sqKey string, tasks []*Service, activeSeriesRange int) (result map[int64]int64, err error) {
 	// merge all metric tables to get the latest timestamp
 	// old bmseries record won't be loaded into memory to avoid OOM
 	var reg string
@@ -622,21 +618,21 @@ func loadBmSeries(conn clickhouse.Conn, sqKey string, tasks []*Service, activeSe
 	dbname := strings.Split(sqKey, ".")[0]
 	query := fmt.Sprintf(createTableSQL, mergetable, dbname, tasks[0].clickhouse.GetMetricTable(), dbname, reg[:len(reg)-1])
 	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", tasks[0].taskCfg.Name))
-	if err = conn.Exec(context.Background(), query); err != nil {
+	if err = conn.Exec(query); err != nil {
 		return
 	}
 
 	var count uint64
 	query = fmt.Sprintf(countSeriesSQL, mergetable, sqKey, mergetable, activeSeriesRange)
 	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", tasks[0].taskCfg.Name))
-	if err = conn.QueryRow(context.Background(), query).Scan(&count); err != nil {
+	if err = conn.QueryRow(query).Scan(&count); err != nil {
 		return
 	}
 	seriesMap := make(map[int64]int64, count)
 
 	query = fmt.Sprintf(loadSeriesSQL, mergetable, sqKey, mergetable, activeSeriesRange)
 	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", tasks[0].taskCfg.Name))
-	rs, err := conn.Query(context.Background(), query)
+	rs, err := conn.Query(query)
 	if err != nil {
 		return nil, err
 	}
@@ -651,7 +647,7 @@ func loadBmSeries(conn clickhouse.Conn, sqKey string, tasks []*Service, activeSe
 	}
 	query = fmt.Sprintf(dropTableSQL, mergetable)
 	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", tasks[0].taskCfg.Name))
-	err = conn.Exec(context.Background(), query)
+	err = conn.Exec(query)
 
 	return seriesMap, err
 }

@@ -30,10 +30,12 @@ import (
 
 	"github.com/housepower/clickhouse_sinker/model"
 	"github.com/housepower/clickhouse_sinker/util"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 	"github.com/valyala/fastjson"
+	"golang.org/x/exp/constraints"
 )
 
 // https://golang.org/pkg/math/, Mathematical constants
@@ -76,7 +78,9 @@ var jsonSample = []byte(`{
 	"map_str_bool": {"i":true, "j":false},
 	"map_str_date": {"i":"2008-08-08", "j":"2022-01-01"},
 	"map_str_array": {"i":[1,2,3],"j":[4,5,6]},
-	"map_str_map": {"i":{"i":1, "j":2}, "j":{"i":3, "j":4}}
+	"map_str_map": {"i":{"i":1, "j":2}, "j":{"i":3, "j":4}},
+	"map_uint_uint": {"1":1, "2":2},
+	"map_int_string": {"1":"3.1415", "2":"9.876"}
 }`)
 
 var jsonSchema = map[string]string{
@@ -119,7 +123,53 @@ var jsonSchema = map[string]string{
 	"map_str_date":              "Object('json')",
 	"map_str_array":             "Object('json')",
 	"map_str_map":               "Object('json')",
+	"map_uint_uint":             "Object('json')",
+	"map_int_string":            "Object('json')",
 }
+
+var jsonFields = `{
+	"fnull": null,
+	"fbool_true": true,
+	"fbool_false": false,
+	"fnum_int": 123,
+	"fnum_float": 123.321,
+	"fapp.kubernetes.io/name": "kube-state-metrics",
+	"fstr": "escaped_\"ws",
+	"fstr_int": "123",
+	"fstr_float": "123.321",
+	"fstr_date_1": "2009-07-13",
+	"fstr_date_2": "13/07/2009",
+	"fstr_time_rfc3339_1": "2009-07-13T09:07:13Z",
+	"fstr_time_rfc3339_2": "2009-07-13T09:07:13.123+08:00",
+	"fstr_time_clickhouse_1": "2009-07-13 09:07:13",
+	"fstr_time_clickhouse_2": "2009-07-13 09:07:13.123",
+	"fobj": {"i":[1,2,3],"f":[1.1,2.2,3.3],"s":["aa","bb","cc"],"e":[]},
+	"farray_empty": [],
+	"farray_null": [null],
+	"farray_bool": [true,false],
+	"farray_num_int_1": [0, 255, 256, 65535, 65536, 4294967295, 4294967296, 18446744073709551615, 18446744073709551616],
+	"farray_num_int_2": [-9223372036854775808, -2147483649, -2147483648, -32769, -32768, -129, -128, 0, 127, 128, 32767, 32768, 2147483647, 2147483648, 9223372036854775807],
+	"farray_num_float": [4.940656458412465441765687928682213723651e-324, 1.401298464324817070923729583289916131280e-45, 0.0, 3.40282346638528859811704183484516925440e+38, 1.797693134862315708145274237317043567981e+308, -inf, +inf],
+	"farray_str": ["aa","bb","cc"],
+	"farray_str_int_1": ["0", "255", "256", "65535", "65536", "4294967295", "4294967296", "18446744073709551615", "18446744073709551616"],
+	"farray_str_int_2": ["-9223372036854775808", "-2147483649", "-2147483648", "-32769", "-32768", "-129", "-128", "0", "127", "128", "32767", "32768", "2147483647", "2147483648", "9223372036854775807"],
+	"farray_str_float": ["4.940656458412465441765687928682213723651e-324", "1.401298464324817070923729583289916131280e-45", "0.0", "3.40282346638528859811704183484516925440e+38", "1.797693134862315708145274237317043567981e+308", "-inf", "+inf"],
+	"farray_str_date_1": ["2009-07-13","2009-07-14","2009-07-15"],
+	"farray_str_date_2": ["13/07/2009","14/07/2009","15/07/2009"],
+	"farray_str_time_rfc3339": ["2009-07-13T09:07:13Z", "2009-07-13T09:07:13+08:00", "2009-07-13T09:07:13.123Z", "2009-07-13T09:07:13.123+08:00"],
+	"farray_str_time_clickhouse": ["2009-07-13 09:07:13", "2009-07-13 09:07:13.123"],
+	"farray_obj": [{"i":[1,2,3],"f":[1.1,2.2,3.3]},{"s":["aa","bb","cc"],"e":[]}],
+	"fmap_str_str": {"i":"first", "j":"second"},
+	"fmap_str_uint": {"i":1, "j":2},
+	"fmap_str_int": {"i":-1, "j":-2},
+	"fmap_str_float": {"i":3.1415, "j":9.876},
+	"fmap_str_bool": {"i":true, "j":false},
+	"fmap_str_date": {"i":"2008-08-08", "j":"2022-01-01"},
+	"fmap_str_array": {"i":[1,2,3],"j":[4,5,6]},
+	"fmap_str_map": {"i":{"i":1, "j":2}, "j":{"i":3, "j":4}},
+	"fmap_uint_uint": {"1":1, "2":2},
+	"fmap_int_string": {"1":"3.1415", "2":"9.876"}
+}`
 
 var csvSample = []byte(`null,true,false,123,123.321,kube-state-metrics,"escaped_""ws",123,123.321,2009-07-13,13/07/2009,2009-07-13T09:07:13Z,2009-07-13T09:07:13.123+08:00,2009-07-13 09:07:13,2009-07-13 09:07:13.123,"{""i"":[1,2,3],""f"":[1.1,2.2,3.3],""s"":[""aa"",""bb"",""cc""],""e"":[]}",[],[null],"[true,false]","[0,255,256,65535,65536,4294967295,4294967296,18446744073709551615,18446744073709551616]","[-9223372036854775808,-2147483649,-2147483648,-32769,-32768,-129,-128,0,127,128,32767,32768,2147483647,2147483648,9223372036854775807]","[4.940656458412465441765687928682213723651e-324,1.401298464324817070923729583289916131280e-45,0.0,3.40282346638528859811704183484516925440e+38,1.797693134862315708145274237317043567981e+308]","[""aa"",""bb"",""cc""]","[""0"",""255"",""256"",""65535"",""65536"",""4294967295"",""4294967296"",""18446744073709551615"",""18446744073709551616""]","[""-9223372036854775808"",""-2147483649"",""-2147483648"",""-32769"",""-32768"",""-129"",""-128"",""0"",""127"",""128"",""32767"",""32768"",""2147483647"",""2147483648"",""9223372036854775807""]","[""4.940656458412465441765687928682213723651e-324"",""1.401298464324817070923729583289916131280e-45"",""0.0"",""3.40282346638528859811704183484516925440e+38"",""1.797693134862315708145274237317043567981e+308""]","[""2009-07-13"",""2009-07-14"",""2009-07-15""]","[""13/07/2009"",""14/07/2009"",""15/07/2009""]","[""2009-07-13T09:07:13Z"",""2009-07-13T09:07:13+08:00"",""2009-07-13T09:07:13.123Z"",""2009-07-13T09:07:13.123+08:00""]","[""2009-07-13 09:07:13"",""2009-07-13 09:07:13.123""]","[{""i"":[1,2,3],""f"":[1.1,2.2,3.3]},{""s"":[""aa"",""bb"",""cc""],""e"":[]}]"`)
 
@@ -157,6 +207,8 @@ var csvSchema = []string{
 	"array_obj",
 }
 
+var csvSpecificOp = []string{"GetBool", "GetInt8", "GetInt16", "GetInt32", "GetInt64",
+	"GetUint8", "GetUint16", "GetUint32", "GetUint64", "GetFloat32", "GetFloat64", "GetDateTime", "GetDecimal"}
 var (
 	bdUtcNs       = time.Date(2009, 7, 13, 9, 7, 13, 123000000, time.UTC)
 	bdUtcSec      = bdUtcNs.Truncate(1 * time.Second)
@@ -208,16 +260,19 @@ func initMetrics() {
 	for _, name := range names {
 		switch name {
 		case "csv":
-			pp, _ = NewParserPool("csv", csvSchema, ",", "", timeUnit)
+			pp, _ = NewParserPool("csv", csvSchema, ",", "", timeUnit, "")
 			sample = csvSample
 		case "fastjson":
-			pp, _ = NewParserPool("fastjson", nil, "", "", timeUnit)
+			pp, _ = NewParserPool("fastjson", nil, "", "", timeUnit, jsonFields)
 			sample = jsonSample
 		case "gjson":
-			pp, _ = NewParserPool("gjson", nil, "", "", timeUnit)
+			pp, _ = NewParserPool("gjson", nil, "", "", timeUnit, jsonFields)
 			sample = jsonSample
 		}
-		parser = pp.Get()
+		parser, errInit = pp.Get()
+		if errInit != nil {
+			panic(fmt.Sprintf("failed to initialize parser: %+v\n", errInit))
+		}
 		if metric, errInit = parser.Parse(sample); errInit != nil {
 			msg := fmt.Sprintf("parser.Parse failed: %+v\n", errInit)
 			panic(msg)
@@ -247,7 +302,10 @@ func doTestSimple(t *testing.T, method string, testCases []SimpleCase) {
 		for j := range testCases {
 			var v interface{}
 			desc := fmt.Sprintf(`%s.%s("%s", %s)`, name, method, testCases[j].Field, strconv.FormatBool(testCases[j].Nullable))
-			if (name == "csv" && (sliceContains([]string{"GetBool", "GetInt64", "GetFloat64", "GetDateTime"}, method) && sliceContains([]string{"str_int", "str_float"}, testCases[j].Field) || testCases[j].Nullable)) || (name == "gjson" && strings.Contains(testCases[j].Field, ".")) {
+			if (name == "csv" && (sliceContains(csvSpecificOp, method) &&
+				sliceContains([]string{"str_int", "str_float"}, testCases[j].Field) ||
+				testCases[j].Nullable)) ||
+				(name == "gjson" && strings.Contains(testCases[j].Field, ".")) {
 				skipped = append(skipped, desc)
 				continue
 			}
@@ -278,6 +336,8 @@ func doTestSimple(t *testing.T, method string, testCases []SimpleCase) {
 				v = metric.GetDateTime(testCases[j].Field, testCases[j].Nullable)
 			case "GetString":
 				v = metric.GetString(testCases[j].Field, testCases[j].Nullable)
+			case "GetDecimal":
+				v = metric.GetDecimal(testCases[j].Field, testCases[j].Nullable)
 			default:
 				panic("error!")
 			}
@@ -354,27 +414,33 @@ func TestParserInt(t *testing.T) {
 }
 
 func TestParserFloat(t *testing.T) {
+	testFloatType[float32](t, "GetFloat32")
+	testFloatType[float64](t, "GetFloat64")
+}
+
+func testFloatType[T constraints.Float](t *testing.T, method string) {
+	defaultVal := T(0.0)
 	testCases := []SimpleCase{
 		// nullable: false
-		{"not_exist", false, 0.0},
-		{"null", false, 0.0},
-		{"bool_true", false, 0.0},
-		{"bool_false", false, 0.0},
-		{"num_int", false, 123.0},
-		{"num_float", false, 123.321},
-		{"str", false, 0.0},
-		{"str_int", false, 0.0},
-		{"str_float", false, 0.0},
-		{"str_date_1", false, 0.0},
-		{"obj", false, 0.0},
-		{"array_empty", false, 0.0},
+		{"not_exist", false, defaultVal},
+		{"null", false, defaultVal},
+		{"bool_true", false, defaultVal},
+		{"bool_false", false, defaultVal},
+		{"num_int", false, T(123.0)},
+		{"num_float", false, T(123.321)},
+		{"str", false, defaultVal},
+		{"str_int", false, defaultVal},
+		{"str_float", false, defaultVal},
+		{"str_date_1", false, defaultVal},
+		{"obj", false, defaultVal},
+		{"array_empty", false, defaultVal},
 		// nullable: true
 		{"not_exist", true, nil},
 		{"null", true, nil},
 		{"bool_true", true, nil},
 		{"bool_false", true, nil},
-		{"num_int", true, 123.0},
-		{"num_float", true, 123.321},
+		{"num_int", true, T(123.0)},
+		{"num_float", true, T(123.321)},
 		{"str", true, nil},
 		{"str_int", true, nil},
 		{"str_float", true, nil},
@@ -382,7 +448,7 @@ func TestParserFloat(t *testing.T) {
 		{"obj", true, nil},
 		{"array_empty", true, nil},
 	}
-	doTestSimple(t, "GetFloat64", testCases)
+	doTestSimple(t, method, testCases)
 }
 
 func TestParserString(t *testing.T) {
@@ -589,6 +655,19 @@ func TestParserMap(t *testing.T) {
 			compareMap(t, orderMap, it.expVal, desc)
 		}
 	}
+	// GetMap is not supported for csv format
+	require.Equal(t, nil, metrics["csv"].GetMap("whatever", &model.TypeInfo{Type: model.String}))
+
+	// map key as int type, only supported by fastjson parser
+	testCases = []MapCase{
+		{"map_uint_uint", &model.TypeInfo{Type: model.Map, MapKey: &model.TypeInfo{Type: model.UInt64}, MapValue: &model.TypeInfo{Type: model.UInt64}}, map[uint64]uint64{1: 1, 2: 2}},
+		{"map_int_string", &model.TypeInfo{Type: model.Map, MapKey: &model.TypeInfo{Type: model.Int64}, MapValue: &model.TypeInfo{Type: model.String}}, map[int64]string{1: "3.1415", 2: "9.876"}},
+	}
+	for _, it := range testCases {
+		desc := fmt.Sprintf(`%s.GetMap("%s", %s)`, "fastjson", it.field, model.GetTypeName(it.typ.Type))
+		orderMap := metrics["fastjson"].GetMap(it.field, it.typ)
+		compareMap(t, orderMap, it.expVal, desc)
+	}
 }
 
 func compareMap(t *testing.T, map1 interface{}, map2 interface{}, desc string) {
@@ -648,6 +727,55 @@ func compareMap(t *testing.T, map1 interface{}, map2 interface{}, desc string) {
 	for _, key := range value2.MapKeys() {
 		compareValueFunc(value1.MapIndex(key), value2.MapIndex(key))
 	}
+}
+
+func TestParseObject(t *testing.T) {
+	compareObj := func(t *testing.T, map1 interface{}, map2 interface{}, desc string) {
+		value1 := reflect.ValueOf(map1)
+		value2 := reflect.ValueOf(map2)
+		assert.Equal(t, value1.Len(), value2.Len())
+
+		// v1 - map[interface{}]interface{}, v2 could be map[string][string] or map[string][float64]
+		var compareValueFunc func(v1, v2 reflect.Value) = func(v1, v2 reflect.Value) {
+			switch v2.Kind() {
+			case reflect.String:
+				assert.Equal(t, v1.Interface().(string), v2.String())
+			case reflect.Float32, reflect.Float64:
+				assert.Equal(t, v1.Interface().(float64), v2.Float())
+			default:
+				// Normal equality suffices
+				assert.Equal(t, v1.Interface(), v2.Interface())
+			}
+		}
+		for _, key := range value2.MapKeys() {
+			compareValueFunc(value1.MapIndex(key), value2.MapIndex(key))
+		}
+	}
+
+	initialize.Do(initMetrics)
+	require.Nil(t, errInit)
+	testCases := []struct {
+		name   string
+		expVal interface{}
+	}{
+		// ParseObject only result a map[string][string] or map[string][float64]
+		{"map_str_str", map[string]string{"i": "first", "j": "second"}},
+		{"map_str_uint", map[string]float64{"i": float64(1), "j": float64(2)}},
+		{"map_str_int", map[string]float64{"i": float64(-1), "j": float64(-2)}},
+		{"map_str_float", map[string]float64{"i": float64(3.1415), "j": float64(9.876)}},
+		{"map_str_bool", map[string]interface{}{}}, // type with non fastjson.TypeNumber will be discarded
+		{"map_str_date", map[string]string{"i": "2008-08-08", "j": "2022-01-01"}},
+	}
+
+	for _, it := range testCases {
+		desc := fmt.Sprintf(`fastjson.GetObject("%s", false)`, it.name)
+		result := metrics["fastjson"].GetObject(it.name, false)
+		compareObj(t, result, it.expVal, desc)
+	}
+
+	// GetObject is not supported for csv ang gjson parser
+	require.Equal(t, nil, metrics["csv"].GetObject("whatever", false))
+	require.Equal(t, nil, metrics["gjson"].GetObject("whatever", false))
 }
 
 func TestParseDateTime(t *testing.T) {
@@ -791,11 +919,115 @@ func TestParseInt(t *testing.T) {
 			}
 		}
 	}
+
+	testIntType[int8](t, "GetInt8")
+	testIntType[int16](t, "GetInt16")
+	testIntType[int32](t, "GetInt32")
+	testIntType[int64](t, "GetInt64")
+	testIntType[uint8](t, "GetUint8")
+	testIntType[uint16](t, "GetUint16")
+	testIntType[uint32](t, "GetUint32")
+	testIntType[uint64](t, "GetUint64")
+}
+
+func testIntType[T constraints.Integer](t *testing.T, method string) {
+	defaultVal := T(0)
+	testCases := []SimpleCase{
+		// nullable: false
+		{"not_exist", false, defaultVal},
+		{"null", false, defaultVal},
+		{"bool_true", false, T(1)},
+		{"bool_false", false, defaultVal},
+		{"num_int", false, T(123)},
+		{"num_float", false, defaultVal},
+		{"str", false, defaultVal},
+		{"str_int", false, defaultVal},
+		{"str_float", false, defaultVal},
+		{"str_date_1", false, defaultVal},
+		{"obj", false, defaultVal},
+		{"array_empty", false, defaultVal},
+		// nullable: true
+		{"not_exist", true, nil},
+		{"null", true, nil},
+		{"bool_true", true, T(1)},
+		{"bool_false", true, defaultVal},
+		{"num_int", true, T(123)},
+		{"num_float", true, nil},
+		{"str", true, nil},
+		{"str_int", true, nil},
+		{"str_float", true, nil},
+		{"str_date_1", true, nil},
+		{"obj", true, nil},
+		{"array_empty", true, nil},
+	}
+	doTestSimple(t, method, testCases)
+}
+
+func TestParseDecimal(t *testing.T) {
+	expvar := decimal.NewFromInt(0)
+	testCases := []SimpleCase{
+		// nullable: false
+		{"not_exist", false, expvar},
+		{"null", false, expvar},
+		{"bool_true", false, expvar},
+		{"bool_false", false, expvar},
+		{"num_int", false, decimal.NewFromInt(123)},
+		{"num_float", false, decimal.NewFromFloat(123.321)},
+		{"str", false, expvar},
+		{"str_int", false, expvar},
+		{"str_float", false, expvar},
+		{"str_date_1", false, expvar},
+		{"obj", false, expvar},
+		{"array_empty", false, expvar},
+		// // nullable: true
+		{"not_exist", true, nil},
+		{"null", true, nil},
+		{"bool_true", true, nil},
+		{"bool_false", true, nil},
+		{"num_int", true, decimal.NewFromInt(123)},
+		{"num_float", true, decimal.NewFromFloat(123.321)},
+		{"str", true, nil},
+		{"str_int", true, nil},
+		{"str_float", true, nil},
+		{"str_date_1", true, nil},
+		{"obj", true, nil},
+		{"array_empty", true, nil},
+	}
+	doTestSimple(t, "GetDecimal", testCases)
+}
+
+func TestFields(t *testing.T) {
+	testFunc := func(metric model.Metric, kind string) {
+		v := metric.GetBool("fbool_true", false)
+		require.Equal(t, true, v, "error calling GetBool")
+		v = metric.GetInt8("fnum_int", false)
+		require.Equal(t, int8(123), v, "error calling GetInt8")
+		v = metric.GetString("fstr_time_rfc3339_1", false)
+		require.Equal(t, "2009-07-13T09:07:13Z", v, "error calling GetString")
+		v = metric.GetDecimal("fnum_float", false)
+		require.Equal(t, decimal.NewFromFloat(123.321), v, "error calling GetDecimal")
+		if kind == "fastjson" {
+			v = metric.GetObject("fmap_str_str", false)
+			require.Equal(t, map[string]interface{}{"i": "first", "j": "second"}, v, "error calling GetObject")
+		}
+	}
+
+	pp, _ := NewParserPool("fastjson", nil, "", "", timeUnit, jsonFields)
+	fparser, _ := pp.Get()
+	defer pp.Put(fparser)
+	fmetric, _ := fparser.Parse(jsonSample)
+	testFunc(fmetric, "fastjson")
+
+	pp, _ = NewParserPool("gjson", nil, "", "", timeUnit, jsonFields)
+	gparser, _ := pp.Get()
+	defer pp.Put(gparser)
+	gmetric, _ := gparser.Parse(jsonSample)
+	testFunc(gmetric, "gjson")
 }
 
 func TestFastjsonDetectSchema(t *testing.T) {
-	pp, _ := NewParserPool("fastjson", nil, "", "", timeUnit)
-	parser := pp.Get()
+	pp, _ := NewParserPool("fastjson", nil, "", "", timeUnit, jsonFields)
+	parser, _ := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
 
@@ -814,12 +1046,59 @@ func TestFastjsonDetectSchema(t *testing.T) {
 		}
 		act[string(k)] = tn
 	})
-	require.Equal(t, jsonSchema, act)
+
+	fastjsonSchema := map[string]string{
+		"fnull":                      "Unknown",
+		"fbool_true":                 "Bool",
+		"fbool_false":                "Bool",
+		"fnum_int":                   "Int64",
+		"fnum_float":                 "Float64",
+		"fapp.kubernetes.io/name":    "String",
+		"fstr":                       "String",
+		"fstr_int":                   "String",
+		"fstr_float":                 "String",
+		"fstr_date_1":                "DateTime",
+		"fstr_date_2":                "DateTime",
+		"fstr_time_rfc3339_1":        "DateTime",
+		"fstr_time_rfc3339_2":        "DateTime",
+		"fstr_time_clickhouse_1":     "DateTime",
+		"fstr_time_clickhouse_2":     "DateTime",
+		"fobj":                       "Object('json')",
+		"farray_empty":               "Unknown",
+		"farray_null":                "Unknown",
+		"farray_bool":                "BoolArray",
+		"farray_num_int_1":           "Int64Array",
+		"farray_num_int_2":           "Int64Array",
+		"farray_num_float":           "Float64Array",
+		"farray_str":                 "StringArray",
+		"farray_str_int_1":           "StringArray",
+		"farray_str_int_2":           "StringArray",
+		"farray_str_float":           "StringArray",
+		"farray_str_date_1":          "DateTimeArray",
+		"farray_str_date_2":          "DateTimeArray",
+		"farray_str_time_rfc3339":    "DateTimeArray",
+		"farray_str_time_clickhouse": "DateTimeArray",
+		"farray_obj":                 "Object('json')Array",
+		"fmap_str_str":               "Object('json')",
+		"fmap_str_uint":              "Object('json')",
+		"fmap_str_int":               "Object('json')",
+		"fmap_str_float":             "Object('json')",
+		"fmap_str_bool":              "Object('json')",
+		"fmap_str_date":              "Object('json')",
+		"fmap_str_array":             "Object('json')",
+		"fmap_str_map":               "Object('json')",
+		"fmap_uint_uint":             "Object('json')",
+		"fmap_int_string":            "Object('json')"}
+
+	for k, v := range jsonSchema {
+		fastjsonSchema[k] = v
+	}
+	require.Equal(t, fastjsonSchema, act)
 }
 
 func TestGjsonDetectSchema(t *testing.T) {
-	pp, _ := NewParserPool("gjson", nil, "", "", timeUnit)
-	parser := pp.Get()
+	pp, _ := NewParserPool("gjson", nil, "", "", timeUnit, "")
+	parser, _ := pp.Get()
 	defer pp.Put(parser)
 	metric, _ := parser.Parse(jsonSample)
 

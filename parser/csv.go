@@ -93,7 +93,10 @@ func (c *CsvMetric) GetDecimal(key string, nullable bool) (val interface{}) {
 		val = decimal.NewFromInt(0)
 		return
 	}
-	val, _ = decimal.NewFromString(c.values[idx])
+	var err error
+	if val, err = decimal.NewFromString(c.values[idx]); err != nil {
+		val = decimal.NewFromInt(0)
+	}
 	return
 }
 
@@ -207,7 +210,7 @@ func CsvGetFloat[T constraints.Float](c *CsvMetric, key string, nullable bool, m
 		if nullable {
 			return
 		}
-		val = float64(0.0)
+		val = T(0.0)
 		return
 	}
 	val2 := fastfloat.ParseBestEffort(c.values[idx])
