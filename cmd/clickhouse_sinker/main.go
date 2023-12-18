@@ -168,6 +168,26 @@ func main() {
 				}
 			}
 		})
+		health.Health.AddLivenessCheck("task", func() error {
+			var err error
+			if runner != nil && runner.GetCurrentConfig() != nil {
+				var stateLags map[string]cm.StateLag
+				var count int
+				if stateLags, err = cm.GetTaskStateAndLags(runner.GetCurrentConfig()); err == nil {
+					for _, value := range stateLags {
+						if value.State == "Dead" {
+							count++
+						}
+					}
+					if count == len(stateLags) {
+						return fmt.Errorf("All task is Dead.")
+					}
+				} else {
+					return err
+				}
+			}
+			return nil
+		})
 		mux.Handle("/metrics", httpMetrics)
 		mux.HandleFunc("/ready", health.Health.ReadyEndpoint) // GET /ready?full=1
 		mux.HandleFunc("/live", health.Health.LiveEndpoint)   // GET /live?full=1
