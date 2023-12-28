@@ -14,7 +14,7 @@ services:
     security_opt:
       - label:disable
   kafka:
-    image: confluentinc/cp-kafka:5.5.0
+    image: confluentinc/cp-kafka:7.5.3
     container_name: kafka
     restart: always
     hostname: kafka
@@ -34,7 +34,7 @@ services:
     security_opt:
       - label:disable
   clickhouse:
-    image: clickhouse/clickhouse-server:22.8
+    image: clickhouse/clickhouse-server:23.8
     restart: always
     ports:
       - "8123:8123"
