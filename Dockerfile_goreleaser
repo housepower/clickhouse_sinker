@@ -1,6 +1,6 @@
-FROM alpine:latest
-RUN apk --no-cache add ca-certificates tzdata
-RUN echo "UTC" >  /etc/timezone
+FROM alpine:3.19
+RUN apk --no-cache add ca-certificates tzdata && \
+        echo "UTC" >  /etc/timezone
 ADD dist/clickhouse_sinker_linux_amd64_v1/clickhouse_sinker /usr/local/bin/clickhouse_sinker
 ADD dist/nacos_publish_config_linux_amd64_v1/nacos_publish_config /usr/local/bin/nacos_publish_config
 
