@@ -6,7 +6,7 @@ Note: Ensure `clickhouse-server` and `kafka` work before running clickhouse_sink
 
 ## Configs
 
-> There are two ways to get config: a local single config, or Nacos.
+There are two ways to get config: a local single config, or Nacos.
 
 - For local file:
 
@@ -16,7 +16,7 @@ Note: Ensure `clickhouse-server` and `kafka` work before running clickhouse_sink
 
   `clickhouse_sinker --nacos-addr 127.0.0.1:8848 --nacos-username nacos --nacos-password nacos --nacos-dataid test_auto_schema`
 
-> Read more detail descriptions of config in [here](../configuration/config.html)
+Read more detail descriptions of config in [here](../configuration/config.html)
 
 ## Example
 
@@ -27,14 +27,19 @@ Let's follow up a piece of the systest script.
   - let's checkout `clickhouse_sinker`
 
   ```bash
-  $ git clone https://github.com/housepower/clickhouse_sinker.git
-  $ cd clickhouse_sinker
+  git clone https://github.com/housepower/clickhouse_sinker.git
+  cd clickhouse_sinker
   ```
 
   - let's start standalone clickhouse-server and kafka in container:
 
   ```bash
-  $ docker-compose up -d
+  docker compose up -d
+  ```
+* Connect to the ClickHouse server
+
+  ```bash
+  docker exec -it clickhouse_sinker-clickhouse-1 clickhouse client
   ```
 
 * Create a simple table in Clickhouse
@@ -59,7 +64,11 @@ Let's follow up a piece of the systest script.
   > I use [kaf](https://github.com/birdayz/kaf) tool to create topics.
 
   ```bash
-  $ kaf topic create topic1 -p 1 -r 1
+  kaf topic create topic1 -p 1 -r 1
+  ```
+
+  Output:
+  ```bash
   ✅ Created topic!
         Topic Name:            topic1
         Partitions:            1
@@ -71,7 +80,7 @@ Let's follow up a piece of the systest script.
 * Run clickhouse_sinker
 
   ```bash
-  $ ./clickhouse_sinker --local-cfg-file docker/test_auto_schema.hjson
+  ./bin/clickhouse_sinker --local-cfg-file docker/test_auto_schema.hjson
   ```
 
 
@@ -87,9 +96,10 @@ Let's follow up a piece of the systest script.
 
   ```sql
   SELECT count() FROM test_auto_schema;
-
+  ```
+  Output:
+  ```bash
   3 rows in set. Elapsed: 0.016 sec.
-
   ```
 
 ## Run as a daemon
