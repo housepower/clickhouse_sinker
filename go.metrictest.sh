@@ -39,7 +39,7 @@ sudo docker exec kafka kafka-topics --bootstrap-server localhost:9093 --topic te
 sudo docker exec kafka sh /tmp/send.sh
 
 echo "start clickhouse_sinker to consume"
-timeout 30 ./clickhouse_sinker --local-cfg-file docker/test_prom_metric.hjson
+timeout 30 ./bin/clickhouse_sinker --local-cfg-file docker/test_prom_metric.hjson
 
 schema=`curl "localhost:8123" -d 'DESC test_prom_metric' 2>/dev/null | sort | tr -d '\t' | tr -d ' '| tr '\n' ','`
 echo "Got test_prom_metric schema => $schema"
