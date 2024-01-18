@@ -220,9 +220,9 @@ func (service *Service) Put(msg *model.InputMessage, flushFn func()) error {
 func (service *Service) metric2Row(metric model.Metric, msg *model.InputMessage) (r *model.Row) {
 	if service.idxSerID >= 0 {
 		// If some labels are not Prometheus native, ETL shall calculate and pass "__series_id__" and "__mgmt_id__".
-		val := metric.GetInt64("__series_id__", false)
+		val := metric.GetInt64(service.clickhouse.DimSerID, false)
 		seriesID := val.(int64)
-		val = metric.GetInt64("__mgmt_id__", false)
+		val = metric.GetInt64(service.clickhouse.DimMgmtID, false)
 		mgmtID := val.(int64)
 		newSeries := service.clickhouse.AllowWriteSeries(seriesID, mgmtID)
 		rowcount := service.idxSerID + 1 // including __series_id__
