@@ -41,11 +41,11 @@ var (
 	createTableSQL = `CREATE TABLE IF NOT EXISTS %s AS %s.%s ENGINE=Merge('%s', '%s')`
 	dropTableSQL   = `DROP TABLE IF EXISTS %s `
 	countSeriesSQL = `WITH (SELECT max(timestamp) FROM %s) AS m
-	SELECT count() FROM %s FINAL WHERE __series_id__ GLOBAL IN (
-	SELECT DISTINCT __series_id__ FROM %s WHERE timestamp >= addSeconds(m, -%d));`
+	SELECT count() FROM %s FINAL WHERE %s GLOBAL IN (
+	SELECT DISTINCT %s FROM %s WHERE timestamp >= addSeconds(m, -%d));`
 	loadSeriesSQL = `WITH (SELECT max(timestamp) FROM %s) AS m
-	SELECT toInt64(__series_id__) AS sid, toInt64(__mgmt_id__) AS mid FROM %s FINAL WHERE sid GLOBAL IN (
-	SELECT DISTINCT toInt64(__series_id__) FROM %s WHERE timestamp >= addSeconds(m, -%d)
+	SELECT toInt64(%s) AS sid, toInt64(%s) AS mid FROM %s FINAL WHERE sid GLOBAL IN (
+	SELECT DISTINCT toInt64(%s) FROM %s WHERE timestamp >= addSeconds(m, -%d)
 	) ORDER BY sid;`
 )
 
@@ -608,8 +608,14 @@ func loadBmSeries(conn *pool.Conn, sqKey string, tasks []*Service, activeSeriesR
 	// merge all metric tables to get the latest timestamp
 	// old bmseries record won't be loaded into memory to avoid OOM
 	var reg string
+	var dimSerID, dimMgmtID string
+
+	/* FIXME: We can't assume that the series_id and mgmt_id of all tasks are the same,
+	because some tasks may be old and some are newly created
+	*/
 	for _, svc := range tasks {
 		r := svc.clickhouse.GetMetricTable()
+		dimSerID, dimMgmtID = svc.clickhouse.DimSerID, svc.clickhouse.DimMgmtID
 		if r != "" {
 			reg += ("^" + r + "$|")
 		}
@@ -623,14 +629,14 @@ func loadBmSeries(conn *pool.Conn, sqKey string, tasks []*Service, activeSeriesR
 	}
 
 	var count uint64
-	query = fmt.Sprintf(countSeriesSQL, mergetable, sqKey, mergetable, activeSeriesRange)
+	query = fmt.Sprintf(countSeriesSQL, mergetable, sqKey, dimSerID, dimSerID, mergetable, activeSeriesRange)
 	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", tasks[0].taskCfg.Name))
 	if err = conn.QueryRow(query).Scan(&count); err != nil {
 		return
 	}
 	seriesMap := make(map[int64]int64, count)
 
-	query = fmt.Sprintf(loadSeriesSQL, mergetable, sqKey, mergetable, activeSeriesRange)
+	query = fmt.Sprintf(loadSeriesSQL, mergetable, dimSerID, dimMgmtID, sqKey, dimSerID, mergetable, activeSeriesRange)
 	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", tasks[0].taskCfg.Name))
 	rs, err := conn.Query(query)
 	if err != nil {
