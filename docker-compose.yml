@@ -7,7 +7,7 @@ services:
     restart: always
     hostname: zookeeper
     ports:
-      - "2181:2181"
+      - "52181:2181"
     environment:
       ALLOW_ANONYMOUS_LOGIN: 1
       ZOO_4LW_COMMANDS_WHITELIST: "*"
@@ -37,8 +37,8 @@ services:
     image: clickhouse/clickhouse-server:23.8
     restart: always
     ports:
-      - "8123:8123"
-      - "9000:9000"
+      - "58123:8123"
+      - "59000:9000"
     ulimits:
       nofile:
         soft: 262144
@@ -55,4 +55,4 @@ services:
     - PREFER_HOST_MODE=hostname
     - MODE=standalone
     ports:
-    - "8848:8848"
+    - "58848:8848"
