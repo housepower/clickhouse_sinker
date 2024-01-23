@@ -4,8 +4,8 @@ SINKER_LDFLAGS += -X "main.date=$(shell date --iso-8601=s)"
 SINKER_LDFLAGS += -X "main.commit=$(shell git rev-parse HEAD)"
 SINKER_LDFLAGS += -X "main.builtBy=$(shell echo `whoami`@`hostname`)"
 DEFAULT_CFG_PATH = /etc/clickhouse_sinker.hjson
-IMG_TAGGED = hub.eoitek.net/storage/clickhouse_sinker:${VERSION}
-IMG_LATEST = hub.eoitek.net/storage/clickhouse_sinker:latest
+IMG_TAGGED = hub.eoitek.net/aimeter/clickhouse_sinker:${VERSION}
+IMG_LATEST = hub.eoitek.net/aimeter/clickhouse_sinker:latest
 export GOPROXY=https://goproxy.cn,direct
 
 GO        := CGO_ENABLED=0 go
