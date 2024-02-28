@@ -161,6 +161,7 @@ func (sh *Sharder) Flush(c context.Context, wg *sync.WaitGroup, rmap map[int32]*
 		return
 	default:
 		var msgCnt int
+		util.Logger.Debug("flush records to ck")
 		taskCfg := sh.service.taskCfg
 		batchId, _ := nanoid.New()
 		for i, rows := range sh.msgBuf {

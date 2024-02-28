@@ -150,7 +150,7 @@ func (c *Consumer) processFetch() {
 	c.processWg.Add(1)
 	defer c.processWg.Done()
 	recMap := make(model.RecordMap)
-	var bufLength int
+	var bufLength int64
 
 	flushFn := func() {
 		if len(recMap) == 0 {
@@ -186,6 +186,7 @@ func (c *Consumer) processFetch() {
 				continue
 			}
 
+			util.Logger.Debug("fetch records from fetchsCh, begin to sink to clickhouse")
 			fetch := fetches.Records()
 			items, done := int64(len(fetch)), int64(-1)
 			var concurrency int
@@ -225,7 +226,8 @@ func (c *Consumer) processFetch() {
 						c.tasks.Range(func(key, value any) bool {
 							tsk := value.(*Service)
 							if (tablename != "" && tsk.clickhouse.TableName == tablename) || tsk.taskCfg.Topic == rec.Topic {
-								bufLength++
+								//bufLength++
+								atomic.AddInt64(&bufLength, 1)
 								if e := tsk.Put(msg, flushFn); e != nil {
 									atomic.StoreInt64(&done, items)
 									err = e
@@ -272,10 +274,11 @@ func (c *Consumer) processFetch() {
 				}
 			}
 
-			if bufLength > bufThreshold {
+			if bufLength > int64(bufThreshold) {
 				flushFn()
 				ticker.Reset(time.Duration(c.grpConfig.FlushInterval) * time.Second)
 			}
+			util.Logger.Debug("finish flushing", zap.Int64("bufLength", bufLength))
 		case <-ticker.C:
 			flushFn()
 		case <-c.ctx.Done():

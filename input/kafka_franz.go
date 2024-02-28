@@ -175,6 +175,7 @@ func (k *KafkaFranz) Run() {
 	defer k.wgRun.Done()
 LOOP:
 	for {
+		util.Logger.Debug("Records fetching", zap.String("consumer group", k.grpConfig.Name), zap.Int("BufferSize", k.grpConfig.BufferSize))
 		fetches := k.cl.PollRecords(k.ctx, k.grpConfig.BufferSize)
 		err := fetches.Err()
 		if fetches == nil || fetches.IsClientClosed() || errors.Is(err, context.Canceled) {
