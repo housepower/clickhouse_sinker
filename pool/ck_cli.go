@@ -230,11 +230,14 @@ func (c *Conn) write_v2(prepareSQL string, rows model.Rows, idxBegin, idxEnd int
 }
 
 func (c *Conn) Write(prepareSQL string, rows model.Rows, idxBegin, idxEnd int) (numBad int, err error) {
+	util.Logger.Debug("start write to ck", zap.Int("begin", idxBegin), zap.Int("end", idxEnd))
 	if c.protocol == clickhouse.HTTP {
-		return c.write_v1(prepareSQL, rows, idxBegin, idxEnd)
+		numBad, err = c.write_v1(prepareSQL, rows, idxBegin, idxEnd)
 	} else {
-		return c.write_v2(prepareSQL, rows, idxBegin, idxEnd)
+		numBad, err = c.write_v2(prepareSQL, rows, idxBegin, idxEnd)
 	}
+	util.Logger.Debug("loop write completed", zap.Int("numbad", numBad))
+	return numBad, err
 }
 
 func (c *Conn) Close() error {
