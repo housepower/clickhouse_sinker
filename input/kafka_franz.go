@@ -90,9 +90,10 @@ func (k *KafkaFranz) Init(cfg *config.Config, gCfg *config.GroupConfig, f chan *
 		kgo.FetchMaxBytes(maxPartBytes),
 		kgo.FetchMaxPartitionBytes(maxPartBytes),
 		kgo.OnPartitionsRevoked(k.onPartitionRevoked),
-		kgo.RebalanceTimeout(time.Minute*2),
-		kgo.SessionTimeout(time.Minute*2),
-		kgo.RequestTimeoutOverhead(time.Minute*1),
+		kgo.RebalanceTimeout(time.Millisecond*time.Duration(cfg.Kafka.Properties.RebalanceTimeout)),
+		kgo.SessionTimeout(time.Millisecond*time.Duration(cfg.Kafka.Properties.SessionTimeout)),
+		kgo.HeartbeatInterval(time.Millisecond*time.Duration(cfg.Kafka.Properties.HeartbeatInterval)),
+		kgo.RequestTimeoutOverhead(time.Millisecond*time.Duration(cfg.Kafka.Properties.RequestTimeoutOverhead)),
 	)
 	if !k.grpConfig.Earliest {
 		opts = append(opts, kgo.ConsumeResetOffset(kgo.NewOffset().AtEnd()))
