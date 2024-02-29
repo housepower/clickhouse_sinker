@@ -156,6 +156,9 @@ func (c *Consumer) processFetch() {
 		if len(recMap) == 0 {
 			return
 		}
+		if bufLength > 0 {
+			util.Logger.Debug("###[process end] flushFn invoked", zap.Int64("bufLength", bufLength))
+		}
 		var wg sync.WaitGroup
 		c.tasks.Range(func(key, value any) bool {
 			// flush to shard, ck
@@ -185,8 +188,7 @@ func (c *Consumer) processFetch() {
 			if c.state.Load() == util.StateStopped {
 				continue
 			}
-
-			util.Logger.Debug("fetch records from fetchsCh, begin to sink to clickhouse")
+			util.Logger.Debug("### [process start]fetch records from fetchsCh, begin to sink to clickhouse")
 			fetch := fetches.Records()
 			items, done := int64(len(fetch)), int64(-1)
 			var concurrency int
@@ -278,7 +280,6 @@ func (c *Consumer) processFetch() {
 				flushFn()
 				ticker.Reset(time.Duration(c.grpConfig.FlushInterval) * time.Second)
 			}
-			util.Logger.Debug("finish flushing", zap.Int64("bufLength", bufLength))
 		case <-ticker.C:
 			flushFn()
 		case <-c.ctx.Done():
