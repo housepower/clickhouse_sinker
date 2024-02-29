@@ -33,7 +33,6 @@ func shouldReconnect(err error, sc *pool.ShardConn) bool {
 func writeRows(prepareSQL string, rows model.Rows, idxBegin, idxEnd int, conn clickhouse.Conn) (numBad int, err error) {
 	var errExec error
 	var batch driver.Batch
-	util.Logger.Debug("start write to ck", zap.Int("begin", idxBegin), zap.Int("end", idxEnd))
 	if batch, err = conn.PrepareBatch(context.Background(), prepareSQL); err != nil {
 		err = errors.Wrapf(err, "clickhouse.Conn.PrepareBatch %s", prepareSQL)
 		return
@@ -76,7 +75,6 @@ func writeRows(prepareSQL string, rows model.Rows, idxBegin, idxEnd int, conn cl
 		_ = batch.Abort()
 		return
 	}
-	util.Logger.Debug("loop write completed", zap.Int("numbad", numBad))
 	return
 }
 

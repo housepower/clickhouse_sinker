@@ -141,6 +141,7 @@ func (c *ClickHouse) Send(batch *model.Batch) {
 		c.mux.Unlock()
 		statistics.WritingPoolBacklog.WithLabelValues(c.taskCfg.Name).Dec()
 	}); err != nil {
+		batch.Wg.Done()
 		return
 	}
 
@@ -252,6 +253,11 @@ func (c *ClickHouse) write(batch *model.Batch, sc *pool.ShardConn, dbVer *int) (
 func (c *ClickHouse) loopWrite(batch *model.Batch, sc *pool.ShardConn) {
 	var retrycount int
 	var dbVer int
+
+	util.Logger.Debug("------- [write start] loopwrite to clickhouse", zap.Int("realsize", batch.RealSize))
+	defer func() {
+		util.Logger.Debug("------ [write end] loopwrite completed")
+	}()
 	times := c.cfg.Clickhouse.RetryTimes
 	if times <= 0 {
 		times = 0
