@@ -31,6 +31,7 @@ import (
 	"go.uber.org/zap/zapcore"
 	"gopkg.in/natefinch/lumberjack.v2"
 
+	"github.com/google/uuid"
 	"github.com/thanos-io/thanos/pkg/errors"
 )
 
@@ -38,6 +39,7 @@ var (
 	Logger       *zap.Logger
 	logAtomLevel zap.AtomicLevel
 	logPaths     []string
+	logTrace     bool
 )
 
 type CmdOptions struct {
@@ -250,6 +252,34 @@ func SetLogLevel(newLogLevel string) {
 			lvl = zap.InfoLevel
 		}
 		logAtomLevel.SetLevel(lvl)
+	}
+}
+
+func GenTraceId() string {
+	return uuid.NewString()
+}
+
+const (
+	TraceKindFetchStart   string = "fetch start"
+	TraceKindFetchEnd     string = "fetch end"
+	TraceKindProcessStart string = "process start"
+	TraceKindProcessEnd   string = "process end"
+	TraceKindWriteStart   string = "loopwrite start"
+	TraceKindWriteEnd     string = "loopwrite end"
+	TraceKindProcessing   string = "process continue"
+)
+
+func SetLogTrace(enabled bool) {
+	logTrace = enabled
+}
+
+func LogTrace(traceId string, kind string, fields ...zapcore.Field) {
+	if logTrace {
+		allFields := []zapcore.Field{
+			zap.String("trace_id", traceId),
+			zap.String("trace_kind", kind)}
+		allFields = append(allFields, fields...)
+		Logger.Info("===trace===", allFields...)
 	}
 }
 

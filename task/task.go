@@ -152,7 +152,7 @@ func (service *Service) Init() (err error) {
 	return
 }
 
-func (service *Service) Put(msg *model.InputMessage, flushFn func()) error {
+func (service *Service) Put(msg *model.InputMessage, traceId string, flushFn func(traceId, with string)) error {
 	taskCfg := service.taskCfg
 	statistics.ConsumeMsgsTotal.WithLabelValues(taskCfg.Name).Inc()
 	var err error
@@ -192,7 +192,7 @@ func (service *Service) Put(msg *model.InputMessage, flushFn func()) error {
 			// 4) recreate the service
 			util.Logger.Warn("new key detected, consumer is going to restart", zap.String("consumer group", service.taskCfg.ConsumerGroup), zap.Error(err))
 			go service.consumer.restart()
-			flushFn()
+			flushFn(traceId, "foundNewKeys and restart")
 			if err = service.clickhouse.ChangeSchema(&service.newKeys); err != nil {
 				util.Logger.Fatal("clickhouse.ChangeSchema failed", zap.String("task", taskCfg.Name), zap.Error(err))
 			}
