@@ -48,6 +48,11 @@ const (
 	processTimeOut = 10
 )
 
+type Fetches struct {
+	Fetch   *kgo.Fetches
+	TraceId string
+}
+
 // KafkaFranz implements input.Inputer
 // refers to examples/group_consuming/main.go
 type KafkaFranz struct {
@@ -57,7 +62,7 @@ type KafkaFranz struct {
 	ctx       context.Context
 	cancel    context.CancelFunc
 	wgRun     sync.WaitGroup
-	fetch     chan *kgo.Fetches
+	fetch     chan Fetches
 	cleanupFn func()
 }
 
@@ -67,7 +72,7 @@ func NewKafkaFranz() *KafkaFranz {
 }
 
 // Init Initialise the kafka instance with configuration
-func (k *KafkaFranz) Init(cfg *config.Config, gCfg *config.GroupConfig, f chan *kgo.Fetches, cleanupFn func()) (err error) {
+func (k *KafkaFranz) Init(cfg *config.Config, gCfg *config.GroupConfig, f chan Fetches, cleanupFn func()) (err error) {
 	k.cfg = cfg
 	k.grpConfig = gCfg
 	k.ctx, k.cancel = context.WithCancel(context.Background())
@@ -176,6 +181,8 @@ func (k *KafkaFranz) Run() {
 	defer k.wgRun.Done()
 LOOP:
 	for {
+		traceId := util.GenTraceId()
+		util.LogTrace(traceId, util.TraceKindFetchStart, zap.String("consumer group", k.grpConfig.Name), zap.Int("buffersize", k.grpConfig.BufferSize))
 		fetches := k.cl.PollRecords(k.ctx, k.grpConfig.BufferSize)
 		err := fetches.Err()
 		if fetches == nil || fetches.IsClientClosed() || errors.Is(err, context.Canceled) {
@@ -185,13 +192,14 @@ LOOP:
 			err = errors.Wrapf(err, "")
 			util.Logger.Info("kgo.Client.PollFetchs() got an error", zap.Error(err))
 		}
-
-		util.Logger.Debug("Records fetched", zap.String("records", strconv.Itoa(fetches.NumRecords())), zap.String("consumer group", k.grpConfig.Name))
-
+		util.LogTrace(traceId, util.TraceKindFetchEnd, zap.String("consumer group", k.grpConfig.Name), zap.String("records", strconv.Itoa(fetches.NumRecords())))
 		// Automatically end the program if it remains inactive for a specific duration of time.
 		t := time.NewTimer(processTimeOut * time.Minute)
 		select {
-		case k.fetch <- &fetches:
+		case k.fetch <- Fetches{
+			TraceId: traceId,
+			Fetch:   &fetches,
+		}:
 			t.Stop()
 		case <-k.ctx.Done():
 			t.Stop()

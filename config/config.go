@@ -36,6 +36,7 @@ type Config struct {
 	Tasks                   []*TaskConfig
 	Assignment              Assignment
 	LogLevel                string
+	LogTrace                bool
 	ReloadSeriesMapInterval int
 	ActiveSeriesRange       int
 

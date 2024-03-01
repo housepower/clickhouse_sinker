@@ -31,6 +31,7 @@ import (
 	"go.uber.org/zap/zapcore"
 	"gopkg.in/natefinch/lumberjack.v2"
 
+	"github.com/google/uuid"
 	"github.com/thanos-io/thanos/pkg/errors"
 )
 
@@ -38,6 +39,7 @@ var (
 	Logger       *zap.Logger
 	logAtomLevel zap.AtomicLevel
 	logPaths     []string
+	logTrace     bool
 )
 
 type CmdOptions struct {
@@ -240,4 +242,97 @@ func SetLogLevel(newLogLevel string) {
 		}
 		logAtomLevel.SetLevel(lvl)
 	}
+}
+
+func GenTraceId() string {
+	return uuid.NewString()
+}
+
+const (
+	TraceKindFetchStart   string = "fetch start"
+	TraceKindFetchEnd     string = "fetch end"
+	TraceKindProcessStart string = "process start"
+	TraceKindProcessEnd   string = "process end"
+	TraceKindWriteStart   string = "loopwrite start"
+	TraceKindWriteEnd     string = "loopwrite end"
+	TraceKindProcessing   string = "process continue"
+)
+
+func SetLogTrace(enabled bool) {
+	logTrace = enabled
+}
+
+func LogTrace(traceId string, kind string, fields ...zapcore.Field) {
+	if logTrace {
+		allFields := []zapcore.Field{
+			zap.String("trace_id", traceId),
+			zap.String("trace_kind", kind)}
+		allFields = append(allFields, fields...)
+		Logger.Info("===trace===", allFields...)
+	}
+}
+
+// set v2 to v1, if v1 didn't bind any value
+// FIXME: how about v1 bind default value?
+func TrySetValue(v1, v2 interface{}) bool {
+	var ok bool
+	rt := reflect.TypeOf(v1)
+	rv := reflect.ValueOf(v1)
+
+	if rt.Kind() != reflect.Ptr {
+		return ok
+	}
+	for rt.Kind() == reflect.Ptr {
+		rt = rt.Elem()
+		rv = rv.Elem()
+	}
+
+	if rv.IsValid() && rv.IsZero() {
+		ok = true
+		switch rt.Kind() {
+		case reflect.Uint:
+			v, _ := v2.(uint)
+			rv.SetUint(uint64(v))
+		case reflect.Uint8:
+			v, _ := v2.(uint8)
+			rv.SetUint(uint64(v))
+		case reflect.Uint16:
+			v, _ := v2.(uint16)
+			rv.SetUint(uint64(v))
+		case reflect.Uint32:
+			v, _ := v2.(uint32)
+			rv.SetUint(uint64(v))
+		case reflect.Uint64:
+			v, _ := v2.(uint64)
+			rv.SetUint(uint64(v))
+		case reflect.Int:
+			v, _ := v2.(int)
+			rv.SetInt(int64(v))
+		case reflect.Int8:
+			v, _ := v2.(int8)
+			rv.SetInt(int64(v))
+		case reflect.Int16:
+			v, _ := v2.(int16)
+			rv.SetInt(int64(v))
+		case reflect.Int32:
+			v, _ := v2.(int32)
+			rv.SetInt(int64(v))
+		case reflect.Int64:
+			v, _ := v2.(int64)
+			rv.SetInt(int64(v))
+		case reflect.Float32:
+			v, _ := v2.(float32)
+			rv.SetFloat(float64(v))
+		case reflect.Float64:
+			v, _ := v2.(float64)
+			rv.SetFloat(float64(v))
+		case reflect.String:
+			rv.SetString(v2.(string))
+		case reflect.Bool:
+			rv.SetBool(v2.(bool))
+		default:
+			ok = false
+		}
+	}
+	return ok
 }

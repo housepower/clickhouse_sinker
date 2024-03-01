@@ -128,10 +128,10 @@ func (c *ClickHouse) Drain() {
 }
 
 // Send a batch to clickhouse
-func (c *ClickHouse) Send(batch *model.Batch) {
+func (c *ClickHouse) Send(batch *model.Batch, traceId string) {
 	sc := pool.GetShardConn(batch.BatchIdx)
 	if err := sc.SubmitTask(func() {
-		c.loopWrite(batch, sc)
+		c.loopWrite(batch, sc, traceId)
 		batch.Wg.Done()
 		c.mux.Lock()
 		c.numFlying--
@@ -250,13 +250,13 @@ func (c *ClickHouse) write(batch *model.Batch, sc *pool.ShardConn, dbVer *int) (
 }
 
 // LoopWrite will dead loop to write the records
-func (c *ClickHouse) loopWrite(batch *model.Batch, sc *pool.ShardConn) {
+func (c *ClickHouse) loopWrite(batch *model.Batch, sc *pool.ShardConn, traceId string) {
 	var retrycount int
 	var dbVer int
 
-	util.Logger.Debug("------- [write start] loopwrite to clickhouse", zap.Int("realsize", batch.RealSize))
+	util.LogTrace(traceId, util.TraceKindWriteStart, zap.Int("realsize", batch.RealSize))
 	defer func() {
-		util.Logger.Debug("------ [write end] loopwrite completed")
+		util.LogTrace(traceId, util.TraceKindWriteEnd, zap.Int("success", batch.RealSize))
 	}()
 	times := c.cfg.Clickhouse.RetryTimes
 	if times <= 0 {

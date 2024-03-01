@@ -152,7 +152,7 @@ func (sh *Sharder) PutElement(msgRow *model.MsgRow) {
 	statistics.ShardMsgs.WithLabelValues(sh.service.taskCfg.Name).Inc()
 }
 
-func (sh *Sharder) Flush(c context.Context, wg *sync.WaitGroup, rmap map[int32]*model.BatchRange) {
+func (sh *Sharder) Flush(c context.Context, wg *sync.WaitGroup, rmap map[int32]*model.BatchRange, traceId string) {
 	sh.mux.Lock()
 	defer sh.mux.Unlock()
 	select {
@@ -176,7 +176,7 @@ func (sh *Sharder) Flush(c context.Context, wg *sync.WaitGroup, rmap map[int32]*
 					Wg:       wg,
 				}
 				batch.Wg.Add(1)
-				sh.service.clickhouse.Send(batch)
+				sh.service.clickhouse.Send(batch, traceId)
 				rs := make(model.Rows, 0, realSize)
 				sh.msgBuf[i] = &rs
 			}

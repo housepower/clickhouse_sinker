@@ -26,7 +26,6 @@ import (
 	"github.com/housepower/clickhouse_sinker/input"
 	"github.com/housepower/clickhouse_sinker/model"
 	"github.com/housepower/clickhouse_sinker/util"
-	"github.com/twmb/franz-go/pkg/kgo"
 	"go.uber.org/zap"
 
 	_ "github.com/ClickHouse/clickhouse-go/v2"
@@ -44,7 +43,7 @@ type Consumer struct {
 	inputer   *input.KafkaFranz
 	tasks     sync.Map
 	grpConfig *config.GroupConfig
-	fetchesCh chan *kgo.Fetches
+	fetchesCh chan input.Fetches
 	processWg sync.WaitGroup
 	ctx       context.Context
 	cancel    context.CancelFunc
@@ -67,7 +66,7 @@ func newConsumer(s *Sinker, gCfg *config.GroupConfig) *Consumer {
 		numFlying: 0,
 		errCommit: false,
 		grpConfig: gCfg,
-		fetchesCh: make(chan *kgo.Fetches),
+		fetchesCh: make(chan input.Fetches),
 	}
 	c.state.Store(util.StateStopped)
 	c.commitDone = sync.NewCond(&c.mux)
@@ -152,18 +151,18 @@ func (c *Consumer) processFetch() {
 	recMap := make(model.RecordMap)
 	var bufLength int64
 
-	flushFn := func() {
+	flushFn := func(traceId, with string) {
 		if len(recMap) == 0 {
 			return
 		}
 		if bufLength > 0 {
-			util.Logger.Debug("###[process end] flushFn invoked", zap.Int64("bufLength", bufLength))
+			util.LogTrace(traceId, util.TraceKindProcessEnd, zap.String("with", with), zap.Int64("bufLength", bufLength))
 		}
 		var wg sync.WaitGroup
 		c.tasks.Range(func(key, value any) bool {
 			// flush to shard, ck
 			task := value.(*Service)
-			task.sharder.Flush(c.ctx, &wg, recMap[task.taskCfg.Topic])
+			task.sharder.Flush(c.ctx, &wg, recMap[task.taskCfg.Topic], traceId)
 			return true
 		})
 		bufLength = 0
@@ -182,14 +181,27 @@ func (c *Consumer) processFetch() {
 
 	ticker := time.NewTicker(time.Duration(c.grpConfig.FlushInterval) * time.Second)
 	defer ticker.Stop()
+	traceId := "NO_RECORDS_FETCHED"
+	wait := false
 	for {
 		select {
 		case fetches := <-c.fetchesCh:
 			if c.state.Load() == util.StateStopped {
 				continue
 			}
-			util.Logger.Debug("### [process start]fetch records from fetchsCh, begin to sink to clickhouse")
-			fetch := fetches.Records()
+			fetch := fetches.Fetch.Records()
+			if wait {
+				util.LogTrace(fetches.TraceId,
+					util.TraceKindProcessing,
+					zap.String("message", "bufThreshold not reached, use old traceId"),
+					zap.String("old_trace_id", traceId),
+					zap.Int("records", len(fetch)),
+					zap.Int("bufThreshold", bufThreshold),
+					zap.Int64("totalLength", bufLength))
+			} else {
+				traceId = fetches.TraceId
+				util.LogTrace(traceId, util.TraceKindProcessStart, zap.Int("records", len(fetch)))
+			}
 			items, done := int64(len(fetch)), int64(-1)
 			var concurrency int
 			if concurrency = int(items/1000) + 1; concurrency > MaxParallelism {
@@ -229,7 +241,7 @@ func (c *Consumer) processFetch() {
 							tsk := value.(*Service)
 							if (tablename != "" && tsk.clickhouse.TableName == tablename) || tsk.taskCfg.Topic == rec.Topic {
 								atomic.AddInt64(&bufLength, 1)
-								if e := tsk.Put(msg, flushFn); e != nil {
+								if e := tsk.Put(msg, traceId, flushFn); e != nil {
 									atomic.StoreInt64(&done, items)
 									err = e
 									return false
@@ -245,7 +257,7 @@ func (c *Consumer) processFetch() {
 			// record the latest offset in order
 			// assume the c.state was reset to stopped when facing error, so that further fetch won't get processed
 			if err == nil {
-				for _, f := range *fetches {
+				for _, f := range *fetches.Fetch {
 					for i := range f.Topics {
 						ft := &f.Topics[i]
 						if recMap[ft.Topic] == nil {
@@ -276,11 +288,14 @@ func (c *Consumer) processFetch() {
 			}
 
 			if bufLength > int64(bufThreshold) {
-				flushFn()
+				flushFn(traceId, "bufLength reached")
 				ticker.Reset(time.Duration(c.grpConfig.FlushInterval) * time.Second)
+				wait = false
+			} else {
+				wait = true
 			}
 		case <-ticker.C:
-			flushFn()
+			flushFn(traceId, "ticker.C triggered")
 		case <-c.ctx.Done():
 			util.Logger.Info("stopped processing loop", zap.String("group", c.grpConfig.Name))
 			return
