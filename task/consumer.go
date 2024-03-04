@@ -245,6 +245,8 @@ func (c *Consumer) processFetch() {
 								if e := tsk.Put(msg, traceId, flushFn); e != nil {
 									atomic.StoreInt64(&done, items)
 									err = e
+									// decrise the error record
+									util.Rs.Dec(1)
 									return false
 								}
 							}

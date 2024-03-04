@@ -142,6 +142,7 @@ func (c *ClickHouse) Send(batch *model.Batch, traceId string) {
 		statistics.WritingPoolBacklog.WithLabelValues(c.taskCfg.Name).Dec()
 	}); err != nil {
 		batch.Wg.Done()
+		util.Rs.Dec(int64(batch.RealSize))
 		return
 	}
 
@@ -256,6 +257,7 @@ func (c *ClickHouse) loopWrite(batch *model.Batch, sc *pool.ShardConn, traceId s
 
 	util.LogTrace(traceId, util.TraceKindWriteStart, zap.Int("realsize", batch.RealSize))
 	defer func() {
+		util.Rs.Dec(int64(batch.RealSize))
 		util.LogTrace(traceId, util.TraceKindWriteEnd, zap.Int("success", batch.RealSize))
 	}()
 	times := c.cfg.Clickhouse.RetryTimes

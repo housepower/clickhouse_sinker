@@ -199,6 +199,9 @@
   // utilization, only active series from the last "activeSeriesRange" seconds will be cached, and the map in the cache will be updated every
   // "reloadSeriesMapInterval" seconds. By default, series from the last 24 hours will be cached, and the cache will be updated every hour.
 	"reloadSeriesMapInterval": 3600,
-	"activeSeriesRange": 86400
+	"activeSeriesRange": 86400,
+  "logTrace": false,
+  // It is recommended that recordPoolSize be 3 or 4 times the bufferSize, for the backpressure mechanism, to avoid using too much memory.
+  "recordPoolSize": 1048576
 }
 ```
