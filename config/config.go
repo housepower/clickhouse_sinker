@@ -37,6 +37,7 @@ type Config struct {
 	Assignment              Assignment
 	LogLevel                string
 	LogTrace                bool
+	RecordPoolSize          int64
 	ReloadSeriesMapInterval int
 	ActiveSeriesRange       int
 
@@ -298,6 +299,9 @@ func (cfg *Config) Normallize(constructGroup bool, httpAddr string) (err error) 
 				gCfg.Configs[taskCfg.Name] = taskCfg
 			}
 		}
+	}
+	if cfg.RecordPoolSize == 0 {
+		cfg.RecordPoolSize = MaxBufferSize
 	}
 	switch strings.ToLower(cfg.LogLevel) {
 	case "debug", "info", "warn", "error", "dpanic", "panic", "fatal":

@@ -19,7 +19,6 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -181,6 +180,9 @@ func (k *KafkaFranz) Run() {
 	defer k.wgRun.Done()
 LOOP:
 	for {
+		if !util.Rs.Allow() {
+			continue
+		}
 		traceId := util.GenTraceId()
 		util.LogTrace(traceId, util.TraceKindFetchStart, zap.String("consumer group", k.grpConfig.Name), zap.Int("buffersize", k.grpConfig.BufferSize))
 		fetches := k.cl.PollRecords(k.ctx, k.grpConfig.BufferSize)
@@ -192,7 +194,9 @@ LOOP:
 			err = errors.Wrapf(err, "")
 			util.Logger.Info("kgo.Client.PollFetchs() got an error", zap.Error(err))
 		}
-		util.LogTrace(traceId, util.TraceKindFetchEnd, zap.String("consumer group", k.grpConfig.Name), zap.String("records", strconv.Itoa(fetches.NumRecords())))
+		fetchRecords := fetches.NumRecords()
+		util.Rs.Inc(int64(fetchRecords))
+		util.LogTrace(traceId, util.TraceKindFetchEnd, zap.String("consumer group", k.grpConfig.Name), zap.Int64("records", int64(fetchRecords)))
 		// Automatically end the program if it remains inactive for a specific duration of time.
 		t := time.NewTimer(processTimeOut * time.Minute)
 		select {
