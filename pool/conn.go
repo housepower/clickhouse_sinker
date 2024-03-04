@@ -106,11 +106,17 @@ func (sc *ShardConn) NextGoodReplica(failedVer int) (db *Conn, dbVer int, err er
 		sc.opts.Addr = []string{replica}
 		sc.nextRep = (sc.nextRep + 1) % len(sc.replicas)
 		if sc.protocol == clickhouse.HTTP {
+			// refers to https://github.com/ClickHouse/clickhouse-go/issues/1150
+			// An obscure error in the HTTP protocol when using compression
+			// disable compression in the HTTP protocol
 			conn.db = clickhouse.OpenDB(&sc.opts)
 			conn.db.SetMaxOpenConns(sc.chCfg.MaxOpenConns)
 			conn.db.SetMaxIdleConns(sc.chCfg.MaxOpenConns)
 			conn.db.SetConnMaxLifetime(time.Minute * 10)
 		} else {
+			sc.opts.Compression = &clickhouse.Compression{
+				Method: clickhouse.CompressionLZ4,
+			}
 			conn.c, err = clickhouse.Open(&sc.opts)
 		}
 		if err != nil {
