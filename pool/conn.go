@@ -96,6 +96,9 @@ func (sc *ShardConn) NextGoodReplica(failedVer int) (db clickhouse.Conn, dbVer i
 	for i := 0; i < len(sc.replicas); i++ {
 		replica := sc.replicas[sc.nextRep]
 		sc.opts.Addr = []string{replica}
+		sc.opts.Compression = &clickhouse.Compression{
+			Method: clickhouse.CompressionLZ4,
+		}
 		sc.nextRep = (sc.nextRep + 1) % len(sc.replicas)
 		sc.db, err = clickhouse.Open(&sc.opts)
 		if err != nil {
