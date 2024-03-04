@@ -328,7 +328,7 @@ func (c *ClickHouse) initSeriesSchema(conn *pool.Conn) (err error) {
 		}
 	}
 	if dimSerID == nil {
-		err = errors.Newf("Metric table %s.%s shall have column `%s UInt64`.", c.dbName, c.TableName, c.DimSerID)
+		err = errors.Newf("Metric table %s.%s shall have column `%s Int64`.", c.dbName, c.TableName, c.DimSerID)
 		return
 	}
 	c.IdxSerID = len(c.Dims)
@@ -620,8 +620,8 @@ func (c *ClickHouse) getDistTbls(table string) (distTbls []DistTblInfo, err erro
 		return
 	}
 	query := fmt.Sprintf(`SELECT name, (extractAllGroups(engine_full, '(Distributed\\(\')(.*)\',\\s+\'(.*)\',\\s+\'(.*)\'(.*)')[1])[2] AS cluster
-	 FROM system.tables WHERE engine='Distributed' AND database='%s' AND match(engine_full, 'Distributed\(\'.*\', \'%s\', \'%s\'.*\)')`,
-		c.dbName, c.dbName, table)
+	 FROM system.tables WHERE engine='Distributed' AND database='%s' AND match(engine_full, 'Distributed\(\'%s\', \'%s\', \'%s\'.*\)')`,
+		c.dbName, c.cfg.Clickhouse.Cluster, c.dbName, table)
 	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", taskCfg.Name))
 	var rows *pool.Rows
 	if rows, err = conn.Query(query); err != nil {
