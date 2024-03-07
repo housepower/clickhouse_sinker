@@ -82,7 +82,25 @@ func (c *FastjsonMetric) GetInt32(key string, nullable bool) (val interface{}) {
 }
 
 func (c *FastjsonMetric) GetInt64(key string, nullable bool) (val interface{}) {
-	return FastjsonGetInt[int64](c.value.Get(key), nullable, math.MinInt64, math.MaxInt64)
+	// 先按String 类型读取字符串
+	strValue := c.value.Get(key).GetStringBytes()
+	if strValue == nil {
+		if nullable {
+			return nil
+		}
+		return int64(0) // 默认值
+	}
+	// 将字符串转换为 int64
+	intVal, err := strconv.ParseInt(string(strValue), 10, 64)
+	if err != nil {
+		if nullable {
+			return nil
+		}
+		return int64(0) // 默认值
+	}
+	return intVal
+
+	//return FastjsonGetInt[int64](c.value.Get(key), nullable, math.MinInt64, math.MaxInt64)
 }
 
 func (c *FastjsonMetric) GetUint8(key string, nullable bool) (val interface{}) {
@@ -106,7 +124,24 @@ func (c *FastjsonMetric) GetFloat32(key string, nullable bool) (val interface{})
 }
 
 func (c *FastjsonMetric) GetFloat64(key string, nullable bool) (val interface{}) {
-	return FastjsonGetFloat[float64](c.value.Get(key), nullable, math.MaxFloat64)
+	// 先按String 类型读取字符串
+	strValue := c.value.Get(key).GetStringBytes()
+	if strValue == nil {
+		if nullable {
+			return nil
+		}
+		return 0.0 // 默认值
+	}
+	// 将字符串转换为 float64
+	floatVal, err := strconv.ParseFloat(string(strValue), 64)
+	if err != nil {
+		if nullable {
+			return nil
+		}
+		return 0.0 // 默认值
+	}
+	return floatVal
+	//return FastjsonGetFloat[float64](c.value.Get(key), nullable, math.MaxFloat64)
 }
 
 func FastjsonGetInt[T constraints.Signed](v *fastjson.Value, nullable bool, min, max int64) (val interface{}) {
