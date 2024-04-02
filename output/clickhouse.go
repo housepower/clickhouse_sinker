@@ -581,7 +581,7 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 	}
 
 	alterTable := func(tbl, col string) error {
-		query := fmt.Sprintf("ALTER TABLE `%s`.`%s` %s %s;", c.dbName, tbl, onCluster, col)
+		query := fmt.Sprintf("ALTER TABLE `%s`.`%s` %s %s SETTINGS alter_sync = 0;", c.dbName, tbl, onCluster, col)
 		util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", taskCfg.Name))
 		return conn.Exec(query)
 	}
