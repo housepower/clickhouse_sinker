@@ -17,10 +17,14 @@ package util
 
 import (
 	"fmt"
-	"math"
 	"net"
 
 	"github.com/thanos-io/thanos/pkg/errors"
+)
+
+const (
+	HttpPortBase = 10000
+	MaxPort      = 65535
 )
 
 func GetIP4Byname(host string) (ips []string, err error) {
@@ -53,7 +57,7 @@ func GetOutboundIP() (ip net.IP, err error) {
 
 // GetSpareTCPPort finds a spare TCP port.
 func GetSpareTCPPort(portBegin int) int {
-	for port := portBegin; port < math.MaxInt; port++ {
+	for port := portBegin; port <= MaxPort; port++ {
 		if err := testListenOnPort(port); err == nil {
 			return port
 		}
