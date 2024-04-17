@@ -201,8 +201,9 @@ func main() {
 		// cmdOps.HTTPPort=0: let OS choose the listen port, and record the exact metrics URL to log.
 		httpPort := cmdOps.HTTPPort
 		if httpPort == 0 {
-			httpPort = util.GetSpareTCPPort(HttpPortBase)
+			httpPort = HttpPortBase
 		}
+		httpPort = util.GetSpareTCPPort(httpPort)
 
 		httpHost := cmdOps.HTTPHost
 		if httpHost == "" {
