@@ -20,6 +20,7 @@ import (
 	"encoding/csv"
 	"fmt"
 	"math"
+	"net"
 	"regexp"
 	"strconv"
 	"sync"
@@ -152,6 +153,20 @@ func (c *CsvMetric) GetFloat32(key string, nullable bool) (val interface{}) {
 
 func (c *CsvMetric) GetFloat64(key string, nullable bool) (val interface{}) {
 	return CsvGetFloat[float64](c, key, nullable, math.MaxFloat64)
+}
+
+func (c *CsvMetric) GetIPv4(key string, nullable bool) (val interface{}) {
+	return c.GetUint32(key, nullable)
+}
+
+func (c *CsvMetric) GetIPv6(key string, nullable bool) (val interface{}) {
+	s := c.GetString(key, nullable).(string)
+	if net.ParseIP(s) != nil {
+		val = s
+	} else {
+		val = net.IPv6zero.String()
+	}
+	return val
 }
 
 func CsvGetInt[T constraints.Signed](c *CsvMetric, key string, nullable bool, min, max int64) (val interface{}) {

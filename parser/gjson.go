@@ -18,6 +18,7 @@ package parser
 import (
 	"fmt"
 	"math"
+	"net"
 	"regexp"
 	"strconv"
 	"sync"
@@ -106,6 +107,14 @@ func (c *GjsonMetric) GetFloat32(key string, nullable bool) (val interface{}) {
 
 func (c *GjsonMetric) GetFloat64(key string, nullable bool) (val interface{}) {
 	return GjsonGetFloat[float64](c, c.getField(key), nullable, math.MaxFloat64)
+}
+
+func (c *GjsonMetric) GetIPv4(key string, nullable bool) (val interface{}) {
+	return getGJsonIPv4(c, c.getField(key), nullable)
+}
+
+func (c *GjsonMetric) GetIPv6(key string, nullable bool) (val interface{}) {
+	return getGJsonIPv6(c, c.getField(key), nullable)
 }
 
 func GjsonGetInt[T constraints.Signed](c *GjsonMetric, r gjson.Result, nullable bool, min, max int64) (val interface{}) {
@@ -404,6 +413,10 @@ func (c *GjsonMetric) castResultByType(sourcename string, value gjson.Result, ty
 			val = GjsonGetUint[uint32](c, value, typeinfo.Nullable, math.MaxUint32)
 		case model.UInt64:
 			val = GjsonGetUint[uint64](c, value, typeinfo.Nullable, math.MaxUint64)
+		case model.IPv6:
+			val = getGJsonIPv6(c, value, typeinfo.Nullable)
+		case model.IPv4:
+			val = getGJsonIPv4(c, value, typeinfo.Nullable)
 		case model.Float32:
 			val = GjsonGetFloat[float32](c, value, typeinfo.Nullable, math.MaxFloat32)
 		case model.Float64:
@@ -461,6 +474,56 @@ func getGJsonString(r gjson.Result, nullable bool) (val interface{}) {
 		val = r.Str
 	default:
 		val = r.Raw
+	}
+	return
+}
+
+func getGJsonIPv4(c *GjsonMetric, r gjson.Result, nullable bool) (val interface{}) {
+	if !r.Exists() || r.Type == gjson.Null {
+		if nullable {
+			return
+		}
+		val = ""
+		return
+	}
+	switch r.Type {
+	case gjson.Null:
+		val = ""
+	case gjson.String:
+		s := r.Str
+		if net.ParseIP(s) != nil {
+			val = s
+		} else {
+			val = net.IPv4zero.String()
+		}
+	case gjson.Number:
+		val = GjsonGetUint[uint32](c, r, nullable, math.MaxUint32)
+	default:
+		val = net.IPv4zero.String()
+	}
+	return
+}
+
+func getGJsonIPv6(c *GjsonMetric, r gjson.Result, nullable bool) (val interface{}) {
+	if !r.Exists() || r.Type == gjson.Null {
+		if nullable {
+			return
+		}
+		val = ""
+		return
+	}
+	switch r.Type {
+	case gjson.Null:
+		val = ""
+	case gjson.String:
+		s := r.Str
+		if net.ParseIP(s) != nil {
+			val = s
+		} else {
+			val = net.IPv6zero.String()
+		}
+	default:
+		val = net.IPv6zero.String()
 	}
 	return
 }
@@ -563,6 +626,20 @@ func getGJsonArray(c *GjsonMetric, key string, r gjson.Result, typ int) (val int
 			results = append(results, t)
 		}
 		val = results
+	case model.IPv4:
+		arr := make([]interface{}, 0)
+		for _, e := range array {
+			v := getGJsonIPv4(c, e, false)
+			arr = append(arr, v)
+		}
+		val = arr
+	case model.IPv6:
+		arr := make([]interface{}, 0)
+		for _, e := range array {
+			v := getGJsonIPv6(c, e, false)
+			arr = append(arr, v)
+		}
+		val = arr
 	default:
 		util.Logger.Fatal(fmt.Sprintf("LOGIC ERROR: unsupported array type %v", typ))
 	}

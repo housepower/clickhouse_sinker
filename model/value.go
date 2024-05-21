@@ -41,6 +41,8 @@ const (
 	String
 	Object
 	Map
+	IPv4
+	IPv6
 )
 
 type TypeInfo struct {
@@ -91,6 +93,10 @@ func GetTypeName(typ int) (name string) {
 		name = "Object('json')"
 	case Map:
 		name = "Map"
+	case IPv4:
+		name = "IPv4"
+	case IPv6:
+		name = "IPv6"
 	default:
 		name = "Unknown"
 	}
@@ -135,6 +141,10 @@ func GetValueByType(metric Metric, cwt *ColumnWithType) (val interface{}) {
 			val = metric.GetMap(name, cwt.Type)
 		case Object:
 			val = metric.GetObject(name, cwt.Type.Nullable)
+		case IPv4:
+			val = metric.GetIPv4(name, cwt.Type.Nullable)
+		case IPv6:
+			val = metric.GetIPv6(name, cwt.Type.Nullable)
 		default:
 			util.Logger.Fatal("LOGIC ERROR: reached switch default condition")
 		}
@@ -190,7 +200,7 @@ func WhichType(typ string) (ti *TypeInfo) {
 
 func init() {
 	typeInfo = make(map[string]*TypeInfo)
-	for _, t := range []int{Bool, Int8, Int16, Int32, Int64, UInt8, UInt16, UInt32, UInt64, Float32, Float64, DateTime, String, Object} {
+	for _, t := range []int{Bool, Int8, Int16, Int32, Int64, UInt8, UInt16, UInt32, UInt64, Float32, Float64, DateTime, String, Object, IPv4, IPv6} {
 		tn := GetTypeName(t)
 		typeInfo[tn] = &TypeInfo{Type: t}
 		nullTn := fmt.Sprintf("Nullable(%s)", tn)

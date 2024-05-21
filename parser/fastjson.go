@@ -18,6 +18,7 @@ package parser
 import (
 	"fmt"
 	"math"
+	"net"
 	"regexp"
 	"strconv"
 	"sync"
@@ -115,6 +116,14 @@ func (c *FastjsonMetric) GetFloat32(key string, nullable bool) (val interface{})
 
 func (c *FastjsonMetric) GetFloat64(key string, nullable bool) (val interface{}) {
 	return FastjsonGetFloat[float64](c.value.Get(key), nullable, math.MaxFloat64)
+}
+
+func (c *FastjsonMetric) GetIPv4(key string, nullable bool) (val interface{}) {
+	return getIPv4(c.value.Get(key), nullable)
+}
+
+func (c *FastjsonMetric) GetIPv6(key string, nullable bool) (val interface{}) {
+	return getIPv6(c.value.Get(key), nullable)
 }
 
 func FastjsonGetInt[T constraints.Signed](v *fastjson.Value, nullable bool, min, max int64) (val interface{}) {
@@ -271,6 +280,54 @@ func getBool(v *fastjson.Value, nullable bool) (val interface{}) {
 	return
 }
 
+func getIPv4(v *fastjson.Value, nullable bool) (val interface{}) {
+	if v == nil || v.Type() == fastjson.TypeNull {
+		if nullable {
+			return
+		}
+		val = ""
+		return
+	}
+	switch v.Type() {
+	case fastjson.TypeString:
+		b, _ := v.StringBytes()
+		s := string(b)
+		if net.ParseIP(s) != nil {
+			val = s
+		} else {
+			val = net.IPv4zero.String()
+		}
+	case fastjson.TypeNumber:
+		val = FastjsonGetUint[uint32](v, nullable, math.MaxUint32)
+	default:
+		val = net.IPv4zero.String()
+	}
+	return
+}
+
+func getIPv6(v *fastjson.Value, nullable bool) (val interface{}) {
+	if v == nil || v.Type() == fastjson.TypeNull {
+		if nullable {
+			return
+		}
+		val = ""
+		return
+	}
+	switch v.Type() {
+	case fastjson.TypeString:
+		b, _ := v.StringBytes()
+		s := string(b)
+		if net.ParseIP(s) != nil {
+			val = s
+		} else {
+			val = net.IPv6zero.String()
+		}
+	default:
+		val = net.IPv6zero.String()
+	}
+	return
+}
+
 func getDecimal(v *fastjson.Value, nullable bool) (val interface{}) {
 	if !fjCompatibleFloat(v) {
 		val = getDefaultDecimal(nullable)
@@ -404,6 +461,20 @@ func getArray(c *FastjsonMetric, sourcename string, v *fastjson.Value, typ int) 
 			}
 		}
 		val = arr
+	case model.IPv4:
+		arr := make([]interface{}, 0)
+		for _, e := range array {
+			v := getIPv4(e, false)
+			arr = append(arr, v)
+		}
+		val = arr
+	case model.IPv6:
+		arr := make([]interface{}, 0)
+		for _, e := range array {
+			v := getIPv6(e, false)
+			arr = append(arr, v)
+		}
+		val = arr
 	default:
 		util.Logger.Fatal(fmt.Sprintf("LOGIC ERROR: unsupported array type %v", typ))
 	}
@@ -515,6 +586,10 @@ func (c *FastjsonMetric) castMapValueByType(sourcename string, value *fastjson.V
 			val = FastjsonGetUint[uint32](value, typeinfo.Nullable, math.MaxUint32)
 		case model.UInt64:
 			val = FastjsonGetUint[uint64](value, typeinfo.Nullable, math.MaxUint64)
+		case model.IPv4:
+			val = getIPv4(value, typeinfo.Nullable)
+		case model.IPv6:
+			val = getIPv6(value, typeinfo.Nullable)
 		case model.Float32:
 			val = FastjsonGetFloat[float32](value, typeinfo.Nullable, math.MaxFloat32)
 		case model.Float64:
