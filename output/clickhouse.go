@@ -580,8 +580,15 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 		return
 	}
 
+	var version string
+	if err = conn.QueryRow("SELECT Version()").Scan(&version); err != nil {
+		return
+	}
 	alterTable := func(tbl, col string) error {
-		query := fmt.Sprintf("ALTER TABLE `%s`.`%s` %s %s SETTINGS alter_sync = 0;", c.dbName, tbl, onCluster, col)
+		query := fmt.Sprintf("ALTER TABLE `%s`.`%s` %s %s", c.dbName, tbl, onCluster, col)
+		if util.CompareClickHouseVersion(version, "23.3") >= 0 {
+			query += " SETTINGS alter_sync = 0"
+		}
 		util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", taskCfg.Name))
 		return conn.Exec(query)
 	}
