@@ -22,6 +22,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"math/rand"
 	"sync"
 	"time"
 
@@ -181,7 +182,10 @@ func InitClusterConn(chCfg *config.ClickHouseConfig) (err error) {
 			sc.opts.ConnMaxLifetime = time.Minute * 10
 		}
 		sc.protocol = proto
-		if _, _, err = sc.NextGoodReplica(0); err != nil {
+		r := rand.New(rand.NewSource(time.Now().UnixNano()))
+		idx := r.Intn(numReplicas)
+		sc.nextRep = idx
+		if _, _, err = sc.NextGoodReplica(idx); err != nil {
 			return
 		}
 		clusterConn = append(clusterConn, sc)
