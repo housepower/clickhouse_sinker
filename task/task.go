@@ -190,8 +190,10 @@ func (service *Service) Put(msg *model.InputMessage, traceId string, flushFn fun
 			// 2) flush the shards
 			// 3) apply the schema change.
 			// 4) recreate the service
-			util.Logger.Warn("new key detected, consumer is going to restart", zap.String("consumer group", service.taskCfg.ConsumerGroup), zap.Error(err))
-			go service.consumer.restart()
+			if len(service.consumer.grpConfig.Configs) > 1 {
+				util.Logger.Warn("new key detected, consumer is going to restart", zap.String("consumer group", service.taskCfg.ConsumerGroup), zap.Error(err))
+				go service.consumer.restart()
+			}
 			flushFn(traceId, "foundNewKeys and restart")
 			if err = service.clickhouse.ChangeSchema(&service.newKeys); err != nil {
 				util.Logger.Fatal("clickhouse.ChangeSchema failed", zap.String("task", taskCfg.Name), zap.Error(err))
