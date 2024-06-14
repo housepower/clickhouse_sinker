@@ -285,6 +285,10 @@ func (s *Sinker) applyConfig(newCfg *config.Config) (err error) {
 	util.SetLogTrace(newCfg.LogTrace)
 	util.Rs.SetPoolSize(newCfg.RecordPoolSize)
 	util.Rs.Reset()
+	if err := util.Gsypt.Unmarshal(&newCfg.Clickhouse); err != nil {
+		util.Logger.Error("failed to decrypt config password", zap.Error(err))
+		return err
+	}
 	if s.curCfg == nil {
 		// The first time invoking of applyConfig
 		err = s.applyFirstConfig(newCfg)

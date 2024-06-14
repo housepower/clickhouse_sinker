@@ -62,6 +62,7 @@ type CmdOptions struct {
 	NacosPassword    string
 	NacosDataID      string
 	NacosServiceName string // participate in assignment management if not empty
+	Encrypt          string
 
 	Credentials
 }

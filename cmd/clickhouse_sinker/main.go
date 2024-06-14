@@ -60,10 +60,12 @@ func initCmdOptions() {
 		NacosGroup:    "DEFAULT_GROUP",
 		NacosUsername: "nacos",
 		NacosPassword: "nacos",
+		Encrypt:       "",
 	}
 
 	// 2. Replace options with the corresponding env variable if present.
 	util.EnvBoolVar(&cmdOps.ShowVer, "v")
+	util.EnvStringVar(&cmdOps.Encrypt, "e")
 	util.EnvStringVar(&cmdOps.LogLevel, "log-level")
 	util.EnvStringVar(&cmdOps.LogPaths, "log-paths")
 	util.EnvIntVar(&cmdOps.HTTPPort, "http-port")
@@ -89,6 +91,7 @@ func initCmdOptions() {
 
 	// 3. Replace options with the corresponding CLI parameter if present.
 	flag.BoolVar(&cmdOps.ShowVer, "v", cmdOps.ShowVer, "show build version and quit")
+	flag.StringVar(&cmdOps.Encrypt, "e", cmdOps.Encrypt, "encrypt password")
 	flag.StringVar(&cmdOps.LogLevel, "log-level", cmdOps.LogLevel, "one of debug, info, warn, error, dpanic, panic, fatal")
 	flag.StringVar(&cmdOps.LogPaths, "log-paths", cmdOps.LogPaths, "a list of comma-separated log file path. stdout means the console stdout")
 	flag.IntVar(&cmdOps.HTTPPort, "http-port", cmdOps.HTTPPort, "http listen port")
@@ -114,6 +117,9 @@ func initCmdOptions() {
 	flag.StringVar(&cmdOps.KafkaGSSAPIPassword, "kafka-gssapi-password", cmdOps.KafkaGSSAPIPassword, "kafka GSSAPI password")
 
 	flag.Parse()
+	if err := util.Gsypt.Unmarshal(&cmdOps); err != nil {
+		util.Logger.Fatal("failed to decrypt password", zap.Error(err))
+	}
 }
 
 func getVersion() string {
@@ -122,6 +128,10 @@ func getVersion() string {
 
 func init() {
 	initCmdOptions()
+	if cmdOps.Encrypt != "" {
+		fmt.Println(util.AesEncryptECB(cmdOps.Encrypt))
+		os.Exit(0)
+	}
 	logPaths := strings.Split(cmdOps.LogPaths, ",")
 	util.InitLogger(logPaths)
 	util.SetLogLevel(cmdOps.LogLevel)
