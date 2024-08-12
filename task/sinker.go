@@ -26,7 +26,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/housepower/clickhouse_sinker/config"
 	cm "github.com/housepower/clickhouse_sinker/config_manager"
 	"github.com/housepower/clickhouse_sinker/model"
@@ -38,13 +37,11 @@ import (
 )
 
 var (
-	createTableSQL = `CREATE TABLE IF NOT EXISTS %s AS %s.%s ENGINE=Merge('%s', '%s')`
-	dropTableSQL   = `DROP TABLE IF EXISTS %s `
 	countSeriesSQL = `WITH (SELECT max(timestamp) FROM %s) AS m
-	SELECT count() FROM %s FINAL WHERE %s GLOBAL IN (
+	SELECT DISTINCT count() FROM %s WHERE %s GLOBAL IN (
 	SELECT DISTINCT %s FROM %s WHERE timestamp >= addSeconds(m, -%d));`
 	loadSeriesSQL = `WITH (SELECT max(timestamp) FROM %s) AS m
-	SELECT toInt64(%s) AS sid, toInt64(%s) AS mid FROM %s FINAL WHERE sid GLOBAL IN (
+	SELECT DISTINCT toInt64(%s) AS sid, toInt64(%s) AS mid FROM %s WHERE sid GLOBAL IN (
 	SELECT DISTINCT toInt64(%s) FROM %s WHERE timestamp >= addSeconds(m, -%d)
 	) ORDER BY sid;`
 )
@@ -614,36 +611,24 @@ func (s *Sinker) reloadBmSeries() (err error) {
 func loadBmSeries(conn *pool.Conn, sqKey string, tasks []*Service, activeSeriesRange int) (result map[int64]int64, err error) {
 	// merge all metric tables to get the latest timestamp
 	// old bmseries record won't be loaded into memory to avoid OOM
-	var reg string
 	var dimSerID, dimMgmtID string
 
 	/* FIXME: We can't assume that the series_id and mgmt_id of all tasks are the same,
 	because some tasks may be old and some are newly created
 	*/
-	for _, svc := range tasks {
-		r := svc.clickhouse.GetMetricTable()
-		dimSerID, dimMgmtID = svc.clickhouse.DimSerID, svc.clickhouse.DimMgmtID
-		if r != "" {
-			reg += ("^" + r + "$|")
-		}
-	}
-	mergetable := strings.ReplaceAll(sqKey+uuid.New().String(), "-", "_")
-	dbname := strings.Split(sqKey, ".")[0]
-	query := fmt.Sprintf(createTableSQL, mergetable, dbname, tasks[0].clickhouse.GetMetricTable(), dbname, reg[:len(reg)-1])
-	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", tasks[0].taskCfg.Name))
-	if err = conn.Exec(query); err != nil {
-		return
-	}
+	svc := tasks[0]
+	dimSerID, dimMgmtID = svc.clickhouse.DimSerID, svc.clickhouse.DimMgmtID
+	metricTable := svc.clickhouse.GetMetricTable()
 
 	var count uint64
-	query = fmt.Sprintf(countSeriesSQL, mergetable, sqKey, dimSerID, dimSerID, mergetable, activeSeriesRange)
+	query := fmt.Sprintf(countSeriesSQL, metricTable, sqKey, dimSerID, dimSerID, metricTable, activeSeriesRange)
 	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", tasks[0].taskCfg.Name))
 	if err = conn.QueryRow(query).Scan(&count); err != nil {
 		return
 	}
 	seriesMap := make(map[int64]int64, count)
 
-	query = fmt.Sprintf(loadSeriesSQL, mergetable, dimSerID, dimMgmtID, sqKey, dimSerID, mergetable, activeSeriesRange)
+	query = fmt.Sprintf(loadSeriesSQL, metricTable, dimSerID, dimMgmtID, sqKey, dimSerID, metricTable, activeSeriesRange)
 	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", tasks[0].taskCfg.Name))
 	rs, err := conn.Query(query)
 	if err != nil {
@@ -658,9 +643,6 @@ func loadBmSeries(conn *pool.Conn, sqKey string, tasks []*Service, activeSeriesR
 		}
 		seriesMap[seriesID] = mgmtID
 	}
-	query = fmt.Sprintf(dropTableSQL, mergetable)
-	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", tasks[0].taskCfg.Name))
-	err = conn.Exec(query)
 
 	return seriesMap, err
 }

@@ -196,11 +196,11 @@ const (
 	defaultKerberosConfigPath      = "/etc/krb5.conf"
 	defaultMaxOpenConns            = 1
 	defaultReloadSeriesMapInterval = 3600   // 1 hour
-	defaultActiveSeriesRange       = 86400  // 1 day
+	defaultActiveSeriesRange       = 300    // 5 min
 	defaultHeartbeatInterval       = 3000   // 3 s
 	defaultSessionTimeout          = 120000 // 2 min
-	defaultRebalanceTimeout        = 120000 // 2 min
-	defaultRequestTimeoutOverhead  = 60000  // 1 min
+	defaultRebalanceTimeout        = 600000 // 10 min
+	defaultRequestTimeoutOverhead  = 300000 // 5 min
 )
 
 func ParseLocalCfgFile(cfgPath string) (cfg *Config, err error) {
