@@ -395,7 +395,7 @@ func (c *ClickHouse) initSeriesSchema(conn *pool.Conn) (err error) {
 	// Check distributed series table
 	if chCfg := &c.cfg.Clickhouse; chCfg.Cluster != "" {
 		withDistTable := false
-		info, e := c.getDistTbls(c.seriesTbl)
+		info, e := c.getDistTbls(c.seriesTbl, chCfg.Cluster)
 		if e != nil {
 			return e
 		}
@@ -492,7 +492,7 @@ func (c *ClickHouse) initSchema() (err error) {
 	// Check distributed metric table
 	if chCfg := &c.cfg.Clickhouse; chCfg.Cluster != "" {
 		withDistTable := false
-		info, e := c.getDistTbls(c.TableName)
+		info, e := c.getDistTbls(c.TableName, chCfg.Cluster)
 		if e != nil {
 			return e
 		}
@@ -621,7 +621,7 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 	return
 }
 
-func (c *ClickHouse) getDistTbls(table string) (distTbls []DistTblInfo, err error) {
+func (c *ClickHouse) getDistTbls(table, clusterName string) (distTbls []DistTblInfo, err error) {
 	taskCfg := c.taskCfg
 	sc := pool.GetShardConn(0)
 	var conn *pool.Conn
@@ -638,21 +638,30 @@ func (c *ClickHouse) getDistTbls(table string) (distTbls []DistTblInfo, err erro
 		return
 	}
 	defer rows.Close()
+	var curInfo DistTblInfo
 	for rows.Next() {
 		var name, cluster string
 		if err = rows.Scan(&name, &cluster); err != nil {
 			err = errors.Wrapf(err, "")
 			return
 		}
-		distTbls = append(distTbls, DistTblInfo{name: name, cluster: cluster})
+		if cluster == clusterName {
+			// distributed table
+			curInfo = DistTblInfo{name: name, cluster: cluster}
+		} else {
+			// logic table
+			distTbls = append(distTbls, DistTblInfo{name: name, cluster: cluster})
+		}
 	}
+	// dist table always in the end
+	distTbls = append(distTbls, curInfo)
 	return
 }
 
 func (c *ClickHouse) GetSeriesQuotaKey() string {
 	if c.taskCfg.PrometheusSchema {
 		if c.cfg.Clickhouse.Cluster != "" {
-			return c.dbName + "." + c.distSeriesTbls[0]
+			return c.dbName + "." + c.distSeriesTbls[len(c.distSeriesTbls)-1]
 		} else {
 			return c.dbName + "." + c.seriesTbl
 		}
@@ -663,7 +672,7 @@ func (c *ClickHouse) GetSeriesQuotaKey() string {
 func (c *ClickHouse) GetMetricTable() string {
 	if c.taskCfg.PrometheusSchema {
 		if c.cfg.Clickhouse.Cluster != "" {
-			return c.distMetricTbls[0]
+			return c.distMetricTbls[len(c.distMetricTbls)-1]
 		} else {
 			return c.TableName
 		}
