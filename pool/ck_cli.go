@@ -240,6 +240,14 @@ func (c *Conn) Write(prepareSQL string, rows model.Rows, idxBegin, idxEnd int) (
 	return numBad, err
 }
 
+func (c *Conn) AsyncInsert(query string, wait bool) error {
+	if c.protocol == clickhouse.HTTP {
+		return fmt.Errorf("DO NOT SUPPORT THIS FUNCTION")
+	} else {
+		return c.c.AsyncInsert(c.ctx, query, wait)
+	}
+}
+
 func (c *Conn) Close() error {
 	if c.protocol == clickhouse.HTTP {
 		return c.db.Close()

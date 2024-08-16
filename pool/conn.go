@@ -80,7 +80,7 @@ func (sc *ShardConn) Close() {
 }
 
 // NextGoodReplica connects to next good replica
-func (sc *ShardConn) NextGoodReplica(failedVer int) (db *Conn, dbVer int, err error) {
+func (sc *ShardConn) NextGoodReplica(ctx context.Context, failedVer int) (db *Conn, dbVer int, err error) {
 	sc.lock.Lock()
 	defer sc.lock.Unlock()
 	if sc.conn != nil {
@@ -100,7 +100,7 @@ func (sc *ShardConn) NextGoodReplica(failedVer int) (db *Conn, dbVer int, err er
 	// try all replicas, including the current one
 	conn := Conn{
 		protocol: sc.protocol,
-		ctx:      context.Background(),
+		ctx:      ctx,
 	}
 	for i := 0; i < len(sc.replicas); i++ {
 		replica := sc.replicas[sc.nextRep]
@@ -189,7 +189,8 @@ func InitClusterConn(chCfg *config.ClickHouseConfig) (err error) {
 		r := rand.New(rand.NewSource(time.Now().UnixNano()))
 		idx := r.Intn(numReplicas)
 		sc.nextRep = idx
-		if _, _, err = sc.NextGoodReplica(idx); err != nil {
+
+		if _, _, err = sc.NextGoodReplica(chCfg.Ctx, idx); err != nil {
 			return
 		}
 		clusterConn = append(clusterConn, sc)

@@ -502,7 +502,7 @@ func (s *Sinker) initBmSeries() (err error) {
 	})
 
 	var conn *pool.Conn
-	if conn, _, err = pool.GetShardConn(0).NextGoodReplica(0); err != nil {
+	if conn, _, err = pool.GetShardConn(0).NextGoodReplica(s.curCfg.Clickhouse.Ctx, 0); err != nil {
 		return
 	}
 
