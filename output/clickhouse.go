@@ -219,7 +219,7 @@ func (c *ClickHouse) write(batch *model.Batch, sc *pool.ShardConn, dbVer *int) (
 		return
 	}
 	var conn *pool.Conn
-	if conn, *dbVer, err = sc.NextGoodReplica(*dbVer); err != nil {
+	if conn, *dbVer, err = sc.NextGoodReplica(c.cfg.Clickhouse.Ctx, *dbVer); err != nil {
 		return
 	}
 	util.Logger.Debug("writing batch", zap.String("task", c.taskCfg.Name), zap.String("replica", sc.GetReplica()), zap.Int("dbVer", *dbVer))
@@ -429,7 +429,7 @@ func (c *ClickHouse) initSchema() (err error) {
 
 	sc := pool.GetShardConn(0)
 	var conn *pool.Conn
-	if conn, _, err = sc.NextGoodReplica(0); err != nil {
+	if conn, _, err = sc.NextGoodReplica(c.cfg.Clickhouse.Ctx, 0); err != nil {
 		return
 	}
 	if c.taskCfg.AutoSchema {
@@ -572,7 +572,7 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 
 	sc := pool.GetShardConn(0)
 	var conn *pool.Conn
-	if conn, _, err = sc.NextGoodReplica(0); err != nil {
+	if conn, _, err = sc.NextGoodReplica(c.cfg.Clickhouse.Ctx, 0); err != nil {
 		return
 	}
 
@@ -621,7 +621,7 @@ func (c *ClickHouse) getDistTbls(table, clusterName string) (distTbls []DistTblI
 	taskCfg := c.taskCfg
 	sc := pool.GetShardConn(0)
 	var conn *pool.Conn
-	if conn, _, err = sc.NextGoodReplica(0); err != nil {
+	if conn, _, err = sc.NextGoodReplica(c.cfg.Clickhouse.Ctx, 0); err != nil {
 		return
 	}
 	query := fmt.Sprintf(`SELECT name, (extractAllGroups(engine_full, '(Distributed\\(\')(.*)\',\\s+\'(.*)\',\\s+\'(.*)\'(.*)')[1])[2] AS cluster

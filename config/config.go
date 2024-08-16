@@ -16,6 +16,7 @@ limitations under the License.
 package config
 
 import (
+	"context"
 	"net"
 	"os"
 	"regexp"
@@ -111,10 +112,21 @@ type ClickHouseConfig struct {
 	Secure bool
 	// Whether skip verify clickhouse-server cert
 	InsecureSkipVerify bool
-
-	RetryTimes   int // <=0 means retry infinitely
-	MaxOpenConns int
-	ReadTimeout  int
+	RetryTimes         int // <=0 means retry infinitely
+	MaxOpenConns       int
+	ReadTimeout        int
+	AsyncInsert        bool
+	AsyncSettings      struct {
+		// refers to https://clickhouse.com/docs/en/operations/settings/settings#async-insert
+		AsyncInsertMaxDataSize    int `json:"async_insert_max_data_size,omitempty"`
+		AsyncInsertMaxQueryNumber int `json:"async_insert_max_query_number,omitempty"` // 450
+		AsyncInsertBusyTimeoutMs  int `json:"async_insert_busy_timeout_ms,omitempty"`  // 200
+		WaitforAsyncInsert        int `json:"wait_for_async_insert,omitempty"`
+		WaitforAsyncInsertTimeout int `json:"wait_for_async_insert_timeout,omitempty"`
+		AsyncInsertThreads        int `json:"async_insert_threads,omitempty"` // 16
+		AsyncInsertDeduplicate    int `json:"async_insert_deduplicate,omitempty"`
+	}
+	Ctx context.Context `json:"-"`
 }
 
 // TaskConfig parameters
@@ -370,6 +382,33 @@ func (cfg *Config) Normallize(constructGroup bool, httpAddr string, cred util.Cr
 	if cfg.ActiveSeriesRange <= 0 {
 		cfg.ActiveSeriesRange = defaultActiveSeriesRange
 	}
+
+	if cfg.Clickhouse.Protocol == clickhouse.HTTP.String() {
+		cfg.Clickhouse.AsyncInsert = false
+	}
+
+	ctx := context.Background()
+	if cfg.Clickhouse.AsyncInsert {
+		util.TrySetValue(&cfg.Clickhouse.AsyncSettings.AsyncInsertMaxDataSize, 1<<20)
+		util.TrySetValue(&cfg.Clickhouse.AsyncSettings.AsyncInsertMaxQueryNumber, 450)
+		util.TrySetValue(&cfg.Clickhouse.AsyncSettings.AsyncInsertBusyTimeoutMs, 200)
+		util.TrySetValue(&cfg.Clickhouse.AsyncSettings.WaitforAsyncInsert, 1)
+		util.TrySetValue(&cfg.Clickhouse.AsyncSettings.WaitforAsyncInsertTimeout, 120)
+		util.TrySetValue(&cfg.Clickhouse.AsyncSettings.AsyncInsertThreads, 16)
+		util.TrySetValue(&cfg.Clickhouse.AsyncSettings.AsyncInsertDeduplicate, 0)
+
+		ctx = clickhouse.Context(context.Background(), clickhouse.WithSettings(clickhouse.Settings{
+			"async_insert":                  1,
+			"async_insert_max_data_size":    cfg.Clickhouse.AsyncSettings.AsyncInsertMaxDataSize,
+			"async_insert_max_query_number": cfg.Clickhouse.AsyncSettings.AsyncInsertMaxQueryNumber,
+			"async_insert_busy_timeout_ms":  cfg.Clickhouse.AsyncSettings.AsyncInsertBusyTimeoutMs,
+			"wait_for_async_insert":         cfg.Clickhouse.AsyncSettings.WaitforAsyncInsert,
+			"wait_for_async_insert_timeout": cfg.Clickhouse.AsyncSettings.WaitforAsyncInsertTimeout,
+			"async_insert_threads":          cfg.Clickhouse.AsyncSettings.AsyncInsertThreads,
+			"async_insert_deduplicate":      cfg.Clickhouse.AsyncSettings.AsyncInsertDeduplicate,
+		}))
+	}
+	cfg.Clickhouse.Ctx = ctx
 
 	return
 }
