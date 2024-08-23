@@ -93,6 +93,8 @@ type KafkaConfig struct {
 			DisablePAFXFAST    bool
 		}
 	}
+	AssignInterval  int
+	CalcLagInterval int
 }
 
 // ClickHouseConfig configuration parameters
@@ -203,6 +205,8 @@ const (
 	defaultSessionTimeout          = 120000 // 2 min
 	defaultRebalanceTimeout        = 600000 // 10 min
 	defaultRequestTimeoutOverhead  = 300000 // 5 min
+	defaultAssignInterval          = 5      // 5min
+	defaultCalcLagInterval         = 10     // 10min
 )
 
 func ParseLocalCfgFile(cfgPath string) (cfg *Config, err error) {
@@ -284,6 +288,12 @@ func (cfg *Config) Normallize(constructGroup bool, httpAddr string, cred util.Cr
 	}
 	if cfg.Kafka.Properties.SessionTimeout == 0 {
 		cfg.Kafka.Properties.SessionTimeout = defaultSessionTimeout
+	}
+	if cfg.Kafka.AssignInterval == 0 {
+		cfg.Kafka.AssignInterval = defaultAssignInterval
+	}
+	if cfg.Kafka.CalcLagInterval == 0 {
+		cfg.Kafka.CalcLagInterval = defaultCalcLagInterval
 	}
 
 	if cfg.Clickhouse.RetryTimes < 0 {
