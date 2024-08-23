@@ -581,8 +581,8 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 	}
 
 	var version string
-	if err = conn.QueryRow("SELECT Version()").Scan(&version); err != nil {
-		return
+	if err = conn.QueryRow("SELECT version()").Scan(&version); err != nil {
+		version = "1.0.0.0"
 	}
 	alterTable := func(tbl, col string) error {
 		query := fmt.Sprintf("ALTER TABLE `%s`.`%s` %s %s", c.dbName, tbl, onCluster, col)
