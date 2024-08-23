@@ -19,6 +19,8 @@ import (
 	"regexp"
 	"sync"
 	"time"
+
+	"github.com/patrickmn/go-cache"
 )
 
 // Metric interface for metric collection
@@ -103,9 +105,7 @@ func NewOrderedMap() *OrderedMap {
 }
 
 type SeriesQuota struct {
-	sync.Mutex     `json:"-"`
 	NextResetQuota time.Time
-	BmSeries       map[int64]int64 // sid:mid
-	WrSeries       int
-	Birth          time.Time
+	BmSeries       *cache.Cache
+	WrSeries       int32
 }

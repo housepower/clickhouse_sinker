@@ -32,16 +32,16 @@ import (
 
 // Config struct used for different configurations use
 type Config struct {
-	Kafka                   KafkaConfig
-	Clickhouse              ClickHouseConfig
-	Task                    *TaskConfig
-	Tasks                   []*TaskConfig
-	Assignment              Assignment
-	LogLevel                string
-	LogTrace                bool
-	RecordPoolSize          int64
-	ReloadSeriesMapInterval int
-	ActiveSeriesRange       int
+	Kafka                    KafkaConfig
+	Clickhouse               ClickHouseConfig
+	Task                     *TaskConfig
+	Tasks                    []*TaskConfig
+	Assignment               Assignment
+	LogLevel                 string
+	LogTrace                 bool
+	RecordPoolSize           int64
+	CleanupSeriesMapInterval int
+	ActiveSeriesRange        int
 
 	Groups map[string]*GroupConfig `json:"-"`
 }
@@ -190,23 +190,23 @@ type Assignment struct {
 }
 
 const (
-	MaxBufferSize                  = 1 << 20 // 1048576
-	defaultBufferSize              = 1 << 18 // 262144
-	maxFlushInterval               = 600
-	defaultFlushInterval           = 10
-	defaultTimeZone                = "Local"
-	defaultLogLevel                = "info"
-	defaultKerberosConfigPath      = "/etc/krb5.conf"
-	defaultMaxOpenConns            = 1
-	defaultReadTimeout             = 3600
-	defaultReloadSeriesMapInterval = 3600   // 1 hour
-	defaultActiveSeriesRange       = 300    // 5 min
-	defaultHeartbeatInterval       = 3000   // 3 s
-	defaultSessionTimeout          = 120000 // 2 min
-	defaultRebalanceTimeout        = 600000 // 10 min
-	defaultRequestTimeoutOverhead  = 300000 // 5 min
-	defaultAssignInterval          = 5      // 5min
-	defaultCalcLagInterval         = 10     // 10min
+	MaxBufferSize                   = 1 << 20 // 1048576
+	defaultBufferSize               = 1 << 18 // 262144
+	maxFlushInterval                = 600
+	defaultFlushInterval            = 10
+	defaultTimeZone                 = "Local"
+	defaultLogLevel                 = "info"
+	defaultKerberosConfigPath       = "/etc/krb5.conf"
+	defaultMaxOpenConns             = 1
+	defaultReadTimeout              = 3600
+	defaultCleanupSeriesMapInterval = 10     // 10s
+	defaultActiveSeriesRange        = 3600   // 1 hour
+	defaultHeartbeatInterval        = 3000   // 3 s
+	defaultSessionTimeout           = 120000 // 2 min
+	defaultRebalanceTimeout         = 600000 // 10 min
+	defaultRequestTimeoutOverhead   = 300000 // 5 min
+	defaultAssignInterval           = 5      // 5min
+	defaultCalcLagInterval          = 10     // 10min
 )
 
 func ParseLocalCfgFile(cfgPath string) (cfg *Config, err error) {
@@ -364,8 +364,8 @@ func (cfg *Config) Normallize(constructGroup bool, httpAddr string, cred util.Cr
 	default:
 		cfg.LogLevel = defaultLogLevel
 	}
-	if cfg.ReloadSeriesMapInterval <= 0 {
-		cfg.ReloadSeriesMapInterval = defaultReloadSeriesMapInterval
+	if cfg.CleanupSeriesMapInterval <= 0 {
+		cfg.CleanupSeriesMapInterval = defaultCleanupSeriesMapInterval
 	}
 	if cfg.ActiveSeriesRange <= 0 {
 		cfg.ActiveSeriesRange = defaultActiveSeriesRange
