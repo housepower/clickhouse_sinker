@@ -17,6 +17,7 @@ package parser
 
 import (
 	"math"
+	"math/big"
 	"sync"
 	"time"
 
@@ -201,7 +202,7 @@ func parseInLocation(val string, loc *time.Location) (t time.Time, layout string
 }
 
 func UnixFloat(sec, unit float64) (t time.Time) {
-	sec *= unit
+	sec, _ = new(big.Float).Mul(big.NewFloat(sec), big.NewFloat(unit)).Float64()
 	//2^32 seconds since epoch: 2106-02-07T06:28:16Z
 	if sec < 0 || sec >= 4294967296.0 {
 		return Epoch
