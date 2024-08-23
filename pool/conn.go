@@ -169,6 +169,9 @@ func InitClusterConn(chCfg *config.ClickHouseConfig) (err error) {
 				Protocol:    proto,
 				DialTimeout: time.Minute * 10,
 				ReadTimeout: time.Second * time.Duration(chCfg.ReadTimeout),
+				Settings: clickhouse.Settings{
+					"max_execution_time": 0,
+				},
 			},
 			writingPool: util.NewWorkerPool(chCfg.MaxOpenConns, 1),
 		}
