@@ -201,7 +201,18 @@ func parseInLocation(val string, loc *time.Location) (t time.Time, layout string
 }
 
 func UnixFloat(sec, unit float64) (t time.Time) {
+	factor := 1
+	if _, f1 := math.Modf(sec); f1 > 0 {
+		sec = sec * 1e3
+		factor *= 1e3
+	}
+	if _, f2 := math.Modf(unit); f2 > 0 {
+		unit = unit * 1e3
+		factor *= 1e3
+	}
 	sec *= unit
+	sec /= float64(factor)
+
 	//2^32 seconds since epoch: 2106-02-07T06:28:16Z
 	if sec < 0 || sec >= 4294967296.0 {
 		return Epoch
