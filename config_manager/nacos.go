@@ -224,9 +224,9 @@ func (ncm *NacosConfManager) Run() {
 	}
 
 	// Assign regularly to handle lag change
-	ticker := time.NewTicker(5 * time.Minute)
+	ticker := time.NewTicker(time.Duration(ncm.curCfg.Kafka.AssignInterval) * time.Minute)
 	defer ticker.Stop()
-	lagticker := time.NewTicker(10 * time.Second)
+	lagticker := time.NewTicker(time.Duration(ncm.curCfg.Kafka.CalcLagInterval) * time.Second)
 	defer lagticker.Stop()
 LOOP_FOR:
 	for {
