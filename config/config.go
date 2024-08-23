@@ -112,6 +112,7 @@ type ClickHouseConfig struct {
 
 	RetryTimes   int // <=0 means retry infinitely
 	MaxOpenConns int
+	ReadTimeout  int
 }
 
 // TaskConfig parameters
@@ -195,6 +196,7 @@ const (
 	defaultLogLevel                = "info"
 	defaultKerberosConfigPath      = "/etc/krb5.conf"
 	defaultMaxOpenConns            = 1
+	defaultReadTimeout             = 3600
 	defaultReloadSeriesMapInterval = 3600   // 1 hour
 	defaultActiveSeriesRange       = 300    // 5 min
 	defaultHeartbeatInterval       = 3000   // 3 s
@@ -289,6 +291,9 @@ func (cfg *Config) Normallize(constructGroup bool, httpAddr string, cred util.Cr
 	}
 	if cfg.Clickhouse.MaxOpenConns <= 0 {
 		cfg.Clickhouse.MaxOpenConns = defaultMaxOpenConns
+	}
+	if cfg.Clickhouse.ReadTimeout <= 0 {
+		cfg.Clickhouse.ReadTimeout = defaultReadTimeout
 	}
 
 	if cfg.Clickhouse.Protocol == "" {
