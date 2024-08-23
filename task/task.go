@@ -55,8 +55,7 @@ type Service struct {
 	cntNewKeys int32 // size of newKeys
 
 	sharder  *Sharder
-	limiter1 *rate.Limiter
-	limiter2 *rate.Limiter
+	limiter  *rate.Limiter //作用：控制打日志的频率
 	offShift int64
 	consumer *Consumer
 }
@@ -119,8 +118,7 @@ func (service *Service) Init() (err error) {
 	service.numDims = len(service.dims)
 	service.idxSerID = service.clickhouse.IdxSerID
 	service.nameKey = service.clickhouse.NameKey
-	service.limiter1 = rate.NewLimiter(rate.Every(10*time.Second), 1)
-	service.limiter2 = rate.NewLimiter(rate.Every(10*time.Second), 1)
+	service.limiter = rate.NewLimiter(rate.Every(10*time.Second), 1)
 	service.offShift = int64(util.GetShift(taskCfg.BufferSize))
 
 	if service.sharder, err = NewSharder(service); err != nil {
@@ -167,7 +165,7 @@ func (service *Service) Put(msg *model.InputMessage, traceId string, flushFn fun
 	if metric, err = p.Parse(msg.Value); err != nil {
 		// directly return, ignore the row with parsing errors
 		statistics.ParseMsgsErrorTotal.WithLabelValues(taskCfg.Name).Inc()
-		if service.limiter1.Allow() {
+		if service.limiter.Allow() {
 			util.Logger.Error(fmt.Sprintf("failed to parse message(topic %v, partition %d, offset %v)",
 				msg.Topic, msg.Partition, msg.Offset), zap.String("message value", string(msg.Value)), zap.String("task", taskCfg.Name), zap.Error(err))
 		}
