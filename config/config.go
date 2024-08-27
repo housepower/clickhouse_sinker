@@ -96,6 +96,7 @@ type KafkaConfig struct {
 	}
 	AssignInterval  int
 	CalcLagInterval int
+	RebalanceByLags bool
 }
 
 // ClickHouseConfig configuration parameters
