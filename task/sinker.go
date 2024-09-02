@@ -37,9 +37,8 @@ import (
 )
 
 var (
-	loadSeriesSQL = `WITH (SELECT max(timestamp) FROM %s) AS m
-	SELECT DISTINCT toInt64(%s) AS sid, toInt64(%s) AS mid FROM %s WHERE sid GLOBAL IN (
-	SELECT DISTINCT toInt64(%s) FROM %s WHERE timestamp >= addSeconds(m, -%d)
+	loadSeriesSQL = `SELECT DISTINCT toInt64(%s) AS sid, toInt64(%s) AS mid FROM %s WHERE sid GLOBAL IN (
+	SELECT DISTINCT toInt64(%s) FROM %s WHERE timestamp >= addSeconds(now(), -%d)
 	) ORDER BY sid;`
 )
 
