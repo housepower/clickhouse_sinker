@@ -28,6 +28,7 @@ import (
 
 	"github.com/housepower/clickhouse_sinker/config"
 	cm "github.com/housepower/clickhouse_sinker/config_manager"
+	"github.com/housepower/clickhouse_sinker/input"
 	"github.com/housepower/clickhouse_sinker/model"
 	"github.com/housepower/clickhouse_sinker/output"
 	"github.com/housepower/clickhouse_sinker/pool"
@@ -124,6 +125,8 @@ func (s *Sinker) Run() {
 			util.Logger.Fatal("s.applyConfig failed", zap.Error(err))
 			return
 		}
+		pollTicker := time.NewTicker(time.Duration(s.curCfg.Kafka.Properties.MaxPollInterval) * time.Millisecond)
+		defer pollTicker.Stop()
 	LOOP:
 		for {
 			select {
@@ -146,6 +149,17 @@ func (s *Sinker) Run() {
 					util.Logger.Info("consumer restarted when applying another config",
 						zap.String("consumer", c.grpConfig.Name))
 				}
+			case <-pollTicker.C:
+				consumerName := input.Walk(s.curCfg.Kafka.Properties.MaxPollInterval)
+				if consumerName != "" {
+					if consumer, ok := s.consumers[consumerName]; ok {
+						util.Logger.Warn("consumer restarted because of max.poll.interval.ms changed", zap.String("consumer", consumerName), zap.Int("max.poll.interval.ms", s.curCfg.Kafka.Properties.MaxPollInterval))
+						go func() {
+							consumer.stop()
+							s.consumerRestartCh <- consumer
+						}()
+					}
+				}
 			}
 		}
 	} else {
@@ -155,11 +169,9 @@ func (s *Sinker) Run() {
 		// Golang <-time.After() is not garbage collected before expiry.
 		ticker := time.NewTicker(10 * time.Second)
 		defer ticker.Stop()
-
-		// start the ticker with default value 1 hour
-		curInterval := 3600
-		reloadBmSeriesTicker := time.NewTicker(time.Second * time.Duration(curInterval))
-		defer reloadBmSeriesTicker.Stop()
+		curInterval := config.DefaultMaxPollInterval
+		pollTicker := time.NewTicker(time.Duration(curInterval) * time.Millisecond)
+		defer pollTicker.Stop()
 	WORKLOOP:
 		for {
 			select {
@@ -180,17 +192,18 @@ func (s *Sinker) Run() {
 					continue
 				}
 				if s.curCfg != nil {
-					curInterval = s.curCfg.CleanupSeriesMapInterval
+					curInterval = s.curCfg.Kafka.Properties.MaxPollInterval
 				}
 				if err = s.applyConfig(newCfg); err != nil {
 					util.Logger.Error("s.applyConfig failed", zap.Error(err))
 					continue
 				}
-				if curInterval != newCfg.CleanupSeriesMapInterval {
-					reloadBmSeriesTicker.Reset(time.Duration(newCfg.CleanupSeriesMapInterval) * time.Second)
+				if curInterval != newCfg.Kafka.Properties.MaxPollInterval {
+					pollTicker.Reset(time.Duration(newCfg.Kafka.Properties.MaxPollInterval) * time.Millisecond)
 				}
 			case c := <-s.consumerRestartCh:
 				// only restart the consumer which was not changed in applyAnotherConfig
+				util.Logger.Info("consumer going to restart", zap.String("consumer", c.grpConfig.Name))
 				if c == s.consumers[c.grpConfig.Name] {
 					newGroup := newConsumer(s, c.grpConfig)
 					s.consumers[c.grpConfig.Name] = newGroup
@@ -204,6 +217,17 @@ func (s *Sinker) Run() {
 				} else {
 					util.Logger.Info("consumer restarted when applying another config",
 						zap.String("consumer", c.grpConfig.Name))
+				}
+			case <-pollTicker.C:
+				consumerName := input.Walk(curInterval)
+				if consumerName != "" {
+					if consumer, ok := s.consumers[consumerName]; ok {
+						util.Logger.Warn("consumer restarted because of max.poll.interval.ms changed", zap.String("consumer", consumerName), zap.Int("max.poll.interval.ms", curInterval))
+						go func() {
+							consumer.stop()
+							s.consumerRestartCh <- consumer
+						}()
+					}
 				}
 			}
 		}
