@@ -55,6 +55,7 @@ type KafkaConfig struct {
 		SessionTimeout         int `json:"session.timeout.ms"`
 		RebalanceTimeout       int `json:"rebalance.timeout.ms"`
 		RequestTimeoutOverhead int `json:"request.timeout.ms"`
+		MaxPollInterval        int `json:"max.poll.interval.ms"`
 	}
 	ResetSaslRealm bool
 	Security       map[string]string
@@ -218,6 +219,7 @@ const (
 	defaultSessionTimeout           = 120000 // 2 min
 	defaultRebalanceTimeout         = 600000 // 10 min
 	defaultRequestTimeoutOverhead   = 300000 // 5 min
+	DefaultMaxPollInterval          = 300000 // 5 min
 	defaultAssignInterval           = 5      // 5min
 	defaultCalcLagInterval          = 10     // 10min
 )
@@ -301,6 +303,9 @@ func (cfg *Config) Normallize(constructGroup bool, httpAddr string, cred util.Cr
 	}
 	if cfg.Kafka.Properties.SessionTimeout == 0 {
 		cfg.Kafka.Properties.SessionTimeout = defaultSessionTimeout
+	}
+	if cfg.Kafka.Properties.MaxPollInterval == 0 {
+		cfg.Kafka.Properties.MaxPollInterval = DefaultMaxPollInterval
 	}
 	if cfg.Kafka.AssignInterval == 0 {
 		cfg.Kafka.AssignInterval = defaultAssignInterval
