@@ -559,7 +559,12 @@ func loadBmSeries(sq *model.SeriesQuota, conn *pool.Conn, sqKey string, tasks []
 	svc := tasks[0]
 	dimSerID, dimMgmtID = svc.clickhouse.DimSerID, svc.clickhouse.DimMgmtID
 	metricTable := svc.clickhouse.GetMetricTable()
-	query := fmt.Sprintf(loadSeriesSQL, metricTable, dimSerID, dimMgmtID, sqKey, dimSerID, metricTable, activeSeriesRange)
+	/*
+		SELECT DISTINCT toInt64(%s) AS sid, toInt64(%s) AS mid FROM %s WHERE sid GLOBAL IN (
+			SELECT DISTINCT toInt64(%s) FROM %s WHERE timestamp >= addSeconds(now(), -%d)
+			) ORDER BY sid;
+	*/
+	query := fmt.Sprintf(loadSeriesSQL, dimSerID, dimMgmtID, sqKey, dimSerID, metricTable, activeSeriesRange)
 	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", tasks[0].taskCfg.Name))
 	rs, err := conn.Query(query)
 	if err != nil {
