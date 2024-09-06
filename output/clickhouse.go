@@ -395,6 +395,7 @@ func (c *ClickHouse) initSeriesSchema(conn *pool.Conn) (err error) {
 		if e != nil {
 			return e
 		}
+		c.distSeriesTbls = make([]string, 0)
 		for _, i := range info {
 			c.distSeriesTbls = append(c.distSeriesTbls, i.name)
 			if i.cluster == c.cfg.Clickhouse.Cluster {
@@ -492,6 +493,7 @@ func (c *ClickHouse) initSchema() (err error) {
 		if e != nil {
 			return e
 		}
+		c.distMetricTbls = make([]string, 0)
 		for _, i := range info {
 			c.distMetricTbls = append(c.distMetricTbls, i.name)
 			if i.cluster == c.cfg.Clickhouse.Cluster {
