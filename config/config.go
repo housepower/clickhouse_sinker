@@ -215,8 +215,8 @@ const (
 	defaultReadTimeout              = 3600
 	defaultCleanupSeriesMapInterval = 10      // 10s
 	defaultActiveSeriesRange        = 3600    // 1 hour
-	defaultHeartbeatInterval        = 3000    // 3 s
-	defaultSessionTimeout           = 120000  // 2 min
+	defaultHeartbeatInterval        = 60000   // 1 min
+	defaultSessionTimeout           = 300000  // 5 min
 	defaultRebalanceTimeout         = 600000  // 10 min
 	defaultRequestTimeoutOverhead   = 300000  // 5 min
 	DefaultMaxPollInterval          = 3600000 // 1 hour
