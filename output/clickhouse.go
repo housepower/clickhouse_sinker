@@ -154,10 +154,13 @@ func (c *ClickHouse) Send(batch *model.Batch, traceId string) {
 
 func (c *ClickHouse) AllowWriteSeries(sid, mid int64) (allowed bool) {
 	mid2, loaded := c.seriesQuota.BmSeries.Get(fmt.Sprint(sid))
+	util.Logger.Debug("allow write series", zap.Int("itemCount", c.seriesQuota.BmSeries.ItemCount()))
 	if !loaded {
+		util.Logger.Debug("found new series", zap.Int64("mid", mid), zap.Int64("sid", sid))
 		allowed = true
 		statistics.WriteSeriesAllowNew.WithLabelValues(c.taskCfg.Name).Inc()
 	} else if mid != mid2 {
+		util.Logger.Debug("found new series map", zap.Int64("mid", mid), zap.Int64("sid", sid))
 		if c.seriesQuota.WrSeries < wrSeriesQuota {
 			atomic.AddInt32(&c.seriesQuota.WrSeries, 1)
 			allowed = true
@@ -411,7 +414,7 @@ func (c *ClickHouse) initSeriesSchema(conn *pool.Conn) (err error) {
 	sq, _ := SeriesQuotas.LoadOrStore(c.GetSeriesQuotaKey(),
 		&model.SeriesQuota{
 			NextResetQuota: time.Now().Add(10 * time.Second),
-			BmSeries:       cache.New(time.Duration(c.cfg.ActiveSeriesRange), time.Duration(c.cfg.CleanupSeriesMapInterval)*time.Second),
+			BmSeries:       cache.New(time.Duration(c.cfg.ActiveSeriesRange)*time.Second, time.Duration(c.cfg.CleanupSeriesMapInterval)*time.Second),
 		})
 	c.seriesQuota = sq.(*model.SeriesQuota)
 
