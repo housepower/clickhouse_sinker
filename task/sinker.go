@@ -579,6 +579,6 @@ func loadBmSeries(sq *model.SeriesQuota, conn *pool.Conn, sqKey string, tasks []
 		}
 		sq.BmSeries.SetDefault(fmt.Sprint(seriesID), mgmtID)
 	}
-
+	util.Logger.Info(fmt.Sprintf("loaded %d series for %s", sq.BmSeries.ItemCount(), sqKey))
 	return err
 }
