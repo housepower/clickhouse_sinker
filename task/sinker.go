@@ -28,6 +28,7 @@ import (
 
 	"github.com/housepower/clickhouse_sinker/config"
 	cm "github.com/housepower/clickhouse_sinker/config_manager"
+	"github.com/housepower/clickhouse_sinker/discovery"
 	"github.com/housepower/clickhouse_sinker/input"
 	"github.com/housepower/clickhouse_sinker/model"
 	"github.com/housepower/clickhouse_sinker/output"
@@ -166,12 +167,16 @@ func (s *Sinker) Run() {
 		if s.cmdOps.NacosServiceName != "" {
 			go s.rcm.Run()
 		}
+		sd := discovery.NewDiscovery(s.curCfg, s.rcm, s.rcm != nil)
 		// Golang <-time.After() is not garbage collected before expiry.
 		ticker := time.NewTicker(10 * time.Second)
 		defer ticker.Stop()
-		curInterval := config.DefaultMaxPollInterval
+		curInterval := config.DefaultMaxPollIntervalMs
 		pollTicker := time.NewTicker(time.Duration(curInterval) * time.Millisecond)
 		defer pollTicker.Stop()
+		sdInterval := config.DefaultDiscoveryIntervalSec
+		sdTicker := time.NewTicker(time.Duration(sdInterval) * time.Second)
+		defer sdTicker.Stop()
 	WORKLOOP:
 		for {
 			select {
@@ -193,6 +198,7 @@ func (s *Sinker) Run() {
 				}
 				if s.curCfg != nil {
 					curInterval = s.curCfg.Kafka.Properties.MaxPollInterval
+					sdInterval = s.curCfg.Discovery.CheckInterval
 				}
 				if err = s.applyConfig(newCfg); err != nil {
 					util.Logger.Error("s.applyConfig failed", zap.Error(err))
@@ -200,6 +206,9 @@ func (s *Sinker) Run() {
 				}
 				if curInterval != newCfg.Kafka.Properties.MaxPollInterval {
 					pollTicker.Reset(time.Duration(newCfg.Kafka.Properties.MaxPollInterval) * time.Millisecond)
+				}
+				if sdInterval != newCfg.Discovery.CheckInterval {
+					sdTicker.Reset(time.Duration(newCfg.Discovery.CheckInterval) * time.Second)
 				}
 			case c := <-s.consumerRestartCh:
 				// only restart the consumer which was not changed in applyAnotherConfig
@@ -227,6 +236,15 @@ func (s *Sinker) Run() {
 							consumer.stop()
 							s.consumerRestartCh <- consumer
 						}()
+					}
+				}
+			case <-sdTicker.C:
+				sd.SetConfig(*s.curCfg)
+				if sd.IsEnabled() {
+					if err = sd.GetCKConn(); err == nil {
+						if err = sd.Dispatcher(); err != nil {
+							util.Logger.Error("sd.Dispatcher failed", zap.Error(err))
+						}
 					}
 				}
 			}

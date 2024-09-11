@@ -21,6 +21,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/hjson/hjson-go/v4"
@@ -35,6 +36,7 @@ import (
 type Config struct {
 	Kafka                    KafkaConfig
 	Clickhouse               ClickHouseConfig
+	Discovery                Discovery
 	Task                     *TaskConfig
 	Tasks                    []*TaskConfig
 	Assignment               Assignment
@@ -131,6 +133,13 @@ type ClickHouseConfig struct {
 	Ctx context.Context `json:"-"`
 }
 
+type Discovery struct {
+	Enabled       bool
+	CheckInterval int
+	UpdatedBy     string
+	UpdatedAt     time.Time
+}
+
 // TaskConfig parameters
 type TaskConfig struct {
 	Name string
@@ -204,24 +213,25 @@ type Assignment struct {
 }
 
 const (
-	MaxBufferSize                   = 1 << 20 // 1048576
-	defaultBufferSize               = 1 << 18 // 262144
-	maxFlushInterval                = 600
-	defaultFlushInterval            = 10
-	defaultTimeZone                 = "Local"
-	defaultLogLevel                 = "info"
-	defaultKerberosConfigPath       = "/etc/krb5.conf"
-	defaultMaxOpenConns             = 1
-	defaultReadTimeout              = 3600
-	defaultCleanupSeriesMapInterval = 10      // 10s
-	defaultActiveSeriesRange        = 3600    // 1 hour
-	defaultHeartbeatInterval        = 60000   // 1 min
-	defaultSessionTimeout           = 300000  // 5 min
-	defaultRebalanceTimeout         = 600000  // 10 min
-	defaultRequestTimeoutOverhead   = 300000  // 5 min
-	DefaultMaxPollInterval          = 3600000 // 1 hour
-	defaultAssignInterval           = 5       // 5min
-	defaultCalcLagInterval          = 10      // 10min
+	MaxBufferSize                      = 1 << 20 // 1048576
+	defaultBufferSize                  = 1 << 18 // 262144
+	maxFlushInterval                   = 600
+	defaultFlushInterval               = 10
+	defaultTimeZone                    = "Local"
+	defaultLogLevel                    = "info"
+	defaultKerberosConfigPath          = "/etc/krb5.conf"
+	defaultMaxOpenConns                = 1
+	defaultReadTimeoutSec              = 3600
+	defaultCleanupSeriesMapIntervalSec = 10      // 10s
+	defaultActiveSeriesRangeSec        = 3600    // 1 hour
+	defaultHeartbeatIntervalMs         = 60000   // 1 min
+	defaultSessionTimeoutMs            = 300000  // 5 min
+	defaultRebalanceTimeoutMs          = 600000  // 10 min
+	defaultRequestTimeoutOverheadMs    = 300000  // 5 min
+	DefaultMaxPollIntervalMs           = 3600000 // 1 hour
+	defaultAssignIntervalMin           = 5       // 5min
+	defaultCalcLagIntervalMin          = 10      // 10min
+	DefaultDiscoveryIntervalSec        = 60      // 1min
 )
 
 func ParseLocalCfgFile(cfgPath string) (cfg *Config, err error) {
@@ -293,25 +303,28 @@ func (cfg *Config) Normallize(constructGroup bool, httpAddr string, cred util.Cr
 		}
 	}
 	if cfg.Kafka.Properties.HeartbeatInterval == 0 {
-		cfg.Kafka.Properties.HeartbeatInterval = defaultHeartbeatInterval
+		cfg.Kafka.Properties.HeartbeatInterval = defaultHeartbeatIntervalMs
 	}
 	if cfg.Kafka.Properties.RebalanceTimeout == 0 {
-		cfg.Kafka.Properties.RebalanceTimeout = defaultRebalanceTimeout
+		cfg.Kafka.Properties.RebalanceTimeout = defaultRebalanceTimeoutMs
 	}
 	if cfg.Kafka.Properties.RequestTimeoutOverhead == 0 {
-		cfg.Kafka.Properties.RequestTimeoutOverhead = defaultRequestTimeoutOverhead
+		cfg.Kafka.Properties.RequestTimeoutOverhead = defaultRequestTimeoutOverheadMs
 	}
 	if cfg.Kafka.Properties.SessionTimeout == 0 {
-		cfg.Kafka.Properties.SessionTimeout = defaultSessionTimeout
+		cfg.Kafka.Properties.SessionTimeout = defaultSessionTimeoutMs
 	}
 	if cfg.Kafka.Properties.MaxPollInterval == 0 {
-		cfg.Kafka.Properties.MaxPollInterval = DefaultMaxPollInterval
+		cfg.Kafka.Properties.MaxPollInterval = DefaultMaxPollIntervalMs
 	}
 	if cfg.Kafka.AssignInterval == 0 {
-		cfg.Kafka.AssignInterval = defaultAssignInterval
+		cfg.Kafka.AssignInterval = defaultAssignIntervalMin
 	}
 	if cfg.Kafka.CalcLagInterval == 0 {
-		cfg.Kafka.CalcLagInterval = defaultCalcLagInterval
+		cfg.Kafka.CalcLagInterval = defaultCalcLagIntervalMin
+	}
+	if cfg.Discovery.CheckInterval == 0 {
+		cfg.Discovery.CheckInterval = DefaultDiscoveryIntervalSec
 	}
 
 	if cfg.Clickhouse.RetryTimes < 0 {
@@ -321,7 +334,7 @@ func (cfg *Config) Normallize(constructGroup bool, httpAddr string, cred util.Cr
 		cfg.Clickhouse.MaxOpenConns = defaultMaxOpenConns
 	}
 	if cfg.Clickhouse.ReadTimeout <= 0 {
-		cfg.Clickhouse.ReadTimeout = defaultReadTimeout
+		cfg.Clickhouse.ReadTimeout = defaultReadTimeoutSec
 	}
 
 	if cfg.Clickhouse.Protocol == "" {
@@ -383,10 +396,10 @@ func (cfg *Config) Normallize(constructGroup bool, httpAddr string, cred util.Cr
 		cfg.LogLevel = defaultLogLevel
 	}
 	if cfg.CleanupSeriesMapInterval <= 0 {
-		cfg.CleanupSeriesMapInterval = defaultCleanupSeriesMapInterval
+		cfg.CleanupSeriesMapInterval = defaultCleanupSeriesMapIntervalSec
 	}
 	if cfg.ActiveSeriesRange <= 0 {
-		cfg.ActiveSeriesRange = defaultActiveSeriesRange
+		cfg.ActiveSeriesRange = defaultActiveSeriesRangeSec
 	}
 
 	if cfg.Clickhouse.Protocol == clickhouse.HTTP.String() {

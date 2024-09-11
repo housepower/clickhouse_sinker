@@ -140,6 +140,7 @@ func (ncm *NacosConfManager) GetConfig() (conf *config.Config, err error) {
 }
 
 func (ncm *NacosConfManager) PublishConfig(conf *config.Config) (err error) {
+	util.Logger.Info("publish config to nacos")
 	var bs []byte
 	if bs, err = hjson.Marshal(*conf); err != nil {
 		err = errors.Wrapf(err, "")
