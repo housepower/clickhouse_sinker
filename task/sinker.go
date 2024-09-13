@@ -305,8 +305,7 @@ func (s *Sinker) applyFirstConfig(newCfg *config.Config) (err error) {
 	util.Logger.Info("going to apply the first config", zap.Reflect("config", newCfg))
 	// 1. Initialize clickhouse connections
 	chCfg := &newCfg.Clickhouse
-	if err = pool.InitClusterConn(chCfg.Hosts, chCfg.Port, chCfg.DB, chCfg.Username, chCfg.Password,
-		chCfg.Secure, chCfg.InsecureSkipVerify, chCfg.MaxOpenConns); err != nil {
+	if err = pool.InitClusterConn(chCfg); err != nil {
 		return
 	}
 
@@ -345,8 +344,7 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 
 		// 2. Initialize clickhouse connections.
 		chCfg := &newCfg.Clickhouse
-		if err = pool.InitClusterConn(chCfg.Hosts, chCfg.Port, chCfg.DB, chCfg.Username, chCfg.Password,
-			chCfg.Secure, chCfg.InsecureSkipVerify, chCfg.MaxOpenConns); err != nil {
+		if err = pool.InitClusterConn(chCfg); err != nil {
 			return
 		}
 

@@ -100,6 +100,7 @@ type ClickHouseConfig struct {
 
 	RetryTimes   int //<=0 means retry infinitely
 	MaxOpenConns int
+	ReadTimeout  int
 }
 
 // TaskConfig parameters
@@ -182,6 +183,7 @@ const (
 	defaultMaxOpenConns            = 1
 	defaultReloadSeriesMapInterval = 3600  // 1 hour
 	defaultActiveSeriesRange       = 86400 // 1 day
+	defaultReadTimeout             = 3600
 )
 
 func ParseLocalCfgFile(cfgPath string) (cfg *Config, err error) {
@@ -233,6 +235,9 @@ func (cfg *Config) Normallize(constructGroup bool, httpAddr string) (err error) 
 	}
 	if cfg.Clickhouse.MaxOpenConns <= 0 {
 		cfg.Clickhouse.MaxOpenConns = defaultMaxOpenConns
+	}
+	if cfg.Clickhouse.ReadTimeout <= 0 {
+		cfg.Clickhouse.ReadTimeout = defaultReadTimeout
 	}
 
 	if cfg.Task != nil {

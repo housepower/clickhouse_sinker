@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/housepower/clickhouse_sinker/config"
 	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/thanos-io/thanos/pkg/errors"
 	"go.uber.org/zap"
@@ -116,42 +117,45 @@ func (sc *ShardConn) NextReplica() (db clickhouse.Conn, dbVer int, err error) {
 
 // Each shard has a clickhouse.Conn which connects to one replica inside the shard.
 // We need more control than replica single-point-failure.
-func InitClusterConn(hosts [][]string, port int, db, username, password string, secure, skipVerify bool,
-	maxOpenConns int) (err error) {
+func InitClusterConn(cfg *config.ClickHouseConfig) (err error) {
 	lock.Lock()
 	defer lock.Unlock()
 	freeClusterConn()
 
-	for _, replicas := range hosts {
+	for _, replicas := range cfg.Hosts {
 		numReplicas := len(replicas)
 		replicaAddrs := make([]string, numReplicas)
 		for i, ip := range replicas {
 			// Changing hostnames to IPs breaks TLS connections in many cases
-			if !secure {
+			if !cfg.Secure {
 				if ips2, err := util.GetIP4Byname(ip); err == nil {
 					ip = ips2[0]
 				}
 			}
-			replicaAddrs[i] = fmt.Sprintf("%s:%d", ip, port)
+			replicaAddrs[i] = fmt.Sprintf("%s:%d", ip, cfg.Port)
 		}
 		sc := &ShardConn{
 			replicas: replicaAddrs,
 			opts: clickhouse.Options{
 				Auth: clickhouse.Auth{
-					Database: db,
-					Username: username,
-					Password: password,
+					Database: cfg.DB,
+					Username: cfg.Username,
+					Password: cfg.Password,
 				},
 				DialTimeout:     time.Minute * 10,
-				MaxOpenConns:    maxOpenConns,
-				MaxIdleConns:    maxOpenConns,
+				MaxOpenConns:    cfg.MaxOpenConns,
+				MaxIdleConns:    cfg.MaxOpenConns,
 				ConnMaxLifetime: time.Minute * 10,
+				ReadTimeout:     time.Duration(cfg.ReadTimeout) * time.Second,
+				Settings: clickhouse.Settings{
+					"max_execution_time": 0,
+				},
 			},
-			writingPool: util.NewWorkerPool(maxOpenConns, 1),
+			writingPool: util.NewWorkerPool(cfg.MaxOpenConns, 1),
 		}
-		if secure {
+		if cfg.Secure {
 			tlsConfig := &tls.Config{}
-			tlsConfig.InsecureSkipVerify = skipVerify
+			tlsConfig.InsecureSkipVerify = cfg.InsecureSkipVerify
 			sc.opts.TLS = tlsConfig
 		}
 		if _, _, err = sc.NextGoodReplica(0); err != nil {
