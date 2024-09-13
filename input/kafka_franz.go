@@ -90,7 +90,8 @@ func (k *KafkaFranz) Init(cfg *config.Config, gCfg *config.GroupConfig, f chan *
 		kgo.FetchMaxBytes(maxPartBytes),
 		kgo.FetchMaxPartitionBytes(maxPartBytes),
 		kgo.OnPartitionsRevoked(k.onPartitionRevoked),
-		kgo.RebalanceTimeout(time.Minute*2),
+		kgo.HeartbeatInterval(time.Second*30),
+		kgo.RebalanceTimeout(time.Minute*5),
 		kgo.SessionTimeout(time.Minute*2),
 		kgo.RequestTimeoutOverhead(time.Minute*1),
 	)
