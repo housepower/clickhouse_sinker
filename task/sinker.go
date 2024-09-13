@@ -39,16 +39,9 @@ import (
 	"go.uber.org/zap"
 )
 
-var (
+const (
 	createTableSQL = `CREATE TABLE IF NOT EXISTS %s as %s.%s ENGINE=Merge('%s', '%s')`
 	dropTableSQL   = `DROP TABLE IF EXISTS %s `
-	countSeriesSQL = `WITH (SELECT max(timestamp) FROM %s) AS m
-	SELECT count() FROM %s FINAL WHERE __series_id GLOBAL IN (
-	SELECT DISTINCT __series_id FROM %s WHERE timestamp >= addSeconds(m, -%d));`
-	loadSeriesSQL = `WITH (SELECT max(timestamp) FROM %s) AS m
-	SELECT toInt64(__series_id) AS sid, toInt64(__mgmt_id) AS mid FROM %s FINAL WHERE sid GLOBAL IN (
-	SELECT DISTINCT toInt64(__series_id) FROM %s WHERE timestamp >= addSeconds(m, -%d)
-	) ORDER BY sid;`
 )
 
 // Sinker object maintains number of task for each partition
@@ -532,7 +525,7 @@ func (s *Sinker) initBmSeries() (err error) {
 			}
 		}
 
-		seriesMap, err := loadBmSeries(conn, k, v, s.curCfg.ActiveSeriesRange)
+		seriesMap, err := loadBmSeries(conn, k, s.curCfg.CountSeriesSQL, s.curCfg.LoadSeriesSQL, v, s.curCfg.ActiveSeriesRange)
 		if err != nil {
 			return err
 		}
@@ -589,7 +582,7 @@ func (s *Sinker) reloadBmSeries() (err error) {
 
 	// reload seriesQuotas which is out-of-date
 	for k, v := range tables {
-		seriesMap, err := loadBmSeries(conn, k, v, s.curCfg.ActiveSeriesRange)
+		seriesMap, err := loadBmSeries(conn, k, s.curCfg.CountSeriesSQL, s.curCfg.LoadSeriesSQL, v, s.curCfg.ActiveSeriesRange)
 		if err != nil {
 			return err
 		}
@@ -605,9 +598,10 @@ func (s *Sinker) reloadBmSeries() (err error) {
 	return
 }
 
-func loadBmSeries(conn clickhouse.Conn, sqKey string, tasks []*Service, activeSeriesRange int) (result map[int64]int64, err error) {
+func loadBmSeries(conn clickhouse.Conn, sqKey, countSeriesSQL, loadSeriesSQL string, tasks []*Service, activeSeriesRange int) (result map[int64]int64, err error) {
 	// merge all metric tables to get the latest timestamp
 	// old bmseries record won't be loaded into memory to avoid OOM
+
 	var reg string
 	for _, svc := range tasks {
 		r := svc.clickhouse.GetMetricTable()
@@ -624,16 +618,23 @@ func loadBmSeries(conn clickhouse.Conn, sqKey string, tasks []*Service, activeSe
 	}
 
 	var count uint64
-	query = fmt.Sprintf(countSeriesSQL, mergetable, sqKey, mergetable, activeSeriesRange)
-	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", tasks[0].taskCfg.Name))
-	if err = conn.QueryRow(context.Background(), query).Scan(&count); err != nil {
+	templates := make(map[string]interface{}, 0)
+	templates["metricTable"] = mergetable
+	templates["seriesTable"] = sqKey
+	templates["activeSeriesRange"] = activeSeriesRange
+	if err = util.ReplaceTemplateString(&countSeriesSQL, templates); err != nil {
+		util.Logger.Error("failed to replace template string", zap.Error(err))
+	}
+	util.Logger.Info(fmt.Sprintf("executing sql=> %s", countSeriesSQL), zap.String("task", tasks[0].taskCfg.Name))
+	if err = conn.QueryRow(context.Background(), countSeriesSQL).Scan(&count); err != nil {
 		return
 	}
 	seriesMap := make(map[int64]int64, count)
-
-	query = fmt.Sprintf(loadSeriesSQL, mergetable, sqKey, mergetable, activeSeriesRange)
-	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", tasks[0].taskCfg.Name))
-	rs, err := conn.Query(context.Background(), query)
+	if err = util.ReplaceTemplateString(&loadSeriesSQL, templates); err != nil {
+		util.Logger.Error("failed to replace template string", zap.Error(err))
+	}
+	util.Logger.Info(fmt.Sprintf("executing sql=> %s", loadSeriesSQL), zap.String("task", tasks[0].taskCfg.Name))
+	rs, err := conn.Query(context.Background(), loadSeriesSQL)
 	if err != nil {
 		return nil, err
 	}

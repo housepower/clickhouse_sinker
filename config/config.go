@@ -28,6 +28,16 @@ import (
 	"github.com/thanos-io/thanos/pkg/errors"
 )
 
+const (
+	countSeriesSQL = `WITH (SELECT max(timestamp) FROM {{.metricTable}}) AS m
+	SELECT DISTINCT count() FROM {{.seriesTable}} WHERE __series_id GLOBAL IN (
+	SELECT DISTINCT __series_id FROM {{.metricTable}} WHERE timestamp >= addSeconds(m, -{{.activeSeriesRange}}));`
+	loadSeriesSQL = `WITH (SELECT max(timestamp) FROM {{.metricTable}}) AS m
+	SELECT DISTINCT toInt64(__series_id) AS sid, toInt64(__mgmt_id) AS mid FROM {{.seriesTable}} WHERE sid GLOBAL IN (
+	SELECT DISTINCT toInt64(__series_id) FROM {{.metricTable}} WHERE timestamp >= addSeconds(m, -{{.activeSeriesRange}})
+	) ORDER BY sid;`
+)
+
 // Config struct used for different configurations use
 type Config struct {
 	Kafka                   KafkaConfig
@@ -38,8 +48,9 @@ type Config struct {
 	LogLevel                string
 	ReloadSeriesMapInterval int
 	ActiveSeriesRange       int
-
-	Groups map[string]*GroupConfig `json:"-"`
+	CountSeriesSQL          string
+	LoadSeriesSQL           string
+	Groups                  map[string]*GroupConfig `json:"-"`
 }
 
 // KafkaConfig configuration parameters
@@ -288,6 +299,12 @@ func (cfg *Config) Normallize(constructGroup bool, httpAddr string) (err error) 
 	}
 	if cfg.ActiveSeriesRange <= 0 {
 		cfg.ActiveSeriesRange = defaultActiveSeriesRange
+	}
+	if cfg.CountSeriesSQL == "" {
+		cfg.CountSeriesSQL = countSeriesSQL
+	}
+	if cfg.LoadSeriesSQL == "" {
+		cfg.LoadSeriesSQL = loadSeriesSQL
 	}
 
 	return

@@ -20,6 +20,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"html/template"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -235,4 +236,18 @@ func SetLogLevel(newLogLevel string) {
 		}
 		logAtomLevel.SetLevel(lvl)
 	}
+}
+
+func ReplaceTemplateString(src *string, replace map[string]interface{}) error {
+	t, err := template.New("T1").Parse(*src)
+	if err != nil {
+		return err
+	}
+	buf := new(bytes.Buffer)
+	err = t.Execute(buf, replace)
+	if err != nil {
+		return err
+	}
+	*src = buf.String()
+	return nil
 }

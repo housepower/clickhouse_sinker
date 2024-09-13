@@ -98,3 +98,27 @@ func TestMisc(t *testing.T) {
 		})
 	}
 }
+
+func TestReplaceTemplateString(t *testing.T) {
+	replace := map[string]interface{}{
+		"a": "111",
+		"b": "2222",
+		"c": "3333",
+	}
+	src := `[{{.a}}] is [{{.b}}], [{{.a}}] is [{{.c}}]`
+	err := ReplaceTemplateString(&src, replace)
+	require.Nil(t, err)
+	t.Log(src)
+	templ := map[string]interface{}{
+		"metricTable":       "default.metric",
+		"seriesTable":       "default.metric_series",
+		"activeSeriesRange": 3600,
+	}
+
+	src = `WITH (SELECT max(timestamp) FROM {{.metricTable}}) AS m
+	SELECT DISTINCT count() FROM {{.seriesTable}} WHERE __series_id GLOBAL IN (
+	SELECT DISTINCT __series_id FROM {{.metricTable}} WHERE timestamp >= addSeconds(m, -{{.activeSeriesRange}}));`
+	err = ReplaceTemplateString(&src, templ)
+	require.Nil(t, err)
+	t.Log(src)
+}
