@@ -17,15 +17,11 @@ import (
 func shouldReconnect(err error, sc *pool.ShardConn) bool {
 	var exp *clickhouse.Exception
 	if errors.As(err, &exp) {
-		util.Logger.Error("this is an exception from clickhouse-server", zap.String("replica", sc.GetReplica()), zap.Reflect("exception", exp))
-		var replicaSpecific bool
-		for _, ec := range replicaSpecificErrorCodes {
-			if ec == exp.Code {
-				replicaSpecific = true
-				break
-			}
+		util.Logger.Error("this is an exception from clickhouse-server, switch to the next replica", zap.String("replica", sc.GetReplica()), zap.Reflect("exception", exp))
+		_, _, err := sc.NextReplica()
+		if err != nil {
+			util.Logger.Error(err.Error())
 		}
-		return replicaSpecific
 	}
 	return true
 }
