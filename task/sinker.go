@@ -575,8 +575,9 @@ func loadBmSeries(sq *model.SeriesQuota, conn *pool.Conn, sqKey string, tasks []
 	because some tasks may be old and some are newly created
 	*/
 	svc := tasks[0]
+	dbname := strings.Split(sqKey, ".")[0]
 	dimSerID, dimMgmtID = svc.clickhouse.DimSerID, svc.clickhouse.DimMgmtID
-	metricTable := svc.clickhouse.GetMetricTable()
+	metricTable := dbname + "." + svc.clickhouse.GetMetricTable()
 	/*
 		SELECT DISTINCT toInt64(%s) AS sid, toInt64(%s) AS mid FROM %s WHERE sid GLOBAL IN (
 			SELECT DISTINCT toInt64(%s) FROM %s WHERE timestamp >= addSeconds(now(), -%d)
