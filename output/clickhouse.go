@@ -42,16 +42,7 @@ var (
 	ErrTblNotExist    = errors.Newf("table doesn't exist")
 	selectSQLTemplate = `select name, type, default_kind from system.columns where database = '%s' and table = '%s'`
 
-	// https://github.com/ClickHouse/ClickHouse/issues/24036
-	// src/Common/ErrorCodes.cpp
-	// src/Storages/MergeTree/ReplicatedMergeTreeBlockOutputStream.cpp
-	// ZooKeeper issues(https://issues.apache.org/jira/browse/ZOOKEEPER-4410) can cause ClickHouse exeception: "Code": 999, "Message": "Cannot allocate block number..."
-	// CKServer too many parts possibly reason: https://github.com/ClickHouse/ClickHouse/issues/6720#issuecomment-526045768
-	// zooKeeper Connection loss issue: https://cwiki.apache.org/confluence/display/ZOOKEEPER/FAQ#:~:text=How%20should%20I%20handle%20the%20CONNECTION_LOSS%20error%3F
-	// zooKeeper Session expired issue: https://cwiki.apache.org/confluence/display/ZOOKEEPER/FAQ#:~:text=How%20should%20I%20handle%20SESSION_EXPIRED%3F
-	// TOO_MANY_SIMULTANEOUS_QUERIES, NO_ZOOKEEPER, TABLE_IS_READ_ONLY, TOO_MANY_PARTS, UNKNOWN_STATUS_OF_INSERT, KEEPER_EXCEPTION, POCO_EXCEPTION
-	replicaSpecificErrorCodes       = []int32{202, 225, 242, 252, 319, 999, 1000}
-	wrSeriesQuota             int32 = 16384
+	wrSeriesQuota int32 = 16384
 
 	SeriesQuotas sync.Map
 )
@@ -268,7 +259,7 @@ func (c *ClickHouse) loopWrite(batch *model.Batch, sc *pool.ShardConn, traceId s
 		retry.LastErrorOnly(true),
 		retry.Attempts(uint(times)),
 		retry.Delay(10*time.Second),
-		retry.RetryIf(func(err error) bool { return shouldReconnect(err, sc) }),
+		retry.MaxDelay(1*time.Minute),
 		retry.OnRetry(func(n uint, err error) {
 			retrycount++
 			util.Logger.Error("flush batch failed",

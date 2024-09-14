@@ -3,29 +3,11 @@ package output
 import (
 	"fmt"
 
-	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/housepower/clickhouse_sinker/model"
 	"github.com/housepower/clickhouse_sinker/pool"
 	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/thanos-io/thanos/pkg/errors"
-	"go.uber.org/zap"
 )
-
-func shouldReconnect(err error, sc *pool.ShardConn) bool {
-	var exp *clickhouse.Exception
-	if errors.As(err, &exp) {
-		util.Logger.Error("this is an exception from clickhouse-server", zap.String("replica", sc.GetReplica()), zap.Reflect("exception", exp))
-		var replicaSpecific bool
-		for _, ec := range replicaSpecificErrorCodes {
-			if ec == exp.Code {
-				replicaSpecific = true
-				break
-			}
-		}
-		return replicaSpecific
-	}
-	return true
-}
 
 func writeRows(prepareSQL string, rows model.Rows, idxBegin, idxEnd int, conn *pool.Conn) (numBad int, err error) {
 	return conn.Write(prepareSQL, rows, idxBegin, idxEnd)

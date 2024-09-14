@@ -221,6 +221,7 @@ const (
 	defaultLogLevel                    = "info"
 	defaultKerberosConfigPath          = "/etc/krb5.conf"
 	defaultMaxOpenConns                = 1
+	defaultRetryTimes                  = 3
 	defaultReadTimeoutSec              = 3600
 	defaultCleanupSeriesMapIntervalSec = 10      // 10s
 	defaultActiveSeriesRangeSec        = 3600    // 1 hour
@@ -327,8 +328,8 @@ func (cfg *Config) Normallize(constructGroup bool, httpAddr string, cred util.Cr
 		cfg.Discovery.CheckInterval = DefaultDiscoveryIntervalSec
 	}
 
-	if cfg.Clickhouse.RetryTimes < 0 {
-		cfg.Clickhouse.RetryTimes = 0
+	if cfg.Clickhouse.RetryTimes <= 0 {
+		cfg.Clickhouse.RetryTimes = defaultRetryTimes
 	}
 	if cfg.Clickhouse.MaxOpenConns <= 0 {
 		cfg.Clickhouse.MaxOpenConns = defaultMaxOpenConns
