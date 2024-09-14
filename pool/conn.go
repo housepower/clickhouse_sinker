@@ -92,10 +92,6 @@ func (sc *ShardConn) NextGoodReplica(failedVer int) (db clickhouse.Conn, dbVer i
 		sc.db.Close()
 		sc.db = nil
 	}
-	return sc.NextReplica()
-}
-
-func (sc *ShardConn) NextReplica() (db clickhouse.Conn, dbVer int, err error) {
 	savedNextRep := sc.nextRep
 	// try all replicas, including the current one
 	for i := 0; i < len(sc.replicas); i++ {

@@ -260,7 +260,6 @@ func (c *ClickHouse) loopWrite(batch *model.Batch, sc *pool.ShardConn) {
 		retry.LastErrorOnly(true),
 		retry.Attempts(uint(times)),
 		retry.Delay(10*time.Second),
-		retry.RetryIf(func(err error) bool { return shouldReconnect(err, sc) }),
 		retry.OnRetry(func(n uint, err error) {
 			retrycount++
 			util.Logger.Error("flush batch failed", zap.String("task", c.taskCfg.Name), zap.Int("try", int(retrycount)), zap.Error(err))

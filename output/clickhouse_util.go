@@ -8,23 +8,10 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/RoaringBitmap/roaring"
 	"github.com/housepower/clickhouse_sinker/model"
-	"github.com/housepower/clickhouse_sinker/pool"
 	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/thanos-io/thanos/pkg/errors"
 	"go.uber.org/zap"
 )
-
-func shouldReconnect(err error, sc *pool.ShardConn) bool {
-	var exp *clickhouse.Exception
-	if errors.As(err, &exp) {
-		util.Logger.Error("this is an exception from clickhouse-server, switch to the next replica", zap.String("replica", sc.GetReplica()), zap.Reflect("exception", exp))
-		_, _, err := sc.NextReplica()
-		if err != nil {
-			util.Logger.Error(err.Error())
-		}
-	}
-	return true
-}
 
 func writeRows(prepareSQL string, rows model.Rows, idxBegin, idxEnd int, conn clickhouse.Conn) (numBad int, err error) {
 	var errExec error
