@@ -155,9 +155,16 @@ func (s *Sinker) Run() {
 						zap.String("consumer", c.grpConfig.Name))
 				}
 			case <-reloadBmSeriesTicker.C:
-				util.Logger.Info("offloading out-of-date series record")
-				if err = s.reloadBmSeries(); err != nil {
-					util.Logger.Error("reloadBmSeries failed", zap.Error(err))
+				needReload := false
+				output.SeriesQuotas.Range(func(key, value any) bool {
+					needReload = true
+					return false
+				})
+				if needReload {
+					util.Logger.Info("offloading out-of-date series record")
+					if err = s.reloadBmSeries(); err != nil {
+						util.Logger.Error("reloadBmSeries failed", zap.Error(err))
+					}
 				}
 			case <-pollTicker.C:
 				consumerName := input.Walk(s.curCfg.Kafka.Properties.MaxPollInterval)
@@ -244,9 +251,16 @@ func (s *Sinker) Run() {
 						zap.String("consumer", c.grpConfig.Name))
 				}
 			case <-reloadBmSeriesTicker.C:
-				util.Logger.Info("offloading out-of-date series record")
-				if err = s.reloadBmSeries(); err != nil {
-					util.Logger.Error("reloadBmSeries failed", zap.Error(err))
+				needReload := false
+				output.SeriesQuotas.Range(func(key, value any) bool {
+					needReload = true
+					return false
+				})
+				if needReload {
+					util.Logger.Info("offloading out-of-date series record")
+					if err = s.reloadBmSeries(); err != nil {
+						util.Logger.Error("reloadBmSeries failed", zap.Error(err))
+					}
 				}
 			case <-pollTicker.C:
 				consumerName := input.Walk(curInterval)
