@@ -23,7 +23,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -33,7 +32,6 @@ import (
 	"github.com/housepower/clickhouse_sinker/pool"
 	"github.com/housepower/clickhouse_sinker/statistics"
 	"github.com/housepower/clickhouse_sinker/util"
-	"github.com/patrickmn/go-cache"
 	"github.com/thanos-io/thanos/pkg/errors"
 	"go.uber.org/zap"
 )
@@ -42,7 +40,7 @@ var (
 	ErrTblNotExist    = errors.Newf("table doesn't exist")
 	selectSQLTemplate = `select name, type, default_kind from system.columns where database = '%s' and table = '%s'`
 
-	wrSeriesQuota int32 = 16384
+	wrSeriesQuota int = 16384
 
 	SeriesQuotas sync.Map
 )
@@ -84,9 +82,11 @@ func init() {
 		var result = make(map[string]string)
 		SeriesQuotas.Range(func(key, value interface{}) bool {
 			if sq, ok := value.(*model.SeriesQuota); ok {
+				sq.RLock()
 				if bs, err := json.Marshal(sq); err == nil {
 					result[key.(string)] = string(bs)
 				}
+				sq.RUnlock()
 			}
 			return true
 		})
@@ -144,8 +144,9 @@ func (c *ClickHouse) Send(batch *model.Batch, traceId string) {
 }
 
 func (c *ClickHouse) AllowWriteSeries(sid, mid int64) (allowed bool) {
-	mid2, loaded := c.seriesQuota.BmSeries.Get(fmt.Sprint(sid))
-	util.Logger.Debug("allow write series", zap.Int("itemCount", c.seriesQuota.BmSeries.ItemCount()))
+	c.seriesQuota.Lock()
+	defer c.seriesQuota.Unlock()
+	mid2, loaded := c.seriesQuota.BmSeries[sid]
 	if !loaded {
 		util.Logger.Debug("found new series", zap.Int64("mid", mid), zap.Int64("sid", sid))
 		allowed = true
@@ -153,13 +154,13 @@ func (c *ClickHouse) AllowWriteSeries(sid, mid int64) (allowed bool) {
 	} else if mid != mid2 {
 		util.Logger.Debug("found new series map", zap.Int64("mid", mid), zap.Int64("sid", sid))
 		if c.seriesQuota.WrSeries < wrSeriesQuota {
-			atomic.AddInt32(&c.seriesQuota.WrSeries, 1)
+			c.seriesQuota.WrSeries++
 			allowed = true
 		} else {
 			now := time.Now()
 			if now.After(c.seriesQuota.NextResetQuota) {
 				c.seriesQuota.NextResetQuota = now.Add(10 * time.Second)
-				atomic.StoreInt32(&c.seriesQuota.WrSeries, 1)
+				c.seriesQuota.WrSeries = 1
 				allowed = true
 			}
 		}
@@ -189,14 +190,16 @@ func (c *ClickHouse) writeSeries(rows model.Rows, conn *pool.Conn) (err error) {
 			return
 		}
 		// update c.bmSeries **after** writing series
+		c.seriesQuota.Lock()
 		for _, row := range seriesRows {
 			sid := (*row)[c.IdxSerID].(int64)
 			mid := (*row)[c.IdxSerID+1].(int64)
-			if _, loaded := c.seriesQuota.BmSeries.Get(fmt.Sprint(sid)); loaded {
-				atomic.AddInt32(&c.seriesQuota.WrSeries, -1)
+			if _, loaded := c.seriesQuota.BmSeries[sid]; loaded {
+				c.seriesQuota.WrSeries--
 			}
-			c.seriesQuota.BmSeries.SetDefault(fmt.Sprint(sid), mid)
+			c.seriesQuota.BmSeries[sid] = mid
 		}
+		c.seriesQuota.Unlock()
 		util.Logger.Info("ClickHouse.writeSeries succeeded", zap.Int("series", len(seriesRows)), zap.String("task", c.taskCfg.Name))
 		statistics.WriteSeriesSucceed.WithLabelValues(c.taskCfg.Name).Add(float64(len(seriesRows)))
 		if numBad != 0 {
@@ -405,7 +408,7 @@ func (c *ClickHouse) initSeriesSchema(conn *pool.Conn) (err error) {
 	sq, _ := SeriesQuotas.LoadOrStore(c.GetSeriesQuotaKey(),
 		&model.SeriesQuota{
 			NextResetQuota: time.Now().Add(10 * time.Second),
-			BmSeries:       cache.New(time.Duration(c.cfg.ActiveSeriesRange)*time.Second, time.Duration(c.cfg.CleanupSeriesMapInterval)*time.Second),
+			Birth:          time.Now(),
 		})
 	c.seriesQuota = sq.(*model.SeriesQuota)
 

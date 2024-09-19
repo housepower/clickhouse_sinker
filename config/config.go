@@ -34,17 +34,17 @@ import (
 
 // Config struct used for different configurations use
 type Config struct {
-	Kafka                    KafkaConfig
-	Clickhouse               ClickHouseConfig
-	Discovery                Discovery
-	Task                     *TaskConfig
-	Tasks                    []*TaskConfig
-	Assignment               Assignment
-	LogLevel                 string
-	LogTrace                 bool
-	RecordPoolSize           int64
-	CleanupSeriesMapInterval int
-	ActiveSeriesRange        int
+	Kafka                   KafkaConfig
+	Clickhouse              ClickHouseConfig
+	Discovery               Discovery
+	Task                    *TaskConfig
+	Tasks                   []*TaskConfig
+	Assignment              Assignment
+	LogLevel                string
+	LogTrace                bool
+	RecordPoolSize          int64
+	ReloadSeriesMapInterval int
+	ActiveSeriesRange       int
 
 	Groups map[string]*GroupConfig `json:"-"`
 }
@@ -213,26 +213,26 @@ type Assignment struct {
 }
 
 const (
-	MaxBufferSize                      = 1 << 20 // 1048576
-	defaultBufferSize                  = 1 << 18 // 262144
-	maxFlushInterval                   = 600
-	defaultFlushInterval               = 10
-	defaultTimeZone                    = "Local"
-	defaultLogLevel                    = "info"
-	defaultKerberosConfigPath          = "/etc/krb5.conf"
-	defaultMaxOpenConns                = 1
-	defaultRetryTimes                  = 3
-	defaultReadTimeoutSec              = 3600
-	defaultCleanupSeriesMapIntervalSec = 10      // 10s
-	defaultActiveSeriesRangeSec        = 3600    // 1 hour
-	defaultHeartbeatIntervalMs         = 60000   // 1 min
-	defaultSessionTimeoutMs            = 300000  // 5 min
-	defaultRebalanceTimeoutMs          = 600000  // 10 min
-	defaultRequestTimeoutOverheadMs    = 300000  // 5 min
-	DefaultMaxPollIntervalMs           = 3600000 // 1 hour
-	defaultAssignIntervalMin           = 5       // 5min
-	defaultCalcLagIntervalMin          = 10      // 10min
-	DefaultDiscoveryIntervalSec        = 60      // 1min
+	MaxBufferSize                     = 1 << 20 // 1048576
+	defaultBufferSize                 = 1 << 18 // 262144
+	maxFlushInterval                  = 600
+	defaultFlushInterval              = 10
+	defaultTimeZone                   = "Local"
+	defaultLogLevel                   = "info"
+	defaultKerberosConfigPath         = "/etc/krb5.conf"
+	defaultMaxOpenConns               = 1
+	defaultRetryTimes                 = 3
+	defaultReadTimeoutSec             = 3600
+	defaultReloadSeriesMapIntervalSec = 3600    // 1 hour
+	defaultActiveSeriesRangeSec       = 300     // 5 min
+	defaultHeartbeatIntervalMs        = 60000   // 1 min
+	defaultSessionTimeoutMs           = 300000  // 5 min
+	defaultRebalanceTimeoutMs         = 600000  // 10 min
+	defaultRequestTimeoutOverheadMs   = 300000  // 5 min
+	DefaultMaxPollIntervalMs          = 3600000 // 1 hour
+	defaultAssignIntervalMin          = 5       // 5min
+	defaultCalcLagIntervalMin         = 10      // 10min
+	DefaultDiscoveryIntervalSec       = 60      // 1min
 )
 
 func ParseLocalCfgFile(cfgPath string) (cfg *Config, err error) {
@@ -396,8 +396,8 @@ func (cfg *Config) Normallize(constructGroup bool, httpAddr string, cred util.Cr
 	default:
 		cfg.LogLevel = defaultLogLevel
 	}
-	if cfg.CleanupSeriesMapInterval <= 0 {
-		cfg.CleanupSeriesMapInterval = defaultCleanupSeriesMapIntervalSec
+	if cfg.ReloadSeriesMapInterval <= 0 {
+		cfg.ReloadSeriesMapInterval = defaultReloadSeriesMapIntervalSec
 	}
 	if cfg.ActiveSeriesRange <= 0 {
 		cfg.ActiveSeriesRange = defaultActiveSeriesRangeSec

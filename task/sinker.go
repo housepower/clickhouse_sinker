@@ -39,6 +39,8 @@ import (
 )
 
 var (
+	countSeriesSQL = `SELECT DISTINCT count() FROM %s WHERE %s GLOBAL IN (
+	SELECT DISTINCT %s FROM %s WHERE timestamp >= addSeconds(now(), -%d));`
 	loadSeriesSQL = `SELECT DISTINCT toInt64(%s) AS sid, toInt64(%s) AS mid FROM %s WHERE sid GLOBAL IN (
 	SELECT DISTINCT toInt64(%s) FROM %s WHERE timestamp >= addSeconds(now(), -%d)
 	) ORDER BY sid;`
@@ -128,6 +130,8 @@ func (s *Sinker) Run() {
 		}
 		pollTicker := time.NewTicker(time.Duration(s.curCfg.Kafka.Properties.MaxPollInterval) * time.Millisecond)
 		defer pollTicker.Stop()
+		reloadBmSeriesTicker := time.NewTicker(time.Duration(s.curCfg.ReloadSeriesMapInterval) * time.Second)
+		defer reloadBmSeriesTicker.Stop()
 	LOOP:
 		for {
 			select {
@@ -150,6 +154,11 @@ func (s *Sinker) Run() {
 					util.Logger.Info("consumer restarted when applying another config",
 						zap.String("consumer", c.grpConfig.Name))
 				}
+			case <-reloadBmSeriesTicker.C:
+				util.Logger.Info("offloading out-of-date series record")
+				if err = s.reloadBmSeries(); err != nil {
+					util.Logger.Error("reloadBmSeries failed", zap.Error(err))
+				}
 			case <-pollTicker.C:
 				consumerName := input.Walk(s.curCfg.Kafka.Properties.MaxPollInterval)
 				if consumerName != "" {
@@ -171,8 +180,11 @@ func (s *Sinker) Run() {
 		// Golang <-time.After() is not garbage collected before expiry.
 		ticker := time.NewTicker(10 * time.Second)
 		defer ticker.Stop()
-		curInterval := config.DefaultMaxPollIntervalMs
-		pollTicker := time.NewTicker(time.Duration(curInterval) * time.Millisecond)
+		curInterval := 3600
+		reloadBmSeriesTicker := time.NewTicker(time.Second * time.Duration(curInterval))
+		defer reloadBmSeriesTicker.Stop()
+		pollInterval := config.DefaultMaxPollIntervalMs
+		pollTicker := time.NewTicker(time.Duration(pollInterval) * time.Millisecond)
 		defer pollTicker.Stop()
 		sdInterval := config.DefaultDiscoveryIntervalSec
 		sdTicker := time.NewTicker(time.Duration(sdInterval) * time.Second)
@@ -197,8 +209,9 @@ func (s *Sinker) Run() {
 					continue
 				}
 				if s.curCfg != nil {
-					curInterval = s.curCfg.Kafka.Properties.MaxPollInterval
+					pollInterval = s.curCfg.Kafka.Properties.MaxPollInterval
 					sdInterval = s.curCfg.Discovery.CheckInterval
+					curInterval = s.curCfg.ReloadSeriesMapInterval
 				}
 				if err = s.applyConfig(newCfg); err != nil {
 					util.Logger.Error("s.applyConfig failed", zap.Error(err))
@@ -209,6 +222,9 @@ func (s *Sinker) Run() {
 				}
 				if sdInterval != newCfg.Discovery.CheckInterval {
 					sdTicker.Reset(time.Duration(newCfg.Discovery.CheckInterval) * time.Second)
+				}
+				if curInterval != newCfg.ReloadSeriesMapInterval {
+					reloadBmSeriesTicker.Reset(time.Second * time.Duration(newCfg.ReloadSeriesMapInterval))
 				}
 			case c := <-s.consumerRestartCh:
 				// only restart the consumer which was not changed in applyAnotherConfig
@@ -226,6 +242,11 @@ func (s *Sinker) Run() {
 				} else {
 					util.Logger.Info("consumer restarted when applying another config",
 						zap.String("consumer", c.grpConfig.Name))
+				}
+			case <-reloadBmSeriesTicker.C:
+				util.Logger.Info("offloading out-of-date series record")
+				if err = s.reloadBmSeries(); err != nil {
+					util.Logger.Error("reloadBmSeries failed", zap.Error(err))
 				}
 			case <-pollTicker.C:
 				consumerName := input.Walk(curInterval)
@@ -321,7 +342,7 @@ func (s *Sinker) applyConfig(newCfg *config.Config) (err error) {
 		err = s.applyAnotherConfig(newCfg)
 	}
 	s.curCfg.ActiveSeriesRange = newCfg.ActiveSeriesRange
-	s.curCfg.CleanupSeriesMapInterval = newCfg.CleanupSeriesMapInterval
+	s.curCfg.ReloadSeriesMapInterval = newCfg.ReloadSeriesMapInterval
 
 	if len(s.consumers) == 0 && s.cmdOps.NacosServiceName != "" {
 		util.Logger.Warn("No task fetched from Nacos, make sure the program is running with correct commandline option!")
@@ -552,21 +573,91 @@ func (s *Sinker) initBmSeries() (err error) {
 		var sq *model.SeriesQuota
 		if sqAny, ok := output.SeriesQuotas.Load(k); ok {
 			sq = sqAny.(*model.SeriesQuota)
-			if sq.BmSeries.ItemCount() > 0 {
+			sq.Lock()
+			res := sq.BmSeries != nil && len(sq.BmSeries) > 0
+			sq.Unlock()
+			if res {
 				continue
 			}
 		}
 
-		err := loadBmSeries(sq, conn, k, v, s.curCfg.ActiveSeriesRange)
+		seriesMap, err := loadBmSeries(conn, k, v, s.curCfg.ActiveSeriesRange)
 		if err != nil {
 			return err
 		}
+
+		sq.Lock()
+		sq.BmSeries = seriesMap
+		sq.Birth = time.Now()
+		sq.Unlock()
 	}
 
 	return
 }
 
-func loadBmSeries(sq *model.SeriesQuota, conn *pool.Conn, sqKey string, tasks []*Service, activeSeriesRange int) (err error) {
+func (s *Sinker) reloadBmSeries() (err error) {
+	// find the out-of-date SeriesQuota
+	sqMap := make(map[string]*model.SeriesQuota)
+	now := time.Now()
+	output.SeriesQuotas.Range(func(key, value any) bool {
+		k := key.(string)
+		v := value.(*model.SeriesQuota)
+		v.Lock()
+		if now.Sub(v.Birth).Seconds() > float64(s.curCfg.ReloadSeriesMapInterval) {
+			sqMap[k] = v
+		}
+		v.Unlock()
+		return true
+	})
+
+	if len(sqMap) == 0 {
+		util.Logger.Info("SeriesMap cache is up to date!")
+		return
+	}
+
+	// series table could be shared between multiple tasks
+	tables := make(map[string][]*Service)
+	for _, c := range s.consumers {
+		c.tasks.Range(func(key, value any) bool {
+			k := value.(*Service).clickhouse.GetSeriesQuotaKey()
+			if _, ok := sqMap[k]; ok {
+				tables[k] = append(tables[k], value.(*Service))
+			}
+			return true
+		})
+	}
+
+	if len(tables) == 0 {
+		return
+	}
+
+	var conn *pool.Conn
+	if conn, _, err = pool.GetShardConn(0).NextGoodReplica(s.curCfg.Clickhouse.Ctx, 0); err != nil {
+		return
+	}
+
+	// reload seriesQuotas which is out-of-date
+	for k, v := range tables {
+		seriesMap, err := loadBmSeries(conn, k, v, s.curCfg.ActiveSeriesRange)
+		if err != nil {
+			return err
+		}
+
+		sq := sqMap[k]
+		sq.Lock()
+		/*
+			FIXME: BmSeries and seriesMap will stored in memory at the same time
+		*/
+		sq.BmSeries = seriesMap
+		sq.Birth = time.Now()
+		sq.Unlock()
+		util.Logger.Info(fmt.Sprintf("reloaded %d series from %v, SeriesMap cache is up to date!", len(seriesMap), k))
+	}
+
+	return
+}
+
+func loadBmSeries(conn *pool.Conn, sqKey string, tasks []*Service, activeSeriesRange int) (result map[int64]int64, err error) {
 	// merge all metric tables to get the latest timestamp
 	// old bmseries record won't be loaded into memory to avoid OOM
 	var dimSerID, dimMgmtID string
@@ -578,26 +669,32 @@ func loadBmSeries(sq *model.SeriesQuota, conn *pool.Conn, sqKey string, tasks []
 	dbname := strings.Split(sqKey, ".")[0]
 	dimSerID, dimMgmtID = svc.clickhouse.DimSerID, svc.clickhouse.DimMgmtID
 	metricTable := dbname + "." + svc.clickhouse.GetMetricTable()
-	/*
-		SELECT DISTINCT toInt64(%s) AS sid, toInt64(%s) AS mid FROM %s WHERE sid GLOBAL IN (
-			SELECT DISTINCT toInt64(%s) FROM %s WHERE timestamp >= addSeconds(now(), -%d)
-			) ORDER BY sid;
-	*/
-	query := fmt.Sprintf(loadSeriesSQL, dimSerID, dimMgmtID, sqKey, dimSerID, metricTable, activeSeriesRange)
+
+	var count uint64
+	query := fmt.Sprintf(countSeriesSQL, sqKey, dimSerID, dimSerID, metricTable, activeSeriesRange)
+	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", tasks[0].taskCfg.Name))
+	if err = conn.QueryRow(query).Scan(&count); err != nil {
+		return
+	}
+	if count < 1<<20 {
+		count = 1 << 20 //100w allocate 38M memory
+	}
+	seriesMap := make(map[int64]int64, count)
+	query = fmt.Sprintf(loadSeriesSQL, dimSerID, dimMgmtID, sqKey, dimSerID, metricTable, activeSeriesRange)
 	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", tasks[0].taskCfg.Name))
 	rs, err := conn.Query(query)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer rs.Close()
 
 	var seriesID, mgmtID int64
 	for rs.Next() {
 		if err = rs.Scan(&seriesID, &mgmtID); err != nil {
-			return err
+			return nil, err
 		}
-		sq.BmSeries.SetDefault(fmt.Sprint(seriesID), mgmtID)
+		seriesMap[seriesID] = mgmtID
 	}
-	util.Logger.Info(fmt.Sprintf("loaded %d series for %s", sq.BmSeries.ItemCount(), sqKey))
-	return err
+	util.Logger.Info(fmt.Sprintf("loaded %d series for %s", len(seriesMap), sqKey))
+	return seriesMap, err
 }
