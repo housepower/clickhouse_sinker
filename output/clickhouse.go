@@ -72,6 +72,8 @@ type ClickHouse struct {
 
 	distMetricTbls []string
 	distSeriesTbls []string
+	DimSerID       string
+	DimMgmtID      string
 
 	seriesQuota *model.SeriesQuota
 
@@ -270,39 +272,27 @@ func (c *ClickHouse) loopWrite(batch *model.Batch, sc *pool.ShardConn) {
 	}
 }
 
+func (c *ClickHouse) getSeriesDims(dims []*model.ColumnWithType) {
+	for _, dim := range dims {
+		if strings.Contains(dim.Name, "series_id") {
+			c.DimSerID = dim.Name
+		}
+		if strings.Contains(dim.Name, "mgmt_id") {
+			c.DimMgmtID = dim.Name
+		}
+	}
+}
+
 func (c *ClickHouse) initSeriesSchema(conn clickhouse.Conn) (err error) {
 	if !c.taskCfg.PrometheusSchema {
 		c.IdxSerID = -1
 		return
 	}
-	// Move column "__series_id" to the last.
-	var dimSerID *model.ColumnWithType
-	for i := 0; i < len(c.Dims); {
-		dim := c.Dims[i]
-		if dim.Name == "__series_id" && dim.Type.Type == model.Int64 {
-			dimSerID = dim
-			c.Dims = append(c.Dims[:i], c.Dims[i+1:]...)
-			break
-		} else {
-			i++
-		}
-	}
-	if dimSerID == nil {
-		err = errors.Newf("Metric table %s.%s shall have column `__series_id UInt64`.", c.dbName, c.TableName)
-		return
-	}
-	c.IdxSerID = len(c.Dims)
-	c.Dims = append(c.Dims, dimSerID)
-
 	// Add string columns from series table
 	if c.seriesTbl == "" {
 		c.seriesTbl = c.TableName + "_series"
 	}
-	expSeriesDims := []*model.ColumnWithType{
-		{Name: "__series_id", Type: &model.TypeInfo{Type: model.Int64}},
-		{Name: "__mgmt_id", Type: &model.TypeInfo{Type: model.Int64}},
-		{Name: "labels", Type: &model.TypeInfo{Type: model.String}},
-	}
+
 	var seriesDims []*model.ColumnWithType
 	if seriesDims, err = getDims(c.dbName, c.seriesTbl, nil, c.taskCfg.Parser, conn); err != nil {
 		if errors.Is(err, ErrTblNotExist) {
@@ -311,6 +301,35 @@ func (c *ClickHouse) initSeriesSchema(conn clickhouse.Conn) (err error) {
 		}
 		return
 	}
+
+	c.getSeriesDims(seriesDims)
+
+	// Move column "__series_id" to the last.
+	var dimSerID *model.ColumnWithType
+	for i := 0; i < len(c.Dims); {
+		dim := c.Dims[i]
+		if dim.Name == c.DimSerID && dim.Type.Type == model.Int64 {
+			dimSerID = dim
+			c.Dims = append(c.Dims[:i], c.Dims[i+1:]...)
+			break
+		} else {
+			i++
+		}
+	}
+	if dimSerID == nil {
+		err = errors.Newf("Metric table %s.%s shall have column `%s UInt64`.", c.dbName, c.TableName, c.DimSerID)
+		return
+	}
+	c.IdxSerID = len(c.Dims)
+	c.Dims = append(c.Dims, dimSerID)
+
+	// Add string columns from series table
+	expSeriesDims := []*model.ColumnWithType{
+		{Name: c.DimSerID, Type: &model.TypeInfo{Type: model.Int64}},
+		{Name: c.DimMgmtID, Type: &model.TypeInfo{Type: model.Int64}},
+		{Name: "labels", Type: &model.TypeInfo{Type: model.String}},
+	}
+
 	var badFirst bool
 	if len(seriesDims) < len(expSeriesDims) {
 		badFirst = true
@@ -324,7 +343,7 @@ func (c *ClickHouse) initSeriesSchema(conn clickhouse.Conn) (err error) {
 		}
 	}
 	if badFirst {
-		err = errors.Newf(`First columns of %s are expect to be "__series_id Int64, __mgmt_id Int64, labels String".`, c.seriesTbl)
+		err = errors.Newf(`First columns of %s are expect to be %s Int64, %s Int64, labels String".`, c.seriesTbl, c.DimSerID, c.DimMgmtID)
 		return
 	}
 	c.NameKey = "__name__" // prometheus uses internal "__name__" label for metric name
