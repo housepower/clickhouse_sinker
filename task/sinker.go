@@ -382,7 +382,8 @@ func (s *Sinker) applyFirstConfig(newCfg *config.Config) (err error) {
 		for _, tsk := range grpCfg.Configs {
 			task := NewTaskService(newCfg, tsk, c)
 			if err = task.Init(); err != nil {
-				return
+				util.Logger.Warn("task init failed", zap.String("name", tsk.Name), zap.Error(err))
+				continue
 			}
 		}
 		s.consumers[group] = c
@@ -424,7 +425,8 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 			for _, tsk := range grpCfg.Configs {
 				task := NewTaskService(newCfg, tsk, c)
 				if err = task.Init(); err != nil {
-					return
+					util.Logger.Warn("task init failed", zap.String("name", tsk.Name), zap.Error(err))
+					continue
 				}
 				tasksToStart = append(tasksToStart, tsk.Name)
 			}
@@ -495,7 +497,8 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 				for _, tCfg := range v.Configs {
 					task := NewTaskService(newCfg, tCfg, c)
 					if err = task.Init(); err != nil {
-						return
+						util.Logger.Warn("task init failed", zap.String("name", v.Name), zap.Error(err))
+						continue
 					}
 				}
 				s.consumers[v.Name] = c
