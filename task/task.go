@@ -243,10 +243,15 @@ func (service *Service) metric2Row(metric model.Metric, msg *model.InputMessage)
 				dim := service.dims[i]
 				val := model.GetValueByType(metric, dim)
 				row = append(row, val)
-				if val != nil && dim.Type.Type == model.String && dim.Name != service.nameKey && dim.Name != "le" && (service.lblBlkList == nil || !service.lblBlkList.MatchString(dim.Name)) {
+				if dim.Type.Type == model.String && dim.Name != service.nameKey && dim.Name != "le" && (service.lblBlkList == nil || !service.lblBlkList.MatchString(dim.Name)) {
 					// "labels" JSON excludes "le", so that "labels" can be used as group key for histogram queries.
 					// todo: what does "le" mean?
-					labelVal := val.(string)
+					var labelVal string
+					if val == nil {
+						labelVal = "null"
+					} else {
+						labelVal = val.(string)
+					}
 					labels = append(labels, fmt.Sprintf(`%s: %s`, strconv.Quote(dim.Name), strconv.Quote(labelVal)))
 				}
 			}
