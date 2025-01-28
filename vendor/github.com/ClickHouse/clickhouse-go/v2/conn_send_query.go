@@ -24,20 +24,22 @@ import (
 // Connection::sendQuery
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Client/Connection.cpp
 func (c *connect) sendQuery(body string, o *QueryOptions) error {
-	c.debugf("[send query] compression=%t %s", c.compression, body)
-	if err := c.encoder.Byte(proto.ClientQuery); err != nil {
-		return err
-	}
+	c.debugf("[send query] compression=%q %s", c.compression, body)
+	c.buffer.PutByte(proto.ClientQuery)
 	q := proto.Query{
-		ID:             o.queryID,
-		Body:           body,
-		Span:           o.span,
-		QuotaKey:       o.quotaKey,
-		Compression:    c.compression,
-		InitialAddress: c.conn.LocalAddr().String(),
-		Settings:       c.settings(o.settings),
+		ClientTCPProtocolVersion: ClientTCPProtocolVersion,
+		ClientName:               c.opt.ClientInfo.String(),
+		ClientVersion:            proto.Version{ClientVersionMajor, ClientVersionMinor, ClientVersionPatch}, //nolint:govet
+		ID:                       o.queryID,
+		Body:                     body,
+		Span:                     o.span,
+		QuotaKey:                 o.quotaKey,
+		Compression:              c.compression != CompressionNone,
+		InitialAddress:           c.conn.LocalAddr().String(),
+		Settings:                 c.settings(o.settings),
+		Parameters:               parametersToProtoParameters(o.parameters),
 	}
-	if err := q.Encode(c.encoder, c.revision); err != nil {
+	if err := q.Encode(c.buffer, c.revision); err != nil {
 		return err
 	}
 	for _, table := range o.external {
@@ -48,5 +50,16 @@ func (c *connect) sendQuery(body string, o *QueryOptions) error {
 	if err := c.sendData(&proto.Block{}, ""); err != nil {
 		return err
 	}
-	return c.encoder.Flush()
+	return c.flush()
+}
+
+func parametersToProtoParameters(parameters Parameters) (s proto.Parameters) {
+	for k, v := range parameters {
+		s = append(s, proto.Parameter{
+			Key:   k,
+			Value: v,
+		})
+	}
+
+	return s
 }

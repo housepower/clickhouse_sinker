@@ -82,8 +82,6 @@ type Api struct {
 	// `google.feature.v1`. For major versions 0 and 1, the suffix can
 	// be omitted. Zero major versions must only be used for
 	// experimental, non-GA interfaces.
-	//
-	//
 	Version string `protobuf:"bytes,4,opt,name=version,proto3" json:"version,omitempty"`
 	// Source context for the protocol buffer service represented by this
 	// message.
@@ -282,80 +280,80 @@ func (x *Method) GetSyntax() typepb.Syntax {
 // interface must redeclare all the methods from the included interface, but
 // documentation and options are inherited as follows:
 //
-// - If after comment and whitespace stripping, the documentation
-//   string of the redeclared method is empty, it will be inherited
-//   from the original method.
+//   - If after comment and whitespace stripping, the documentation
+//     string of the redeclared method is empty, it will be inherited
+//     from the original method.
 //
-// - Each annotation belonging to the service config (http,
-//   visibility) which is not set in the redeclared method will be
-//   inherited.
+//   - Each annotation belonging to the service config (http,
+//     visibility) which is not set in the redeclared method will be
+//     inherited.
 //
-// - If an http annotation is inherited, the path pattern will be
-//   modified as follows. Any version prefix will be replaced by the
-//   version of the including interface plus the [root][] path if
-//   specified.
+//   - If an http annotation is inherited, the path pattern will be
+//     modified as follows. Any version prefix will be replaced by the
+//     version of the including interface plus the [root][] path if
+//     specified.
 //
 // Example of a simple mixin:
 //
-//     package google.acl.v1;
-//     service AccessControl {
-//       // Get the underlying ACL object.
-//       rpc GetAcl(GetAclRequest) returns (Acl) {
-//         option (google.api.http).get = "/v1/{resource=**}:getAcl";
-//       }
-//     }
+//	package google.acl.v1;
+//	service AccessControl {
+//	  // Get the underlying ACL object.
+//	  rpc GetAcl(GetAclRequest) returns (Acl) {
+//	    option (google.api.http).get = "/v1/{resource=**}:getAcl";
+//	  }
+//	}
 //
-//     package google.storage.v2;
-//     service Storage {
-//       rpc GetAcl(GetAclRequest) returns (Acl);
+//	package google.storage.v2;
+//	service Storage {
+//	  rpc GetAcl(GetAclRequest) returns (Acl);
 //
-//       // Get a data record.
-//       rpc GetData(GetDataRequest) returns (Data) {
-//         option (google.api.http).get = "/v2/{resource=**}";
-//       }
-//     }
+//	  // Get a data record.
+//	  rpc GetData(GetDataRequest) returns (Data) {
+//	    option (google.api.http).get = "/v2/{resource=**}";
+//	  }
+//	}
 //
 // Example of a mixin configuration:
 //
-//     apis:
-//     - name: google.storage.v2.Storage
-//       mixins:
-//       - name: google.acl.v1.AccessControl
+//	apis:
+//	- name: google.storage.v2.Storage
+//	  mixins:
+//	  - name: google.acl.v1.AccessControl
 //
 // The mixin construct implies that all methods in `AccessControl` are
 // also declared with same name and request/response types in
 // `Storage`. A documentation generator or annotation processor will
-// see the effective `Storage.GetAcl` method after inheriting
+// see the effective `Storage.GetAcl` method after inherting
 // documentation and annotations as follows:
 //
-//     service Storage {
-//       // Get the underlying ACL object.
-//       rpc GetAcl(GetAclRequest) returns (Acl) {
-//         option (google.api.http).get = "/v2/{resource=**}:getAcl";
-//       }
-//       ...
-//     }
+//	service Storage {
+//	  // Get the underlying ACL object.
+//	  rpc GetAcl(GetAclRequest) returns (Acl) {
+//	    option (google.api.http).get = "/v2/{resource=**}:getAcl";
+//	  }
+//	  ...
+//	}
 //
 // Note how the version in the path pattern changed from `v1` to `v2`.
 //
 // If the `root` field in the mixin is specified, it should be a
 // relative path under which inherited HTTP paths are placed. Example:
 //
-//     apis:
-//     - name: google.storage.v2.Storage
-//       mixins:
-//       - name: google.acl.v1.AccessControl
-//         root: acls
+//	apis:
+//	- name: google.storage.v2.Storage
+//	  mixins:
+//	  - name: google.acl.v1.AccessControl
+//	    root: acls
 //
 // This implies the following inherited HTTP annotation:
 //
-//     service Storage {
-//       // Get the underlying ACL object.
-//       rpc GetAcl(GetAclRequest) returns (Acl) {
-//         option (google.api.http).get = "/v2/acls/{resource=**}:getAcl";
-//       }
-//       ...
-//     }
+//	service Storage {
+//	  // Get the underlying ACL object.
+//	  rpc GetAcl(GetAclRequest) returns (Acl) {
+//	    option (google.api.http).get = "/v2/acls/{resource=**}:getAcl";
+//	  }
+//	  ...
+//	}
 type Mixin struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
@@ -490,7 +488,7 @@ func file_google_protobuf_api_proto_rawDescGZIP() []byte {
 }
 
 var file_google_protobuf_api_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
-var file_google_protobuf_api_proto_goTypes = []interface{}{
+var file_google_protobuf_api_proto_goTypes = []any{
 	(*Api)(nil),                           // 0: google.protobuf.Api
 	(*Method)(nil),                        // 1: google.protobuf.Method
 	(*Mixin)(nil),                         // 2: google.protobuf.Mixin
@@ -519,7 +517,7 @@ func file_google_protobuf_api_proto_init() {
 		return
 	}
 	if !protoimpl.UnsafeEnabled {
-		file_google_protobuf_api_proto_msgTypes[0].Exporter = func(v interface{}, i int) interface{} {
+		file_google_protobuf_api_proto_msgTypes[0].Exporter = func(v any, i int) any {
 			switch v := v.(*Api); i {
 			case 0:
 				return &v.state
@@ -531,7 +529,7 @@ func file_google_protobuf_api_proto_init() {
 				return nil
 			}
 		}
-		file_google_protobuf_api_proto_msgTypes[1].Exporter = func(v interface{}, i int) interface{} {
+		file_google_protobuf_api_proto_msgTypes[1].Exporter = func(v any, i int) any {
 			switch v := v.(*Method); i {
 			case 0:
 				return &v.state
@@ -543,7 +541,7 @@ func file_google_protobuf_api_proto_init() {
 				return nil
 			}
 		}
-		file_google_protobuf_api_proto_msgTypes[2].Exporter = func(v interface{}, i int) interface{} {
+		file_google_protobuf_api_proto_msgTypes[2].Exporter = func(v any, i int) any {
 			switch v := v.(*Mixin); i {
 			case 0:
 				return &v.state

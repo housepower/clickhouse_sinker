@@ -1,86 +1,37 @@
 package internal
 
 import (
-	"github.com/golang/protobuf/proto"
-	dpb "github.com/golang/protobuf/protoc-gen-go/descriptor"
-	"github.com/jhump/protoreflect/internal/codec"
-	"reflect"
 	"strings"
 
-	"github.com/jhump/protoreflect/internal"
+	"github.com/golang/protobuf/proto"
+	"google.golang.org/protobuf/types/descriptorpb"
 )
-
-// NB: We use reflection or unknown fields in case we are linked against an older
-// version of the proto runtime which does not know about the proto3_optional field.
-// We don't require linking with newer version (which would greatly simplify this)
-// because that means pulling in v1.4+ of the protobuf runtime, which has some
-// compatibility issues. (We'll be nice to users and not require they upgrade to
-// that latest runtime to upgrade to newer protoreflect.)
-
-func GetProto3Optional(fd *dpb.FieldDescriptorProto) bool {
-	type newerFieldDesc interface {
-		GetProto3Optional() bool
-	}
-	var pm proto.Message = fd
-	if fd, ok := pm.(newerFieldDesc); ok {
-		return fd.GetProto3Optional()
-	}
-
-	// Field does not exist, so we have to examine unknown fields
-	// (we just silently bail if we have problems parsing them)
-	unk := internal.GetUnrecognized(pm)
-	buf := codec.NewBuffer(unk)
-	for {
-		tag, wt, err := buf.DecodeTagAndWireType()
-		if err != nil {
-			return false
-		}
-		if tag == Field_proto3OptionalTag && wt == proto.WireVarint {
-			v, _ := buf.DecodeVarint()
-			return v != 0
-		}
-		if err := buf.SkipField(wt); err != nil {
-			return false
-		}
-	}
-}
-
-func SetProto3Optional(fd *dpb.FieldDescriptorProto) {
-	rv := reflect.ValueOf(fd).Elem()
-	fld := rv.FieldByName("Proto3Optional")
-	if fld.IsValid() {
-		fld.Set(reflect.ValueOf(proto.Bool(true)))
-		return
-	}
-
-	// Field does not exist, so we have to store as unknown field.
-	var buf codec.Buffer
-	if err := buf.EncodeTagAndWireType(Field_proto3OptionalTag, proto.WireVarint); err != nil {
-		// TODO: panic? log?
-		return
-	}
-	if err := buf.EncodeVarint(1); err != nil {
-		// TODO: panic? log?
-		return
-	}
-	internal.SetUnrecognized(fd, buf.Bytes())
-}
 
 // ProcessProto3OptionalFields adds synthetic oneofs to the given message descriptor
 // for each proto3 optional field. It also updates the fields to have the correct
-// oneof index reference.
-func ProcessProto3OptionalFields(msgd *dpb.DescriptorProto) {
+// oneof index reference. The given callback, if not nil, is called for each synthetic
+// oneof created.
+func ProcessProto3OptionalFields(msgd *descriptorpb.DescriptorProto, callback func(*descriptorpb.FieldDescriptorProto, *descriptorpb.OneofDescriptorProto)) {
 	var allNames map[string]struct{}
 	for _, fd := range msgd.Field {
-		if GetProto3Optional(fd) {
+		if fd.GetProto3Optional() {
 			// lazy init the set of all names
 			if allNames == nil {
 				allNames = map[string]struct{}{}
 				for _, fd := range msgd.Field {
 					allNames[fd.GetName()] = struct{}{}
 				}
-				for _, fd := range msgd.Extension {
-					allNames[fd.GetName()] = struct{}{}
+				for _, od := range msgd.OneofDecl {
+					allNames[od.GetName()] = struct{}{}
+				}
+				// NB: protoc only considers names of other fields and oneofs
+				// when computing the synthetic oneof name. But that feels like
+				// a bug, since it means it could generate a name that conflicts
+				// with some other symbol defined in the message. If it's decided
+				// that's NOT a bug and is desirable, then we should remove the
+				// following four loops to mimic protoc's behavior.
+				for _, xd := range msgd.Extension {
+					allNames[xd.GetName()] = struct{}{}
 				}
 				for _, ed := range msgd.EnumType {
 					allNames[ed.GetName()] = struct{}{}
@@ -114,7 +65,11 @@ func ProcessProto3OptionalFields(msgd *dpb.DescriptorProto) {
 			}
 
 			fd.OneofIndex = proto.Int32(int32(len(msgd.OneofDecl)))
-			msgd.OneofDecl = append(msgd.OneofDecl, &dpb.OneofDescriptorProto{Name: proto.String(ooName)})
+			ood := &descriptorpb.OneofDescriptorProto{Name: proto.String(ooName)}
+			msgd.OneofDecl = append(msgd.OneofDecl, ood)
+			if callback != nil {
+				callback(fd, ood)
+			}
 		}
 	}
 }

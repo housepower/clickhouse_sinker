@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net"
 	"reflect"
 	"regexp"
 	"strings"
@@ -166,19 +167,27 @@ func (m *ProtoMetric) GetUUID(key string, nullable bool) interface{} {
 	return zeroUUID
 }
 
+func (m *ProtoMetric) GetObject(key string, nullable bool) interface{} {
+	return nil
+}
+
+func (m *ProtoMetric) GetMap(key string, typeInfo *model.TypeInfo) interface{} {
+	return nil
+}
+
 func (m *ProtoMetric) GetIPv4(key string, nullable bool) interface{} {
 	value, _ := m.msg.TryGetFieldByName(key)
 	if value == nil {
 		if nullable {
 			return nil
 		}
-		return zeroIPv4
+		return net.IPv4zero.String()
 	}
 
 	if v := getString(reflect.ValueOf(value)); v != "" {
 		return v
 	}
-	return zeroIPv4
+	return net.IPv4zero.String()
 }
 
 func (m *ProtoMetric) GetIPv6(key string, nullable bool) interface{} {
@@ -187,13 +196,13 @@ func (m *ProtoMetric) GetIPv6(key string, nullable bool) interface{} {
 		if nullable {
 			return nil
 		}
-		return zeroIPv6
+		return net.IPv6zero.String()
 	}
 
 	if v := getString(reflect.ValueOf(value)); v != "" {
 		return v
 	}
-	return zeroIPv6
+	return net.IPv6zero.String()
 }
 
 func (m *ProtoMetric) GetArray(key string, t int) interface{} {

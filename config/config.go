@@ -16,35 +16,51 @@ limitations under the License.
 package config
 
 import (
-	"encoding/json"
+	"net"
 	"os"
 	"regexp"
 	"strings"
 
-	"github.com/thanos-io/thanos/pkg/errors"
+	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/hjson/hjson-go/v4"
+	"go.uber.org/zap"
 
 	"github.com/viru-tech/clickhouse_sinker/util"
+
+	"github.com/thanos-io/thanos/pkg/errors"
 )
 
 // Config struct used for different configurations use
 type Config struct {
-	Kafka          KafkaConfig
-	SchemaRegistry SchemaRegistryConfig
-	Clickhouse     ClickHouseConfig
-	Task           *TaskConfig
-	Tasks          []*TaskConfig
-	Assignment     Assignment
-	LogLevel       string
+	Kafka                   KafkaConfig
+	SchemaRegistry          SchemaRegistryConfig
+	Clickhouse              ClickHouseConfig
+	Task                    *TaskConfig
+	Tasks                   []*TaskConfig
+	Assignment              Assignment
+	LogLevel                string
+	LogTrace                bool
+	RecordPoolSize          int64
+	ReloadSeriesMapInterval int
+	ActiveSeriesRange       int
+
+	Groups map[string]*GroupConfig `json:"-"`
 }
 
 // KafkaConfig configuration parameters
 type KafkaConfig struct {
-	Brokers  string
-	Version  string
-	Security map[string]string
-	TLS      struct {
+	Brokers    string
+	Properties struct {
+		HeartbeatInterval      int `json:"heartbeat.interval.ms"`
+		SessionTimeout         int `json:"session.timeout.ms"`
+		RebalanceTimeout       int `json:"rebalance.timeout.ms"`
+		RequestTimeoutOverhead int `json:"request.timeout.ms"`
+	}
+	ResetSaslRealm bool
+	Security       map[string]string
+	TLS            struct {
 		Enable         bool
-		CaCertFiles    string // Required. It's the CA cert.pem with which Kafka brokers certs be signed.
+		CaCertFiles    string // CA cert.pem with which Kafka brokers certs be signed.  Leave empty for certificates trusted by the OS
 		ClientCertFile string // Required for client authentication. It's client cert.pem.
 		ClientKeyFile  string // Required if and only if ClientCertFile is present. It's client key.pem.
 
@@ -87,13 +103,13 @@ type SchemaRegistryConfig struct {
 
 // ClickHouseConfig configuration parameters
 type ClickHouseConfig struct {
-	Cluster   string
-	DB        string
-	Hosts     [][]string
-	Port      int
-	Username  string
-	Password  string
-	DsnParams string
+	Cluster  string
+	DB       string
+	Hosts    [][]string
+	Port     int
+	Username string
+	Password string
+	Protocol string //native, http
 
 	// Whether enable TLS encryption with clickhouse-server
 	Secure bool
@@ -104,11 +120,10 @@ type ClickHouseConfig struct {
 	MaxOpenConns int
 }
 
-// Task configuration parameters
+// TaskConfig parameters
 type TaskConfig struct {
 	Name string
 
-	KafkaClient   string
 	Topic         string
 	ConsumerGroup string
 
@@ -119,7 +134,8 @@ type TaskConfig struct {
 	CsvFormat []string
 	Delimiter string
 
-	TableName string
+	TableName       string
+	SeriesTableName string
 
 	// AutoSchema will auto fetch the schema from clickhouse
 	AutoSchema     bool
@@ -133,8 +149,9 @@ type TaskConfig struct {
 	} `json:"dims"`
 	// DynamicSchema will add columns present in message to clickhouse. Requires AutoSchema be true.
 	DynamicSchema struct {
-		Enable  bool
-		MaxDims int // the upper limit of dynamic columns number, <=0 means math.MaxInt16. protecting dirty data attack
+		Enable      bool
+		NotNullable bool
+		MaxDims     int // the upper limit of dynamic columns number, <=0 means math.MaxInt16. protecting dirty data attack
 		// A column is added for new key K if all following conditions are true:
 		// - K isn't in ExcludeColumns
 		// - number of existing columns doesn't reach MaxDims-1
@@ -143,22 +160,31 @@ type TaskConfig struct {
 		WhiteList string // the regexp of white list
 		BlackList string // the regexp of black list
 	}
+	// additional fields to be appended to each input message, should be a valid json string
+	Fields string `json:"fields,omitempty"`
 	// PrometheusSchema expects each message is a Prometheus metric(timestamp, value, metric name and a list of labels).
 	PrometheusSchema bool
 	// fields match PromLabelsBlackList are not considered as labels. Requires PrometheusSchema be true.
 	PromLabelsBlackList string // the regexp of black list
-	// whether load series at startup
-	LoadSeriesAtStartup bool
 
 	// ShardingKey is the column name to which sharding against
 	ShardingKey string `json:"shardingKey,omitempty"`
-	// ShardingStripe take effect iff the sharding key is numerical
+	// ShardingStripe take effect if the sharding key is numerical
 	ShardingStripe uint64 `json:"shardingStripe,omitempty"`
 
 	FlushInterval int     `json:"flushInterval,omitempty"`
 	BufferSize    int     `json:"bufferSize,omitempty"`
 	TimeZone      string  `json:"timeZone"`
 	TimeUnit      float64 `json:"timeUnit"`
+}
+
+type GroupConfig struct {
+	Name          string
+	Topics        []string
+	Earliest      bool
+	FlushInterval int
+	BufferSize    int
+	Configs       map[string]*TaskConfig
 }
 
 type Assignment struct {
@@ -169,45 +195,63 @@ type Assignment struct {
 }
 
 const (
-	MaxBufferSize             = 1 << 20 // 1048576
-	defaultBufferSize         = 1 << 18 // 262144
-	maxFlushInterval          = 600
-	defaultFlushInterval      = 5
-	defaultTimeZone           = "Local"
-	defaultLogLevel           = "info"
-	defaultKerberosConfigPath = "/etc/krb5.conf"
-	defaultMaxOpenConns       = 1
+	MaxBufferSize                  = 1 << 20 // 1048576
+	defaultBufferSize              = 1 << 18 // 262144
+	maxFlushInterval               = 600
+	defaultFlushInterval           = 10
+	defaultTimeZone                = "Local"
+	defaultLogLevel                = "info"
+	defaultKerberosConfigPath      = "/etc/krb5.conf"
+	defaultMaxOpenConns            = 1
+	defaultReloadSeriesMapInterval = 3600   // 1 hour
+	defaultActiveSeriesRange       = 86400  // 1 day
+	defaultHeartbeatInterval       = 3000   // 3 s
+	defaultSessionTimeout          = 120000 // 2 min
+	defaultRebalanceTimeout        = 120000 // 2 min
+	defaultRequestTimeoutOverhead  = 60000  // 1 min
 )
 
 func ParseLocalCfgFile(cfgPath string) (cfg *Config, err error) {
-	cfg = &Config{}
+	cfg = &Config{
+		Groups: make(map[string]*GroupConfig),
+	}
 	var b []byte
 	b, err = os.ReadFile(cfgPath)
 	if err != nil {
 		err = errors.Wrapf(err, "")
 		return
 	}
-	if err = json.Unmarshal(b, cfg); err != nil {
+	if err = hjson.Unmarshal(b, cfg); err != nil {
 		err = errors.Wrapf(err, "")
 		return
 	}
 	return
 }
 
-// normallize and validate configuration
-func (cfg *Config) Normallize() (err error) {
-	if len(cfg.Clickhouse.Hosts) == 0 || cfg.Kafka.Brokers == "" {
-		err = errors.Newf("invalid configuration")
-		return
+// Normalize and validate configuration
+func (cfg *Config) Normallize(constructGroup bool, httpAddr string, cred util.Credentials) (err error) {
+	if cred.ClickhouseUsername != "" {
+		cfg.Clickhouse.Username = cred.ClickhouseUsername
 	}
-	if cfg.Kafka.Version == "" {
-		// https://cwiki.apache.org/confluence/display/KAFKA/Compatibility+Matrix
-		// KIP-35 - Retrieving protocol version introduced a mechanism for dynamically determining the functionality of a Kafka broker.
-		// https://github.com/Shopify/sarama/issues/1732,
-		// Historically Sarama has tied it's protocol usage to the Version field in Config.
-		// https://kafka.apache.org/downloads
-		// 2.0.0 is released at July 30, 2018.
-		cfg.Kafka.Version = "2.0.0"
+	if cred.ClickhousePassword != "" {
+		cfg.Clickhouse.Password = cred.ClickhousePassword
+	}
+	if cred.KafkaUsername != "" {
+		cfg.Kafka.Sasl.Username = cred.KafkaUsername
+	}
+	if cred.KafkaPassword != "" {
+		cfg.Kafka.Sasl.Password = cred.KafkaPassword
+	}
+	if cred.KafkaGSSAPIUsername != "" {
+		cfg.Kafka.Sasl.GSSAPI.Username = cred.KafkaGSSAPIUsername
+	}
+	if cred.KafkaGSSAPIPassword != "" {
+		cfg.Kafka.Sasl.GSSAPI.Password = cred.KafkaGSSAPIPassword
+	}
+
+	if len(cfg.Clickhouse.Hosts) == 0 || cfg.Kafka.Brokers == "" {
+		err = errors.Newf("invalid configuration, Clickhouse or Kafka section is missing!")
+		return
 	}
 
 	cfg.convertKfkSecurity()
@@ -229,12 +273,42 @@ func (cfg *Config) Normallize() (err error) {
 			err = errors.Newf("kafka SASL mechanism %s is unsupported", cfg.Kafka.Sasl.Mechanism)
 			return
 		}
+
+		if cfg.Kafka.ResetSaslRealm {
+			port := getKfkPort(cfg.Kafka.Brokers)
+			os.Setenv("DOMAIN_REALM", net.JoinHostPort("hadoop."+strings.ToLower(cfg.Kafka.Sasl.GSSAPI.Realm), port))
+		}
 	}
+	if cfg.Kafka.Properties.HeartbeatInterval == 0 {
+		cfg.Kafka.Properties.HeartbeatInterval = defaultHeartbeatInterval
+	}
+	if cfg.Kafka.Properties.RebalanceTimeout == 0 {
+		cfg.Kafka.Properties.RebalanceTimeout = defaultRebalanceTimeout
+	}
+	if cfg.Kafka.Properties.RequestTimeoutOverhead == 0 {
+		cfg.Kafka.Properties.RequestTimeoutOverhead = defaultRequestTimeoutOverhead
+	}
+	if cfg.Kafka.Properties.SessionTimeout == 0 {
+		cfg.Kafka.Properties.SessionTimeout = defaultSessionTimeout
+	}
+
 	if cfg.Clickhouse.RetryTimes < 0 {
 		cfg.Clickhouse.RetryTimes = 0
 	}
 	if cfg.Clickhouse.MaxOpenConns <= 0 {
 		cfg.Clickhouse.MaxOpenConns = defaultMaxOpenConns
+	}
+
+	if cfg.Clickhouse.Protocol == "" {
+		cfg.Clickhouse.Protocol = clickhouse.Native.String()
+	}
+
+	if cfg.Clickhouse.Port == 0 {
+		if cfg.Clickhouse.Protocol == clickhouse.HTTP.String() {
+			cfg.Clickhouse.Port = 8123
+		} else {
+			cfg.Clickhouse.Port = 9000
+		}
 	}
 
 	if cfg.Task != nil {
@@ -245,29 +319,62 @@ func (cfg *Config) Normallize() (err error) {
 		if err = cfg.normallizeTask(taskCfg); err != nil {
 			return
 		}
+		if constructGroup {
+			if httpAddr != "" && !cfg.IsAssigned(httpAddr, taskCfg.Name) {
+				continue
+			}
+			gCfg, ok := cfg.Groups[taskCfg.ConsumerGroup]
+			if !ok {
+				gCfg = &GroupConfig{
+					Name:          taskCfg.ConsumerGroup,
+					Earliest:      taskCfg.Earliest,
+					Topics:        []string{taskCfg.Topic},
+					FlushInterval: taskCfg.FlushInterval,
+					BufferSize:    taskCfg.BufferSize,
+					Configs:       make(map[string]*TaskConfig),
+				}
+				gCfg.Configs[taskCfg.Name] = taskCfg
+				cfg.Groups[taskCfg.ConsumerGroup] = gCfg
+			} else {
+				if gCfg.Earliest != taskCfg.Earliest {
+					util.Logger.Fatal("Tasks are sharing same consumer group, but with different Earliest property specified!",
+						zap.String("task", gCfg.Name), zap.String("task", taskCfg.Name))
+				} else if gCfg.FlushInterval != taskCfg.FlushInterval {
+					util.Logger.Fatal("Tasks are sharing same consumer group, but with different FlushInterval property specified!",
+						zap.String("task", gCfg.Name), zap.String("task", taskCfg.Name))
+				}
+				gCfg.Topics = append(gCfg.Topics, taskCfg.Topic)
+				gCfg.BufferSize += taskCfg.BufferSize
+				gCfg.Configs[taskCfg.Name] = taskCfg
+			}
+		}
+	}
+	if cfg.RecordPoolSize == 0 {
+		cfg.RecordPoolSize = MaxBufferSize
 	}
 	switch strings.ToLower(cfg.LogLevel) {
 	case "debug", "info", "warn", "error", "dpanic", "panic", "fatal":
 	default:
 		cfg.LogLevel = defaultLogLevel
 	}
+	if cfg.ReloadSeriesMapInterval <= 0 {
+		cfg.ReloadSeriesMapInterval = defaultReloadSeriesMapInterval
+	}
+	if cfg.ActiveSeriesRange <= 0 {
+		cfg.ActiveSeriesRange = defaultActiveSeriesRange
+	}
+
 	return
 }
 
 func (cfg *Config) normallizeTask(taskCfg *TaskConfig) (err error) {
-	if taskCfg.KafkaClient == "" {
-		// known limitations of kafka-go:
-		// - The Reader API is too high-level. There's no generation cleanup callback which sarama provides.
-		// - Doesn't support SASL/GSSAPI(Kerberos). https://github.com/segmentio/kafka-go/issues/539
-		taskCfg.KafkaClient = "franz"
-	}
 	if taskCfg.Parser == "" || taskCfg.Parser == "json" {
 		taskCfg.Parser = "fastjson"
 	}
 
 	for i := range taskCfg.Dims {
 		if taskCfg.Dims[i].SourceName == "" {
-			taskCfg.Dims[i].SourceName = util.GetSourceName(taskCfg.Dims[i].Name)
+			taskCfg.Dims[i].SourceName = util.GetSourceName(taskCfg.Parser, taskCfg.Dims[i].Name)
 		}
 	}
 
@@ -300,6 +407,7 @@ func (cfg *Config) normallizeTask(taskCfg *TaskConfig) (err error) {
 		return
 	}
 	if taskCfg.DynamicSchema.Enable {
+		taskCfg.AutoSchema = true
 		if taskCfg.Parser != "fastjson" && taskCfg.Parser != "gjson" {
 			err = errors.Newf("Parser %s doesn't support DynamicSchema", taskCfg.Parser)
 			return
@@ -341,82 +449,50 @@ func (cfg *Config) normallizeTask(taskCfg *TaskConfig) (err error) {
 
 // convert java client style configuration into sinker
 func (cfg *Config) convertKfkSecurity() {
-	if protocol, ok := cfg.Kafka.Security["security.protocol"]; ok {
-		if strings.Contains(protocol, "SASL") {
-			cfg.Kafka.Sasl.Enable = true
-		}
-		if strings.Contains(protocol, "SSL") {
-			cfg.Kafka.TLS.Enable = true
-		}
+	protocol := cfg.Kafka.Security["security.protocol"]
+	if protocol == "" {
+		return
 	}
 
-	if cfg.Kafka.TLS.Enable {
-		if endpIdentAlgo, ok := cfg.Kafka.Security["ssl.endpoint.identification.algorithm"]; ok {
-			cfg.Kafka.TLS.EndpIdentAlgo = endpIdentAlgo
-		}
-		if trustStoreLocation, ok := cfg.Kafka.Security["ssl.truststore.location"]; ok {
-			cfg.Kafka.TLS.TrustStoreLocation = trustStoreLocation
-		}
-		if trustStorePassword, ok := cfg.Kafka.Security["ssl.truststore.password"]; ok {
-			cfg.Kafka.TLS.TrustStorePassword = trustStorePassword
-		}
-		if keyStoreLocation, ok := cfg.Kafka.Security["ssl.keystore.location"]; ok {
-			cfg.Kafka.TLS.KeystoreLocation = keyStoreLocation
-		}
-		if keyStorePassword, ok := cfg.Kafka.Security["ssl.keystore.password"]; ok {
-			cfg.Kafka.TLS.KeystorePassword = keyStorePassword
-		}
+	if strings.Contains(protocol, "SSL") {
+		util.TrySetValue(&cfg.Kafka.TLS.Enable, true)
+		util.TrySetValue(&cfg.Kafka.TLS.EndpIdentAlgo, cfg.Kafka.Security["ssl.endpoint.identification.algorithm"])
+		util.TrySetValue(&cfg.Kafka.TLS.TrustStoreLocation, cfg.Kafka.Security["ssl.truststore.location"])
+		util.TrySetValue(&cfg.Kafka.TLS.TrustStorePassword, cfg.Kafka.Security["ssl.truststore.password"])
+		util.TrySetValue(&cfg.Kafka.TLS.KeystoreLocation, cfg.Kafka.Security["ssl.keystore.location"])
+		util.TrySetValue(&cfg.Kafka.TLS.KeystorePassword, cfg.Kafka.Security["ssl.keystore.password"])
 	}
-	if cfg.Kafka.Sasl.Enable {
-		if mechanism, ok := cfg.Kafka.Security["sasl.mechanism"]; ok {
-			cfg.Kafka.Sasl.Mechanism = mechanism
-		}
+
+	if strings.Contains(protocol, "SASL") {
+		util.TrySetValue(&cfg.Kafka.Sasl.Enable, true)
+		util.TrySetValue(&cfg.Kafka.Sasl.Mechanism, cfg.Kafka.Security["sasl.mechanism"])
 		if config, ok := cfg.Kafka.Security["sasl.jaas.config"]; ok {
 			configMap := readConfig(config)
-			if strings.Contains(cfg.Kafka.Sasl.Mechanism, "SCRAM") {
-				// SCRAM-SHA-256 or SCRAM-SHA-512
-				if username, ok := configMap["username"]; ok {
-					cfg.Kafka.Sasl.Username = username
-				}
-				if password, ok := configMap["password"]; ok {
-					cfg.Kafka.Sasl.Password = password
-				}
-			}
 			if strings.Contains(cfg.Kafka.Sasl.Mechanism, "GSSAPI") {
 				// GSSAPI
-				if useKeyTab, ok := configMap["useKeyTab"]; ok {
-					if useKeyTab == "true" {
-						cfg.Kafka.Sasl.GSSAPI.AuthType = 2
-					} else {
-						cfg.Kafka.Sasl.GSSAPI.AuthType = 1
-					}
-				}
-				if cfg.Kafka.Sasl.GSSAPI.AuthType == 1 {
-					// Username and password
-					if username, ok := configMap["username"]; ok {
-						cfg.Kafka.Sasl.GSSAPI.Username = username
-					}
-					if password, ok := configMap["password"]; ok {
-						cfg.Kafka.Sasl.GSSAPI.Password = password
-					}
+				if configMap["useKeyTab"] != "true" {
+					//Username and password
+					util.TrySetValue(&cfg.Kafka.Sasl.GSSAPI.AuthType, 1)
+					util.TrySetValue(&cfg.Kafka.Sasl.GSSAPI.Username, configMap["username"])
+					util.TrySetValue(&cfg.Kafka.Sasl.GSSAPI.Password, configMap["password"])
 				} else {
-					// Keytab
-					if keyTab, ok := configMap["keyTab"]; ok {
-						cfg.Kafka.Sasl.GSSAPI.KeyTabPath = keyTab
-					}
+					//Keytab
+					util.TrySetValue(&cfg.Kafka.Sasl.GSSAPI.AuthType, 2)
+					util.TrySetValue(&cfg.Kafka.Sasl.GSSAPI.KeyTabPath, configMap["keyTab"])
 					if principal, ok := configMap["principal"]; ok {
-						username := strings.Split(principal, "@")[0]
-						realm := strings.Split(principal, "@")[1]
-						cfg.Kafka.Sasl.GSSAPI.Username = username
-						cfg.Kafka.Sasl.GSSAPI.Realm = realm
+						prins := strings.Split(principal, "@")
+						util.TrySetValue(&cfg.Kafka.Sasl.GSSAPI.Username, prins[0])
+						if len(prins) > 1 {
+							util.TrySetValue(&cfg.Kafka.Sasl.GSSAPI.Realm, prins[1])
+						}
 					}
-					if servicename, ok := cfg.Kafka.Security["sasl.kerberos.service.name"]; ok {
-						cfg.Kafka.Sasl.GSSAPI.ServiceName = servicename
-					}
-					if cfg.Kafka.Sasl.GSSAPI.KerberosConfigPath == "" {
-						cfg.Kafka.Sasl.GSSAPI.KerberosConfigPath = defaultKerberosConfigPath
-					}
+					util.TrySetValue(&cfg.Kafka.Sasl.GSSAPI.ServiceName, cfg.Kafka.Security["sasl.kerberos.service.name"])
+					util.TrySetValue(&cfg.Kafka.Sasl.GSSAPI.KerberosConfigPath, defaultKerberosConfigPath)
 				}
+			} else {
+				// PLAIN, SCRAM-SHA-256 or SCRAM-SHA-512
+				util.TrySetValue(&cfg.Kafka.Sasl.Username, configMap["username"])
+				util.TrySetValue(&cfg.Kafka.Sasl.Password, configMap["password"])
 			}
 		}
 	}
@@ -447,4 +523,17 @@ func readConfig(config string) map[string]string {
 		}
 	}
 	return configMap
+}
+
+func getKfkPort(brokers string) string {
+	hosts := strings.Split(brokers, ",")
+	var port string
+	for _, host := range hosts {
+		_, p, err := net.SplitHostPort(host)
+		if err != nil {
+			port = p
+			break
+		}
+	}
+	return port
 }

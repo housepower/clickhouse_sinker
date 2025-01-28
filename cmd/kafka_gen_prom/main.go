@@ -18,57 +18,57 @@ CREATE TABLE default.dist_prom_extend ON CLUSTER abc AS prom_extend ENGINE = Dis
 
 -- Prometheus metric solution 2 - seperated table for datapoints and series labels can join on series id
 CREATE TABLE default.prom_metric ON CLUSTER abc (
-    __series_id Int64,
+    __series_id__ Int64,
     timestamp DateTime CODEC(DoubleDelta, LZ4),
     value Float32 CODEC(ZSTD(15))
 ) ENGINE=ReplicatedReplacingMergeTree()
 PARTITION BY toYYYYMMDD(timestamp)
-ORDER BY (__series_id, timestamp);
+ORDER BY (__series_id__, timestamp);
 
 CREATE TABLE default.dist_prom_metric ON CLUSTER abc AS prom_metric ENGINE = Distributed(abc, default, prom_metric);
 
 CREATE TABLE default.prom_metric_series ON CLUSTER abc (
-    __series_id Int64,
-    __mgmt_id Int64,
+    __series_id__ Int64,
+    __mgmt_id__ Int64,
     labels String,
     __name__ String
 ) ENGINE=ReplicatedReplacingMergeTree()
-ORDER BY (__name__, __series_id);
+ORDER BY (__name__, __series_id__);
 
 CREATE TABLE default.dist_prom_metric_series ON CLUSTER abc AS prom_metric_series ENGINE = Distributed(abc, default, prom_metric_series);
 
 CREATE TABLE default.prom_metric_agg ON CLUSTER abc (
-    __series_id Int64,
+    __series_id__ Int64,
     timestamp DateTime CODEC(DoubleDelta, LZ4),
     max_value AggregateFunction(max, Float32),
     min_value AggregateFunction(min, Float32),
     avg_value AggregateFunction(avg, Float32)
 ) ENGINE=ReplicatedReplacingMergeTree()
 PARTITION BY toYYYYMMDD(timestamp)
-ORDER BY (__series_id, timestamp);
+ORDER BY (__series_id__, timestamp);
 
 CREATE TABLE default.dist_prom_metric_agg ON CLUSTER abc AS prom_metric_agg ENGINE = Distributed(abc, default, prom_metric_agg);
 
-SELECT __series_id,
+SELECT __series_id__,
     toStartOfDay(timestamp) AS timestamp,
     maxMerge(max_value) AS max_value,
     minMerge(min_value) AS min_value,
     avgMerge(avg_value) AS avg_value
 FROM default.dist_prom_metric_agg
-WHERE __series_id IN (-9223014754132113609, -9223015002162651005)
-GROUP BY __series_id, timestamp
-ORDER BY __series_id, timestamp;
+WHERE __series_id__ IN (-9223014754132113609, -9223015002162651005)
+GROUP BY __series_id__, timestamp
+ORDER BY __series_id__, timestamp;
 
 -- Activate aggregation for future datapoints by creating a materialized view
 CREATE MATERIALIZED VIEW default.prom_metric_mv ON CLUSTER abc
 TO prom_metric_agg
-AS SELECT __series_id,
+AS SELECT __series_id__,
     toStartOfHour(timestamp) AS timestamp,
     maxState(value) AS max_value,
     minState(value) AS min_value,
     avgState(value) AS avg_value
 FROM prom_metric
-GROUP BY __series_id, timestamp;
+GROUP BY __series_id__, timestamp;
 
 -- Deactivate aggregation by dropping the materialized view. You can revise and create it later as you will.
 DROP TABLE default.prom_metric_mv ON CLUSTER abc SYNC;
@@ -82,12 +82,14 @@ import (
 	"math/rand"
 	"os"
 	"os/signal"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/bytedance/sonic"
+	"github.com/cespare/xxhash/v2"
 	"github.com/google/gops/agent"
 	"github.com/thanos-io/thanos/pkg/errors"
 	"github.com/twmb/franz-go/pkg/kgo"
@@ -95,12 +97,13 @@ import (
 	"go.uber.org/zap"
 )
 
+// number of series: NumMetrics * (NumRunes^LenVal)^NumKeys
 const (
 	Alpha      = "abcdefghijklmnopqrstuvwxyz"
 	NumMetrics = 1000
-	NumKeys    = 5
+	NumKeys    = 3
 	NumRunes   = 10
-	LenVal     = 1 // 1000 * (10^1)^5 = 10^8 series
+	LenVal     = 1 // 1000 * (10^1)^3 = 10^6 series
 	NumAllKeys = 1000
 )
 
@@ -117,24 +120,39 @@ type Labels map[string]string
 type Datapoint struct {
 	Timestamp time.Time
 	Value     float32
+	Value1    float64
+	Value2    int64
+	Value3    bool
 	Name      string `json:"__name__"`
-	Labels
+	Labels    Labels
+	LabelKeys []string
 }
 
 // I need every label be present at the top level.
 func (dp Datapoint) MarshalJSON() ([]byte, error) {
+	var dig xxhash.Digest
+	for _, labelKey := range dp.LabelKeys {
+		_, _ = dig.WriteString("###")
+		_, _ = dig.WriteString(labelKey)
+		_, _ = dig.WriteString("###")
+		_, _ = dig.WriteString(dp.Labels[labelKey])
+	}
+	mgmtID := int64(dig.Sum64())
+	seriesID := mgmtID
 	labels, err := sonic.MarshalString(dp.Labels)
 	if err != nil {
 		return nil, err
 	}
 	labels2 := labels[1 : len(labels)-1]
-	msg := fmt.Sprintf(`{"timestamp":"%s", "value":%f,"__name__":"%s","labels":%s,%s}`, dp.Timestamp.Format(time.RFC3339), dp.Value, dp.Name, labels, labels2)
+	msg := fmt.Sprintf(`{"timestamp":"%s", "value":%f, "value1":%g, "value2":%d, "value3":%t, "__name__":"%s", %s, "__series_id__":%d, "__mgmt_id__":%d}`,
+		dp.Timestamp.Format(time.RFC3339), dp.Value, dp.Value1, dp.Value2, dp.Value3, dp.Name, labels2, seriesID, mgmtID)
 	return []byte(msg), nil
 }
 
 type PromMetric struct {
-	Name      string
-	LabelKeys []string
+	Name        string
+	LabelKeys   []string
+	LabelValues []string
 }
 
 func randValue() (val string) {
@@ -146,17 +164,25 @@ func randValue() (val string) {
 	return
 }
 
+func randBool() bool {
+	rand.New(rand.NewSource(time.Now().UnixNano()))
+	return rand.Intn(2) == 1
+}
+
 func initMetrics() {
 	metrics = make([]PromMetric, NumMetrics)
 	for i := 0; i < NumMetrics; i++ {
 		m := PromMetric{
-			Name:      fmt.Sprintf("metric_%08d", i),
-			LabelKeys: make([]string, NumKeys),
+			Name:        fmt.Sprintf("metric_%08d", i),
+			LabelKeys:   make([]string, NumKeys),
+			LabelValues: make([]string, NumKeys),
 		}
 		for j := 0; j < NumKeys; j++ {
-			key := fmt.Sprintf("key_%06d", rand.Intn(NumAllKeys+1))
+			key := fmt.Sprintf("key_%d", rand.Intn(NumAllKeys))
 			m.LabelKeys[j] = key
+			m.LabelValues[j] = randValue()
 		}
+		sort.Strings(m.LabelKeys)
 		metrics[i] = m
 	}
 }
@@ -195,11 +221,15 @@ func generate() {
 				dp := Datapoint{
 					Timestamp: timestamp,
 					Value:     rand.Float32(),
+					Value1:    rand.Float64(),
+					Value2:    rand.Int63(),
+					Value3:    randBool(),
 					Name:      metrics[i].Name,
 					Labels:    make(Labels),
+					LabelKeys: metrics[i].LabelKeys,
 				}
-				for _, key := range metrics[i].LabelKeys {
-					dp.Labels[key] = randValue()
+				for valueuIndex, key := range metrics[i].LabelKeys {
+					dp.Labels[key] = metrics[i].LabelValues[valueuIndex]
 				}
 
 				_ = wp.Submit(func() {
@@ -252,7 +282,7 @@ topic: for example, prom_extend`, os.Args[0], os.Args[0])
 	}
 
 	var prevLines, prevSize int64
-	ctx, _ := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	ctx, _ := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	go generate()
 
 	ticker := time.NewTicker(10 * time.Second)

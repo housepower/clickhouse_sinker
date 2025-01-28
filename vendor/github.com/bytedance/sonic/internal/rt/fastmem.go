@@ -66,5 +66,59 @@ func FuncAddr(f interface{}) unsafe.Pointer {
     }
 }
 
+func IndexChar(src string, index int) unsafe.Pointer {
+	return unsafe.Pointer(uintptr((*GoString)(unsafe.Pointer(&src)).Ptr) + uintptr(index))
+}
+
+func IndexByte(ptr []byte, index int) unsafe.Pointer {
+	return unsafe.Pointer(uintptr((*GoSlice)(unsafe.Pointer(&ptr)).Ptr) + uintptr(index))
+}
+
 //go:nosplit
-func MoreStack(size uintptr)
+func GuardSlice(buf *[]byte, n int) {
+	c := cap(*buf)
+	l := len(*buf)
+	if c-l < n {
+		c = c>>1 + n + l
+		if c < 32 {
+			c = 32
+		}
+		tmp := make([]byte, l, c)
+		copy(tmp, *buf)
+		*buf = tmp
+	}
+}
+
+//go:nosplit
+func Ptr2SlicePtr(s unsafe.Pointer, l int, c int) unsafe.Pointer {
+    slice := &GoSlice{
+        Ptr: s,
+        Len: l,
+        Cap: c,
+    }
+    return unsafe.Pointer(slice)
+}
+
+//go:nosplit
+func StrPtr(s string) unsafe.Pointer {
+    return (*GoString)(unsafe.Pointer(&s)).Ptr
+}
+
+//go:nosplit
+func StrFrom(p unsafe.Pointer, n int64) (s string) {
+    (*GoString)(unsafe.Pointer(&s)).Ptr = p
+    (*GoString)(unsafe.Pointer(&s)).Len = int(n)
+    return
+}
+
+// NoEscape hides a pointer from escape analysis. NoEscape is
+// the identity function but escape analysis doesn't think the
+// output depends on the input. NoEscape is inlined and currently
+// compiles down to zero instructions.
+// USE CAREFULLY!
+//go:nosplit
+//goland:noinspection GoVetUnsafePointer
+func NoEscape(p unsafe.Pointer) unsafe.Pointer {
+    x := uintptr(p)
+    return unsafe.Pointer(x ^ 0)
+}

@@ -1,6 +1,7 @@
 package kgo
 
 import (
+	"context"
 	"errors"
 	"reflect"
 	"time"
@@ -44,7 +45,7 @@ func (a RecordAttrs) TimestampType() int8 {
 	if a.attrs&0b1000_0000 != 0 {
 		return -1
 	}
-	return int8(a.attrs & 0b0000_1000)
+	return int8(a.attrs&0b0000_1000) >> 3
 }
 
 // CompressionType signifies with which algorithm this record was compressed.
@@ -100,27 +101,30 @@ type Record struct {
 
 	// Partition is the partition that a record is written to.
 	//
-	// For producing, this is left unset. This will be set by the client as
-	// appropriate. Alternatively, you can use the ManualPartitioner, which
-	// makes it such that this field is always the field chosen when
-	// partitioning (i.e., you partition manually ahead of time).
+	// For producing, this is left unset. This will be set by the client
+	// before the record is unbuffered. If you use the ManualPartitioner,
+	// the value of this field is always the partition chosen when
+	// producing (i.e., you partition manually ahead of time).
 	Partition int32
 
 	// Attrs specifies what attributes were on this record.
+	//
+	// For producing, this is left unset. This will be set by the client
+	// before the record is unbuffered.
 	Attrs RecordAttrs
 
 	// ProducerEpoch is the producer epoch of this message if it was
 	// produced with a producer ID. An epoch and ID of 0 means it was not.
 	//
 	// For producing, this is left unset. This will be set by the client
-	// as appropriate.
+	// before the record is unbuffered.
 	ProducerEpoch int16
 
 	// ProducerEpoch is the producer ID of this message if it was produced
 	// with a producer ID. An epoch and ID of 0 means it was not.
 	//
 	// For producing, this is left unset. This will be set by the client
-	// as appropriate.
+	// before the record is unbuffered.
 	ProducerID int64
 
 	// LeaderEpoch is the leader epoch of the broker at the time this
@@ -132,22 +136,39 @@ type Record struct {
 
 	// Offset is the offset that a record is written as.
 	//
-	// For producing, this is left unset. This will be set by the client as
-	// appropriate. If you are producing with no acks, this will just be
-	// the offset used in the produce request and does not mirror the
-	// offset actually stored within Kafka.
+	// For producing, this is left unset. This will be set by the client
+	// before the record is unbuffered. If you are producing with no acks,
+	// this will just be the offset used in the produce request and does
+	// not mirror the offset actually stored within Kafka.
 	Offset int64
+
+	// Context is an optional field that is used for enriching records.
+	//
+	// If this field is nil when producing, it is set to the Produce ctx
+	// arg. This field can be used to propagate record enrichment across
+	// producer hooks. It can also be set in a consumer hook to propagate
+	// enrichment to consumer clients.
+	Context context.Context
+}
+
+func (r *Record) userSize() int64 {
+	s := len(r.Key) + len(r.Value)
+	for _, h := range r.Headers {
+		s += len(h.Key) + len(h.Value)
+	}
+	return int64(s)
 }
 
 // When buffering records, we calculate the length and tsDelta ahead of time
 // (also because number width affects encoding length). We repurpose the Offset
 // field to save space.
-func (r *Record) setLengthAndTimestampDelta(length, tsDelta int32) {
-	r.Offset = int64(uint64(uint32(length))<<32 | uint64(uint32(tsDelta)))
+func (r *Record) setLengthAndTimestampDelta(length int32, tsDelta int64) {
+	r.LeaderEpoch = length
+	r.Offset = tsDelta
 }
 
-func (r *Record) lengthAndTimestampDelta() (length, tsDelta int32) {
-	return int32(uint32(uint64(r.Offset) >> 32)), int32(uint32(uint64(r.Offset)))
+func (r *Record) lengthAndTimestampDelta() (length int32, tsDelta int64) {
+	return r.LeaderEpoch, r.Offset
 }
 
 // AppendFormat appends a record to b given the layout or returns an error if
@@ -164,7 +185,7 @@ func (r *Record) AppendFormat(b []byte, layout string) ([]byte, error) {
 
 // StringRecord returns a Record with the Value field set to the input value
 // string. For producing, this function is useful in tandem with the
-// client-level DefailtProduceTopic option.
+// client-level DefaultProduceTopic option.
 //
 // This function uses the 'unsafe' package to avoid copying value into a slice.
 //
@@ -173,8 +194,8 @@ func (r *Record) AppendFormat(b []byte, layout string) ([]byte, error) {
 // for producing; the client never modifies a record's key nor value fields.
 func StringRecord(value string) *Record {
 	var slice []byte
-	slicehdr := (*reflect.SliceHeader)(unsafe.Pointer(&slice))
-	slicehdr.Data = ((*reflect.StringHeader)(unsafe.Pointer(&value))).Data
+	slicehdr := (*reflect.SliceHeader)(unsafe.Pointer(&slice))             //nolint:gosec // known way to convert string to slice
+	slicehdr.Data = ((*reflect.StringHeader)(unsafe.Pointer(&value))).Data //nolint:gosec // known way to convert string to slice
 	slicehdr.Len = len(value)
 	slicehdr.Cap = len(value)
 
@@ -183,7 +204,7 @@ func StringRecord(value string) *Record {
 
 // KeyStringRecord returns a Record with the Key and Value fields set to the
 // input key and value strings. For producing, this function is useful in
-// tandem with the client-level DefailtProduceTopic option.
+// tandem with the client-level DefaultProduceTopic option.
 //
 // This function uses the 'unsafe' package to avoid copying value into a slice.
 //
@@ -193,8 +214,8 @@ func StringRecord(value string) *Record {
 func KeyStringRecord(key, value string) *Record {
 	r := StringRecord(value)
 
-	keyhdr := (*reflect.SliceHeader)(unsafe.Pointer(&r.Key))
-	keyhdr.Data = ((*reflect.StringHeader)(unsafe.Pointer(&key))).Data
+	keyhdr := (*reflect.SliceHeader)(unsafe.Pointer(&r.Key))           //nolint:gosec // known way to convert string to slice
+	keyhdr.Data = ((*reflect.StringHeader)(unsafe.Pointer(&key))).Data //nolint:gosec // known way to convert string to slice
 	keyhdr.Len = len(key)
 	keyhdr.Cap = len(key)
 
@@ -203,14 +224,14 @@ func KeyStringRecord(key, value string) *Record {
 
 // SliceRecord returns a Record with the Value field set to the input value
 // slice. For producing, this function is useful in tandem with the
-// client-level DefailtProduceTopic option.
+// client-level DefaultProduceTopic option.
 func SliceRecord(value []byte) *Record {
 	return &Record{Value: value}
 }
 
 // KeySliceRecord returns a Record with the Key and Value fields set to the
 // input key and value slices. For producing, this function is useful in
-// tandem with the client-level DefailtProduceTopic option.
+// tandem with the client-level DefaultProduceTopic option.
 func KeySliceRecord(key, value []byte) *Record {
 	return &Record{Key: key, Value: value}
 }
@@ -223,7 +244,7 @@ type FetchPartition struct {
 	// Err is an error for this partition in the fetch.
 	//
 	// Note that if this is a fatal error, such as data loss or non
-	// retriable errors, this partition will never be fetched again.
+	// retryable errors, this partition will never be fetched again.
 	Err error
 	// HighWatermark is the current high watermark for this partition, that
 	// is, the current offset that is on all in sync replicas.
@@ -311,28 +332,38 @@ type FetchError struct {
 // Errors returns all errors in a fetch with the topic and partition that
 // errored.
 //
-// There are four classes of errors possible:
+// There are a few classes of errors possible:
 //
-//   1) a normal kerr.Error; these are usually the non-retriable kerr.Errors,
-//      but theoretically a non-retriable error can be fixed at runtime (auth
-//      error? fix auth). It is worth restarting the client for these errors if
-//      you do not intend to fix this problem at runtime.
+//  1. a normal kerr.Error; these are usually the non-retryable kerr.Errors,
+//     but theoretically a non-retryable error can be fixed at runtime (auth
+//     error? fix auth). It is worth restarting the client for these errors if
+//     you do not intend to fix this problem at runtime.
 //
-//   2) an injected *ErrDataLoss; these are informational, the client
-//      automatically resets consuming to where it should and resumes. This
-//      error is worth logging and investigating, but not worth restarting the
-//      client for.
+//  2. an injected *ErrDataLoss; these are informational, the client
+//     automatically resets consuming to where it should and resumes. This
+//     error is worth logging and investigating, but not worth restarting the
+//     client for.
 //
-//   3) an untyped batch parse failure; these are usually unrecoverable by
-//      restarts, and it may be best to just let the client continue. However,
-//      restarting is an option, but you may need to manually repair your
-//      partition.
+//  3. an untyped batch parse failure; these are usually unrecoverable by
+//     restarts, and it may be best to just let the client continue. However,
+//     restarting is an option, but you may need to manually repair your
+//     partition.
 //
-//   4) an injected ErrClientClosed; this is a fatal informational error that
-//      is returned from every Poll call if the client has been closed.
-//      A corresponding helper function IsClientClosed can be used to detect
-//      this error.
+//  4. an injected ErrClientClosed; this is a fatal informational error that
+//     is returned from every Poll call if the client has been closed.
+//     A corresponding helper function IsClientClosed can be used to detect
+//     this error.
 //
+//  5. an injected context error; this can be present if the context you were
+//     using for polling timed out or was canceled.
+//
+//  6. an injected ErrGroupSession; this is an informational error that is
+//     injected once a group session is lost in a way that is not the standard
+//     rebalance. This error can signify that your consumer member is not able
+//     to connect to the group (ACL problems, unreachable broker), or you
+//     blocked rebalancing for too long, or your callbacks took too long.
+//
+// This list may grow over time.
 func (fs Fetches) Errors() []FetchError {
 	var errs []FetchError
 	fs.EachError(func(t string, p int32, err error) {
@@ -358,21 +389,40 @@ func (f Fetch) hasErrorsOrRecords() bool {
 	return false
 }
 
-// IsClientClosed returns whether the fetches includes an error indicating that
+// IsClientClosed returns whether the fetches include an error indicating that
 // the client is closed.
 //
 // This function is useful to break out of a poll loop; you likely want to call
-// this function before calling Errors.
+// this function before calling Errors. If you may cancel the context to poll,
+// you may want to use Err0 and manually check errors.Is(ErrClientClosed) or
+// errors.Is(context.Canceled).
 func (fs Fetches) IsClientClosed() bool {
 	// An injected ErrClientClosed is a single fetch with one topic and
 	// one partition. We can use this to make IsClientClosed do less work.
 	return len(fs) == 1 && len(fs[0].Topics) == 1 && len(fs[0].Topics[0].Partitions) == 1 && errors.Is(fs[0].Topics[0].Partitions[0].Err, ErrClientClosed)
 }
 
+// Err0 returns the error at the 0th index fetch, topic, and partition. This
+// can be used to quickly check if polling returned early because the client
+// was closed or the context was canceled and is faster than performing a
+// linear scan over all partitions with Err. When the client is closed or the
+// context is canceled, fetches will contain only one partition whose Err field
+// indicates the close / cancel. Note that this returns whatever the first
+// error is, nil or non-nil, and does not check for a specific error value.
+func (fs Fetches) Err0() error {
+	if len(fs) > 0 && len(fs[0].Topics) > 0 && len(fs[0].Topics[0].Partitions) > 0 {
+		return fs[0].Topics[0].Partitions[0].Err
+	}
+	return nil
+}
+
 // Err returns the first error in all fetches, if any. This can be used to
 // quickly check if the client is closed or your poll context was canceled, or
 // to check if there's some other error that requires deeper investigation with
-// EachError.
+// EachError. This function performs a linear scan over all fetched partitions.
+// It is recommended to always check all errors. If you would like to more
+// quickly check ahead of time if a poll was canceled because of closing the
+// client or canceling the context, you can use Err0.
 func (fs Fetches) Err() error {
 	for _, f := range fs {
 		for i := range f.Topics {
@@ -531,15 +581,34 @@ func (fs Fetches) EachRecord(fn func(*Record)) {
 // can process records individually, it is far more efficient to use the Each
 // functions or the RecordIter.
 func (fs Fetches) Records() []*Record {
-	var n int
-	fs.EachPartition(func(p FetchTopicPartition) {
-		n += len(p.Records)
-	})
-	rs := make([]*Record, 0, n)
+	rs := make([]*Record, 0, fs.NumRecords())
 	fs.EachPartition(func(p FetchTopicPartition) {
 		rs = append(rs, p.Records...)
 	})
 	return rs
+}
+
+// NumRecords returns the total number of records across all fetched partitions.
+func (fs Fetches) NumRecords() (n int) {
+	fs.EachPartition(func(p FetchTopicPartition) {
+		n += len(p.Records)
+	})
+	return n
+}
+
+// Empty checks whether the fetch result empty. This method is faster than NumRecords() == 0.
+func (fs Fetches) Empty() bool {
+	for i := range fs {
+		for j := range fs[i].Topics {
+			for k := range fs[i].Topics[j].Partitions {
+				if len(fs[i].Topics[j].Partitions[k].Records) > 0 {
+					return false
+				}
+			}
+		}
+	}
+
+	return true
 }
 
 // FetchTopicPartition is similar to FetchTopic, but for an individual

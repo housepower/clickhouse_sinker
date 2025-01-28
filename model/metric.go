@@ -18,6 +18,7 @@ package model
 import (
 	"regexp"
 	"sync"
+	"time"
 )
 
 // Metric interface for metric collection
@@ -37,9 +38,11 @@ type Metric interface {
 	GetDateTime(key string, nullable bool) interface{}
 	GetString(key string, nullable bool) interface{}
 	GetUUID(key string, nullable bool) interface{}
+	GetObject(key string, nullable bool) interface{}
+	GetMap(key string, typeinfo *TypeInfo) interface{}
+	GetArray(key string, t int) interface{}
 	GetIPv4(key string, nullable bool) interface{}
 	GetIPv6(key string, nullable bool) interface{}
-	GetArray(key string, t int) interface{}
 	GetNewKeys(knownKeys, newKeys, warnKeys *sync.Map, white, black *regexp.Regexp, partition int, offset int64) bool
 }
 
@@ -52,10 +55,60 @@ type DimMetrics struct {
 // ColumnWithType
 type ColumnWithType struct {
 	Name       string
-	Type       int
-	Nullable   bool
-	Array      bool
+	Type       *TypeInfo
 	SourceName string
 	// Const is used to set column value to some constant from config.
 	Const string
+}
+
+// struct for ingesting a clickhouse Map type value
+type OrderedMap struct {
+	keys   []interface{}
+	values map[interface{}]interface{}
+}
+
+func (om *OrderedMap) Get(key interface{}) (interface{}, bool) {
+	if value, present := om.values[key]; present {
+		return value, present
+	}
+	return nil, false
+}
+
+func (om *OrderedMap) Put(key interface{}, value interface{}) {
+	if _, present := om.values[key]; present {
+		om.values[key] = value
+		return
+	}
+	om.keys = append(om.keys, key)
+	om.values[key] = value
+}
+
+func (om *OrderedMap) Keys() <-chan interface{} {
+	ch := make(chan interface{})
+	go func() {
+		defer close(ch)
+		for _, key := range om.keys {
+			ch <- key
+		}
+	}()
+	return ch
+}
+
+func (om *OrderedMap) GetValues() map[interface{}]interface{} {
+	return om.values
+}
+
+func NewOrderedMap() *OrderedMap {
+	om := OrderedMap{}
+	om.keys = []interface{}{}
+	om.values = map[interface{}]interface{}{}
+	return &om
+}
+
+type SeriesQuota struct {
+	sync.Mutex     `json:"-"`
+	NextResetQuota time.Time
+	BmSeries       map[int64]int64 // sid:mid
+	WrSeries       int
+	Birth          time.Time
 }

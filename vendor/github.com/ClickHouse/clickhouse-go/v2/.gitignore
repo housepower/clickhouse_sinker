@@ -28,3 +28,14 @@ _testmain.go
 coverage.txt
 .idea/**
 dev/*
+.run/**
+
+vendor
+
+**.tfstate*
+.terraform.lock.hcl
+**/.terraform*
+pipeline.auto.tfvars
+*.tfvars
+
+.env

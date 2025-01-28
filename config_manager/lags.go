@@ -2,12 +2,22 @@ package rcm
 
 import (
 	"context"
+	"reflect"
 
 	"github.com/thanos-io/thanos/pkg/errors"
 	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/viru-tech/clickhouse_sinker/config"
 	"github.com/viru-tech/clickhouse_sinker/input"
+	"github.com/viru-tech/clickhouse_sinker/statistics"
+	"github.com/viru-tech/clickhouse_sinker/util"
+	"go.uber.org/zap"
+)
+
+var (
+	theCl       *kgo.Client
+	theAdm      *kadm.Client
+	kafkaConfig *config.KafkaConfig
 )
 
 type StateLag struct {
@@ -17,63 +27,53 @@ type StateLag struct {
 
 // GetTaskStateAndLags get state and lag of all tasks.
 func GetTaskStateAndLags(cfg *config.Config) (stateLags map[string]StateLag, err error) {
-	var cl *kgo.Client
-	var adm *kadm.Client
-	if cl, adm, err = newClient(cfg); err != nil {
-		return
+	kconf := cfg.Kafka
+	if !reflect.DeepEqual(&kconf, kafkaConfig) {
+		cleanupKafkaClient()
+		if err = newClient(cfg.Kafka); err != nil {
+			return
+		}
+		kafkaConfig = &kconf
 	}
-	defer adm.Close()
-	defer cl.Close()
 
-	stateLags = make(map[string]StateLag)
+	stateLags = make(map[string]StateLag, len(cfg.Tasks))
 	for _, taskCfg := range cfg.Tasks {
 		var state string
 		var totalLags int64
-		if state, totalLags, err = getStateAndLag(adm, taskCfg.Topic, taskCfg.ConsumerGroup); err != nil {
-			return
+		if state, totalLags, err = getStateAndLag(theAdm, taskCfg.Topic, taskCfg.ConsumerGroup); err != nil {
+			// skip this task for now, wait next assign cycle
+			util.Logger.Error("retrieve lag failed", zap.String("task", taskCfg.Name), zap.Error(err))
+			statistics.ConsumeLags.WithLabelValues(taskCfg.ConsumerGroup, taskCfg.Topic, taskCfg.Name).Set(float64(-1))
+			continue
 		}
 		stateLags[taskCfg.Name] = StateLag{State: state, Lag: totalLags}
+		statistics.ConsumeLags.WithLabelValues(taskCfg.ConsumerGroup, taskCfg.Topic, taskCfg.Name).Set(float64(totalLags))
 	}
 	return
 }
 
-// GetTaskStateAndLag get state and lag of a task.
-func GetTaskStateAndLag(cfg *config.Config, taskName string) (stateLag StateLag, err error) {
-	var cl *kgo.Client
-	var adm *kadm.Client
-	if cl, adm, err = newClient(cfg); err != nil {
-		return
+func cleanupKafkaClient() {
+	if theCl != nil {
+		theCl.Close()
+		theCl = nil
 	}
-	defer adm.Close()
-	defer cl.Close()
-
-	var taskCfg *config.TaskConfig
-	for _, tskCfg := range cfg.Tasks {
-		if tskCfg.Name == taskName {
-			taskCfg = tskCfg
-			break
-		}
+	if theAdm != nil {
+		theAdm.Close()
+		theAdm = nil
 	}
-	if taskCfg == nil {
-		err = errors.Newf("task %q doesn't exist", taskName)
-		return
-	}
-	if stateLag.State, stateLag.Lag, err = getStateAndLag(adm, taskCfg.Topic, taskCfg.ConsumerGroup); err != nil {
-		return
-	}
-	return
 }
 
-func newClient(cfg *config.Config) (cl *kgo.Client, adm *kadm.Client, err error) {
+func newClient(cfg config.KafkaConfig) (err error) {
 	var opts []kgo.Opt
-	if opts, err = input.GetFranzConfig(&cfg.Kafka); err != nil {
+	if opts, err = input.GetFranzConfig(&cfg); err != nil {
 		return
 	}
-	if cl, err = kgo.NewClient(opts...); err != nil {
+	// franz.config.go 379 - invalid autocommit options specified when a group was not specified
+	if theCl, err = kgo.NewClient(opts...); err != nil {
 		err = errors.Wrapf(err, "")
 		return
 	}
-	adm = kadm.NewClient(cl)
+	theAdm = kadm.NewClient(theCl)
 	return
 }
 

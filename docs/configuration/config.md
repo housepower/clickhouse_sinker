@@ -1,6 +1,6 @@
 # Config Items
 
-> Here we use json with comments for documentation
+> Here we use json with comments for documentation, config file in hjson format is also supported
 
 ```json
 {
@@ -36,13 +36,26 @@
     // retryTimes when error occurs in inserting datas
     "retryTimes": 0,
     // max open connections with each clickhouse node. default to 1.
-    "maxOpenConns": 1
+    "maxOpenConns": 1,
+    // native or http, if configured secure and http both, means support https. default to native.
+    "protocol": "native"
   },
 
   // Kafka config
   "kafka": {
     "brokers": "127.0.0.1:9093",
-    
+
+    "properties":{
+        // This corresponds to Kafka's heartbeat.interval.ms.
+        "heartbeat.interval.ms": 3000,
+        // This option corresponds to Kafka's session.timeout.ms setting and must be within the broker's group.min.session.timeout.ms and group.max.session.timeout.ms.
+        "session.timeout.ms": 120000,
+        // This corresponds to Kafka's rebalance.timeout.ms.
+        "rebalance.timeout.ms": 120000,
+        // This option is roughly equivalent to request.timeout.ms, but grants additional time to requests that have timeout fields.
+        "request.timeout.ms": 60000
+    }
+  
     // jave client style security authentication
     "security":{
         "security.protocol": "SASL_PLAINTEXT",
@@ -50,6 +63,8 @@
         "sasl.mechanism":"GSSAPI",
         "sasl.jaas.config":"com.sun.security.auth.module.Krb5LoginModule required useKeyTab=true storeKey=true debug=true keyTab=\"/etc/security/mmmtest.keytab\" principal=\"mmm@ALANWANG.COM\";"
     },
+    // whether reset domain realm. if this option is true, domain realm will replaced by "hadoop.{toLower(GSSAPI.Realm)}:{port}", this feature is worked when clickhouse_sinker connect to HUAWEI MRS kerberos kafka.
+    "resetSaslRealm": false,
 
     // SSL
     "tls": {
@@ -85,15 +100,10 @@
         "disablepafxfast": false
       }
     },
-
-    // kafka version, if you use sarama, the version must be specified
-    "version": "2.5.0"
   },
 
   "task": {
     "name": "test_dynamic_schema",
-    // kafka client, possible values: sarama, kafka-go. (defaults to sarama)
-    "kafkaClient": "sarama",
     // kafka topic
     "topic": "topic",
     // kafka consume from earliest or latest
@@ -105,7 +115,11 @@
     "parser": "json",
 
     // clickhouse table name
-    "tableName": "daily",
+    // override the clickhouse.db with "db.tableName" format, eg "default.tbl1"
+    "tableName": "prom_metric",
+
+    // name of the timeseries table, by default it is tableName with a "_series" suffix
+    "seriesTableName": "prom_metric_myseries",
 
     // columns of the table
     "dims": [
@@ -149,14 +163,25 @@
       "blackList": "@"
     },
 
+    // additional fields to be appended to each input message, should be a valid json string
+    // e.g. fields: "{\"Enable\":true,\"MaxDims\":0,\"Earliest\":false,\"Parser\":\"fastjson\"}"
+    "fields": "",
+
+    // PrometheusSchema expects each message is a Prometheus metric(timestamp, value, metric name and a list of labels).
+    "prometheusSchema": true,
+    // the regexp of labels black list, fields match promLabelsBlackList are not considered as part of labels column in series table
+    // Requires PrometheusSchema be true.
+    "promLabelsBlackList": "",
+
     // shardingKey is the column name to which sharding against
     "shardingKey": "",
-    // shardingStripe take effect iff the sharding key is numerical
+    // shardingStripe take effect if the sharding key is numerical
     "shardingStripe": 0,
 
     // interval of flushing the batch. Default to 5, max to 600.
     "flushInterval": 5,
-    // batch size to insert into clickhouse. sinker will round upward it to the the nearest 2^n. Default to 262114, max to 1048576.
+    // Approximate batch size to insert into clickhouse per shard, also control the kafka max.partition.fetch.bytes.
+    // Sinker will round upward it to the the nearest 2^n. Default to 262114, max to 1048576.
     "bufferSize": 262114,
 
     // In the absence of time zone information, interprets the time as in the given location. Default to "Local" (aka /etc/localtime of the machine on which sinker runs)
@@ -167,6 +192,16 @@
   },
 
   // log level, possible value: "debug", "info", "warn", "error", "dpanic", "panic", "fatal". Default to "info".
-  "logLevel": "debug"
+  "logLevel": "debug",
+  // The Series table may contain hundreds of columns, and writing this table every time a datapoint is persisted can result in significant
+  // performance overhead. This should be unnecessary since the lables from the same timeseries usually do not change(mid could be an exception).
+  // Therefore, it would be reasonable to keep the map between "sid" and "mid" in cache to avoid frequent write operations. To optimize the memory
+  // utilization, only active series from the last "activeSeriesRange" seconds will be cached, and the map in the cache will be updated every
+  // "reloadSeriesMapInterval" seconds. By default, series from the last 24 hours will be cached, and the cache will be updated every hour.
+	"reloadSeriesMapInterval": 3600,
+	"activeSeriesRange": 86400,
+  "logTrace": false,
+  // It is recommended that recordPoolSize be 3 or 4 times the bufferSize, for the backpressure mechanism, to avoid using too much memory.
+  "recordPoolSize": 1048576
 }
 ```

@@ -3,10 +3,10 @@
 //
 // This can be used like so:
 //
-//     cl, err := kgo.NewClient(
-//             kgo.WithLogger(kzap.New(zapLogger)),
-//             // ...other opts
-//     )
+//	cl, err := kgo.NewClient(
+//	        kgo.WithLogger(kzap.New(zapLogger)),
+//	        // ...other opts
+//	)
 //
 // By default, the logger chooses the highest level possible that is enabled on
 // the zap logger, and then sticks with that level forever. A variable level
@@ -41,8 +41,10 @@ func New(zl *zap.Logger, opts ...Opt) *Logger {
 				return kgo.LogLevelInfo
 			case c.Enabled(zap.WarnLevel):
 				return kgo.LogLevelWarn
+			case c.Enabled(zap.ErrorLevel):
+				return kgo.LogLevelError
 			}
-			return kgo.LogLevelError // default
+			return kgo.LogLevelNone // default
 		},
 	}
 	for _, opt := range opts {
@@ -79,8 +81,10 @@ func AtomicLevel(level zap.AtomicLevel) Opt {
 			return kgo.LogLevelInfo
 		case zap.WarnLevel:
 			return kgo.LogLevelWarn
+		case zap.ErrorLevel:
+			return kgo.LogLevelError
 		}
-		return kgo.LogLevelError
+		return kgo.LogLevelNone
 	})
 }
 
@@ -95,7 +99,7 @@ func (l *Logger) Level() kgo.LogLevel {
 }
 
 // Log is for the kgo.Logger interface.
-func (l *Logger) Log(level kgo.LogLevel, msg string, keyvals ...interface{}) {
+func (l *Logger) Log(level kgo.LogLevel, msg string, keyvals ...any) {
 	fields := make([]zap.Field, 0, len(keyvals)/2)
 	for i := 0; i < len(keyvals); i += 2 {
 		k, v := keyvals[i], keyvals[i+1]

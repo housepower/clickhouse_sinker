@@ -19,13 +19,16 @@ package pool
 // Clickhouse connection pool
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
+	"math/rand"
 	"sync"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/thanos-io/thanos/pkg/errors"
+	"github.com/viru-tech/clickhouse_sinker/config"
 	"github.com/viru-tech/clickhouse_sinker/util"
 	"go.uber.org/zap"
 )
@@ -37,19 +40,26 @@ var (
 
 // ShardConn a datastructure for storing the clickhouse connection
 type ShardConn struct {
-	lock     sync.Mutex
-	db       clickhouse.Conn
-	dbVer    int
-	opts     clickhouse.Options
-	replicas []string //ip:port list of replicas
-	nextRep  int      //index of next replica
+	lock        sync.Mutex
+	conn        *Conn
+	dbVer       int
+	opts        clickhouse.Options
+	replicas    []string         //ip:port list of replicas
+	nextRep     int              //index of next replica
+	writingPool *util.WorkerPool //the all tasks' writing ClickHouse, cpu-net balance
+	protocol    clickhouse.Protocol
+	chCfg       *config.ClickHouseConfig
+}
+
+func (sc *ShardConn) SubmitTask(fn func()) (err error) {
+	return sc.writingPool.Submit(fn)
 }
 
 // GetReplica returns the replica to which db connects
 func (sc *ShardConn) GetReplica() (replica string) {
 	sc.lock.Lock()
 	defer sc.lock.Unlock()
-	if sc.db != nil {
+	if sc.conn != nil {
 		curRep := (len(sc.replicas) + sc.nextRep - 1) % len(sc.replicas)
 		replica = sc.replicas[curRep]
 	}
@@ -60,17 +70,20 @@ func (sc *ShardConn) GetReplica() (replica string) {
 func (sc *ShardConn) Close() {
 	sc.lock.Lock()
 	defer sc.lock.Unlock()
-	if sc.db != nil {
-		sc.db.Close()
-		sc.db = nil
+	if sc.conn != nil {
+		sc.conn.Close()
+		sc.conn = nil
+	}
+	if sc.writingPool != nil {
+		sc.writingPool.StopWait()
 	}
 }
 
 // NextGoodReplica connects to next good replica
-func (sc *ShardConn) NextGoodReplica(failedVer int) (db clickhouse.Conn, dbVer int, err error) {
+func (sc *ShardConn) NextGoodReplica(failedVer int) (db *Conn, dbVer int, err error) {
 	sc.lock.Lock()
 	defer sc.lock.Unlock()
-	if sc.db != nil {
+	if sc.conn != nil {
 		if sc.dbVer > failedVer {
 			// Another goroutine has already done connection.
 			// Notice: Why recording failure version instead timestamp?
@@ -78,67 +91,101 @@ func (sc *ShardConn) NextGoodReplica(failedVer int) (db clickhouse.Conn, dbVer i
 			// conn1 = NextGood(0); conn2 = NexGood(0); conn1.Exec failed at ts1;
 			// conn3 = NextGood(ts1); conn2.Exec failed at ts2;
 			// conn4 = NextGood(ts2) will close the good connection and break users.
-			return sc.db, sc.dbVer, nil
+			return sc.conn, sc.dbVer, nil
 		}
-		sc.db.Close()
-		sc.db = nil
+		sc.conn.Close()
+		sc.conn = nil
 	}
 	savedNextRep := sc.nextRep
 	// try all replicas, including the current one
+	conn := Conn{
+		protocol: sc.protocol,
+		ctx:      context.Background(),
+	}
 	for i := 0; i < len(sc.replicas); i++ {
 		replica := sc.replicas[sc.nextRep]
 		sc.opts.Addr = []string{replica}
 		sc.nextRep = (sc.nextRep + 1) % len(sc.replicas)
-		sc.db, err = clickhouse.Open(&sc.opts)
+		if sc.protocol == clickhouse.HTTP {
+			// refers to https://github.com/ClickHouse/clickhouse-go/issues/1150
+			// An obscure error in the HTTP protocol when using compression
+			// disable compression in the HTTP protocol
+			conn.db = clickhouse.OpenDB(&sc.opts)
+			conn.db.SetMaxOpenConns(sc.chCfg.MaxOpenConns)
+			conn.db.SetMaxIdleConns(sc.chCfg.MaxOpenConns)
+			conn.db.SetConnMaxLifetime(time.Minute * 10)
+		} else {
+			sc.opts.Compression = &clickhouse.Compression{
+				Method: clickhouse.CompressionLZ4,
+			}
+			conn.c, err = clickhouse.Open(&sc.opts)
+		}
 		if err != nil {
 			util.Logger.Warn("clickhouse.Open failed", zap.String("replica", replica), zap.Error(err))
 			continue
 		}
 		sc.dbVer++
 		util.Logger.Info("clickhouse.Open succeeded", zap.Int("dbVer", sc.dbVer), zap.String("replica", replica))
-		return sc.db, sc.dbVer, nil
+		sc.conn = &conn
+		return sc.conn, sc.dbVer, nil
 	}
 	err = errors.Newf("no good replica among replicas %v since %d", sc.replicas, savedNextRep)
 	return nil, sc.dbVer, err
 }
 
-// Each shard has a clickhouse.Conn which connects to one replica inside the shard.
+// Each shard has a pool.Conn which connects to one replica inside the shard.
 // We need more control than replica single-point-failure.
-func InitClusterConn(hosts [][]string, port int, db, username, password, dsnParams string, secure, skipVerify bool, maxOpenConns int) (err error) {
+func InitClusterConn(chCfg *config.ClickHouseConfig) (err error) {
 	lock.Lock()
 	defer lock.Unlock()
 	freeClusterConn()
 
-	for _, replicas := range hosts {
+	proto := clickhouse.Native
+	if chCfg.Protocol == clickhouse.HTTP.String() {
+		proto = clickhouse.HTTP
+	}
+
+	for _, replicas := range chCfg.Hosts {
 		numReplicas := len(replicas)
 		replicaAddrs := make([]string, numReplicas)
 		for i, ip := range replicas {
-			if ips2, err := util.GetIP4Byname(ip); err == nil {
-				ip = ips2[0]
+			// Changing hostnames to IPs breaks TLS connections in many cases
+			if !chCfg.Secure {
+				if ips2, err := util.GetIP4Byname(ip); err == nil {
+					ip = ips2[0]
+				}
 			}
-			replicaAddrs[i] = fmt.Sprintf("%s:%d", ip, port)
+			replicaAddrs[i] = fmt.Sprintf("%s:%d", ip, chCfg.Port)
 		}
 		sc := &ShardConn{
 			replicas: replicaAddrs,
+			chCfg:    chCfg,
 			opts: clickhouse.Options{
 				Auth: clickhouse.Auth{
-					Database: db,
-					Username: username,
-					Password: password,
+					Database: chCfg.DB,
+					Username: chCfg.Username,
+					Password: chCfg.Password,
 				},
-				//Debug:           true,
-				DialTimeout:     time.Second,
-				MaxOpenConns:    maxOpenConns,
-				MaxIdleConns:    1,
-				ConnMaxLifetime: time.Hour,
+				Protocol:    proto,
+				DialTimeout: time.Minute * 10,
 			},
+			writingPool: util.NewWorkerPool(chCfg.MaxOpenConns, 1),
 		}
-		if secure {
+		if chCfg.Secure {
 			tlsConfig := &tls.Config{}
-			tlsConfig.InsecureSkipVerify = skipVerify
+			tlsConfig.InsecureSkipVerify = chCfg.InsecureSkipVerify
 			sc.opts.TLS = tlsConfig
 		}
-		if _, _, err = sc.NextGoodReplica(0); err != nil {
+		if proto == clickhouse.Native {
+			sc.opts.MaxOpenConns = chCfg.MaxOpenConns
+			sc.opts.MaxIdleConns = chCfg.MaxOpenConns
+			sc.opts.ConnMaxLifetime = time.Minute * 10
+		}
+		sc.protocol = proto
+		r := rand.New(rand.NewSource(time.Now().UnixNano()))
+		idx := r.Intn(numReplicas)
+		sc.nextRep = idx
+		if _, _, err = sc.NextGoodReplica(idx); err != nil {
 			return
 		}
 		clusterConn = append(clusterConn, sc)

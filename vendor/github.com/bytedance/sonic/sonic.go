@@ -1,4 +1,4 @@
-// +build amd64
+// +build amd64,go1.16,!go1.22
 
 /*
  * Copyright 2021 ByteDance Inc.
@@ -23,34 +23,11 @@ import (
     `io`
     `reflect`
 
-    `github.com/bytedance/sonic/ast`
     `github.com/bytedance/sonic/decoder`
     `github.com/bytedance/sonic/encoder`
     `github.com/bytedance/sonic/option`
-    `github.com/bytedance/sonic/internal/native/types`
     `github.com/bytedance/sonic/internal/rt`
 )
-
-func checkTrailings(buf string, pos int) error {
-    /* skip all the trailing spaces */
-    if pos != len(buf) {
-        for pos < len(buf) && (types.SPACE_MASK & (1 << buf[pos])) != 0 {
-            pos++
-        }
-    }
-
-    /* then it must be at EOF */
-    if pos == len(buf) {
-        return nil
-    }
-
-    /* junk after JSON value */
-    return decoder.SyntaxError {
-        Src  : buf,
-        Pos  : pos,
-        Code : types.ERR_INVALID_CHAR,
-    }
-}
 
 type frozenConfig struct {
     Config
@@ -61,6 +38,8 @@ type frozenConfig struct {
 // Froze convert the Config to API
 func (cfg Config) Froze() API {
     api := &frozenConfig{Config: cfg}
+
+    // configure encoder options:
     if cfg.EscapeHTML {
         api.encoderOpts |= encoder.EscapeHTML
     }
@@ -73,6 +52,17 @@ func (cfg Config) Froze() API {
     if cfg.NoQuoteTextMarshaler {
         api.encoderOpts |= encoder.NoQuoteTextMarshaler
     }
+    if cfg.NoNullSliceOrMap {
+        api.encoderOpts |= encoder.NoNullSliceOrMap
+    }
+    if cfg.ValidateString {
+        api.encoderOpts |= encoder.ValidateString
+    }
+    if cfg.NoValidateJSONMarshaler {
+        api.encoderOpts |= encoder.NoValidateJSONMarshaler
+    }
+
+    // configure decoder options:
     if cfg.UseInt64 {
         api.decoderOpts |= decoder.OptionUseInt64
     }
@@ -85,64 +75,63 @@ func (cfg Config) Froze() API {
     if cfg.CopyString {
         api.decoderOpts |= decoder.OptionCopyString
     }
-    if cfg.NoNullSliceOrMap {
-        api.encoderOpts |= encoder.NoNullSliceOrMap
+    if cfg.ValidateString {
+        api.decoderOpts |= decoder.OptionValidateString
     }
     return api
 }
 
 // Marshal is implemented by sonic
-func (cfg *frozenConfig) Marshal(val interface{}) ([]byte, error) {
+func (cfg frozenConfig) Marshal(val interface{}) ([]byte, error) {
     return encoder.Encode(val, cfg.encoderOpts)
 }
 
 // MarshalToString is implemented by sonic
-func (cfg *frozenConfig) MarshalToString(val interface{}) (string, error) {
+func (cfg frozenConfig) MarshalToString(val interface{}) (string, error) {
     buf, err := encoder.Encode(val, cfg.encoderOpts)
     return rt.Mem2Str(buf), err
 }
 
 // MarshalIndent is implemented by sonic
-func (cfg *frozenConfig) MarshalIndent(val interface{}, prefix, indent string) ([]byte, error) {
+func (cfg frozenConfig) MarshalIndent(val interface{}, prefix, indent string) ([]byte, error) {
     return encoder.EncodeIndented(val, prefix, indent, cfg.encoderOpts)
 }
 
 // UnmarshalFromString is implemented by sonic
-func (cfg *frozenConfig) UnmarshalFromString(buf string, val interface{}) error {
+func (cfg frozenConfig) UnmarshalFromString(buf string, val interface{}) error {
     dec := decoder.NewDecoder(buf)
     dec.SetOptions(cfg.decoderOpts)
-
     err := dec.Decode(val)
-    pos := dec.Pos()
 
     /* check for errors */
     if err != nil {
         return err
     }
-    return checkTrailings(buf, pos)
+
+    return dec.CheckTrailings()
 }
 
 // Unmarshal is implemented by sonic
-func (cfg *frozenConfig) Unmarshal(buf []byte, val interface{}) error {
+func (cfg frozenConfig) Unmarshal(buf []byte, val interface{}) error {
     return cfg.UnmarshalFromString(string(buf), val)
 }
 
 // NewEncoder is implemented by sonic
-func (cfg *frozenConfig) NewEncoder(writer io.Writer) Encoder {
+func (cfg frozenConfig) NewEncoder(writer io.Writer) Encoder {
     enc := encoder.NewStreamEncoder(writer)
     enc.Opts = cfg.encoderOpts
     return enc
 }
 
 // NewDecoder is implemented by sonic
-func (cfg *frozenConfig) NewDecoder(reader io.Reader) Decoder {
+func (cfg frozenConfig) NewDecoder(reader io.Reader) Decoder {
     dec := decoder.NewStreamDecoder(reader)
     dec.SetOptions(cfg.decoderOpts)
     return dec
 }
 
 // Valid is implemented by sonic
-func (cfg *frozenConfig) Valid(data []byte) bool {
+func (cfg frozenConfig) Valid(data []byte) bool {
     ok, _ := encoder.Valid(data)
     return ok
 }
@@ -155,25 +144,21 @@ func (cfg *frozenConfig) Valid(data []byte) bool {
 func Pretouch(vt reflect.Type, opts ...option.CompileOption) error {
     if err := encoder.Pretouch(vt, opts...); err != nil {
         return err
-    } else if err = decoder.Pretouch(vt, opts...); err != nil {
+    } 
+    if err := decoder.Pretouch(vt, opts...); err != nil {
         return err
-    } else {
-        return nil
     }
-}
-
-// Get searches the given path json,
-// and returns its representing ast.Node.
-//
-// Each path arg must be integer or string:
-//     - Integer means searching current node as array
-//     - String means searching current node as object
-func Get(src []byte, path ...interface{}) (ast.Node, error) {
-    return GetFromString(string(src), path...)
-}
-
-// GetFromString is same with Get except src is string,
-// which can reduce unnecessary memory copy.
-func GetFromString(src string, path ...interface{}) (ast.Node, error) {
-    return ast.NewSearcher(src).GetByPath(path...)
+    // to pretouch the corresponding pointer type as well
+    if vt.Kind() == reflect.Ptr {
+        vt = vt.Elem()
+    } else {
+        vt = reflect.PtrTo(vt)
+    }
+    if err := encoder.Pretouch(vt, opts...); err != nil {
+        return err
+    } 
+    if err := decoder.Pretouch(vt, opts...); err != nil {
+        return err
+    }
+    return nil
 }

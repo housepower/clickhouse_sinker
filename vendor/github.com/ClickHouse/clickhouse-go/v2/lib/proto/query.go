@@ -20,10 +20,10 @@ package proto
 import (
 	stdbin "encoding/binary"
 	"fmt"
-	"os"
-
-	"github.com/ClickHouse/clickhouse-go/v2/lib/binary"
+	chproto "github.com/ClickHouse/ch-go/proto"
 	"go.opentelemetry.io/otel/trace"
+	"os"
+	"strings"
 )
 
 var (
@@ -32,38 +32,49 @@ var (
 )
 
 type Query struct {
-	ID             string
-	Span           trace.SpanContext
-	Body           string
-	QuotaKey       string
-	Settings       Settings
-	Compression    bool
-	InitialUser    string
-	InitialAddress string
+	ID                       string
+	ClientName               string
+	ClientVersion            Version
+	ClientTCPProtocolVersion uint64
+	Span                     trace.SpanContext
+	Body                     string
+	QuotaKey                 string
+	Settings                 Settings
+	Parameters               Parameters
+	Compression              bool
+	InitialUser              string
+	InitialAddress           string
 }
 
-func (q *Query) Encode(encoder *binary.Encoder, revision uint64) error {
-	if err := encoder.String(q.ID); err != nil {
-		return err
-	}
+func (q *Query) Encode(buffer *chproto.Buffer, revision uint64) error {
+	buffer.PutString(q.ID)
 	// client_info
-	if err := q.encodeClientInfo(encoder, revision); err != nil {
+	if err := q.encodeClientInfo(buffer, revision); err != nil {
 		return err
 	}
 	// settings
-	if err := q.Settings.Encode(encoder, revision); err != nil {
+	if err := q.Settings.Encode(buffer, revision); err != nil {
 		return err
 	}
-	encoder.String("" /* empty string is a marker of the end of setting */)
+	buffer.PutString("") /* empty string is a marker of the end of setting */
 
 	if revision >= DBMS_MIN_REVISION_WITH_INTERSERVER_SECRET {
-		encoder.String("")
+		buffer.PutString("")
 	}
 	{
-		encoder.Byte(StateComplete)
-		encoder.Bool(q.Compression)
+		buffer.PutByte(StateComplete)
+		buffer.PutBool(q.Compression)
 	}
-	return encoder.String(q.Body)
+	buffer.PutString(q.Body)
+
+	if revision >= DBMS_MIN_PROTOCOL_VERSION_WITH_PARAMETERS {
+		if err := q.Parameters.Encode(buffer, revision); err != nil {
+			return err
+		}
+		buffer.PutString("") /* empty string is a marker of the end of parameters */
+	}
+
+	return nil
 }
 
 func swap64(b []byte) {
@@ -73,57 +84,57 @@ func swap64(b []byte) {
 	}
 }
 
-func (q *Query) encodeClientInfo(encoder *binary.Encoder, revision uint64) error {
-	encoder.Byte(ClientQueryInitial)
-	encoder.String(q.InitialUser)    // initial_user
-	encoder.String("")               // initial_query_id
-	encoder.String(q.InitialAddress) // initial_address
+func (q *Query) encodeClientInfo(buffer *chproto.Buffer, revision uint64) error {
+	buffer.PutByte(ClientQueryInitial)
+	buffer.PutString(q.InitialUser)    // initial_user
+	buffer.PutString("")               // initial_query_id
+	buffer.PutString(q.InitialAddress) // initial_address
 	if revision >= DBMS_MIN_PROTOCOL_VERSION_WITH_INITIAL_QUERY_START_TIME {
-		encoder.Int64(0) // initial_query_start_time_microseconds
+		buffer.PutInt64(0) // initial_query_start_time_microseconds
 	}
-	encoder.Byte(1) // interface [tcp - 1, http - 2]
+	buffer.PutByte(1) // interface [tcp - 1, http - 2]
 	{
-		encoder.String(osUser)
-		encoder.String(hostname)
-		encoder.String(ClientName)
-		encoder.Uvarint(ClientVersionMajor)
-		encoder.Uvarint(ClientVersionMinor)
-		encoder.Uvarint(ClientTCPProtocolVersion)
+		buffer.PutString(osUser)
+		buffer.PutString(hostname)
+		buffer.PutString(q.ClientName)
+		buffer.PutUVarInt(q.ClientVersion.Major)
+		buffer.PutUVarInt(q.ClientVersion.Minor)
+		buffer.PutUVarInt(q.ClientTCPProtocolVersion)
 	}
 	if revision >= DBMS_MIN_REVISION_WITH_QUOTA_KEY_IN_CLIENT_INFO {
-		encoder.String(q.QuotaKey)
+		buffer.PutString(q.QuotaKey)
 	}
 	if revision >= DBMS_MIN_PROTOCOL_VERSION_WITH_DISTRIBUTED_DEPTH {
-		encoder.Uvarint(0)
+		buffer.PutUVarInt(0)
 	}
 	if revision >= DBMS_MIN_REVISION_WITH_VERSION_PATCH {
-		encoder.Uvarint(0)
+		buffer.PutUVarInt(0)
 	}
 	if revision >= DBMS_MIN_REVISION_WITH_OPENTELEMETRY {
 		switch {
 		case q.Span.IsValid():
-			encoder.Byte(1)
+			buffer.PutByte(1)
 			{
 				v := q.Span.TraceID()
 				swap64(v[:]) // https://github.com/ClickHouse/ClickHouse/issues/34369
-				encoder.Raw(v[:])
+				buffer.PutRaw(v[:])
 			}
 			{
 				v := q.Span.SpanID()
 				swap64(v[:]) // https://github.com/ClickHouse/ClickHouse/issues/34369
-				encoder.Raw(v[:])
+				buffer.PutRaw(v[:])
 			}
-			encoder.String(q.Span.TraceState().String())
-			encoder.Byte(byte(q.Span.TraceFlags()))
+			buffer.PutString(q.Span.TraceState().String())
+			buffer.PutByte(byte(q.Span.TraceFlags()))
 
 		default:
-			encoder.Byte(0)
+			buffer.PutByte(0)
 		}
 	}
 	if revision >= DBMS_MIN_REVISION_WITH_PARALLEL_REPLICAS {
-		encoder.Uvarint(0) // collaborate_with_initiator
-		encoder.Uvarint(0) // count_participating_replicas
-		encoder.Uvarint(0) // number_of_current_replica
+		buffer.PutUVarInt(0) // collaborate_with_initiator
+		buffer.PutUVarInt(0) // count_participating_replicas
+		buffer.PutUVarInt(0) // number_of_current_replica
 	}
 	return nil
 }
@@ -131,23 +142,28 @@ func (q *Query) encodeClientInfo(encoder *binary.Encoder, revision uint64) error
 type Settings []Setting
 
 type Setting struct {
-	Key   string
-	Value interface{}
+	Key       string
+	Value     any
+	Important bool
+	Custom    bool
 }
 
-func (s Settings) Encode(encoder *binary.Encoder, revision uint64) error {
+const (
+	settingFlagImportant = 0x01
+	settingFlagCustom    = 0x02
+)
+
+func (s Settings) Encode(buffer *chproto.Buffer, revision uint64) error {
 	for _, s := range s {
-		if err := s.encode(encoder, revision); err != nil {
+		if err := s.encode(buffer, revision); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (s *Setting) encode(encoder *binary.Encoder, revision uint64) error {
-	if err := encoder.String(s.Key); err != nil {
-		return err
-	}
+func (s *Setting) encode(buffer *chproto.Buffer, revision uint64) error {
+	buffer.PutString(s.Key)
 	if revision <= DBMS_MIN_REVISION_WITH_SETTINGS_SERIALIZED_AS_STRINGS {
 		var value uint64
 		switch v := s.Value.(type) {
@@ -160,10 +176,73 @@ func (s *Setting) encode(encoder *binary.Encoder, revision uint64) error {
 		default:
 			return fmt.Errorf("query setting %s has unsupported data type", s.Key)
 		}
-		return encoder.Uvarint(value)
+		buffer.PutUVarInt(value)
+		return nil
 	}
-	if err := encoder.Bool(true); err != nil { // is_important
+
+	{
+		var flags uint64
+		if s.Important {
+			flags |= settingFlagImportant
+		}
+		if s.Custom {
+			flags |= settingFlagCustom
+		}
+		buffer.PutUVarInt(flags)
+	}
+
+	if s.Custom {
+		fieldDump, err := encodeFieldDump(s.Value)
+		if err != nil {
+			return err
+		}
+
+		buffer.PutString(fieldDump)
+	} else {
+		buffer.PutString(fmt.Sprint(s.Value))
+	}
+
+	return nil
+}
+
+type Parameters []Parameter
+
+type Parameter struct {
+	Key   string
+	Value string
+}
+
+func (s Parameters) Encode(buffer *chproto.Buffer, revision uint64) error {
+	for _, s := range s {
+		if err := s.encode(buffer, revision); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Parameter) encode(buffer *chproto.Buffer, revision uint64) error {
+	buffer.PutString(s.Key)
+	buffer.PutUVarInt(uint64(settingFlagCustom))
+
+	fieldDump, err := encodeFieldDump(s.Value)
+	if err != nil {
 		return err
 	}
-	return encoder.String(fmt.Sprint(s.Value))
+
+	buffer.PutString(fieldDump)
+
+	return nil
+}
+
+// encodes a field dump with an appropriate type format
+// implements the same logic as in ClickHouse Field::restoreFromDump (https://github.com/ClickHouse/ClickHouse/blob/master/src/Core/Field.cpp#L312)
+// currently, only string type is supported
+func encodeFieldDump(value any) (string, error) {
+	switch v := value.(type) {
+	case string:
+		return fmt.Sprintf("'%v'", strings.ReplaceAll(v, "'", "\\'")), nil
+	}
+
+	return "", fmt.Errorf("unsupported field type %T", value)
 }

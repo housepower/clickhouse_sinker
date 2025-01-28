@@ -1,0 +1,37 @@
+{
+    clickhouse: {
+        cluster: abc
+        hosts: [
+            [
+                127.0.0.1
+            ]
+        ]
+        port: 59000
+        db: gauge
+        username: ""
+        password: ""
+        retryTimes: 0
+    }
+    kafka: {
+        brokers: 127.0.0.1:9092
+    }
+    task: {
+        name: test_prom_metric
+        topic: test_metric_topic
+        consumerGroup: test_prom_metric
+        earliest: true
+        parser: json
+        autoSchema: true
+        tableName: default.test_prom_metric
+        seriesTableName: test_prom_series
+        excludeColumns: []
+        bufferSize: 50000
+        PrometheusSchema: true
+        DynamicSchema: {
+            Enable: true
+            whiteList: ^(key_[0-9]?|value[1-4]?|__mgmt_id__|__name__|timestamp|__series_id__)$
+            blackList: ^(key_3|value4)$
+      }
+    }
+    logLevel: info
+}

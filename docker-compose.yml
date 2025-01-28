@@ -7,14 +7,15 @@ services:
     restart: always
     hostname: zookeeper
     ports:
-      - "2181:2181"
+      - "52181:2181"
     environment:
       ALLOW_ANONYMOUS_LOGIN: 1
+      ZOO_4LW_COMMANDS_WHITELIST: "*"
     security_opt:
       - label:disable
 
   kafka:
-    image: confluentinc/cp-kafka:5.5.0
+    image: confluentinc/cp-kafka:7.5.3
     container_name: kafka
     restart: always
     hostname: kafka
@@ -35,17 +36,18 @@ services:
       - label:disable
 
   clickhouse:
-    image: clickhouse/clickhouse-server:22.3
+    image: clickhouse/clickhouse-server:23.8
     restart: always
     ports:
-      - "8123:8123"
-      - "9000:9000"
+      - "58123:8123"
+      - "59000:9000"
     ulimits:
       nofile:
         soft: 262144
         hard: 262144
     volumes:
       - "./docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d"
+      - "./docker/metrika.xml:/etc/clickhouse-server/config.d/metrika.xml"
     security_opt:
       - label:disable
 
@@ -56,4 +58,4 @@ services:
     - PREFER_HOST_MODE=hostname
     - MODE=standalone
     ports:
-    - "8848:8848"
+    - "58848:8848"

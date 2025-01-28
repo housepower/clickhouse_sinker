@@ -24,18 +24,24 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2/lib/proto"
 )
 
-func (c *connect) query(ctx context.Context, release func(*connect, error), query string, args ...interface{}) (*rows, error) {
+func (c *connect) query(ctx context.Context, release func(*connect, error), query string, args ...any) (*rows, error) {
 	var (
-		options   = queryOptions(ctx)
-		onProcess = options.onProcess()
-		body, err = bind(c.server.Timezone, query, args...)
+		options                    = queryOptions(ctx)
+		onProcess                  = options.onProcess()
+		queryParamsProtocolSupport = c.revision >= proto.DBMS_MIN_PROTOCOL_VERSION_WITH_PARAMETERS
+		body, err                  = bindQueryOrAppendParameters(queryParamsProtocolSupport, &options, query, c.server.Timezone, args...)
 	)
 
 	if err != nil {
+		c.debugf("[bindQuery] error: %v", err)
 		release(c, err)
 		return nil, err
 	}
 
+	// set a read deadline - alternative to context.Read operation will fail if no data is received after deadline.
+	c.conn.SetReadDeadline(time.Now().Add(c.readTimeout))
+	defer c.conn.SetReadDeadline(time.Time{})
+	// context level deadlines override any read deadline
 	if deadline, ok := ctx.Deadline(); ok {
 		c.conn.SetDeadline(deadline)
 		defer c.conn.SetDeadline(time.Time{})
@@ -49,13 +55,18 @@ func (c *connect) query(ctx context.Context, release func(*connect, error), quer
 	init, err := c.firstBlock(ctx, onProcess)
 
 	if err != nil {
+		c.debugf("[query] first block error: %v", err)
 		release(c, err)
 		return nil, err
 	}
-
+	bufferSize := c.blockBufferSize
+	if options.blockBufferSize > 0 {
+		// allow block buffer sze to be overridden per query
+		bufferSize = options.blockBufferSize
+	}
 	var (
 		errors = make(chan error)
-		stream = make(chan *proto.Block, 2)
+		stream = make(chan *proto.Block, bufferSize)
 	)
 
 	go func() {
@@ -64,6 +75,7 @@ func (c *connect) query(ctx context.Context, release func(*connect, error), quer
 		}
 		err := c.process(ctx, onProcess)
 		if err != nil {
+			c.debugf("[query] process error: %v", err)
 			errors <- err
 		}
 		close(stream)
@@ -80,7 +92,7 @@ func (c *connect) query(ctx context.Context, release func(*connect, error), quer
 	}, nil
 }
 
-func (c *connect) queryRow(ctx context.Context, release func(*connect, error), query string, args ...interface{}) *row {
+func (c *connect) queryRow(ctx context.Context, release func(*connect, error), query string, args ...any) *row {
 	rows, err := c.query(ctx, release, query, args...)
 	if err != nil {
 		return &row{

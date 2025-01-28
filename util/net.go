@@ -15,7 +15,17 @@ limitations under the License.
 
 package util
 
-import "net"
+import (
+	"fmt"
+	"net"
+
+	"github.com/thanos-io/thanos/pkg/errors"
+)
+
+const (
+	HttpPortBase = 10000
+	MaxPort      = 65535
+)
 
 func GetIP4Byname(host string) (ips []string, err error) {
 	addrs, err := net.LookupIP(host)
@@ -29,4 +39,49 @@ func GetIP4Byname(host string) (ips []string, err error) {
 		}
 	}
 	return
+}
+
+// GetOutboundIP gets preferred outbound ip of this machine
+// https://stackoverflow.com/questions/23558425/how-do-i-get-the-local-ip-address-in-go.
+func GetOutboundIP() (ip net.IP, err error) {
+	var conn net.Conn
+	if conn, err = net.Dial("udp", "8.8.8.8:80"); err != nil {
+		err = errors.Wrapf(err, "")
+		return
+	}
+	defer conn.Close()
+	localAddr, _ := conn.LocalAddr().(*net.UDPAddr)
+	ip = localAddr.IP
+	return
+}
+
+// GetSpareTCPPort finds a spare TCP port.
+func GetSpareTCPPort(portBegin int) int {
+	for port := portBegin; port <= MaxPort; port++ {
+		if err := testListenOnPort(port); err == nil {
+			return port
+		}
+	}
+	return 0
+}
+
+// https://stackoverflow.com/questions/50428176/how-to-get-ip-and-port-from-net-addr-when-it-could-be-a-net-udpaddr-or-net-tcpad
+func GetNetAddrPort(addr net.Addr) (port int) {
+	switch addr := addr.(type) {
+	case *net.UDPAddr:
+		port = addr.Port
+	case *net.TCPAddr:
+		port = addr.Port
+	}
+	return
+}
+
+func testListenOnPort(port int) error {
+	addr := fmt.Sprintf(":%d", port)
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
+	}
+	ln.Close() //nolint:errcheck
+	return nil
 }

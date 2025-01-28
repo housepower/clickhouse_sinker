@@ -39,6 +39,42 @@ func (cl *Client) ForceMetadataRefresh() {
 	cl.triggerUpdateMetadataNow("from user ForceMetadataRefresh")
 }
 
+// PartitionLeader returns the given topic partition's leader, leader epoch and
+// load error. This returns -1, -1, nil if the partition has not been loaded.
+func (cl *Client) PartitionLeader(topic string, partition int32) (leader, leaderEpoch int32, err error) {
+	if partition < 0 {
+		return -1, -1, errors.New("invalid negative partition")
+	}
+
+	var t *topicPartitions
+
+	m := cl.producer.topics.load()
+	if len(m) > 0 {
+		t = m[topic]
+	}
+	if t == nil {
+		if cl.consumer.g != nil {
+			if m = cl.consumer.g.tps.load(); len(m) > 0 {
+				t = m[topic]
+			}
+		} else if cl.consumer.d != nil {
+			if m = cl.consumer.d.tps.load(); len(m) > 0 {
+				t = m[topic]
+			}
+		}
+		if t == nil {
+			return -1, -1, nil
+		}
+	}
+
+	tv := t.load()
+	if len(tv.partitions) <= int(partition) {
+		return -1, -1, tv.loadErr
+	}
+	p := tv.partitions[partition]
+	return p.leader, p.leaderEpoch, p.loadErr
+}
+
 // waitmeta returns immediately if metadata was updated within the last second,
 // otherwise this waits for up to wait for a metadata update to complete.
 func (cl *Client) waitmeta(ctx context.Context, wait time.Duration, why string) {
@@ -109,8 +145,15 @@ func (cl *Client) triggerUpdateMetadataNow(why string) {
 }
 
 func (cl *Client) blockingMetadataFn(fn func()) {
+	var wg sync.WaitGroup
+	wg.Add(1)
+	waitfn := func() {
+		defer wg.Done()
+		fn()
+	}
 	select {
-	case cl.blockingMetadataFnCh <- fn:
+	case cl.blockingMetadataFnCh <- waitfn:
+		wg.Wait()
 	case <-cl.ctx.Done():
 	}
 }
@@ -244,6 +287,8 @@ loop:
 	}
 }
 
+var errMissingTopic = errors.New("topic_missing")
+
 // Updates all producer and consumer partition data, returning whether a new
 // update needs scheduling or if an error occurred.
 //
@@ -260,11 +305,11 @@ func (cl *Client) updateMetadata() (retryWhy multiUpdateWhy, err error) {
 	)
 	c := &cl.consumer
 	switch {
-	case c.d != nil:
-		tpsConsumer = c.d.tps
 	case c.g != nil:
 		tpsConsumer = c.g.tps
 		groupExternal = c.g.loadExternal()
+	case c.d != nil:
+		tpsConsumer = c.d.tps
 	}
 
 	if !all {
@@ -300,13 +345,38 @@ func (cl *Client) updateMetadata() (retryWhy multiUpdateWhy, err error) {
 	// may have returned topics the consumer is not yet tracking. We ensure
 	// that we will store the topics at the end of our metadata update.
 	tpsConsumerLoad := tpsConsumer.load()
-	if all && len(latest) > 0 {
+	if all {
 		allTopics := make([]string, 0, len(latest))
 		for topic := range latest {
 			allTopics = append(allTopics, topic)
 		}
 		tpsConsumerLoad = tpsConsumer.ensureTopics(allTopics)
 		defer tpsConsumer.storeData(tpsConsumerLoad)
+
+		// For regex consuming, if a topic is not returned in the
+		// response and for at least missingTopicDelete from when we
+		// first discovered it, we assume the topic has been deleted
+		// and purge it. We allow for missingTopicDelete because (in
+		// testing locally) Kafka can originally broadcast a newly
+		// created topic exists and then fail to broadcast that info
+		// again for a while.
+		var purgeTopics []string
+		for topic, tps := range tpsConsumerLoad {
+			if _, ok := latest[topic]; !ok {
+				if td := tps.load(); td.when != 0 && time.Since(time.Unix(td.when, 0)) > cl.cfg.missingTopicDelete {
+					purgeTopics = append(purgeTopics, td.topic)
+				} else {
+					retryWhy.add(topic, -1, errMissingTopic)
+				}
+			}
+		}
+		if len(purgeTopics) > 0 {
+			// We have to `go` because Purge issues a blocking
+			// metadata fn; this will wait for our current
+			// execution to finish then purge.
+			cl.cfg.logger.Log(LogLevelInfo, "regex consumer purging topics that were previously consumed because they are missing in a metadata response, we are assuming they are deleted", "topics", purgeTopics)
+			go cl.PurgeTopicsFromClient(purgeTopics...)
+		}
 	}
 
 	// Migrating a cursor requires stopping any consumer session. If we
@@ -335,7 +405,7 @@ func (cl *Client) updateMetadata() (retryWhy multiUpdateWhy, err error) {
 		}
 	}()
 
-	var missingProduceTopics []string
+	var missingProduceTopics []*topicPartitions
 	for _, m := range []struct {
 		priors    map[string]*topicPartitions
 		isProduce bool
@@ -347,7 +417,7 @@ func (cl *Client) updateMetadata() (retryWhy multiUpdateWhy, err error) {
 			newParts, exists := latest[topic]
 			if !exists {
 				if m.isProduce {
-					missingProduceTopics = append(missingProduceTopics, topic)
+					missingProduceTopics = append(missingProduceTopics, priorParts)
 				}
 				continue
 			}
@@ -362,26 +432,130 @@ func (cl *Client) updateMetadata() (retryWhy multiUpdateWhy, err error) {
 			)
 		}
 	}
+
+	// For all produce topics that were missing, we want to bump their
+	// retries that a failure happened. However, if we are regex consuming,
+	// then it is possible in a rare scenario for the broker to not return
+	// a topic that actually does exist and that we previously received a
+	// metadata response for. This is handled above for consuming, we now
+	// handle it the same way for consuming.
 	if len(missingProduceTopics) > 0 {
-		cl.bumpMetadataFailForTopics(
-			tpsProducerLoad,
-			errors.New("metadata request did not return this topic"),
-			missingProduceTopics...,
-		)
+		var bumpFail []string
+		for _, tps := range missingProduceTopics {
+			if all {
+				if td := tps.load(); td.when != 0 && time.Since(time.Unix(td.when, 0)) > cl.cfg.missingTopicDelete {
+					bumpFail = append(bumpFail, td.topic)
+				} else {
+					retryWhy.add(td.topic, -1, errMissingTopic)
+				}
+			} else {
+				bumpFail = append(bumpFail, tps.load().topic)
+			}
+		}
+		if len(bumpFail) > 0 {
+			cl.bumpMetadataFailForTopics(
+				tpsProducerLoad,
+				fmt.Errorf("metadata request did not return topics: %v", bumpFail),
+				bumpFail...,
+			)
+		}
 	}
 
 	return retryWhy, nil
 }
 
+// We use a special structure to repesent metadata before we *actually* convert
+// it to topicPartitionsData. This helps avoid any pointer reuse problems
+// because we want to keep the client's producer and consumer maps completely
+// independent.  If we just returned map[string]*topicPartitionsData, we could
+// end up in some really weird pointer reuse scenario that ultimately results
+// in a bug.
+//
+// See #190 for more details, as well as the commit message introducing this.
+type metadataTopic struct {
+	loadErr    error
+	isInternal bool
+	topic      string
+	partitions []metadataPartition
+}
+
+func (mt *metadataTopic) newPartitions(cl *Client, isProduce bool) *topicPartitionsData {
+	n := len(mt.partitions)
+	ps := &topicPartitionsData{
+		loadErr:            mt.loadErr,
+		isInternal:         mt.isInternal,
+		partitions:         make([]*topicPartition, 0, n),
+		writablePartitions: make([]*topicPartition, 0, n),
+		topic:              mt.topic,
+		when:               time.Now().Unix(),
+	}
+	for i := range mt.partitions {
+		p := mt.partitions[i].newPartition(cl, isProduce)
+		ps.partitions = append(ps.partitions, p)
+		if p.loadErr == nil {
+			ps.writablePartitions = append(ps.writablePartitions, p)
+		}
+	}
+	return ps
+}
+
+type metadataPartition struct {
+	topic       string
+	topicID     [16]byte
+	partition   int32
+	loadErr     int16
+	leader      int32
+	leaderEpoch int32
+	sns         sinkAndSource
+}
+
+func (mp metadataPartition) newPartition(cl *Client, isProduce bool) *topicPartition {
+	td := topicPartitionData{
+		leader:      mp.leader,
+		leaderEpoch: mp.leaderEpoch,
+	}
+	p := &topicPartition{
+		loadErr:            kerr.ErrorForCode(mp.loadErr),
+		topicPartitionData: td,
+	}
+	if isProduce {
+		p.records = &recBuf{
+			cl:                  cl,
+			topic:               mp.topic,
+			partition:           mp.partition,
+			maxRecordBatchBytes: cl.maxRecordBatchBytesForTopic(mp.topic),
+			recBufsIdx:          -1,
+			failing:             mp.loadErr != 0,
+			sink:                mp.sns.sink,
+			topicPartitionData:  td,
+		}
+	} else {
+		p.cursor = &cursor{
+			topic:              mp.topic,
+			topicID:            mp.topicID,
+			partition:          mp.partition,
+			keepControl:        cl.cfg.keepControl,
+			cursorsIdx:         -1,
+			source:             mp.sns.source,
+			topicPartitionData: td,
+			cursorOffset: cursorOffset{
+				offset:            -1, // required to not consume until needed
+				lastConsumedEpoch: -1, // required sentinel
+			},
+		}
+	}
+	return p
+}
+
 // fetchTopicMetadata fetches metadata for all reqTopics and returns new
 // topicPartitionsData for each topic.
-func (cl *Client) fetchTopicMetadata(all bool, reqTopics []string) (map[string]*topicPartitionsData, error) {
+func (cl *Client) fetchTopicMetadata(all bool, reqTopics []string) (map[string]*metadataTopic, error) {
 	_, meta, err := cl.fetchMetadataForTopics(cl.ctx, all, reqTopics)
 	if err != nil {
 		return nil, err
 	}
 
-	topics := make(map[string]*topicPartitionsData, len(meta.Topics))
+	topics := make(map[string]*metadataTopic, len(meta.Topics))
 
 	// Even if metadata returns a leader epoch, we do not use it unless we
 	// can validate it per OffsetForLeaderEpoch. Some brokers may have an
@@ -396,21 +570,22 @@ func (cl *Client) fetchTopicMetadata(all bool, reqTopics []string) (map[string]*
 		}
 		topic := *topicMeta.Topic
 
-		parts := &topicPartitionsData{
-			loadErr:            kerr.ErrorForCode(topicMeta.ErrorCode),
-			isInternal:         topicMeta.IsInternal,
-			partitions:         make([]*topicPartition, 0, len(topicMeta.Partitions)),
-			writablePartitions: make([]*topicPartition, 0, len(topicMeta.Partitions)),
+		mt := &metadataTopic{
+			loadErr:    kerr.ErrorForCode(topicMeta.ErrorCode),
+			isInternal: topicMeta.IsInternal,
+			topic:      topic,
+			partitions: make([]metadataPartition, 0, len(topicMeta.Partitions)),
 		}
-		topics[topic] = parts
 
-		if parts.loadErr != nil {
+		topics[topic] = mt
+
+		if mt.loadErr != nil {
 			continue
 		}
 
 		// This 249 limit is in Kafka itself, we copy it here to rely on it while producing.
 		if len(topic) > 249 {
-			parts.loadErr = fmt.Errorf("invalid long topic name of (len %d) greater than max allowed 249", len(topic))
+			mt.loadErr = fmt.Errorf("invalid long topic name of (len %d) greater than max allowed 249", len(topic))
 			continue
 		}
 
@@ -422,12 +597,12 @@ func (cl *Client) fetchTopicMetadata(all bool, reqTopics []string) (map[string]*
 		})
 		for i := range topicMeta.Partitions {
 			if got := topicMeta.Partitions[i].Partition; got != int32(i) {
-				parts.loadErr = fmt.Errorf("kafka did not reply with a comprensive set of partitions for a topic; we expected partition %d but saw %d", i, got)
+				mt.loadErr = fmt.Errorf("kafka did not reply with a comprensive set of partitions for a topic; we expected partition %d but saw %d", i, got)
 				break
 			}
 		}
 
-		if parts.loadErr != nil {
+		if mt.loadErr != nil {
 			continue
 		}
 
@@ -437,59 +612,25 @@ func (cl *Client) fetchTopicMetadata(all bool, reqTopics []string) (map[string]*
 			if meta.Version < 7 || !useLeaderEpoch {
 				leaderEpoch = -1
 			}
-
-			p := &topicPartition{
-				loadErr: kerr.ErrorForCode(partMeta.ErrorCode),
-				topicPartitionData: topicPartitionData{
-					leader:      partMeta.Leader,
-					leaderEpoch: leaderEpoch,
-				},
-
-				records: &recBuf{
-					cl: cl,
-
-					topic:     topic,
-					partition: partMeta.Partition,
-
-					maxRecordBatchBytes: cl.maxRecordBatchBytesForTopic(topic),
-
-					recBufsIdx: -1,
-					failing:    partMeta.ErrorCode != 0,
-				},
-
-				cursor: &cursor{
-					topic:       topic,
-					topicID:     topicMeta.TopicID,
-					partition:   partMeta.Partition,
-					keepControl: cl.cfg.keepControl,
-					cursorsIdx:  -1,
-
-					cursorOffset: cursorOffset{
-						offset:            -1, // required to not consume until needed
-						lastConsumedEpoch: -1, // required sentinel
-					},
-				},
+			mp := metadataPartition{
+				topic:       topic,
+				topicID:     topicMeta.TopicID,
+				partition:   partMeta.Partition,
+				loadErr:     partMeta.ErrorCode,
+				leader:      partMeta.Leader,
+				leaderEpoch: leaderEpoch,
 			}
-
-			// Any partition that has a load error uses the first
-			// seed broker as a leader. This ensures that every
-			// record buffer and every cursor can use a sink or
-			// source.
-			if p.loadErr != nil {
-				p.leader = unknownSeedID(0)
+			if mp.loadErr != 0 {
+				mp.leader = unknownSeedID(0) // ensure every records & cursor can use a sink or source
 			}
-
-			p.cursor.topicPartitionData = p.topicPartitionData
-			p.records.topicPartitionData = p.topicPartitionData
-
 			cl.sinksAndSourcesMu.Lock()
-			sns, exists := cl.sinksAndSources[p.leader]
+			sns, exists := cl.sinksAndSources[mp.leader]
 			if !exists {
 				sns = sinkAndSource{
-					sink:   cl.newSink(p.leader),
-					source: cl.newSource(p.leader),
+					sink:   cl.newSink(mp.leader),
+					source: cl.newSource(mp.leader),
 				}
-				cl.sinksAndSources[p.leader] = sns
+				cl.sinksAndSources[mp.leader] = sns
 			}
 			for _, replica := range partMeta.Replicas {
 				if replica < 0 {
@@ -503,13 +644,8 @@ func (cl *Client) fetchTopicMetadata(all bool, reqTopics []string) (map[string]*
 				}
 			}
 			cl.sinksAndSourcesMu.Unlock()
-			p.records.sink = sns.sink
-			p.cursor.source = sns.source
-
-			parts.partitions = append(parts.partitions, p)
-			if p.loadErr == nil {
-				parts.writablePartitions = append(parts.writablePartitions, p)
-			}
+			mp.sns = sns
+			mt.partitions = append(mt.partitions, mp)
 		}
 	}
 
@@ -519,17 +655,19 @@ func (cl *Client) fetchTopicMetadata(all bool, reqTopics []string) (map[string]*
 // mergeTopicPartitions merges a new topicPartition into an old and returns
 // whether the metadata update that caused this merge needs to be retried.
 //
-// Retries are necessary if the topic or any partition has a retriable error.
+// Retries are necessary if the topic or any partition has a retryable error.
 func (cl *Client) mergeTopicPartitions(
 	topic string,
 	l *topicPartitions,
-	r *topicPartitionsData,
+	mt *metadataTopic,
 	isProduce bool,
 	reloadOffsets *listOrEpochLoads,
 	stopConsumerSession func(),
 	retryWhy *multiUpdateWhy,
 ) {
 	lv := *l.load() // copy so our field writes do not collide with reads
+
+	r := mt.newPartitions(cl, isProduce)
 
 	// Producers must store the update through a special function that
 	// manages unknown topic waiting, whereas consumers can just simply
@@ -543,6 +681,10 @@ func (cl *Client) mergeTopicPartitions(
 
 	lv.loadErr = r.loadErr
 	lv.isInternal = r.isInternal
+	lv.topic = r.topic
+	if lv.when == 0 {
+		lv.when = r.when
+	}
 
 	// If the load had an error for the entire topic, we set the load error
 	// but keep our stale partition information. For anything being
@@ -576,13 +718,6 @@ func (cl *Client) mergeTopicPartitions(
 	//
 	// Both of these scenarios should be rare to non-existent, and we do
 	// nothing if we encounter them.
-	//
-	// NOTE: we previously removed deleted partitions, but this was
-	// removed. Deleting partitions really should not happen, and not
-	// doing so simplifies the code.
-	//
-	// See commit 385cecb928e9ec3d9610c7beb223fcd1ed303fd0 for the last
-	// commit that contained deleting partitions.
 
 	// Migrating topicPartitions is a little tricky because we have to
 	// worry about underlying pointers that may currently be loaded.
@@ -590,24 +725,37 @@ func (cl *Client) mergeTopicPartitions(
 		exists := part < len(r.partitions)
 		if !exists {
 			// This is the "deleted" case; see the comment above.
-			// We will just keep our old information.
-			r.partitions = append(r.partitions, oldTP)
-			if oldTP.loadErr == nil {
-				r.writablePartitions = append(r.writablePartitions, oldTP)
-			}
+			//
+			// We need to keep the partition around. For producing,
+			// the partition could be loaded and a record could be
+			// added to it after we bump the load error. For
+			// consuming, the partition is part of a group or part
+			// of what was loaded for direct consuming.
+			//
+			// We only clear a partition if it is purged from the
+			// client (which can happen automatically for consumers
+			// if the user opted into ConsumeRecreatedTopics).
+			dup := *oldTP
+			newTP := &dup
+			newTP.loadErr = errMissingMetadataPartition
 
-			cl.cfg.logger.Log(LogLevelDebug, "metadata update is missing partition in topic, keeping old data",
+			r.partitions = append(r.partitions, newTP)
+
+			cl.cfg.logger.Log(LogLevelDebug, "metadata update is missing partition in topic, we are keeping the partition around for safety -- use PurgeTopicsFromClient if you wish to remove the topic",
 				"topic", topic,
 				"partition", part,
 			)
-
+			if isProduce {
+				oldTP.records.bumpRepeatedLoadErr(errMissingMetadataPartition)
+			}
+			retryWhy.add(topic, int32(part), errMissingMetadataPartition)
 			continue
 		}
 		newTP := r.partitions[part]
 
 		// Like above for the entire topic, an individual partittion
 		// can have a load error. Unlike for the topic, individual
-		// partition errors are always retriable.
+		// partition errors are always retryable.
 		//
 		// If the load errored, we keep all old information minus the
 		// load error itself (the new load will have no information).
@@ -638,16 +786,15 @@ func (cl *Client) mergeTopicPartitions(
 			// agree things rewound.
 			const maxEpochRewinds = 5
 			if oldTP.epochRewinds < maxEpochRewinds {
-				*newTP = *oldTP
-				newTP.epochRewinds++
-
 				cl.cfg.logger.Log(LogLevelDebug, "metadata leader epoch went backwards, ignoring update",
 					"topic", topic,
 					"partition", part,
 					"old_leader_epoch", oldTP.leaderEpoch,
 					"new_leader_epoch", newTP.leaderEpoch,
-					"current_num_rewinds", newTP.epochRewinds,
+					"current_num_rewinds", oldTP.epochRewinds+1,
 				)
+				*newTP = *oldTP
+				newTP.epochRewinds++
 				retryWhy.add(topic, int32(part), errEpochRewind)
 				continue
 			}
@@ -658,6 +805,18 @@ func (cl *Client) mergeTopicPartitions(
 				"old_leader_epoch", oldTP.leaderEpoch,
 				"new_leader_epoch", newTP.leaderEpoch,
 			)
+		}
+
+		if !isProduce {
+			var noID [16]byte
+			if newTP.cursor.topicID == noID && oldTP.cursor.topicID != noID {
+				cl.cfg.logger.Log(LogLevelWarn, "metadata update is missing the topic ID when we previously had one, ignoring update",
+					"topic", topic,
+					"partition", part,
+				)
+				retryWhy.add(topic, int32(part), errMissingTopicID)
+				continue
+			}
 		}
 
 		// If the tp data is the same, we simply copy over the records
@@ -699,9 +858,18 @@ func (cl *Client) mergeTopicPartitions(
 		}
 	}
 
+	// For any partitions **not currently in use**, we need to add them to
+	// the sink or source. If they are in use, they could be getting
+	// managed or moved by the sink or source itself, so we should not
+	// check the index field (which may be concurrently modified).
+	if len(lv.partitions) > len(r.partitions) {
+		return
+	}
+	newPartitions := r.partitions[len(lv.partitions):]
+
 	// Anything left with a negative recBufsIdx / cursorsIdx is a new topic
 	// partition and must be added to the sink / source.
-	for _, newTP := range r.partitions {
+	for _, newTP := range newPartitions {
 		if isProduce && newTP.records.recBufsIdx == -1 {
 			newTP.records.sink.addRecBuf(newTP.records)
 		} else if !isProduce && newTP.cursor.cursorsIdx == -1 {
@@ -710,13 +878,28 @@ func (cl *Client) mergeTopicPartitions(
 	}
 }
 
-var errEpochRewind = errors.New("epoch rewind")
+var (
+	errEpochRewind    = errors.New("epoch rewind")
+	errMissingTopicID = errors.New("missing topic ID")
+)
 
 type multiUpdateWhy map[kerrOrString]map[string]map[int32]struct{}
 
 type kerrOrString struct {
 	k *kerr.Error
 	s string
+}
+
+func (m *multiUpdateWhy) isOnly(err error) bool {
+	if m == nil {
+		return false
+	}
+	for e := range *m {
+		if !errors.Is(err, e.k) {
+			return false
+		}
+	}
+	return true
 }
 
 func (m *multiUpdateWhy) add(t string, p int32, err error) {

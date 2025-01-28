@@ -16,6 +16,11 @@ limitations under the License.
 package util
 
 import (
+	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
+
 	"go.uber.org/zap"
 )
 
@@ -31,10 +36,29 @@ func Run(appName string, initFunc, jobFunc, cleanupFunc func() error) {
 		}
 	}()
 
-	WaitForExitSign()
-	Logger.Info(appName + " got the exit signal, start to clean")
-	if err := cleanupFunc(); err != nil {
-		Logger.Fatal(appName+" clean failed", zap.Error(err))
+	sig := make(chan os.Signal, 1)
+	done := make(chan struct{})
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+	count := 0
+	for {
+		select {
+		case s := <-sig:
+			if count == 0 {
+				Logger.Info(fmt.Sprintf("Received termination signal %s, start to clean", s))
+				count++
+				go func() {
+					if err := cleanupFunc(); err != nil {
+						Logger.Fatal(appName+" clean failed", zap.Error(err))
+					}
+					done <- struct{}{}
+				}()
+			} else {
+				Logger.Info(fmt.Sprintf("This is the second termination signal %s. Immediately terminate.", s))
+				return
+			}
+		case <-done:
+			Logger.Info(appName + " clean completed, exit")
+			return
+		}
 	}
-	Logger.Info(appName + " clean completed, exit")
 }

@@ -5,8 +5,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"hash/crc32"
+	"sort"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/twmb/franz-go/pkg/kbin"
@@ -96,6 +96,8 @@ type cursor struct {
 	topicID   [16]byte
 	partition int32
 
+	unknownIDFails atomicI32
+
 	keepControl bool // whether to keep control records
 
 	cursorsIdx int // updated under source mutex
@@ -111,7 +113,7 @@ type cursor struct {
 	// transitioning from used to usable.
 	source *source
 
-	// useState is an atomic that has two states: unusable and usable.  A
+	// useState is an atomic that has two states: unusable and usable. A
 	// cursor can be used in a fetch request if it is in the usable state.
 	// Once used, the cursor is unusable, and will be set back to usable
 	// one the request lifecycle is complete (a usable fetch response, or
@@ -122,7 +124,7 @@ type cursor struct {
 	//
 	// The used state is exclusively updated by either building a fetch
 	// request or when the source is stopped.
-	useState uint32
+	useState atomicBool
 
 	topicPartitionData // updated in metadata when session is stopped
 
@@ -149,6 +151,15 @@ type cursorOffset struct {
 	// See kmsg.OffsetForLeaderEpochResponseTopicPartition for more
 	// details.
 	lastConsumedEpoch int32
+
+	// If we receive OFFSET_OUT_OF_RANGE, and we previously *know* we
+	// consumed an offset, we reset to the nearest offset after our prior
+	// known valid consumed offset.
+	lastConsumedTime time.Time
+
+	// The current high watermark of the partition. Uninitialized (0) means
+	// we do not know the HWM, or there is no lag.
+	hwm int64
 }
 
 // use, for fetch requests, freezes a view of the cursorOffset.
@@ -156,7 +167,7 @@ func (c *cursor) use() *cursorOffsetNext {
 	// A source using a cursor has exclusive access to the use field by
 	// virtue of that source building a request during a live session,
 	// or by virtue of the session being stopped.
-	c.useState = 0
+	c.useState.Store(false)
 	return &cursorOffsetNext{
 		cursorOffset:       c.cursorOffset,
 		from:               c,
@@ -168,23 +179,24 @@ func (c *cursor) use() *cursorOffsetNext {
 // to be consumed. This is called exclusively after sources are stopped.
 // This also unsets the cursor offset, which is assumed to be unused now.
 func (c *cursor) unset() {
-	c.useState = 0
+	c.useState.Store(false)
 	c.setOffset(cursorOffset{
 		offset:            -1,
 		lastConsumedEpoch: -1,
+		hwm:               0,
 	})
 }
 
 // usable returns whether a cursor can be used for building a fetch request.
 func (c *cursor) usable() bool {
-	return atomic.LoadUint32(&c.useState) == 1
+	return c.useState.Load()
 }
 
 // allowUsable allows a cursor to be fetched, and is called either in assigning
 // offsets, or when a buffered fetch is taken or discarded,  or when listing /
 // epoch loading finishes.
 func (c *cursor) allowUsable() {
-	atomic.SwapUint32(&c.useState, 1)
+	c.useState.Swap(true)
 	c.source.maybeConsume()
 }
 
@@ -284,9 +296,9 @@ type bufferedFetch struct {
 
 func (s *source) hook(f *Fetch, buffered, polled bool) {
 	s.cl.cfg.hooks.each(func(h Hook) {
-		switch h := h.(type) {
-		case HookFetchRecordBuffered:
-			if !buffered {
+		if buffered {
+			h, ok := h.(HookFetchRecordBuffered)
+			if !ok {
 				return
 			}
 			for i := range f.Topics {
@@ -298,9 +310,9 @@ func (s *source) hook(f *Fetch, buffered, polled bool) {
 					}
 				}
 			}
-
-		case HookFetchRecordUnbuffered:
-			if buffered {
+		} else {
+			h, ok := h.(HookFetchRecordUnbuffered)
+			if !ok {
 				return
 			}
 			for i := range f.Topics {
@@ -316,22 +328,97 @@ func (s *source) hook(f *Fetch, buffered, polled bool) {
 	})
 
 	var nrecs int
+	var nbytes int64
 	for i := range f.Topics {
 		t := &f.Topics[i]
 		for j := range t.Partitions {
-			nrecs += len(t.Partitions[j].Records)
+			p := &t.Partitions[j]
+			nrecs += len(p.Records)
+			for k := range p.Records {
+				nbytes += p.Records[k].userSize()
+			}
 		}
 	}
 	if buffered {
-		atomic.AddInt64(&s.cl.consumer.bufferedRecords, int64(nrecs))
+		s.cl.consumer.bufferedRecords.Add(int64(nrecs))
+		s.cl.consumer.bufferedBytes.Add(nbytes)
 	} else {
-		atomic.AddInt64(&s.cl.consumer.bufferedRecords, -int64(nrecs))
+		s.cl.consumer.bufferedRecords.Add(-int64(nrecs))
+		s.cl.consumer.bufferedBytes.Add(-nbytes)
 	}
 }
 
 // takeBuffered drains a buffered fetch and updates offsets.
-func (s *source) takeBuffered() Fetch {
-	return s.takeBufferedFn(true, usedOffsets.finishUsingAllWithSet)
+func (s *source) takeBuffered(paused pausedTopics) Fetch {
+	if len(paused) == 0 {
+		return s.takeBufferedFn(true, usedOffsets.finishUsingAllWithSet)
+	}
+	var strip map[string]map[int32]struct{}
+	f := s.takeBufferedFn(true, func(os usedOffsets) {
+		for t, ps := range os {
+			// If the entire topic is paused, we allowUsable all
+			// and strip the topic entirely.
+			pps, ok := paused.t(t)
+			if !ok {
+				for _, o := range ps {
+					o.from.setOffset(o.cursorOffset)
+					o.from.allowUsable()
+				}
+				continue
+			}
+			if strip == nil {
+				strip = make(map[string]map[int32]struct{})
+			}
+			if pps.all {
+				for _, o := range ps {
+					o.from.allowUsable()
+				}
+				strip[t] = nil // initialize key, for existence-but-len-0 check below
+				continue
+			}
+			stript := make(map[int32]struct{})
+			for _, o := range ps {
+				if _, ok := pps.m[o.from.partition]; ok {
+					o.from.allowUsable()
+					stript[o.from.partition] = struct{}{}
+					continue
+				}
+				o.from.setOffset(o.cursorOffset)
+				o.from.allowUsable()
+			}
+			// We only add stript to strip if there are any
+			// stripped partitions. We could have a paused
+			// partition that is on another broker, while this
+			// broker has no paused partitions -- if we add stript
+			// here, our logic below (stripping this entire topic)
+			// is more confusing (present nil vs. non-present nil).
+			if len(stript) > 0 {
+				strip[t] = stript
+			}
+		}
+	})
+	if strip != nil {
+		keep := f.Topics[:0]
+		for _, t := range f.Topics {
+			stript, ok := strip[t.Topic]
+			if ok {
+				if len(stript) == 0 {
+					continue // stripping this entire topic
+				}
+				keepp := t.Partitions[:0]
+				for _, p := range t.Partitions {
+					if _, ok := stript[p.Partition]; ok {
+						continue
+					}
+					keepp = append(keepp, p)
+				}
+				t.Partitions = keepp
+			}
+			keep = append(keep, t)
+		}
+		f.Topics = keep
+	}
+	return f
 }
 
 func (s *source) discardBuffered() {
@@ -345,7 +432,7 @@ func (s *source) discardBuffered() {
 //
 // This returns the number of records taken and whether the source has been
 // completely drained.
-func (s *source) takeNBuffered(n int) (Fetch, int, bool) {
+func (s *source) takeNBuffered(paused pausedTopics, n int) (Fetch, int, bool) {
 	var r Fetch
 	var taken int
 
@@ -354,15 +441,44 @@ func (s *source) takeNBuffered(n int) (Fetch, int, bool) {
 	for len(bf.Topics) > 0 && n > 0 {
 		t := &bf.Topics[0]
 
-		r.Topics = append(r.Topics, *t)
-		rt := &r.Topics[len(r.Topics)-1]
-		rt.Partitions = nil
+		// If the topic is outright paused, we allowUsable all
+		// partitions in the topic and skip the topic entirely.
+		if paused.has(t.Topic, -1) {
+			bf.Topics = bf.Topics[1:]
+			for _, pCursor := range b.usedOffsets[t.Topic] {
+				pCursor.from.allowUsable()
+			}
+			delete(b.usedOffsets, t.Topic)
+			continue
+		}
+
+		var rt *FetchTopic
+		ensureTopicAdded := func() {
+			if rt != nil {
+				return
+			}
+			r.Topics = append(r.Topics, *t)
+			rt = &r.Topics[len(r.Topics)-1]
+			rt.Partitions = nil
+		}
 
 		tCursors := b.usedOffsets[t.Topic]
 
 		for len(t.Partitions) > 0 && n > 0 {
 			p := &t.Partitions[0]
 
+			if paused.has(t.Topic, p.Partition) {
+				t.Partitions = t.Partitions[1:]
+				pCursor := tCursors[p.Partition]
+				pCursor.from.allowUsable()
+				delete(tCursors, p.Partition)
+				if len(tCursors) == 0 {
+					delete(b.usedOffsets, t.Topic)
+				}
+				continue
+			}
+
+			ensureTopicAdded()
 			rt.Partitions = append(rt.Partitions, *p)
 			rp := &rt.Partitions[len(rt.Partitions)-1]
 
@@ -388,13 +504,15 @@ func (s *source) takeNBuffered(n int) (Fetch, int, bool) {
 				if len(tCursors) == 0 {
 					delete(b.usedOffsets, t.Topic)
 				}
-				break
+				continue
 			}
 
 			lastReturnedRecord := rp.Records[len(rp.Records)-1]
 			pCursor.from.setOffset(cursorOffset{
 				offset:            lastReturnedRecord.Offset + 1,
 				lastConsumedEpoch: lastReturnedRecord.LeaderEpoch,
+				lastConsumedTime:  lastReturnedRecord.Timestamp,
+				hwm:               p.HighWatermark,
 			})
 		}
 
@@ -407,7 +525,7 @@ func (s *source) takeNBuffered(n int) (Fetch, int, bool) {
 
 	drained := len(bf.Topics) == 0
 	if drained {
-		s.takeBuffered()
+		s.takeBuffered(nil)
 	}
 	return r, taken, drained
 }
@@ -429,10 +547,11 @@ func (s *source) createReq() *fetchRequest {
 	req := &fetchRequest{
 		maxWait:        s.cl.cfg.maxWait,
 		minBytes:       s.cl.cfg.minBytes,
-		maxBytes:       s.cl.cfg.maxBytes,
-		maxPartBytes:   s.cl.cfg.maxPartBytes,
+		maxBytes:       s.cl.cfg.maxBytes.load(),
+		maxPartBytes:   s.cl.cfg.maxPartBytes.load(),
 		rack:           s.cl.cfg.rack,
 		isolationLevel: s.cl.cfg.isolationLevel,
+		preferLagFn:    s.cl.cfg.preferLagFn,
 
 		// We copy a view of the session for the request, which allows
 		// modify source while the request may be reading its copy.
@@ -475,6 +594,23 @@ func (s *source) loopFetch() {
 
 	if session == noConsumerSession {
 		s.fetchState.hardFinish()
+		// It is possible that we were triggered to consume while we
+		// had no consumer session, and then *after* loopFetch loaded
+		// noConsumerSession, the session was saved and triggered to
+		// consume again. If this function is slow the first time
+		// around, it could still be running and about to hardFinish.
+		// The second trigger will do nothing, and then we hardFinish
+		// and block a new session from actually starting consuming.
+		//
+		// To guard against this, after we hard finish, we load the
+		// session again: if it is *not* noConsumerSession, we trigger
+		// attempting to consume again. Worst case, the trigger is
+		// useless and it will exit below when it builds an empty
+		// request.
+		sessionNow := consumer.loadSession()
+		if session != sessionNow {
+			s.maybeConsume()
+		}
 		return
 	}
 
@@ -523,17 +659,37 @@ func (s *source) loopFetch() {
 	}
 }
 
+func (s *source) killSessionOnClose(ctx context.Context) {
+	br, err := s.cl.brokerOrErr(nil, s.nodeID, errUnknownBroker)
+	if err != nil {
+		return
+	}
+	s.session.kill()
+	req := &fetchRequest{
+		maxWait:        1,
+		minBytes:       1,
+		maxBytes:       1,
+		maxPartBytes:   1,
+		rack:           s.cl.cfg.rack,
+		isolationLevel: s.cl.cfg.isolationLevel,
+		session:        s.session,
+	}
+	ch := make(chan struct{})
+	br.do(ctx, req, func(kmsg.Response, error) { close(ch) })
+	<-ch
+}
+
 // fetch is the main logic center of fetching messages.
 //
 // This is a long function, made much longer by winded documentation, that
 // contains a lot of the side effects of fetching and updating. The function
 // consists of two main bulks of logic:
 //
-//   * First, issue a request that can be killed if the source needs to be
-//   stopped. Processing the response modifies no state on the source.
+//   - First, issue a request that can be killed if the source needs to be
+//     stopped. Processing the response modifies no state on the source.
 //
-//   * Second, we keep the fetch response and update everything relevant
-//   (session, trigger some list or epoch updates, buffer the fetch).
+//   - Second, we keep the fetch response and update everything relevant
+//     (session, trigger some list or epoch updates, buffer the fetch).
 //
 // One small part between the first and second step is to update preferred
 // replicas. We always keep the preferred replicas from the fetch response
@@ -594,18 +750,17 @@ func (s *source) fetch(consumerSession *consumerSession, doneFetch chan<- struct
 		return
 	}
 
-	// If we had an error, we backoff. Killing a fetch quits the backoff,
-	// but that is fine; we may just re-request too early and fall into
-	// another backoff.
-	if err != nil {
+	var didBackoff bool
+	backoff := func(why interface{}) {
 		// We preemptively allow more fetches (since we are not buffering)
 		// and reset our session because of the error (who knows if kafka
 		// processed the request but the client failed to receive it).
 		doneFetch <- struct{}{}
 		alreadySentToDoneFetch = true
 		s.session.reset()
+		didBackoff = true
 
-		s.cl.triggerUpdateMetadata(false, "opportunistic load during source backoff") // as good a time as any
+		s.cl.triggerUpdateMetadata(false, fmt.Sprintf("opportunistic load during source backoff: %v", why)) // as good a time as any
 		s.consecutiveFailures++
 		after := time.NewTimer(s.cl.cfg.retryBackoff(s.consecutiveFailures))
 		defer after.Stop()
@@ -613,19 +768,30 @@ func (s *source) fetch(consumerSession *consumerSession, doneFetch chan<- struct
 		case <-after.C:
 		case <-ctx.Done():
 		}
+	}
+	defer func() {
+		if !didBackoff {
+			s.consecutiveFailures = 0
+		}
+	}()
+
+	// If we had an error, we backoff. Killing a fetch quits the backoff,
+	// but that is fine; we may just re-request too early and fall into
+	// another backoff.
+	if err != nil {
+		backoff(err)
 		return
 	}
-	s.consecutiveFailures = 0
 
 	resp := kresp.(*kmsg.FetchResponse)
 
 	var (
-		fetch         Fetch
-		reloadOffsets listOrEpochLoads
-		preferreds    cursorPreferreds
-		updateMeta    bool
-		updateWhy     string
-		handled       = make(chan struct{})
+		fetch           Fetch
+		reloadOffsets   listOrEpochLoads
+		preferreds      cursorPreferreds
+		allErrsStripped bool
+		updateWhy       multiUpdateWhy
+		handled         = make(chan struct{})
 	)
 
 	// Theoretically, handleReqResp could take a bit of CPU time due to
@@ -635,7 +801,7 @@ func (s *source) fetch(consumerSession *consumerSession, doneFetch chan<- struct
 	// Processing the response only needs the source's nodeID and client.
 	go func() {
 		defer close(handled)
-		fetch, reloadOffsets, preferreds, updateMeta, updateWhy = s.handleReqResp(br, req, resp)
+		fetch, reloadOffsets, preferreds, allErrsStripped, updateWhy = s.handleReqResp(br, req, resp)
 	}()
 
 	select {
@@ -694,7 +860,7 @@ func (s *source) fetch(consumerSession *consumerSession, doneFetch chan<- struct
 		s.session.reset()
 		return
 
-	case kerr.FetchSessionTopicIDError, kerr.UnknownTopicID, kerr.InconsistentTopicID:
+	case kerr.FetchSessionTopicIDError, kerr.InconsistentTopicID:
 		s.cl.cfg.logger.Log(LogLevelInfo, "topic id issues, resetting session and updating metadata", "broker", logID(s.nodeID), "err", err)
 		s.session.reset()
 		s.cl.triggerUpdateMetadataNow("topic id issues")
@@ -715,8 +881,21 @@ func (s *source) fetch(consumerSession *consumerSession, doneFetch chan<- struct
 		s.session.bumpEpoch(resp.SessionID)
 	}
 
-	if updateMeta && !reloadOffsets.loadWithSessionNow(consumerSession, updateWhy) {
-		s.cl.triggerUpdateMetadataNow(updateWhy)
+	// If we have a reason to update (per-partition fetch errors), and the
+	// reason is not just unknown topic or partition, then we immediately
+	// update metadata. We avoid updating for unknown because it _likely_
+	// means the topic does not exist and reloading is wasteful. We only
+	// trigger a metadata update if we have no reload offsets. Having
+	// reload offsets *always* triggers a metadata update.
+	if updateWhy != nil {
+		why := updateWhy.reason(fmt.Sprintf("fetch had inner topic errors from broker %d", s.nodeID))
+		if !reloadOffsets.loadWithSessionNow(consumerSession, why) {
+			if updateWhy.isOnly(kerr.UnknownTopicOrPartition) || updateWhy.isOnly(kerr.UnknownTopicID) {
+				s.cl.triggerUpdateMetadata(false, why)
+			} else {
+				s.cl.triggerUpdateMetadataNow(why)
+			}
+		}
 	}
 
 	if fetch.hasErrorsOrRecords() {
@@ -729,6 +908,12 @@ func (s *source) fetch(consumerSession *consumerSession, doneFetch chan<- struct
 		s.sem = make(chan struct{})
 		s.hook(&fetch, true, false) // buffered, not polled
 		s.cl.consumer.addSourceReadyForDraining(s)
+	} else if allErrsStripped {
+		// If we stripped all errors from the response, we are likely
+		// fetching from topics that were deleted. We want to back off
+		// a bit rather than spin-loop immediately re-requesting
+		// deleted topics.
+		backoff("empty fetch response due to all partitions having retryable errors")
 	}
 	return
 }
@@ -740,18 +925,27 @@ func (s *source) fetch(consumerSession *consumerSession, doneFetch chan<- struct
 // the source mutex.
 //
 // This function, and everything it calls, is side effect free.
-func (s *source) handleReqResp(br *broker, req *fetchRequest, resp *kmsg.FetchResponse) (Fetch, listOrEpochLoads, cursorPreferreds, bool, string) {
+func (s *source) handleReqResp(br *broker, req *fetchRequest, resp *kmsg.FetchResponse) (
+	f Fetch,
+	reloadOffsets listOrEpochLoads,
+	preferreds cursorPreferreds,
+	allErrsStripped bool,
+	updateWhy multiUpdateWhy,
+) {
+	f = Fetch{Topics: make([]FetchTopic, 0, len(resp.Topics))}
 	var (
-		f = Fetch{
-			Topics: make([]FetchTopic, 0, len(resp.Topics)),
-		}
-		reloadOffsets listOrEpochLoads
-		preferreds    []cursorOffsetPreferred
-		updateMeta    bool
-		updateWhy     multiUpdateWhy
-
-		kip320 = s.cl.supportsOffsetForLeaderEpoch()
+		debugWhyStripped multiUpdateWhy
+		numErrsStripped  int
+		kip320           = s.cl.supportsOffsetForLeaderEpoch()
 	)
+
+	strip := func(t string, p int32, err error) {
+		numErrsStripped++
+		if s.cl.cfg.logger.Level() < LogLevelDebug {
+			return
+		}
+		debugWhyStripped.add(t, p, err)
+	}
 
 	for _, rt := range resp.Topics {
 		topic := rt.Topic
@@ -804,7 +998,6 @@ func (s *source) handleReqResp(br *broker, req *fetchRequest, resp *kmsg.FetchRe
 
 			fp := partOffset.processRespPartition(br, rp, s.cl.decompressor, s.cl.cfg.hooks)
 			if fp.Err != nil {
-				updateMeta = true
 				updateWhy.add(topic, partition, fp.Err)
 			}
 
@@ -813,23 +1006,50 @@ func (s *source) handleReqResp(br *broker, req *fetchRequest, resp *kmsg.FetchRe
 			var keep bool
 			switch fp.Err {
 			default:
-				// - bad auth
-				// - unsupported compression
-				// - unsupported message version
-				// - unknown error
-				// - or, no error
+				if kerr.IsRetriable(fp.Err) && !s.cl.cfg.keepRetryableFetchErrors {
+					// UnknownLeaderEpoch: our meta is newer than the broker we fetched from
+					// OffsetNotAvailable: fetched from out of sync replica or a behind in-sync one (KIP-392 case 1 and case 2)
+					// UnknownTopicID: kafka has not synced the state on all brokers
+					// And other standard retryable errors.
+					strip(topic, partition, fp.Err)
+				} else {
+					// - bad auth
+					// - unsupported compression
+					// - unsupported message version
+					// - unknown error
+					// - or, no error
+					keep = true
+				}
+
+			case nil:
+				partOffset.from.unknownIDFails.Store(0)
 				keep = true
 
-			case kerr.UnknownTopicOrPartition,
-				kerr.NotLeaderForPartition,
-				kerr.ReplicaNotAvailable,
-				kerr.KafkaStorageError,
-				kerr.UnknownLeaderEpoch, // our meta is newer than broker we fetched from
-				kerr.OffsetNotAvailable: // fetched from out of sync replica or a behind in-sync one (KIP-392: case 1 and case 2)
+			case kerr.UnknownTopicID:
+				// We need to keep UnknownTopicID even though it is
+				// retryable, because encountering this error means
+				// the topic has been recreated and we will never
+				// consume the topic again anymore. This is an error
+				// worth bubbling up.
+				//
+				// Kafka will actually return this error for a brief
+				// window immediately after creating a topic for the
+				// first time, meaning the controller has not yet
+				// propagated to the leader that it is now the leader
+				// of a new partition. We need to ignore this error
+				// for a little bit.
+				if fails := partOffset.from.unknownIDFails.Add(1); fails > 5 {
+					partOffset.from.unknownIDFails.Add(-1)
+					keep = true
+				} else if s.cl.cfg.keepRetryableFetchErrors {
+					keep = true
+				} else {
+					strip(topic, partition, fp.Err)
+				}
 
 			case kerr.OffsetOutOfRange:
 				// If we are out of range, we reset to what we can.
-				// With Kafka >= 2.1.0, we should only get offset out
+				// With Kafka >= 2.1, we should only get offset out
 				// of range if we fetch before the start, but a user
 				// could start past the end and want to reset to
 				// the end. We respect that.
@@ -853,23 +1073,44 @@ func (s *source) handleReqResp(br *broker, req *fetchRequest, resp *kmsg.FetchRe
 				// In all cases except case 4, we also have to check if
 				// no reset offset was configured. If so, we ignore
 				// trying to reset and instead keep our failed partition.
-				addList := func(replica int32) {
+				addList := func(replica int32, log bool) {
 					if s.cl.cfg.resetOffset.noReset {
 						keep = true
+					} else if !partOffset.from.lastConsumedTime.IsZero() {
+						reloadOffsets.addLoad(topic, partition, loadTypeList, offsetLoad{
+							replica: replica,
+							Offset:  NewOffset().AfterMilli(partOffset.from.lastConsumedTime.UnixMilli()),
+						})
+						if log {
+							s.cl.cfg.logger.Log(LogLevelWarn, "received OFFSET_OUT_OF_RANGE, resetting to the nearest offset; either you were consuming too slowly and the broker has deleted the segment you were in the middle of consuming, or the broker has lost data and has not yet transferred leadership",
+								"broker", logID(s.nodeID),
+								"topic", topic,
+								"partition", partition,
+								"prior_offset", partOffset.offset,
+							)
+						}
 					} else {
 						reloadOffsets.addLoad(topic, partition, loadTypeList, offsetLoad{
 							replica: replica,
 							Offset:  s.cl.cfg.resetOffset,
 						})
+						if log {
+							s.cl.cfg.logger.Log(LogLevelInfo, "received OFFSET_OUT_OF_RANGE on the first fetch, resetting to the configured ConsumeResetOffset",
+								"broker", logID(s.nodeID),
+								"topic", topic,
+								"partition", partition,
+								"prior_offset", partOffset.offset,
+							)
+						}
 					}
 				}
 
 				switch {
 				case s.nodeID == partOffset.from.leader: // non KIP-392 case
-					addList(-1)
+					addList(-1, true)
 
 				case partOffset.offset < fp.LogStartOffset: // KIP-392 case 3
-					addList(s.nodeID)
+					addList(s.nodeID, false)
 
 				default: // partOffset.offset > fp.HighWatermark, KIP-392 case 4
 					if kip320 {
@@ -884,7 +1125,7 @@ func (s *source) handleReqResp(br *broker, req *fetchRequest, resp *kmsg.FetchRe
 						// If the broker does not support offset for leader epoch but
 						// does support follower fetching for some reason, we have to
 						// fallback to listing.
-						addList(-1)
+						addList(-1, true)
 					}
 				}
 
@@ -919,7 +1160,11 @@ func (s *source) handleReqResp(br *broker, req *fetchRequest, resp *kmsg.FetchRe
 		}
 	}
 
-	return f, reloadOffsets, preferreds, updateMeta, updateWhy.reason("fetch had inner topic errors")
+	if s.cl.cfg.logger.Level() >= LogLevelDebug && len(debugWhyStripped) > 0 {
+		s.cl.cfg.logger.Log(LogLevelDebug, "fetch stripped partitions", "why", debugWhyStripped.reason(""))
+	}
+
+	return f, reloadOffsets, preferreds, req.numOffsets == numErrsStripped, updateWhy
 }
 
 // processRespPartition processes all records in all potentially compressed
@@ -931,6 +1176,9 @@ func (o *cursorOffsetNext) processRespPartition(br *broker, rp *kmsg.FetchRespon
 		HighWatermark:    rp.HighWatermark,
 		LastStableOffset: rp.LastStableOffset,
 		LogStartOffset:   rp.LogStartOffset,
+	}
+	if rp.ErrorCode == 0 {
+		o.hwm = rp.HighWatermark
 	}
 
 	aborter := buildAborter(rp)
@@ -968,6 +1216,14 @@ func (o *cursorOffsetNext) processRespPartition(br *broker, rp *kmsg.FetchRespon
 			}
 			if length := int32(len(in[12:length])); length != *lengthField {
 				fp.Err = fmt.Errorf("encoded length %d does not match read length %d", *lengthField, length)
+				return false
+			}
+			// We have already validated that the slice is at least
+			// 17 bytes, but our CRC may be later (i.e. RecordBatch
+			// starts at byte 21). Ensure there is at least space
+			// for a CRC.
+			if len(in) < crcAt {
+				fp.Err = fmt.Errorf("length %d is too short to allow for a crc", len(in))
 				return false
 			}
 			if crcCalc := int32(crc32.Checksum(in[crcAt:length], crcTable)); crcCalc != *crcField {
@@ -1401,6 +1657,7 @@ func (o *cursorOffsetNext) maybeKeepRecord(fp *FetchPartition, record *Record, a
 	// topic is compacted.
 	o.offset = record.Offset + 1
 	o.lastConsumedEpoch = record.LeaderEpoch
+	o.lastConsumedTime = record.Timestamp
 }
 
 ///////////////////////////////
@@ -1439,7 +1696,7 @@ func recordToRecord(
 		Offset:        batch.FirstOffset + int64(record.OffsetDelta),
 	}
 	if r.Attrs.TimestampType() == 0 {
-		r.Timestamp = timeFromMillis(batch.FirstTimestamp + int64(record.TimestampDelta))
+		r.Timestamp = timeFromMillis(batch.FirstTimestamp + record.TimestampDelta64)
 	} else {
 		r.Timestamp = timeFromMillis(batch.MaxTimestamp)
 	}
@@ -1504,6 +1761,7 @@ type fetchRequest struct {
 	rack         string
 
 	isolationLevel int8
+	preferLagFn    PreferLagFn
 
 	numOffsets  int
 	usedOffsets usedOffsets
@@ -1511,8 +1769,30 @@ type fetchRequest struct {
 	torder []string           // order of topics to write
 	porder map[string][]int32 // per topic, order of partitions to write
 
+	// topic2id and id2topic track bidirectional lookup of topics and IDs
+	// that are being added to *this* specific request. topic2id slightly
+	// duplicates the map t2id in the fetch session, but t2id is different
+	// in that t2id tracks IDs in use from all prior requests -- and,
+	// importantly, t2id is cleared of IDs that are no longer used (see
+	// ForgottenTopics).
+	//
+	// We need to have both a session t2id map and a request t2id map:
+	//
+	//   * The session t2id is what we use when creating forgotten topics.
+	//   If we are forgetting a topic, the ID is not in the req t2id.
+	//
+	//   * The req topic2id is used for adding to the session t2id. When
+	//   building a request, if the id is in req.topic2id but not
+	//   session.t2id, we promote the ID into the session map.
+	//
+	// Lastly, id2topic is used when handling the response, as our reverse
+	// lookup from the ID back to the topic (and then we work with the
+	// topic name only). There is no equivalent in the session because
+	// there is no need for the id2topic lookup ever in the session.
 	topic2id map[string][16]byte
 	id2topic map[[16]byte]string
+
+	disableIDs bool // #295: using an old IBP on new Kafka results in ApiVersions advertising 13+ while the broker does not return IDs
 
 	// Session is a copy of the source session at the time a request is
 	// built. If the source is reset, the session it has is reset at the
@@ -1533,6 +1813,10 @@ func (f *fetchRequest) addCursor(c *cursor) {
 		f.usedOffsets[c.topic] = partitions
 		f.id2topic[c.topicID] = c.topic
 		f.topic2id[c.topic] = c.topicID
+		var noID [16]byte
+		if c.topicID == noID {
+			f.disableIDs = true
+		}
 		f.torder = append(f.torder, c.topic)
 	}
 	partitions[c.partition] = c.use()
@@ -1540,8 +1824,210 @@ func (f *fetchRequest) addCursor(c *cursor) {
 	f.numOffsets++
 }
 
-func (*fetchRequest) Key() int16           { return 1 }
-func (*fetchRequest) MaxVersion() int16    { return 12 }
+// PreferLagFn accepts topic and partition lag, the previously determined topic
+// order, and the previously determined per-topic partition order, and returns
+// a new topic and per-topic partition order.
+//
+// Most use cases will not need to look at the prior orders, but they exist if
+// you want to get fancy.
+//
+// You can return partial results: if you only return topics, partitions within
+// each topic keep their prior ordering. If you only return some topics but not
+// all, the topics you do not return / the partitions you do not return will
+// retain their original ordering *after* your given ordering.
+//
+// NOTE: torderPrior and porderPrior must not be modified. To avoid a bit of
+// unnecessary allocations, these arguments are views into data that is used to
+// build a fetch request.
+type PreferLagFn func(lag map[string]map[int32]int64, torderPrior []string, porderPrior map[string][]int32) ([]string, map[string][]int32)
+
+// PreferLagAt is a simple PreferLagFn that orders the largest lag first, for
+// any topic that is collectively lagging more than preferLagAt, and for any
+// partition that is lagging more than preferLagAt.
+//
+// The function does not prescribe any ordering for topics that have the same
+// lag. It is recommended to use a number more than 0 or 1: if you use 0, you
+// may just always undo client ordering when there is no actual lag.
+func PreferLagAt(preferLagAt int64) PreferLagFn {
+	if preferLagAt < 0 {
+		return nil
+	}
+	return func(lag map[string]map[int32]int64, _ []string, _ map[string][]int32) ([]string, map[string][]int32) {
+		type plag struct {
+			p   int32
+			lag int64
+		}
+		type tlag struct {
+			t   string
+			lag int64
+			ps  []plag
+		}
+
+		// First, collect all partition lag into per-topic lag.
+		tlags := make(map[string]tlag, len(lag))
+		for t, ps := range lag {
+			for p, lag := range ps {
+				prior := tlags[t]
+				tlags[t] = tlag{
+					t:   t,
+					lag: prior.lag + lag,
+					ps:  append(prior.ps, plag{p, lag}),
+				}
+			}
+		}
+
+		// We now remove topics and partitions that are not lagging
+		// enough. Collectively, the topic could be lagging too much,
+		// but individually, no partition is lagging that much: we will
+		// sort the topic first and keep the old partition ordering.
+		for t, tlag := range tlags {
+			if tlag.lag < preferLagAt {
+				delete(tlags, t)
+				continue
+			}
+			for i := 0; i < len(tlag.ps); i++ {
+				plag := tlag.ps[i]
+				if plag.lag < preferLagAt {
+					tlag.ps[i] = tlag.ps[len(tlag.ps)-1]
+					tlag.ps = tlag.ps[:len(tlag.ps)-1]
+					i--
+				}
+			}
+		}
+		if len(tlags) == 0 {
+			return nil, nil
+		}
+
+		var sortedLags []tlag
+		for _, tlag := range tlags {
+			sort.Slice(tlag.ps, func(i, j int) bool { return tlag.ps[i].lag > tlag.ps[j].lag })
+			sortedLags = append(sortedLags, tlag)
+		}
+		sort.Slice(sortedLags, func(i, j int) bool { return sortedLags[i].lag > sortedLags[j].lag })
+
+		// We now return our laggy topics and partitions, and let the
+		// caller add back any missing topics / partitions in their
+		// prior order.
+		torder := make([]string, 0, len(sortedLags))
+		for _, t := range sortedLags {
+			torder = append(torder, t.t)
+		}
+		porder := make(map[string][]int32, len(sortedLags))
+		for _, tlag := range sortedLags {
+			ps := make([]int32, 0, len(tlag.ps))
+			for _, p := range tlag.ps {
+				ps = append(ps, p.p)
+			}
+			porder[tlag.t] = ps
+		}
+		return torder, porder
+	}
+}
+
+// If the end user prefers to consume lag, we reorder our previously ordered
+// partitions, preferring first the laggiest topics, and then within those, the
+// laggiest partitions.
+func (f *fetchRequest) adjustPreferringLag() {
+	if f.preferLagFn == nil {
+		return
+	}
+
+	tall := make(map[string]struct{}, len(f.torder))
+	for _, t := range f.torder {
+		tall[t] = struct{}{}
+	}
+	pall := make(map[string][]int32, len(f.porder))
+	for t, ps := range f.porder {
+		pall[t] = append([]int32(nil), ps...)
+	}
+
+	lag := make(map[string]map[int32]int64, len(f.torder))
+	for t, ps := range f.usedOffsets {
+		plag := make(map[int32]int64, len(ps))
+		lag[t] = plag
+		for p, c := range ps {
+			hwm := c.hwm
+			if c.hwm < 0 {
+				hwm = 0
+			}
+			lag := hwm - c.offset
+			if c.offset <= 0 {
+				lag = hwm
+			}
+			if lag < 0 {
+				lag = 0
+			}
+			plag[p] = lag
+		}
+	}
+
+	torder, porder := f.preferLagFn(lag, f.torder, f.porder)
+	if torder == nil && porder == nil {
+		return
+	}
+	defer func() { f.torder, f.porder = torder, porder }()
+
+	if len(torder) == 0 {
+		torder = f.torder // user did not modify topic order, keep old order
+	} else {
+		// Remove any extra topics the user returned that we were not
+		// consuming, and add all topics they did not give back.
+		for i := 0; i < len(torder); i++ {
+			t := torder[i]
+			if _, exists := tall[t]; !exists {
+				torder = append(torder[:i], torder[i+1:]...) // user gave topic we were not fetching
+				i--
+			}
+			delete(tall, t)
+		}
+		for _, t := range f.torder {
+			if _, exists := tall[t]; exists {
+				torder = append(torder, t) // user did not return topic we were fetching
+				delete(tall, t)
+			}
+		}
+	}
+
+	if len(porder) == 0 {
+		porder = f.porder // user did not modify partition order, keep old order
+		return
+	}
+
+	pused := make(map[int32]struct{})
+	for t, ps := range pall {
+		order, exists := porder[t]
+		if !exists {
+			porder[t] = ps // shortcut: user did not define this partition's oorder, keep old order
+			continue
+		}
+		for _, p := range ps {
+			pused[p] = struct{}{}
+		}
+		for i := 0; i < len(order); i++ {
+			p := order[i]
+			if _, exists := pused[p]; !exists {
+				order = append(order[:i], order[i+1:]...)
+				i--
+			}
+			delete(pused, p)
+		}
+		for _, p := range f.porder[t] {
+			if _, exists := pused[p]; exists {
+				order = append(order, p)
+				delete(pused, p)
+			}
+		}
+		porder[t] = order
+	}
+}
+
+func (*fetchRequest) Key() int16 { return 1 }
+func (f *fetchRequest) MaxVersion() int16 {
+	if f.disableIDs || f.session.disableIDs {
+		return 12
+	}
+	return 15
+}
 func (f *fetchRequest) SetVersion(v int16) { f.version = v }
 func (f *fetchRequest) GetVersion() int16  { return f.version }
 func (f *fetchRequest) IsFlexible() bool   { return f.version >= 12 } // version 12+ is flexible
@@ -1565,11 +2051,13 @@ func (f *fetchRequest) AppendTo(dst []byte) []byte {
 		sessionUsed = make(map[string]map[int32]struct{}, len(f.usedOffsets))
 	}
 
+	f.adjustPreferringLag()
+
 	for _, topic := range f.torder {
 		partitions := f.usedOffsets[topic]
 
 		var reqTopic *kmsg.FetchRequestTopic
-		sessionTopic := f.session.lookupTopic(topic)
+		sessionTopic := f.session.lookupTopic(topic, f.topic2id)
 
 		var usedTopic map[int32]struct{}
 		if sessionUsed != nil {
@@ -1627,7 +2115,7 @@ func (f *fetchRequest) AppendTo(dst []byte) []byte {
 				if forgottenTopic == nil {
 					t := kmsg.NewFetchRequestForgottenTopic()
 					t.Topic = topic
-					t.TopicID = f.topic2id[topic]
+					t.TopicID = f.session.t2id[topic]
 					req.ForgottenTopics = append(req.ForgottenTopics, t)
 					forgottenTopic = &req.ForgottenTopics[len(req.ForgottenTopics)-1]
 				}
@@ -1636,6 +2124,21 @@ func (f *fetchRequest) AppendTo(dst []byte) []byte {
 			}
 			if len(partitions) == 0 {
 				delete(f.session.used, topic)
+				id := f.session.t2id[topic]
+				delete(f.session.t2id, topic)
+				// If we deleted a topic that was missing an ID, then we clear the
+				// previous disableIDs state. We potentially *reenable* disableIDs
+				// if any remaining topics in our session are also missing their ID.
+				var noID [16]byte
+				if id == noID {
+					f.session.disableIDs = false
+					for _, id := range f.session.t2id {
+						if id == noID {
+							f.session.disableIDs = true
+							break
+						}
+					}
+				}
 			}
 		}
 	}
@@ -1660,14 +2163,17 @@ type fetchSession struct {
 	epoch int32
 
 	used map[string]map[int32]fetchSessionOffsetEpoch // what we have in the session so far
+	t2id map[string][16]byte
 
-	killed bool // if we cannot use a session anymore
+	disableIDs bool // if anything in t2id has no ID
+	killed     bool // if we cannot use a session anymore
 }
 
 func (s *fetchSession) kill() {
-	s.id = 0
 	s.epoch = -1
 	s.used = nil
+	s.t2id = nil
+	s.disableIDs = false
 	s.killed = true
 }
 
@@ -1680,6 +2186,8 @@ func (s *fetchSession) reset() {
 	}
 	s.epoch = 0
 	s.used = nil
+	s.t2id = nil
+	s.disableIDs = false
 }
 
 // bumpEpoch bumps the epoch and saves the session id.
@@ -1700,17 +2208,23 @@ func (s *fetchSession) bumpEpoch(id int32) {
 	s.id = id
 }
 
-func (s *fetchSession) lookupTopic(topic string) fetchSessionTopic {
+func (s *fetchSession) lookupTopic(topic string, t2id map[string][16]byte) fetchSessionTopic {
 	if s.killed {
 		return nil
 	}
 	if s.used == nil {
 		s.used = make(map[string]map[int32]fetchSessionOffsetEpoch)
+		s.t2id = make(map[string][16]byte)
 	}
 	t := s.used[topic]
 	if t == nil {
 		t = make(map[int32]fetchSessionOffsetEpoch)
 		s.used[topic] = t
+		id := t2id[topic]
+		s.t2id[topic] = id
+		if id == ([16]byte{}) {
+			s.disableIDs = true
+		}
 	}
 	return t
 }
