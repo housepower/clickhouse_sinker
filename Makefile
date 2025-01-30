@@ -6,7 +6,6 @@ SINKER_LDFLAGS += -X "main.version=$(VERSION)"
 SINKER_LDFLAGS += -X "main.date=$(shell date --iso-8601=s)"
 SINKER_LDFLAGS += -X "main.commit=$(shell git rev-parse HEAD)"
 SINKER_LDFLAGS += -X "main.builtBy=$(shell echo `whoami`@`hostname`)"
-SINKER_LDFLAGS += -checklinkname=0
 
 GOBUILD := CGO_ENABLED=1 go build $(BUILD_FLAG)
 
