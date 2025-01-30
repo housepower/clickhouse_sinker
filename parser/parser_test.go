@@ -919,7 +919,7 @@ func TestParseDateTime(t *testing.T) {
 			v, layout := parseInLocation(tc.TS, time.Local)
 			desc := fmt.Sprintf(`parseInLocation("%s", "%s") = %s(layout: %s), expect %s`, tc.TS, location, v.Format(time.RFC3339Nano), layout, tc.ExpVal.Format(time.RFC3339Nano))
 			if strings.Contains(tc.TS, "CST") && v != tc.ExpVal {
-				log.Printf(desc + "(CST is ambiguous)")
+				log.Print(desc + "(CST is ambiguous)")
 			} else {
 				require.Equal(t, tc.ExpVal, v, desc)
 			}

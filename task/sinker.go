@@ -531,7 +531,7 @@ func (s *Sinker) initBmSeries() (err error) {
 		if sqAny, ok := output.SeriesQuotas.Load(k); ok {
 			sq = sqAny.(*model.SeriesQuota)
 			sq.Lock()
-			res := sq.BmSeries != nil && len(sq.BmSeries) > 0
+			res := len(sq.BmSeries) > 0
 			sq.Unlock()
 			if res {
 				continue

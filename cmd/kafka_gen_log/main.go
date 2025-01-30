@@ -177,7 +177,7 @@ func (g *LogGenerator) Init() error {
 			g.logfiles = append(g.logfiles, fp)
 		}
 	}
-	if g.logfiles == nil || len(g.logfiles) == 0 {
+	if len(g.logfiles) == 0 {
 		err := errors.Newf("There is no files under %v match pattern %v", LogfileDir, LogfilePattern)
 		return err
 	}

@@ -40,7 +40,7 @@ gotest: vendor
 
 .PHONY: lint
 lint:
-	golangci-lint run -D errcheck,govet,gosimple
+	golangci-lint run
 
 .PHONY: run
 run: vendor
