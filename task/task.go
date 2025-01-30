@@ -69,6 +69,7 @@ func cloneTask(s *Service, newGroup *Consumer) (service *Service) {
 	service = &Service{
 		clickhouse: s.clickhouse,
 		pp:         s.pp,
+		cfg:        s.cfg,
 		taskCfg:    s.taskCfg,
 		consumer:   s.consumer,
 		whiteList:  s.whiteList,
