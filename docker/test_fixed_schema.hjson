@@ -13,7 +13,6 @@
     }
     kafka: {
         brokers: 127.0.0.1:9093
-        version: 2.5.0
     }
     task: {
         name: test_fixed_schema
