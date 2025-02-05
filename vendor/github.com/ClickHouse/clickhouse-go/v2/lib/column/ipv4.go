@@ -18,16 +18,22 @@
 package column
 
 import (
+	"database/sql/driver"
+	"encoding/binary"
 	"fmt"
+	"github.com/ClickHouse/ch-go/proto"
 	"net"
+	"net/netip"
 	"reflect"
-
-	"github.com/ClickHouse/clickhouse-go/v2/lib/binary"
 )
 
 type IPv4 struct {
-	data []byte
 	name string
+	col  proto.ColIPv4
+}
+
+func (col *IPv4) Reset() {
+	col.col.Reset()
 }
 
 func (col *IPv4) Name() string {
@@ -43,10 +49,10 @@ func (col *IPv4) ScanType() reflect.Type {
 }
 
 func (col *IPv4) Rows() int {
-	return len(col.data) / net.IPv4len
+	return col.col.Rows()
 }
 
-func (col *IPv4) Row(i int, ptr bool) interface{} {
+func (col *IPv4) Row(i int, ptr bool) any {
 	value := col.row(i)
 	if ptr {
 		return &value
@@ -54,7 +60,7 @@ func (col *IPv4) Row(i int, ptr bool) interface{} {
 	return value
 }
 
-func (col *IPv4) ScanRow(dest interface{}, row int) error {
+func (col *IPv4) ScanRow(dest any, row int) error {
 	switch d := dest.(type) {
 	case *string:
 		*d = col.row(row).String()
@@ -66,6 +72,32 @@ func (col *IPv4) ScanRow(dest interface{}, row int) error {
 	case **net.IP:
 		*d = new(net.IP)
 		**d = col.row(row)
+	case *netip.Addr:
+		*d = col.rowAddr(row)
+	case **netip.Addr:
+		*d = new(netip.Addr)
+		**d = col.rowAddr(row)
+	case *uint32:
+		ipV4 := col.row(row).To4()
+		if ipV4 == nil {
+			return &ColumnConverterError{
+				Op:   "ScanRow",
+				To:   fmt.Sprintf("%T", dest),
+				From: "IPv4",
+			}
+		}
+		*d = binary.BigEndian.Uint32(ipV4[:])
+	case **uint32:
+		ipV4 := col.row(row).To4()
+		if ipV4 == nil {
+			return &ColumnConverterError{
+				Op:   "ScanRow",
+				To:   fmt.Sprintf("%T", dest),
+				From: "IPv4",
+			}
+		}
+		*d = new(uint32)
+		**d = binary.BigEndian.Uint32(ipV4[:])
 	default:
 		return &ColumnConverterError{
 			Op:   "ScanRow",
@@ -76,82 +108,114 @@ func (col *IPv4) ScanRow(dest interface{}, row int) error {
 	return nil
 }
 
-// appendIPv4Str appends bytes of the IPv4-formatted string to result byte array.
-// If IP is not valid V4 error will be returned.
-func appendIPv4Str(data []byte, strIp string) ([]byte, error) {
-	ip := net.ParseIP(strIp)
-	if ip == nil {
-		return nil, &ColumnConverterError{
+func strToIPV4(strIp string) (netip.Addr, error) {
+	ip, err := netip.ParseAddr(strIp)
+	if err != nil {
+		return netip.Addr{}, &ColumnConverterError{
 			Op:   "Append",
 			To:   "IPv4",
 			Hint: "invalid IP format",
 		}
 	}
-	return appendIPv4(data, ip)
+	return ip, nil
 }
 
-// appendIPv4 appends bytes of IPv4 to result byte array.
-// If IP is not valid V4 error will be returned.
-func appendIPv4(data []byte, ip net.IP) ([]byte, error) {
-	ip = ip.To4()
-	if ip == nil {
-		return nil, &ColumnConverterError{
-			Op:   "Append",
-			To:   "IPv4",
-			From: "IPv6",
-			Hint: "invalid IP version",
-		}
+func (col *IPv4) AppendV4IPs(ips []netip.Addr) {
+	for i := range ips {
+		col.col.Append(proto.ToIPv4(ips[i]))
 	}
-	return append(data, IPv4ToBytes(ip)...), nil
 }
 
-func (col *IPv4) Append(v interface{}) (nulls []uint8, err error) {
-	var data []byte
+func (col *IPv4) Append(v any) (nulls []uint8, err error) {
 
 	switch v := v.(type) {
 	case []string:
 		nulls = make([]uint8, len(v))
-		for _, v := range v {
-			data, err = appendIPv4Str(data, v)
+		ips := make([]netip.Addr, len(v), len(v))
+		for i := range v {
+			ip, err := strToIPV4(v[i])
 			if err != nil {
-				return
+				return nulls, err
 			}
+			ips[i] = ip
 		}
+		col.AppendV4IPs(ips)
 	case []*string:
 		nulls = make([]uint8, len(v))
-		for i, v := range v {
+		ips := make([]netip.Addr, len(v), len(v))
+		for i := range v {
 			switch {
 			case v != nil:
-				data, err = appendIPv4Str(data, *v)
+				ip, err := strToIPV4(*v[i])
 				if err != nil {
-					return
+					return nulls, err
 				}
+				ips[i] = ip
 			default:
-				data, nulls[i] = append(data, make([]byte, net.IPv4len)...), 1
+				ips[i] = netip.Addr{}
+				nulls[i] = 1
+			}
+		}
+		col.AppendV4IPs(ips)
+	case []netip.Addr:
+		nulls = make([]uint8, len(v))
+		col.AppendV4IPs(v)
+	case []*netip.Addr:
+		nulls = make([]uint8, len(v))
+		for i := range v {
+			switch {
+			case v != nil:
+				col.col.Append(proto.ToIPv4(*v[i]))
+			default:
+				nulls[i] = 1
+				col.col.Append(0)
 			}
 		}
 	case []net.IP:
 		nulls = make([]uint8, len(v))
-		for _, v := range v {
-			data, err = appendIPv4(data, v)
-			if err != nil {
-				return
-			}
+		for i := range v {
+			col.col.Append(proto.ToIPv4(netIPToNetIPAddr(v[i])))
 		}
 	case []*net.IP:
 		nulls = make([]uint8, len(v))
-		for i, v := range v {
+		for i := range v {
+			switch {
+			case v[i] != nil:
+				col.col.Append(proto.ToIPv4(netIPToNetIPAddr(*v[i])))
+			default:
+				nulls[i] = 1
+				col.col.Append(0)
+			}
+		}
+	case []uint32:
+		nulls = make([]uint8, len(v))
+		for i := range v {
+			col.col.Append(proto.IPv4(v[i]))
+		}
+	case []*uint32:
+		nulls = make([]uint8, len(v))
+		for i := range v {
 			switch {
 			case v != nil:
-				data, err = appendIPv4(data, *v)
-				if err != nil {
-					return
-				}
+				col.col.Append(proto.IPv4(*v[i]))
 			default:
-				data, nulls[i] = append(data, make([]byte, net.IPv4len)...), 1
+				nulls[i] = 1
+				col.col.Append(0)
 			}
 		}
 	default:
+		if valuer, ok := v.(driver.Valuer); ok {
+			val, err := valuer.Value()
+			if err != nil {
+				return nil, &ColumnConverterError{
+					Op:   "Append",
+					To:   "IPv4",
+					From: fmt.Sprintf("%T", v),
+					Hint: fmt.Sprintf("could not get driver.Valuer value, try using %s", col.Type()),
+				}
+			}
+			return col.Append(val)
+		}
 		return nil, &ColumnConverterError{
 			Op:   "Append",
 			To:   "IPv4",
@@ -159,33 +223,75 @@ func (col *IPv4) Append(v interface{}) (nulls []uint8, err error) {
 		}
 	}
 
-	col.data = append(col.data, data...)
 	return
 }
 
-func (col *IPv4) AppendRow(v interface{}) (err error) {
+func (col *IPv4) AppendRow(v any) (err error) {
 	switch v := v.(type) {
 	case string:
-		col.data, err = appendIPv4Str(col.data, v)
+		ip, err := strToIPV4(v)
+		if err != nil {
+			return err
+		}
+		col.col.Append(proto.ToIPv4(ip))
 	case *string:
 		switch {
 		case v != nil:
-			col.data, err = appendIPv4Str(col.data, *v)
+			ip, err := strToIPV4(*v)
+			if err != nil {
+				return err
+			}
+			col.col.Append(proto.ToIPv4(ip))
 		default:
-			col.data, err = appendIPv4(col.data, make(net.IP, net.IPv4len))
+			col.col.Append(0)
+		}
+	case netip.Addr:
+		col.col.Append(proto.ToIPv4(v))
+	case *netip.Addr:
+		switch {
+		case v != nil:
+			col.col.Append(proto.ToIPv4(*v))
+		default:
+			col.col.Append(0)
 		}
 	case net.IP:
-		col.data, err = appendIPv4(col.data, v)
+		switch {
+		case len(v) == 0:
+			col.col.Append(0)
+		default:
+			col.col.Append(proto.ToIPv4(netIPToNetIPAddr(v)))
+		}
 	case *net.IP:
 		switch {
 		case v != nil:
-			col.data, err = appendIPv4(col.data, *v)
+			col.col.Append(proto.ToIPv4(netIPToNetIPAddr(*v)))
 		default:
-			col.data, err = appendIPv4(col.data, make(net.IP, net.IPv4len))
+			col.col.Append(0)
 		}
 	case nil:
-		col.data, err = appendIPv4(col.data, make(net.IP, net.IPv4len))
+		col.col.Append(0)
+	case uint32:
+		col.col.Append(proto.IPv4(v))
+	case *uint32:
+		switch {
+		case v != nil:
+			col.col.Append(proto.IPv4(*v))
+		default:
+			col.col.Append(0)
+		}
 	default:
+		if valuer, ok := v.(driver.Valuer); ok {
+			val, err := valuer.Value()
+			if err != nil {
+				return &ColumnConverterError{
+					Op:   "AppendRow",
+					To:   "IPv4",
+					From: fmt.Sprintf("%T", v),
+					Hint: fmt.Sprintf("could not get driver.Valuer value, try using %s", col.Type()),
+				}
+			}
+			return col.AppendRow(val)
+		}
 		return &ColumnConverterError{
 			Op:   "AppendRow",
 			To:   "IPv4",
@@ -196,22 +302,33 @@ func (col *IPv4) AppendRow(v interface{}) (err error) {
 	return
 }
 
-func (col *IPv4) Decode(decoder *binary.Decoder, rows int) error {
-	col.data = make([]byte, net.IPv4len*rows)
-	return decoder.Raw(col.data)
+func (col *IPv4) Decode(reader *proto.Reader, rows int) error {
+	return col.col.DecodeColumn(reader, rows)
 }
 
-func (col *IPv4) Encode(encoder *binary.Encoder) error {
-	return encoder.Raw(col.data)
+func (col *IPv4) Encode(buffer *proto.Buffer) {
+	col.col.EncodeColumn(buffer)
 }
 
+// TODO: This should probably return an netip.Addr
 func (col *IPv4) row(i int) net.IP {
-	src := col.data[i*net.IPv4len : (i+1)*net.IPv4len]
-	return net.IPv4(src[3], src[2], src[1], src[0]).To4()
+	src := col.col.Row(i).ToIP()
+	ip := src.As4()
+	return net.IPv4(ip[0], ip[1], ip[2], ip[3]).To4()
 }
 
-func IPv4ToBytes(ip net.IP) []byte {
-	return []byte{ip[3], ip[2], ip[1], ip[0]}
+func (col *IPv4) rowAddr(i int) netip.Addr {
+	return col.col.Row(i).ToIP()
+}
+
+func netIPToNetIPAddr(ip net.IP) netip.Addr {
+	switch len(ip) {
+	case 4:
+		return netip.AddrFrom4([4]byte{ip[0], ip[1], ip[2], ip[3]})
+	case 16:
+		return netip.AddrFrom4([4]byte{ip[12], ip[13], ip[14], ip[15]})
+	}
+	return netip.Addr{}
 }
 
 var _ Interface = (*IPv4)(nil)

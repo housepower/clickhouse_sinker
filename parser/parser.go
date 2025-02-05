@@ -23,6 +23,8 @@ import (
 	"github.com/confluentinc/confluent-kafka-go/schemaregistry"
 	"github.com/confluentinc/confluent-kafka-go/schemaregistry/serde"
 	"github.com/thanos-io/thanos/pkg/errors"
+	"github.com/valyala/fastjson"
+	"github.com/viru-tech/clickhouse_sinker/util"
 
 	"github.com/viru-tech/clickhouse_sinker/model"
 )
@@ -34,8 +36,6 @@ const (
 	protoName    = "proto"
 
 	zeroUUID = "00000000-0000-0000-0000-000000000000"
-	zeroIPv4 = "0.0.0.0"
-	zeroIPv6 = "0:0:0:0:0:0:0:0"
 )
 
 var (
@@ -95,6 +95,8 @@ type Pool struct {
 	pool           sync.Pool
 	schemaRegistry schemaregistry.Client
 	deserializer   *serde.BaseDeserializer
+	once           sync.Once // only need to detect new keys from fields once
+	fields         string
 }
 
 // NewParserPool creates a parser pool
@@ -106,6 +108,7 @@ func NewParserPool(
 	timeunit float64,
 	topic string,
 	schemaRegistry schemaregistry.Client,
+	fields string,
 ) (pp *Pool, err error) {
 	var tz *time.Location
 	if timezone == "" {
@@ -121,6 +124,7 @@ func NewParserPool(
 		delimiter:      delimiter,
 		timeZone:       tz,
 		timeUnit:       timeunit,
+		fields:         fields,
 		schemaRegistry: schemaRegistry,
 	}
 
@@ -133,7 +137,7 @@ func NewParserPool(
 	}
 
 	if csvFormat != nil {
-		pp.csvFormat = make(map[string]int)
+		pp.csvFormat = make(map[string]int, len(csvFormat))
 		for i, title := range csvFormat {
 			pp.csvFormat[title] = i
 		}
@@ -144,16 +148,17 @@ func NewParserPool(
 // Get returns a Parser from pp.
 //
 // The Parser must be Put to pp after use.
-func (pp *Pool) Get() Parser {
+func (pp *Pool) Get() (Parser, error) {
 	v := pp.pool.Get()
 	if v == nil {
 		switch pp.name {
 		case gjsonName:
-			return &GjsonParser{pp: pp}
-		case fastJsonName:
-			return &FastjsonParser{pp: pp}
+			return &GjsonParser{pp: pp}, nil
 		case csvName:
-			return &CsvParser{pp: pp}
+			if pp.fields != "" {
+				util.Logger.Warn("extra fields for csv parser is not supported, fields ignored")
+			}
+			return &CsvParser{pp: pp}, nil
 		case protoName:
 			deserializer := &ProtoDeserializer{
 				schemaRegistry:   pp.schemaRegistry,
@@ -164,12 +169,27 @@ func (pp *Pool) Get() Parser {
 			return &ProtoParser{
 				pp:           pp,
 				deserializer: deserializer,
-			}
+			}, nil
+		case fastJsonName:
+			fallthrough
 		default:
-			return &FastjsonParser{pp: pp}
+			var obj *fastjson.Object
+			if pp.fields != "" {
+				value, err := fastjson.Parse(pp.fields)
+				if err != nil {
+					err = errors.Wrapf(err, "failed to parse fields as a valid json object")
+					return nil, err
+				}
+				obj, err = value.Object()
+				if err != nil {
+					err = errors.Wrapf(err, "failed to retrive fields member")
+					return nil, err
+				}
+			}
+			return &FastjsonParser{pp: pp, fields: obj}, nil
 		}
 	}
-	return v.(Parser)
+	return v.(Parser), nil
 }
 
 // Put returns p to pp.

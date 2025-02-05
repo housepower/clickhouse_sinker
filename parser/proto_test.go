@@ -3,6 +3,7 @@ package parser
 import (
 	"fmt"
 	"math"
+	"net"
 	"testing"
 	"time"
 
@@ -84,7 +85,7 @@ func createProtoMetric(t *testing.T, message *testdata.Test) model.Metric {
 	schemaRegistry.EXPECT().Register(testSubject, schemaInfo, false).Return(testSchemaID, nil)
 	schemaRegistry.EXPECT().GetBySubjectAndID(testSubject, testSchemaID).Return(schemaInfo, nil).Times(2)
 
-	pp, err := NewParserPool(protoName, nil, "", "", timeUnit, testTopic, schemaRegistry)
+	pp, err := NewParserPool(protoName, nil, "", "", timeUnit, testTopic, schemaRegistry, "")
 	require.NoError(t, err)
 
 	serializer, err := protobuf.NewSerializer(schemaRegistry, serde.ValueSerde, protobuf.NewSerializerConfig())
@@ -92,7 +93,8 @@ func createProtoMetric(t *testing.T, message *testdata.Test) model.Metric {
 	sample, err := serializer.Serialize(testTopic, message)
 	require.NoError(t, err)
 
-	parser := pp.Get()
+	parser, err := pp.Get()
+	require.NoError(t, err)
 	metric, err := parser.Parse(sample)
 	require.NoError(t, err)
 
@@ -701,7 +703,7 @@ func TestProtoGetIPv4(t *testing.T) {
 
 	testCases := []SimpleCase{
 		// nullable: false
-		{"not_exist", false, zeroIPv4},
+		{"not_exist", false, net.IPv4zero.String()},
 		{"ipv4", false, "1.2.3.4"},
 		{"array_ipv4", false, "[1.2.3.4 2.3.4.5]"},
 		{"array_empty", false, "[]"},
@@ -721,7 +723,7 @@ func TestProtoGetIPv6(t *testing.T) {
 
 	testCases := []SimpleCase{
 		// nullable: false
-		{"not_exist", false, zeroIPv6},
+		{"not_exist", false, net.IPv6zero.String()},
 		{"ipv6", false, "fe80::74e6:b5f3:fe92:830e"},
 		{"array_ipv6", false, "[fe80::74e6:b5f3:fe92:830e fe80::2a3:aeff:fe53:743e]"},
 		{"array_empty", false, "[]"},

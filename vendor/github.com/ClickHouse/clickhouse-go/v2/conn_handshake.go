@@ -18,6 +18,7 @@
 package clickhouse
 
 import (
+	_ "embed"
 	"fmt"
 	"time"
 
@@ -25,31 +26,33 @@ import (
 )
 
 func (c *connect) handshake(database, username, password string) error {
+	defer c.buffer.Reset()
 	c.debugf("[handshake] -> %s", proto.ClientHandshake{})
+	// set a read deadline - alternative to context.Read operation will fail if no data is received after deadline.
+	c.conn.SetReadDeadline(time.Now().Add(c.readTimeout))
+	defer c.conn.SetReadDeadline(time.Time{})
+	// context level deadlines override any read deadline
 	c.conn.SetDeadline(time.Now().Add(c.opt.DialTimeout))
 	defer c.conn.SetDeadline(time.Time{})
 	{
-		c.encoder.Byte(proto.ClientHello)
-		if err := (&proto.ClientHandshake{}).Encode(c.encoder); err != nil {
-			return err
+		c.buffer.PutByte(proto.ClientHello)
+		handshake := &proto.ClientHandshake{
+			ProtocolVersion: ClientTCPProtocolVersion,
+			ClientName:      c.opt.ClientInfo.String(),
+			ClientVersion:   proto.Version{ClientVersionMajor, ClientVersionMinor, ClientVersionPatch}, //nolint:govet
 		}
+		handshake.Encode(c.buffer)
 		{
-			if err := c.encoder.String(database); err != nil {
-				return err
-			}
-			if err := c.encoder.String(username); err != nil {
-				return err
-			}
-			if err := c.encoder.String(password); err != nil {
-				return err
-			}
+			c.buffer.PutString(database)
+			c.buffer.PutString(username)
+			c.buffer.PutString(password)
 		}
-		if err := c.encoder.Flush(); err != nil {
+		if err := c.flush(); err != nil {
 			return err
 		}
 	}
 	{
-		packet, err := c.decoder.ReadByte()
+		packet, err := c.reader.ReadByte()
 		if err != nil {
 			return err
 		}
@@ -57,7 +60,7 @@ func (c *connect) handshake(database, username, password string) error {
 		case proto.ServerException:
 			return c.exception()
 		case proto.ServerHello:
-			if err := c.server.Decode(c.decoder); err != nil {
+			if err := c.server.Decode(c.reader); err != nil {
 				return err
 			}
 		case proto.ServerEndOfStream:
@@ -70,10 +73,19 @@ func (c *connect) handshake(database, username, password string) error {
 	if c.server.Revision < proto.DBMS_MIN_REVISION_WITH_CLIENT_INFO {
 		return ErrUnsupportedServerRevision
 	}
+
 	if c.revision > c.server.Revision {
 		c.revision = c.server.Revision
 		c.debugf("[handshake] downgrade client proto")
 	}
 	c.debugf("[handshake] <- %s", c.server)
 	return nil
+}
+
+func (c *connect) sendAddendum() error {
+	if c.revision >= proto.DBMS_MIN_PROTOCOL_VERSION_WITH_QUOTA_KEY {
+		c.buffer.PutString("") // todo quota key support
+	}
+
+	return c.flush()
 }

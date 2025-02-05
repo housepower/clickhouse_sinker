@@ -18,18 +18,23 @@
 package column
 
 import (
+	"database/sql"
+	"database/sql/driver"
 	"fmt"
+	"github.com/ClickHouse/ch-go/proto"
 	"reflect"
-
-	"github.com/ClickHouse/clickhouse-go/v2/lib/binary"
 )
 
 type Enum16 struct {
-	iv     map[string]uint16
-	vi     map[uint16]string
+	iv     map[string]proto.Enum16
+	vi     map[proto.Enum16]string
 	chType Type
-	values UInt16
+	col    proto.ColEnum16
 	name   string
+}
+
+func (col *Enum16) Reset() {
+	col.col.Reset()
 }
 
 func (col *Enum16) Name() string {
@@ -45,25 +50,29 @@ func (col *Enum16) ScanType() reflect.Type {
 }
 
 func (col *Enum16) Rows() int {
-	return len(col.values.data)
+	return col.col.Rows()
 }
 
-func (col *Enum16) Row(i int, ptr bool) interface{} {
-	value := col.vi[col.values.data[i]]
+func (col *Enum16) Row(i int, ptr bool) any {
+	value := col.vi[col.col.Row(i)]
 	if ptr {
 		return &value
 	}
 	return value
 }
 
-func (col *Enum16) ScanRow(dest interface{}, row int) error {
+func (col *Enum16) ScanRow(dest any, row int) error {
+	value := col.col.Row(row)
 	switch d := dest.(type) {
 	case *string:
-		*d = col.vi[col.values.data[row]]
+		*d = col.vi[value]
 	case **string:
 		*d = new(string)
-		**d = col.vi[col.values.data[row]]
+		**d = col.vi[value]
 	default:
+		if scan, ok := dest.(sql.Scanner); ok {
+			return scan.Scan(col.vi[value])
+		}
 		return &ColumnConverterError{
 			Op:   "ScanRow",
 			To:   fmt.Sprintf("%T", dest),
@@ -73,8 +82,48 @@ func (col *Enum16) ScanRow(dest interface{}, row int) error {
 	return nil
 }
 
-func (col *Enum16) Append(v interface{}) (nulls []uint8, err error) {
+func (col *Enum16) Append(v any) (nulls []uint8, err error) {
 	switch v := v.(type) {
+	case []int16:
+		nulls = make([]uint8, len(v))
+		for _, elem := range v {
+			if err = col.AppendRow(elem); err != nil {
+				return nil, err
+			}
+		}
+	case []*int16:
+		nulls = make([]uint8, len(v))
+		for i, elem := range v {
+			switch {
+			case elem != nil:
+				if err = col.AppendRow(elem); err != nil {
+					return nil, err
+				}
+			default:
+				col.col.Append(0)
+				nulls[i] = 1
+			}
+		}
+	case []int:
+		nulls = make([]uint8, len(v))
+		for _, elem := range v {
+			if err = col.AppendRow(elem); err != nil {
+				return nil, err
+			}
+		}
+	case []*int:
+		nulls = make([]uint8, len(v))
+		for i, elem := range v {
+			switch {
+			case elem != nil:
+				if err = col.AppendRow(elem); err != nil {
+					return nil, err
+				}
+			default:
+				col.col.Append(0)
+				nulls[i] = 1
+			}
+		}
 	case []string:
 		nulls = make([]uint8, len(v))
 		for _, elem := range v {
@@ -85,7 +134,7 @@ func (col *Enum16) Append(v interface{}) (nulls []uint8, err error) {
 					ColumnType: string(col.chType),
 				}
 			}
-			col.values.data = append(col.values.data, v)
+			col.col.Append(v)
 		}
 	case []*string:
 		nulls = make([]uint8, len(v))
@@ -99,17 +148,65 @@ func (col *Enum16) Append(v interface{}) (nulls []uint8, err error) {
 						ColumnType: string(col.chType),
 					}
 				}
-				col.values.data = append(col.values.data, v)
+				col.col.Append(v)
 			default:
-				col.values.data, nulls[i] = append(col.values.data, 0), 1
+				col.col.Append(0)
+				nulls[i] = 1
 			}
+		}
+	default:
+		if valuer, ok := v.(driver.Valuer); ok {
+			val, err := valuer.Value()
+			if err != nil {
+				return nil, &ColumnConverterError{
+					Op:   "Append",
+					To:   "Enum16",
+					From: fmt.Sprintf("%T", v),
+					Hint: "could not get driver.Valuer value",
+				}
+			}
+			return col.Append(val)
+		}
+		return nil, &ColumnConverterError{
+			Op:   "Append",
+			To:   "Enum16",
+			From: fmt.Sprintf("%T", v),
 		}
 	}
 	return
 }
 
-func (col *Enum16) AppendRow(elem interface{}) error {
+func (col *Enum16) AppendRow(elem any) error {
 	switch elem := elem.(type) {
+	case int16:
+		return col.AppendRow(int(elem))
+	case *int16:
+		return col.AppendRow(int(*elem))
+	case int:
+		v := proto.Enum16(elem)
+		_, ok := col.vi[v]
+		if !ok {
+			return &Error{
+				Err:        fmt.Errorf("unknown element %v", elem),
+				ColumnType: string(col.chType),
+			}
+		}
+		col.col.Append(v)
+	case *int:
+		switch {
+		case elem != nil:
+			v := proto.Enum16(*elem)
+			_, ok := col.vi[v]
+			if !ok {
+				return &Error{
+					Err:        fmt.Errorf("unknown element %v", *elem),
+					ColumnType: string(col.chType),
+				}
+			}
+			col.col.Append(v)
+		default:
+			col.col.Append(0)
+		}
 	case string:
 		v, ok := col.iv[elem]
 		if !ok {
@@ -118,7 +215,7 @@ func (col *Enum16) AppendRow(elem interface{}) error {
 				ColumnType: string(col.chType),
 			}
 		}
-		col.values.data = append(col.values.data, v)
+		col.col.Append(v)
 	case *string:
 		switch {
 		case elem != nil:
@@ -129,28 +226,44 @@ func (col *Enum16) AppendRow(elem interface{}) error {
 					ColumnType: string(col.chType),
 				}
 			}
-			col.values.data = append(col.values.data, v)
+			col.col.Append(v)
 		default:
-			col.values.data = append(col.values.data, 0)
+			col.col.Append(0)
 		}
 	case nil:
-		col.values.data = append(col.values.data, 0)
+		col.col.Append(0)
 	default:
-		return &ColumnConverterError{
-			Op:   "AppendRow",
-			To:   "Enum16",
-			From: fmt.Sprintf("%T", elem),
+		if valuer, ok := elem.(driver.Valuer); ok {
+			val, err := valuer.Value()
+			if err != nil {
+				return &ColumnConverterError{
+					Op:   "AppendRow",
+					To:   "Enum16",
+					From: fmt.Sprintf("%T", elem),
+					Hint: "could not get driver.Valuer value",
+				}
+			}
+			return col.AppendRow(val)
+		}
+		if s, ok := elem.(fmt.Stringer); ok {
+			return col.AppendRow(s.String())
+		} else {
+			return &ColumnConverterError{
+				Op:   "AppendRow",
+				To:   "Enum16",
+				From: fmt.Sprintf("%T", elem),
+			}
 		}
 	}
 	return nil
 }
 
-func (col *Enum16) Decode(decoder *binary.Decoder, rows int) error {
-	return col.values.Decode(decoder, rows)
+func (col *Enum16) Decode(reader *proto.Reader, rows int) error {
+	return col.col.DecodeColumn(reader, rows)
 }
 
-func (col *Enum16) Encode(encoder *binary.Encoder) error {
-	return col.values.Encode(encoder)
+func (col *Enum16) Encode(buffer *proto.Buffer) {
+	col.col.EncodeColumn(buffer)
 }
 
 var _ Interface = (*Enum16)(nil)

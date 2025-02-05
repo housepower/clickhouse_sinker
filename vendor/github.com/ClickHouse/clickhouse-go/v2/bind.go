@@ -25,10 +25,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ClickHouse/clickhouse-go/v2/lib/column"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 )
 
-func Named(name string, value interface{}) driver.NamedValue {
+func Named(name string, value any) driver.NamedValue {
 	return driver.NamedValue{
 		Name:  name,
 		Value: value,
@@ -45,8 +46,10 @@ const (
 )
 
 type GroupSet struct {
-	Value []interface{}
+	Value []any
 }
+
+type ArraySet []any
 
 func DateNamed(name string, value time.Time, scale TimeUnit) driver.NamedDateValue {
 	return driver.NamedDateValue{
@@ -56,35 +59,33 @@ func DateNamed(name string, value time.Time, scale TimeUnit) driver.NamedDateVal
 	}
 }
 
-var bindNumericRe = regexp.MustCompile(`\$[0-9]+`)
-var bindPositionalRe = regexp.MustCompile(`[^\\][?]`)
+var (
+	bindNumericRe    = regexp.MustCompile(`\$[0-9]+`)
+	bindPositionalRe = regexp.MustCompile(`[^\\][?]`)
+)
 
-func bind(tz *time.Location, query string, args ...interface{}) (string, error) {
+func bind(tz *time.Location, query string, args ...any) (string, error) {
 	if len(args) == 0 {
 		return query, nil
 	}
 	var (
-		haveNamed      bool
 		haveNumeric    bool
 		havePositional bool
 	)
+
+	allArgumentsNamed, err := checkAllNamedArguments(args...)
+	if err != nil {
+		return "", err
+	}
+
+	if allArgumentsNamed {
+		return bindNamed(tz, query, args...)
+	}
+
 	haveNumeric = bindNumericRe.MatchString(query)
 	havePositional = bindPositionalRe.MatchString(query)
 	if haveNumeric && havePositional {
 		return "", ErrBindMixedParamsFormats
-	}
-	for _, v := range args {
-		switch v.(type) {
-		case driver.NamedValue, driver.NamedDateValue:
-			haveNamed = true
-		default:
-		}
-		if haveNamed && (haveNumeric || havePositional) {
-			return "", ErrBindMixedParamsFormats
-		}
-	}
-	if haveNamed {
-		return bindNamed(tz, query, args...)
 	}
 	if haveNumeric {
 		return bindNumeric(tz, query, args...)
@@ -92,44 +93,86 @@ func bind(tz *time.Location, query string, args ...interface{}) (string, error) 
 	return bindPositional(tz, query, args...)
 }
 
-var bindPositionCharRe = regexp.MustCompile(`[?]`)
-
-func bindPositional(tz *time.Location, query string, args ...interface{}) (_ string, err error) {
+func checkAllNamedArguments(args ...any) (bool, error) {
 	var (
-		unbind = make(map[int]struct{})
-		params = make([]string, len(args))
+		haveNamed     bool
+		haveAnonymous bool
 	)
-	for i, v := range args {
-		if fn, ok := v.(std_driver.Valuer); ok {
-			if v, err = fn.Value(); err != nil {
-				return "", nil
-			}
+	for _, v := range args {
+		switch v.(type) {
+		case driver.NamedValue, driver.NamedDateValue:
+			haveNamed = true
+		default:
+			haveAnonymous = true
 		}
-		params[i], err = format(tz, Seconds, v)
-		if err != nil {
-			return "", err
+		if haveNamed && haveAnonymous {
+			return haveNamed, ErrBindMixedParamsFormats
 		}
 	}
-	i := 0
-	query = bindPositionalRe.ReplaceAllStringFunc(query, func(n string) string {
-		if i >= len(params) {
-			unbind[i] = struct{}{}
-			return ""
-		}
-		val := params[i]
-		i++
-		return bindPositionCharRe.ReplaceAllStringFunc(n, func(m string) string {
-			return val
-		})
-	})
-	for param := range unbind {
-		return "", fmt.Errorf("have no arg for param ? at position %d", param)
-	}
-	// replace \? escape sequence
-	return strings.ReplaceAll(query, "\\?", "?"), nil
+	return haveNamed, nil
 }
 
-func bindNumeric(tz *time.Location, query string, args ...interface{}) (_ string, err error) {
+func bindPositional(tz *time.Location, query string, args ...any) (_ string, err error) {
+	var (
+		lastMatchIndex = -1 // Position of previous match for copying
+		argIndex       = 0  // Index for the argument at current position
+		buf            = make([]byte, 0, len(query))
+		unbindCount    = 0 // Number of positional arguments that couldn't be matched
+	)
+
+	for i := 0; i < len(query); i++ {
+		// It's fine looping through the query string as bytes, because the (fixed) characters we're looking for
+		// are in the ASCII range to won't take up more than one byte.
+		if query[i] == '?' {
+			if i > 0 && query[i-1] == '\\' {
+				// Copy all previous index to here characters
+				buf = append(buf, query[lastMatchIndex+1:i-1]...)
+				buf = append(buf, '?')
+			} else {
+				// Copy all previous index to here characters
+				buf = append(buf, query[lastMatchIndex+1:i]...)
+
+				// Append the argument value
+				if argIndex < len(args) {
+					v := args[argIndex]
+					if fn, ok := v.(std_driver.Valuer); ok {
+						if v, err = fn.Value(); err != nil {
+							return "", nil
+						}
+					}
+
+					value, err := format(tz, Seconds, v)
+					if err != nil {
+						return "", err
+					}
+
+					buf = append(buf, value...)
+					argIndex++
+				} else {
+					unbindCount++
+				}
+			}
+
+			lastMatchIndex = i
+		}
+	}
+
+	// If there were no replacements, quick return without copying the string
+	if lastMatchIndex < 0 {
+		return query, nil
+	}
+
+	// Append the remainder
+	buf = append(buf, query[lastMatchIndex+1:]...)
+
+	if unbindCount > 0 {
+		return "", fmt.Errorf("have no arg for param ? at last %d positions", unbindCount)
+	}
+
+	return string(buf), nil
+}
+
+func bindNumeric(tz *time.Location, query string, args ...any) (_ string, err error) {
 	var (
 		unbind = make(map[string]struct{})
 		params = make(map[string]string)
@@ -161,7 +204,7 @@ func bindNumeric(tz *time.Location, query string, args ...interface{}) (_ string
 
 var bindNamedRe = regexp.MustCompile(`@[a-zA-Z0-9\_]+`)
 
-func bindNamed(tz *time.Location, query string, args ...interface{}) (_ string, err error) {
+func bindNamed(tz *time.Location, query string, args ...any) (_ string, err error) {
 	var (
 		unbind = make(map[string]struct{})
 		params = make(map[string]string)
@@ -203,7 +246,7 @@ func bindNamed(tz *time.Location, query string, args ...interface{}) (_ string, 
 
 func formatTime(tz *time.Location, scale TimeUnit, value time.Time) (string, error) {
 	switch value.Location().String() {
-	case "Local":
+	case "Local", "":
 		switch scale {
 		case Seconds:
 			return fmt.Sprintf("toDateTime('%d')", value.Unix()), nil
@@ -221,14 +264,16 @@ func formatTime(tz *time.Location, scale TimeUnit, value time.Time) (string, err
 		return fmt.Sprintf("toDateTime64('%s', %d)", value.Format(fmt.Sprintf("2006-01-02 15:04:05.%0*d", int(scale*3), 0)), int(scale*3)), nil
 	}
 	if scale == Seconds {
-		return value.Format(fmt.Sprintf("toDateTime('2006-01-02 15:04:05', '%s')", value.Location().String())), nil
+		return fmt.Sprintf("toDateTime('%s', '%s')", value.Format("2006-01-02 15:04:05"), value.Location().String()), nil
 	}
 	return fmt.Sprintf("toDateTime64('%s', %d, '%s')", value.Format(fmt.Sprintf("2006-01-02 15:04:05.%0*d", int(scale*3), 0)), int(scale*3), value.Location().String()), nil
 }
 
-func format(tz *time.Location, scale TimeUnit, v interface{}) (string, error) {
+var stringQuoteReplacer = strings.NewReplacer(`\`, `\\`, `'`, `\'`)
+
+func format(tz *time.Location, scale TimeUnit, v any) (string, error) {
 	quote := func(v string) string {
-		return "'" + strings.NewReplacer(`\`, `\\`, `'`, `\'`).Replace(v) + "'"
+		return "'" + stringQuoteReplacer.Replace(v) + "'"
 	}
 	switch v := v.(type) {
 	case nil:
@@ -237,33 +282,74 @@ func format(tz *time.Location, scale TimeUnit, v interface{}) (string, error) {
 		return quote(v), nil
 	case time.Time:
 		return formatTime(tz, scale, v)
+	case bool:
+		if v {
+			return "1", nil
+		}
+		return "0", nil
 	case GroupSet:
-		elements := make([]string, 0, len(v.Value))
-		for _, e := range v.Value {
-			val, err := format(tz, scale, e)
-			if err != nil {
-				return "", err
-			}
-			elements = append(elements, val)
+		val, err := join(tz, scale, v.Value)
+		if err != nil {
+			return "", err
 		}
-		return fmt.Sprintf("(%s)", strings.Join(elements, ", ")), nil
+		return fmt.Sprintf("(%s)", val), nil
 	case []GroupSet:
-		items := make([]string, 0, len(v))
-		for _, t := range v {
-			val, err := format(tz, scale, t)
+		val, err := join(tz, scale, v)
+		if err != nil {
+			return "", err
+		}
+		return val, err
+	case ArraySet:
+		val, err := join(tz, scale, v)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("[%s]", val), nil
+	case fmt.Stringer:
+		if v := reflect.ValueOf(v); v.Kind() == reflect.Pointer &&
+			v.IsNil() &&
+			v.Type().Elem().Implements(reflect.TypeOf((*fmt.Stringer)(nil)).Elem()) {
+			return "NULL", nil
+		}
+		return quote(v.String()), nil
+	case column.OrderedMap:
+		values := make([]string, 0)
+		for key := range v.Keys() {
+			name, err := format(tz, scale, key)
 			if err != nil {
 				return "", err
 			}
-			items = append(items, fmt.Sprintf("%s", val))
+			value, _ := v.Get(key)
+			val, err := format(tz, scale, value)
+			if err != nil {
+				return "", err
+			}
+			values = append(values, fmt.Sprintf("%s, %s", name, val))
 		}
-		return strings.Join(items, ", "), nil
-	case fmt.Stringer:
-		return quote(v.String()), nil
+
+		return "map(" + strings.Join(values, ", ") + ")", nil
+	case column.IterableOrderedMap:
+		values := make([]string, 0)
+		iter := v.Iterator()
+		for iter.Next() {
+			key, value := iter.Key(), iter.Value()
+			name, err := format(tz, scale, key)
+			if err != nil {
+				return "", err
+			}
+			val, err := format(tz, scale, value)
+			if err != nil {
+				return "", err
+			}
+			values = append(values, fmt.Sprintf("%s, %s", name, val))
+		}
+
+		return "map(" + strings.Join(values, ", ") + ")", nil
 	}
 	switch v := reflect.ValueOf(v); v.Kind() {
 	case reflect.String:
 		return quote(v.String()), nil
-	case reflect.Slice:
+	case reflect.Slice, reflect.Array:
 		values := make([]string, 0, v.Len())
 		for i := 0; i < v.Len(); i++ {
 			val, err := format(tz, scale, v.Index(i).Interface())
@@ -272,7 +358,7 @@ func format(tz *time.Location, scale TimeUnit, v interface{}) (string, error) {
 			}
 			values = append(values, val)
 		}
-		return strings.Join(values, ", "), nil
+		return fmt.Sprintf("[%s]", strings.Join(values, ", ")), nil
 	case reflect.Map: // map
 		values := make([]string, 0, len(v.MapKeys()))
 		for _, key := range v.MapKeys() {
@@ -284,20 +370,32 @@ func format(tz *time.Location, scale TimeUnit, v interface{}) (string, error) {
 			if err != nil {
 				return "", err
 			}
-			if v.MapIndex(key).Kind() == reflect.Slice {
-				// assume slices in maps are arrays
-				val = fmt.Sprintf("[%s]", val)
-			}
-			values = append(values, fmt.Sprintf("%s : %s", name, val))
+			values = append(values, fmt.Sprintf("%s, %s", name, val))
 		}
-		return "{" + strings.Join(values, ", ") + "}", nil
-
+		return "map(" + strings.Join(values, ", ") + ")", nil
+	case reflect.Ptr:
+		if v.IsNil() {
+			return "NULL", nil
+		}
+		return format(tz, scale, v.Elem().Interface())
 	}
 	return fmt.Sprint(v), nil
 }
 
-func rebind(in []std_driver.NamedValue) []interface{} {
-	args := make([]interface{}, 0, len(in))
+func join[E any](tz *time.Location, scale TimeUnit, values []E) (string, error) {
+	items := make([]string, len(values), len(values))
+	for i := range values {
+		val, err := format(tz, scale, values[i])
+		if err != nil {
+			return "", err
+		}
+		items[i] = val
+	}
+	return strings.Join(items, ", "), nil
+}
+
+func rebind(in []std_driver.NamedValue) []any {
+	args := make([]any, 0, len(in))
 	for _, v := range in {
 		switch {
 		case len(v.Name) != 0:

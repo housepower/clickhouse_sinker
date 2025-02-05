@@ -28,20 +28,23 @@ import (
 // Connection::ping
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Client/Connection.cpp
 func (c *connect) ping(ctx context.Context) (err error) {
+	// set a read deadline - alternative to context.Read operation will fail if no data is received after deadline.
+	c.conn.SetReadDeadline(time.Now().Add(c.readTimeout))
+	defer c.conn.SetReadDeadline(time.Time{})
+	// context level deadlines override any read deadline
 	if deadline, ok := ctx.Deadline(); ok {
 		c.conn.SetDeadline(deadline)
 		defer c.conn.SetDeadline(time.Time{})
 	}
 	c.debugf("[ping] -> ping")
-	if err := c.encoder.Byte(proto.ClientPing); err != nil {
+	c.buffer.PutByte(proto.ClientPing)
+	if err := c.flush(); err != nil {
 		return err
 	}
-	if err := c.encoder.Flush(); err != nil {
-		return err
-	}
+
 	var packet byte
 	for {
-		if packet, err = c.decoder.ReadByte(); err != nil {
+		if packet, err = c.reader.ReadByte(); err != nil {
 			return err
 		}
 		switch packet {

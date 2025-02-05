@@ -19,7 +19,10 @@ import (
 	"bytes"
 	"encoding/csv"
 	"fmt"
+	"github.com/viru-tech/clickhouse_sinker/model"
+	"github.com/viru-tech/clickhouse_sinker/util"
 	"math"
+	"net"
 	"regexp"
 	"strconv"
 	"sync"
@@ -30,9 +33,6 @@ import (
 	"github.com/tidwall/gjson"
 	"github.com/valyala/fastjson/fastfloat"
 	"golang.org/x/exp/constraints"
-
-	"github.com/viru-tech/clickhouse_sinker/model"
-	"github.com/viru-tech/clickhouse_sinker/util"
 )
 
 var _ Parser = (*CsvParser)(nil)
@@ -88,7 +88,10 @@ func (c *CsvMetric) GetDecimal(key string, nullable bool) (val interface{}) {
 		val = decimal.NewFromInt(0)
 		return
 	}
-	val, _ = decimal.NewFromString(c.values[idx])
+	var err error
+	if val, err = decimal.NewFromString(c.values[idx]); err != nil {
+		val = decimal.NewFromInt(0)
+	}
 	return
 }
 
@@ -147,11 +150,11 @@ func (c *CsvMetric) GetFloat64(key string, nullable bool) (val interface{}) {
 }
 
 func (c *CsvMetric) GetIPv4(key string, nullable bool) interface{} {
-	return c.stringOrDefault(key, nullable, zeroIPv4)
+	return c.stringOrDefault(key, nullable, net.IPv4zero.String())
 }
 
 func (c *CsvMetric) GetIPv6(key string, nullable bool) interface{} {
-	return c.stringOrDefault(key, nullable, zeroIPv6)
+	return c.stringOrDefault(key, nullable, net.IPv6zero.String())
 }
 
 func (c *CsvMetric) stringOrDefault(key string, nullable bool, defaultValue string) interface{} {
@@ -226,7 +229,7 @@ func CsvGetFloat[T constraints.Float](c *CsvMetric, key string, nullable bool, m
 		if nullable {
 			return
 		}
-		val = float64(0.0)
+		val = T(0.0)
 		return
 	}
 	val2 := fastfloat.ParseBestEffort(c.values[idx])
@@ -364,6 +367,14 @@ func (c *CsvMetric) GetArray(key string, typ int) (val interface{}) {
 	default:
 		util.Logger.Fatal(fmt.Sprintf("LOGIC ERROR: unsupported array type %v", typ))
 	}
+	return
+}
+
+func (c *CsvMetric) GetObject(key string, nullable bool) (val interface{}) {
+	return
+}
+
+func (c *CsvMetric) GetMap(key string, typeinfo *model.TypeInfo) (val interface{}) {
 	return
 }
 

@@ -48,9 +48,8 @@ import (
 	"github.com/google/gops/agent"
 	"github.com/thanos-io/thanos/pkg/errors"
 	"github.com/twmb/franz-go/pkg/kgo"
-	"go.uber.org/zap"
-
 	"github.com/viru-tech/clickhouse_sinker/util"
+	"go.uber.org/zap"
 )
 
 const (
@@ -80,7 +79,7 @@ var (
 )
 
 type Metric struct {
-	Time         time.Time `json:"@time"` // seconds since epoch
+	Time         time.Time `json:"@time"` //seconds since epoch
 	ItemGUID     string    `json:"@item_guid"`
 	MetricName   string    `json:"@metric_name"`
 	AlgName      string    `json:"@alg_name"`
@@ -212,7 +211,7 @@ topic: for example, sensor_dt_result_online`, os.Args[0], os.Args[0])
 	}
 
 	var prevLines, prevSize int64
-	ctx, _ := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	ctx, _ := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	go generate()
 
 	ticker := time.NewTicker(10 * time.Second)

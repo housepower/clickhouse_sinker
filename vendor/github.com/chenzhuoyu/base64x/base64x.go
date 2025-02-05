@@ -15,6 +15,7 @@ const (
     _MODE_URL  = 1 << 0
     _MODE_RAW  = 1 << 1
     _MODE_AVX2 = 1 << 2
+    _MODE_JSON = 1 << 3
 )
 
 // StdEncoding is the standard base64 encoding, as defined in
@@ -36,6 +37,9 @@ const RawStdEncoding Encoding = _MODE_RAW
 //
 // This is the same as URLEncoding but omits padding characters.
 const RawURLEncoding Encoding = _MODE_RAW | _MODE_URL
+
+// JSONStdEncoding is the StdEncoding and encoded as JSON string as RFC 8259.
+const JSONStdEncoding Encoding = _MODE_JSON;
 
 var (
     archFlags = 0
@@ -67,7 +71,7 @@ func (self Encoding) Encode(out []byte, src []byte) {
 //
 // It will also update the length of out.
 func (self Encoding) EncodeUnsafe(out *[]byte, src []byte) {
-    __b64encode(out, &src, int(self) | archFlags)
+    b64encode(out, &src, int(self) | archFlags)
 }
 
 // EncodeToString returns the base64 encoding of src.
@@ -116,7 +120,7 @@ func (self Encoding) Decode(out []byte, src []byte) (int, error) {
 //
 // It will also update the length of out.
 func (self Encoding) DecodeUnsafe(out *[]byte, src []byte) (int, error) {
-    if n := __b64decode(out, mem2addr(src), len(src), int(self) | archFlags); n >= 0 {
+    if n := b64decode(out, mem2addr(src), len(src), int(self) | archFlags); n >= 0 {
         return n, nil
     } else {
         return 0, base64.CorruptInputError(-n - 1)
@@ -143,11 +147,5 @@ func (self Encoding) DecodedLen(n int) int {
         return n / 4 * 3
     } else {
         return n * 6 / 8
-    }
-}
-
-func init() {
-    if hasAVX2() {
-        archFlags = _MODE_AVX2
     }
 }

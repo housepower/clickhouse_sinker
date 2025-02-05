@@ -18,10 +18,10 @@
 package column
 
 import (
+	"github.com/ClickHouse/ch-go/proto"
 	"reflect"
 	"strings"
-
-	"github.com/ClickHouse/clickhouse-go/v2/lib/binary"
+	"time"
 )
 
 type SimpleAggregateFunction struct {
@@ -30,14 +30,18 @@ type SimpleAggregateFunction struct {
 	name   string
 }
 
+func (col *SimpleAggregateFunction) Reset() {
+	col.base.Reset()
+}
+
 func (col *SimpleAggregateFunction) Name() string {
 	return col.name
 }
 
-func (col *SimpleAggregateFunction) parse(t Type) (_ Interface, err error) {
+func (col *SimpleAggregateFunction) parse(t Type, tz *time.Location) (_ Interface, err error) {
 	col.chType = t
 	base := strings.TrimSpace(strings.SplitN(t.params(), ",", 2)[1])
-	if col.base, err = Type(base).Column(col.name); err == nil {
+	if col.base, err = Type(base).Column(col.name, tz); err == nil {
 		return col, nil
 	}
 	return nil, &UnsupportedColumnTypeError{
@@ -54,23 +58,23 @@ func (col *SimpleAggregateFunction) ScanType() reflect.Type {
 func (col *SimpleAggregateFunction) Rows() int {
 	return col.base.Rows()
 }
-func (col *SimpleAggregateFunction) Row(i int, ptr bool) interface{} {
+func (col *SimpleAggregateFunction) Row(i int, ptr bool) any {
 	return col.base.Row(i, ptr)
 }
-func (col *SimpleAggregateFunction) ScanRow(dest interface{}, rows int) error {
+func (col *SimpleAggregateFunction) ScanRow(dest any, rows int) error {
 	return col.base.ScanRow(dest, rows)
 }
-func (col *SimpleAggregateFunction) Append(v interface{}) ([]uint8, error) {
+func (col *SimpleAggregateFunction) Append(v any) ([]uint8, error) {
 	return col.base.Append(v)
 }
-func (col *SimpleAggregateFunction) AppendRow(v interface{}) error {
+func (col *SimpleAggregateFunction) AppendRow(v any) error {
 	return col.base.AppendRow(v)
 }
-func (col *SimpleAggregateFunction) Decode(decoder *binary.Decoder, rows int) error {
-	return col.base.Decode(decoder, rows)
+func (col *SimpleAggregateFunction) Decode(reader *proto.Reader, rows int) error {
+	return col.base.Decode(reader, rows)
 }
-func (col *SimpleAggregateFunction) Encode(encoder *binary.Encoder) error {
-	return col.base.Encode(encoder)
+func (col *SimpleAggregateFunction) Encode(buffer *proto.Buffer) {
+	col.base.Encode(buffer)
 }
 
 var _ Interface = (*SimpleAggregateFunction)(nil)

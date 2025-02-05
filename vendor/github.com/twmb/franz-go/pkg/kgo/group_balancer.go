@@ -110,7 +110,7 @@ func (*ConsumerBalancer) Balance(map[string]int32) IntoSyncAssignment {
 	panic("unreachable")
 }
 
-// Balance satisfies the GroupMemberBalancerOrError interface.
+// BalanceOrError satisfies the GroupMemberBalancerOrError interface.
 func (b *ConsumerBalancer) BalanceOrError(topics map[string]int32) (IntoSyncAssignment, error) {
 	return b.b.Balance(b, topics), b.err
 }
@@ -204,8 +204,23 @@ func NewConsumerBalancer(balance ConsumerBalancerBalance, members []kmsg.JoinGro
 	for i, member := range members {
 		meta := &b.metadatas[i]
 		meta.Default()
-		if err := meta.ReadFrom(member.ProtocolMetadata); err != nil {
-			return nil, fmt.Errorf("unable to read member metadata: %v", err)
+		memberMeta := member.ProtocolMetadata
+		if err := meta.ReadFrom(memberMeta); err != nil {
+			// Some buggy clients claimed support for v1 but then
+			// did not add OwnedPartitions, resulting in a short
+			// metadata. If we fail at reading and the version is
+			// v1, we retry again as v0. We do not support other
+			// versions because hopefully other clients stop
+			// claiming higher and higher version support and not
+			// actually supporting them. Sarama has a similarish
+			// workaround. See #493.
+			if bytes.HasPrefix(memberMeta, []byte{0, 1}) {
+				memberMeta[0] = 0
+				memberMeta[1] = 0
+				if err = meta.ReadFrom(memberMeta); err != nil {
+					return nil, fmt.Errorf("unable to read member metadata: %v", err)
+				}
+			}
 		}
 		for _, topic := range meta.Topics {
 			b.topics[topic] = struct{}{}
@@ -327,7 +342,7 @@ func (g *groupConsumer) findBalancer(from, proto string) (GroupBalancer, error) 
 	for _, b := range g.cfg.balancers {
 		ours = append(ours, b.ProtocolName())
 	}
-	g.cl.cfg.logger.Log(LogLevelError, fmt.Sprintf("%s could not find Kafka-chosen balancer", from), "kafka_choice", proto, "our_set", strings.Join(ours, ", "))
+	g.cl.cfg.logger.Log(LogLevelError, fmt.Sprintf("%s could not find broker-chosen balancer", from), "kafka_choice", proto, "our_set", strings.Join(ours, ", "))
 	return nil, fmt.Errorf("unable to balance: none of our balancers have a name equal to the balancer chosen for balancing (%s)", proto)
 }
 
@@ -338,11 +353,7 @@ func (g *groupConsumer) findBalancer(from, proto string) (GroupBalancer, error) 
 // own metadata update to see if partition counts have changed for these random
 // topics.
 func (g *groupConsumer) balanceGroup(proto string, members []kmsg.JoinGroupResponseMember, skipBalance bool) ([]kmsg.SyncGroupRequestGroupAssignment, error) {
-	if skipBalance {
-		g.cl.cfg.logger.Log(LogLevelInfo, "parsing group balance as leader but not assigning (KIP-814)")
-	} else {
-		g.cl.cfg.logger.Log(LogLevelInfo, "balancing group as leader")
-	}
+	g.cl.cfg.logger.Log(LogLevelInfo, "balancing group as leader")
 
 	b, err := g.findBalancer("balance group", proto)
 	if err != nil {
@@ -443,7 +454,14 @@ func (g *groupConsumer) balanceGroup(proto string, members []kmsg.JoinGroupRespo
 	// have logged the current interests, we do not need to actually
 	// balance.
 	if skipBalance {
-		return nil, nil
+		switch proto := b.ProtocolName(); proto {
+		case RangeBalancer().ProtocolName(),
+			RoundRobinBalancer().ProtocolName(),
+			StickyBalancer().ProtocolName(),
+			CooperativeStickyBalancer().ProtocolName():
+		default:
+			return nil, nil
+		}
 	}
 
 	// If the returned IntoSyncAssignment is a BalancePlan, which it likely
@@ -469,10 +487,12 @@ func (g *groupConsumer) balanceGroup(proto string, members []kmsg.JoinGroupRespo
 }
 
 // helper func; range and roundrobin use v0
-func memberMetadataV0(interests []string) []byte {
+func simpleMemberMetadata(interests []string, generation int32) []byte {
 	meta := kmsg.NewConsumerMemberMetadata()
-	meta.Version = 0
+	meta.Version = 3        // BUMP ME WHEN NEW FIELDS ARE ADDED, AND BUMP BELOW
 	meta.Topics = interests // input interests are already sorted
+	// meta.OwnedPartitions is nil, since simple protocols are not cooperative
+	meta.Generation = generation
 	return meta.AppendTo(nil)
 }
 
@@ -486,8 +506,8 @@ func memberMetadataV0(interests []string) []byte {
 // Suppose there are two members M0 and M1, two topics t0 and t1, and each
 // topic has three partitions p0, p1, and p2. The partition balancing will be
 //
-//     M0: [t0p0, t0p2, t1p1]
-//     M1: [t0p1, t1p0, t1p2]
+//	M0: [t0p0, t0p2, t1p1]
+//	M1: [t0p1, t1p0, t1p2]
 //
 // If all members subscribe to all topics equally, the roundrobin balancer
 // will give a perfect balance. However, if topic subscriptions are quite
@@ -504,8 +524,8 @@ type roundRobinBalancer struct{}
 
 func (*roundRobinBalancer) ProtocolName() string { return "roundrobin" }
 func (*roundRobinBalancer) IsCooperative() bool  { return false }
-func (*roundRobinBalancer) JoinGroupMetadata(interests []string, _ map[string][]int32, _ int32) []byte {
-	return memberMetadataV0(interests)
+func (*roundRobinBalancer) JoinGroupMetadata(interests []string, _ map[string][]int32, generation int32) []byte {
+	return simpleMemberMetadata(interests, generation)
 }
 
 func (*roundRobinBalancer) ParseSyncAssignment(assignment []byte) (map[string][]int32, error) {
@@ -576,8 +596,8 @@ func (*roundRobinBalancer) Balance(b *ConsumerBalancer, topics map[string]int32)
 // Suppose there are two members M0 and M1, two topics t0 and t1, and each
 // topic has three partitions p0, p1, and p2. The partition balancing will be
 //
-//     M0: [t0p0, t0p1, t1p0, t1p1]
-//     M1: [t0p2, t1p2]
+//	M0: [t0p0, t0p1, t1p0, t1p1]
+//	M1: [t0p2, t1p2]
 //
 // This is equivalent to the Java range balancer.
 func RangeBalancer() GroupBalancer {
@@ -588,8 +608,8 @@ type rangeBalancer struct{}
 
 func (*rangeBalancer) ProtocolName() string { return "range" }
 func (*rangeBalancer) IsCooperative() bool  { return false }
-func (*rangeBalancer) JoinGroupMetadata(interests []string, _ map[string][]int32, _ int32) []byte {
-	return memberMetadataV0(interests)
+func (*rangeBalancer) JoinGroupMetadata(interests []string, _ map[string][]int32, generation int32) []byte {
+	return simpleMemberMetadata(interests, generation)
 }
 
 func (*rangeBalancer) ParseSyncAssignment(assignment []byte) (map[string][]int32, error) {
@@ -647,33 +667,33 @@ func (*rangeBalancer) Balance(b *ConsumerBalancer, topics map[string]int32) Into
 // each with three partitions p0, p1, and p2. If the initial balance plan looks
 // like
 //
-//     M0: [t0p0, t0p1, t0p2]
-//     M1: [t1p0, t1p1, t1p2]
-//     M2: [t2p0, t2p2, t2p2]
+//	M0: [t0p0, t0p1, t0p2]
+//	M1: [t1p0, t1p1, t1p2]
+//	M2: [t2p0, t2p2, t2p2]
 //
 // If M2 disappears, both roundrobin and range would have mostly destructive
 // reassignments.
 //
 // Range would result in
 //
-//     M0: [t0p0, t0p1, t1p0, t1p1, t2p0, t2p1]
-//     M1: [t0p2, t1p2, t2p2]
+//	M0: [t0p0, t0p1, t1p0, t1p1, t2p0, t2p1]
+//	M1: [t0p2, t1p2, t2p2]
 //
 // which is imbalanced and has 3 partitions move from members that did not need
 // to move (t0p2, t1p0, t1p1).
 //
 // RoundRobin would result in
 //
-//     M0: [t0p0, t0p2, t1p1, t2p0, t2p2]
-//     M1: [t0p1, t1p0, t1p2, t2p1]
+//	M0: [t0p0, t0p2, t1p1, t2p0, t2p2]
+//	M1: [t0p1, t1p0, t1p2, t2p1]
 //
 // which is balanced, but has 2 partitions move when they do not need to
 // (t0p1, t1p1).
 //
 // Sticky balancing results in
 //
-//     M0: [t0p0, t0p1, t0p2, t2p0, t2p2]
-//     M1: [t1p0, t1p1, t1p2, t2p1]
+//	M0: [t0p0, t0p1, t0p2, t2p0, t2p2]
+//	M1: [t1p0, t1p1, t1p2, t2p1]
 //
 // which is balanced and does not cause any unnecessary partition movement.
 // The actual t2 partitions may not be in that exact combination, but they
@@ -718,11 +738,9 @@ func (s *stickyBalancer) ProtocolName() string {
 func (s *stickyBalancer) IsCooperative() bool { return s.cooperative }
 func (s *stickyBalancer) JoinGroupMetadata(interests []string, currentAssignment map[string][]int32, generation int32) []byte {
 	meta := kmsg.NewConsumerMemberMetadata()
-	meta.Version = 0
+	meta.Version = 3 // BUMP ME WHEN NEW FIELDS ARE ADDED, AND BUMP ABOVE
 	meta.Topics = interests
-	if s.cooperative {
-		meta.Version = 1
-	}
+	meta.Generation = generation
 	stickyMeta := kmsg.NewStickyMemberMetadata()
 	stickyMeta.Generation = generation
 	for topic, partitions := range currentAssignment {
@@ -764,9 +782,12 @@ func (s *stickyBalancer) Balance(b *ConsumerBalancer, topics map[string]int32) I
 	stickyMembers := make([]sticky.GroupMember, 0, len(b.Members()))
 	b.EachMember(func(member *kmsg.JoinGroupResponseMember, meta *kmsg.ConsumerMemberMetadata) {
 		stickyMembers = append(stickyMembers, sticky.GroupMember{
-			ID:       member.MemberID,
-			Topics:   meta.Topics,
-			UserData: meta.UserData,
+			ID:          member.MemberID,
+			Topics:      meta.Topics,
+			UserData:    meta.UserData,
+			Owned:       meta.OwnedPartitions,
+			Generation:  meta.Generation,
+			Cooperative: s.cooperative,
 		})
 	})
 

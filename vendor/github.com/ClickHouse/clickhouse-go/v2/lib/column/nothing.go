@@ -19,48 +19,48 @@ package column
 
 import (
 	"errors"
+	"github.com/ClickHouse/ch-go/proto"
 	"reflect"
-
-	"github.com/ClickHouse/clickhouse-go/v2/lib/binary"
 )
 
 type Nothing struct {
 	name string
+	col  proto.ColNothing
 }
 
-func (n Nothing) Name() string {
-	return n.name
+func (col *Nothing) Reset() {
+	col.col.Reset()
 }
 
-func (Nothing) Type() Type                     { return "Nothing" }
-func (Nothing) ScanType() reflect.Type         { return reflect.TypeOf(nil) }
-func (Nothing) Rows() int                      { return 0 }
-func (Nothing) Row(int, bool) interface{}      { return nil }
-func (Nothing) ScanRow(interface{}, int) error { return nil }
-func (Nothing) Append(interface{}) ([]uint8, error) {
+func (col Nothing) Name() string {
+	return col.name
+}
+
+func (Nothing) Type() Type             { return "Nothing" }
+func (Nothing) ScanType() reflect.Type { return reflect.TypeOf((*any)(nil)) }
+func (Nothing) Rows() int              { return 0 }
+func (Nothing) Row(int, bool) any      { return nil }
+func (Nothing) ScanRow(any, int) error {
+	return nil
+}
+func (Nothing) Append(any) ([]uint8, error) {
 	return nil, &Error{
 		ColumnType: "Nothing",
 		Err:        errors.New("data type values can't be stored in tables"),
 	}
 }
-func (Nothing) AppendRow(interface{}) error {
+func (col Nothing) AppendRow(any) error {
 	return &Error{
 		ColumnType: "Nothing",
 		Err:        errors.New("data type values can't be stored in tables"),
 	}
 }
-func (Nothing) Decode(decoder *binary.Decoder, rows int) error {
-	scratch := make([]byte, rows)
-	if err := decoder.Raw(scratch); err != nil {
-		return err
-	}
-	return nil
+
+func (col Nothing) Decode(reader *proto.Reader, rows int) error {
+	return col.col.DecodeColumn(reader, rows)
 }
-func (Nothing) Encode(*binary.Encoder) error {
-	return &Error{
-		ColumnType: "Nothing",
-		Err:        errors.New("data type values can't be stored in tables"),
-	}
+
+func (Nothing) Encode(buffer *proto.Buffer) {
 }
 
 var _ Interface = (*Nothing)(nil)

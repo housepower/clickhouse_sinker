@@ -2,6 +2,65 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.11.1](https://github.com/paulmach/orb/compare/v0.11.0...v0.11.1) - 2024-01-29
+
+### Fixed
+
+-   geojson: `null` json into non-pointer Feature/FeatureCollection will set them to empty by [@paulmach](https://github.com/paulmach)in https://github.com/paulmach/orb/pull/145
+
+## [v0.11.0](https://github.com/paulmach/orb/compare/v0.10.0...v0.11.0) - 2024-01-11
+
+### Fixed
+
+-   quadtree: InBoundMatching does not properly accept passed-in buffer by [@nirmal-vuppuluri](https://github.com/nirmal-vuppuluri) in https://github.com/paulmach/orb/pull/139
+-   mvt: Do not swallow error cause by [@m-pavel](https://github.com/m-pavel) in https://github.com/paulmach/orb/pull/137
+
+### Changed
+
+-   simplify: Visvalingam, by default, keeps 3 points for "areas" by [@paulmach](https://github.com/paulmach) in https://github.com/paulmach/orb/pull/140
+-   encoding/mvt: skip encoding of features will nil geometry by [@paulmach](https://github.com/paulmach) in https://github.com/paulmach/orb/pull/141
+-   encoding/wkt: improve unmarshalling performance by [@paulmach](https://github.com/paulmach) in https://github.com/paulmach/orb/pull/142
+
+## [v0.10.0](https://github.com/paulmach/orb/compare/v0.9.2...v0.10.0) - 2023-07-16
+
+### Added
+
+-   add ChildrenInZoomRange method to maptile.Tile by [@peitili](https://github.com/peitili) in https://github.com/paulmach/orb/pull/133
+
+## [v0.9.2](https://github.com/paulmach/orb/compare/v0.9.1...v0.9.2) - 2023-05-04
+
+### Fixed
+
+-   encoding/wkt: better handling/validation of missing parens by [@paulmach](https://github.com/paulmach) in https://github.com/paulmach/orb/pull/131
+
+## [v0.9.1](https://github.com/paulmach/orb/compare/v0.9.0...v0.9.1) - 2023-04-26
+
+### Fixed
+
+-   Bump up mongo driver to 1.11.4 by [@m-pavel](https://github.com/m-pavel) in https://github.com/paulmach/orb/pull/129
+-   encoding/wkt: split strings with regexp by [@m-pavel](https://github.com/m-pavel) in https://github.com/paulmach/orb/pull/128
+
+## [v0.9.0](https://github.com/paulmach/orb/compare/v0.8.0...v0.9.0) - 2023-02-19
+
+### Added
+
+-   geojson: marshal/unmarshal BSON [@paulmach](https://github.com/paulmach) in https://github.com/paulmach/orb/pull/123
+
+## [v0.8.0](https://github.com/paulmach/orb/compare/v0.7.1...v0.8.0) - 2023-01-05
+
+### Fixed
+
+-   quadtree: fix bad sort due to pointer allocation issue by [@paulmach](https://github.com/paulmach) in https://github.com/paulmach/orb/pull/115
+-   geojson: ensure geometry unmarshal errors get returned by [@paulmach](https://github.com/paulmach) in https://github.com/paulmach/orb/pull/117
+-   encoding/mvt: remove use of crypto/md5 to compare marshalling in tests by [@paulmach](https://github.com/paulmach) in https://github.com/paulmach/orb/pull/118
+-   encoding/wkt: fix panic for some invalid wkt data by [@paulmach](https://github.com/paulmach) in https://github.com/paulmach/orb/pull/119
+
+### Other
+
+-   fix typo by [@rubenpoppe](https://github.com/rubenpoppe) in https://github.com/paulmach/orb/pull/107
+-   Fixed a small twister in README.md by [@Timahawk](https://github.com/Timahawk) in https://github.com/paulmach/orb/pull/108
+-   update github ci to use go 1.19 by [@paulmach](https://github.com/paulmach) in https://github.com/paulmach/orb/pull/116
+
 ## [v0.7.1](https://github.com/paulmach/orb/compare/v0.7.0...v0.7.1) - 2022-05-16
 
 No changes

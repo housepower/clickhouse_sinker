@@ -180,6 +180,9 @@ var (
 	InconsistentClusterID              = &Error{"INCONSISTENT_CLUSTER_ID", 104, false, "The clusterId in the request does not match that found on the server."}
 	TransactionalIDNotFound            = &Error{"TRANSACTIONAL_ID_NOT_FOUND", 105, false, "The transactionalId could not be found."}
 	FetchSessionTopicIDError           = &Error{"FETCH_SESSION_TOPIC_ID_ERROR", 106, true, "The fetch session encountered inconsistent topic ID usage."}
+	IneligibleReplica                  = &Error{"INELIGIBLE_REPLICA", 107, false, "The new ISR contains at least one ineligible replica."}
+	NewLeaderElected                   = &Error{"NEW_LEADER_ELECTED", 108, false, "The AlterPartition request successfully updated the partition state but the leader has changed."}
+	OffsetMovedToTieredStorage         = &Error{"OFFSET_MOVED_TO_TIERED_STORAGE", 109, false, "The requested offset is moved to tiered storage."}
 )
 
 var code2err = map[int16]error{
@@ -291,4 +294,7 @@ var code2err = map[int16]error{
 	104: InconsistentClusterID,
 	105: TransactionalIDNotFound,
 	106: FetchSessionTopicIDError,
+	107: IneligibleReplica,
+	108: NewLeaderElected,
+	109: OffsetMovedToTieredStorage,
 }

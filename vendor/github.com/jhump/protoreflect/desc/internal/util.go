@@ -54,6 +54,9 @@ const (
 	// File_syntaxTag is the tag number of the syntax element in a file
 	// descriptor proto.
 	File_syntaxTag = 12
+	// File_editionTag is the tag number of the edition element in a file
+	// descriptor proto.
+	File_editionTag = 14
 	// Message_nameTag is the tag number of the name element in a message
 	// descriptor proto.
 	Message_nameTag = 1
@@ -219,17 +222,18 @@ const (
 )
 
 // JsonName returns the default JSON name for a field with the given name.
+// This mirrors the algorithm in protoc:
+//
+//	https://github.com/protocolbuffers/protobuf/blob/v21.3/src/google/protobuf/descriptor.cc#L95
 func JsonName(name string) string {
 	var js []rune
 	nextUpper := false
-	for i, r := range name {
+	for _, r := range name {
 		if r == '_' {
 			nextUpper = true
 			continue
 		}
-		if i == 0 {
-			js = append(js, r)
-		} else if nextUpper {
+		if nextUpper {
 			nextUpper = false
 			js = append(js, unicode.ToUpper(r))
 		} else {
@@ -251,7 +255,8 @@ func InitCap(name string) string {
 // that token and the empty string, e.g. ["foo", ""]. Otherwise, it returns
 // successively shorter prefixes of the package and then the empty string. For
 // example, for a package named "foo.bar.baz" it will return the following list:
-//   ["foo.bar.baz", "foo.bar", "foo", ""]
+//
+//	["foo.bar.baz", "foo.bar", "foo", ""]
 func CreatePrefixList(pkg string) []string {
 	if pkg == "" {
 		return []string{""}

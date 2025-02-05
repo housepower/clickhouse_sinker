@@ -1,4 +1,4 @@
-// Copyright (c) 2016 Uber Technologies, Inc.
+// Copyright (c) 2016-2022 Uber Technologies, Inc.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -21,9 +21,8 @@
 package zapcore
 
 import (
+	"sync/atomic"
 	"time"
-
-	"go.uber.org/atomic"
 )
 
 const (
@@ -66,16 +65,16 @@ func (c *counter) IncCheckReset(t time.Time, tick time.Duration) uint64 {
 	tn := t.UnixNano()
 	resetAfter := c.resetAt.Load()
 	if resetAfter > tn {
-		return c.counter.Inc()
+		return c.counter.Add(1)
 	}
 
 	c.counter.Store(1)
 
 	newResetAfter := tn + tick.Nanoseconds()
-	if !c.resetAt.CAS(resetAfter, newResetAfter) {
+	if !c.resetAt.CompareAndSwap(resetAfter, newResetAfter) {
 		// We raced with another goroutine trying to reset, and it also reset
 		// the counter to 1, so we need to reincrement the counter.
-		return c.counter.Inc()
+		return c.counter.Add(1)
 	}
 
 	return 1
@@ -175,6 +174,11 @@ type sampler struct {
 	hook              func(Entry, SamplingDecision)
 }
 
+var (
+	_ Core           = (*sampler)(nil)
+	_ leveledEnabler = (*sampler)(nil)
+)
+
 // NewSampler creates a Core that samples incoming entries, which
 // caps the CPU and I/O load of logging while attempting to preserve a
 // representative subset of your logs.
@@ -190,6 +194,10 @@ type sampler struct {
 // Deprecated: use NewSamplerWithOptions.
 func NewSampler(core Core, tick time.Duration, first, thereafter int) Core {
 	return NewSamplerWithOptions(core, tick, first, thereafter)
+}
+
+func (s *sampler) Level() Level {
+	return LevelOf(s.Core)
 }
 
 func (s *sampler) With(fields []Field) Core {

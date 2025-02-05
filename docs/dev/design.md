@@ -11,24 +11,20 @@ So if you setup ClickHouse properly(ReplacingMergeTree ORDER BY (__kafak_topic, 
 
 It's hard for clickhouse_sinker to guarantee exactly-once semantic without ReplacingMergeTree. Kafka consumer group load-balance cause duplicated messages if one consumer crash suddenly.
 
-### Sharding with kafka message offset stripe (default)
+## Workflow
 
-The flow is:
+Internally, clickhouse_sinker groups tasks that with identical "consumerGroup" property set together for the purpose of reducing the number of Kafka client, so that Kafka server is able to handle more requests concurrently. And consequently, it's decided to commit Kafka offset only after messages in a whole fetch got written to clickhouse completely.
 
-- Fetch message via Franz, Sarama, or kafka-go, which starts internally a goroutine for each partition.
-- Parse messages in a global goroutine pool(pool size is customizable), fill the result into a ring according to the message's partition and offset.
-- Generate a batch when messages in a ring reach a batchSize boundary or flush timer fire. For each message, the dest shard is determined by `(kafka_offset/roundup(buffer_size))%clickhouse_shards`.
-- Write batch to ClickHouse in a global goroutine pool(pool size is fixed according to the number of tasks and Clickhouse shards).
+The flow is like this:
 
-### Sharding with custom key
-
-The flow is:
-
-- Fetch message via kafka-go or samara, which starts internally a goroutine for each partition.
-- Parse messages in a global goroutine pool(pool size is customizable), fill the result into a ring according to the message's partition and offset.
-- Shard messages in a ring when messages reach a batchSize boundary or flush timer fire. For each message, if the sharding key is numerical(integer, float, time, etc.), the dest shard is determined by `(shardingKey/shardingStripe)%clickhouse_shards`, otherwise it is determined by `xxHash64(shardingKey)%clickhouse_shards`.
-- Generate batches for all shard slots if messages in one shard slot reach batchSize boundary or flush timer fire. Those batches form a `BatchGroup`. The `before` relationship could be impossible if messages of a partition are distributed to multiple batches. So those batches need to be committed after ALL of them have been written to Clickhouse.
-- Write batch to ClickHouse in a global goroutine pool(pool size is fixed according to the number of tasks and Clickhouse shards).
+- Group tasks with identical "consumerGroup" property together, fetch messages for the group of tasks with a single goroutine.
+- Route fetched messages to the individual tasks for further parsing. By default, the mapping between messages and tasks is controlled by "topic" and "tableName" property. But for messages with Kafka header "__table_name" specified, the mapping between "__table_name" and "tableName" will override the default behavior.
+- Parse messages and calculate the dest shard:
+-- For tasks with "shardingkey" property specified, if the sharding key is numerical(integer, float, time, etc.), the dest shard is determined by `(shardingKey/shardingStripe)%clickhouse_shards`, if not, it is determined by `xxHash64(shardingKey)%clickhouse_shards`.
+-- Otherwise, the dest shard for each message is determined by `(kafka_offset/roundup(buffer_size))%clickhouse_shards`.
+- Generate batches for all shard slots that are in the same Group, when total cached message count in the Group reached `sum(batchSize)*80%` boundary or flush timer fire.
+- Write batches to ClickHouse in a global goroutine pool(pool size is a fixed number based on the number of tasks and Clickhouse shards).
+- Commit offset back to Kafka
 
 
 ## Task scheduling

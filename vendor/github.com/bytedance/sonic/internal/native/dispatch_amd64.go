@@ -22,21 +22,29 @@ import (
     `github.com/bytedance/sonic/internal/cpu`
     `github.com/bytedance/sonic/internal/native/avx`
     `github.com/bytedance/sonic/internal/native/avx2`
+    `github.com/bytedance/sonic/internal/native/sse`
     `github.com/bytedance/sonic/internal/native/types`
+    `github.com/bytedance/sonic/internal/rt`
+    `github.com/bytedance/sonic/loader`
 )
 
-const MaxFrameSize uintptr = 400
+const (
+    MaxFrameSize   uintptr = 400
+    BufPaddingSize int     = 64
+)
 
 var (
     S_f64toa uintptr
+    S_f32toa uintptr
     S_i64toa uintptr
     S_u64toa uintptr
     S_lspace uintptr
 )
 
 var (
-    S_quote   uintptr
-    S_unquote uintptr
+    S_quote       uintptr
+    S_unquote     uintptr
+    S_html_escape uintptr
 )
 
 var (
@@ -48,91 +56,148 @@ var (
 )
 
 var (
-    S_skip_one    uintptr
-    S_skip_array  uintptr
-    S_skip_object uintptr
-    S_skip_number uintptr
+    S_skip_one      uintptr
+    S_skip_one_fast uintptr
+    S_get_by_path   uintptr
+    S_skip_array    uintptr
+    S_skip_object   uintptr
+    S_skip_number   uintptr
+)
+
+var (
+    S_validate_one       uintptr
+    S_validate_utf8      uintptr
+    S_validate_utf8_fast uintptr
+)
+
+var (
+    __Quote func(s unsafe.Pointer, nb int, dp unsafe.Pointer, dn unsafe.Pointer, flags uint64) int
+
+    __Unquote func(s unsafe.Pointer, nb int, dp unsafe.Pointer, ep unsafe.Pointer, flags uint64) int
+
+    __HTMLEscape func(s unsafe.Pointer, nb int, dp unsafe.Pointer, dn unsafe.Pointer) int
+
+    __Value func(s unsafe.Pointer, n int, p int, v unsafe.Pointer, flags uint64) int
+
+    __SkipOne func(s unsafe.Pointer, p unsafe.Pointer, m unsafe.Pointer, flags uint64) int
+
+    __SkipOneFast func(s unsafe.Pointer, p unsafe.Pointer) int
+
+    __GetByPath func(s unsafe.Pointer, p unsafe.Pointer, path unsafe.Pointer, m unsafe.Pointer) int
+
+    __ValidateOne func(s unsafe.Pointer, p unsafe.Pointer, m unsafe.Pointer) int
+
+    __I64toa func(out unsafe.Pointer, val int64) (ret int)
+
+    __U64toa func(out unsafe.Pointer, val uint64) (ret int)
+
+    __F64toa func(out unsafe.Pointer, val float64) (ret int)
+
+    __ValidateUTF8 func(s unsafe.Pointer, p unsafe.Pointer, m unsafe.Pointer) (ret int)
+
+    __ValidateUTF8Fast func(s unsafe.Pointer) (ret int)
 )
 
 //go:nosplit
-//go:noescape
-//goland:noinspection GoUnusedParameter
-func Lzero(p unsafe.Pointer, n int) int
+func Quote(s unsafe.Pointer, nb int, dp unsafe.Pointer, dn *int, flags uint64) int {
+    return __Quote(rt.NoEscape(unsafe.Pointer(s)), nb, rt.NoEscape(unsafe.Pointer(dp)), rt.NoEscape(unsafe.Pointer(dn)), flags)
+}
 
 //go:nosplit
-//go:noescape
-//goland:noinspection GoUnusedParameter
-func Quote(s unsafe.Pointer, nb int, dp unsafe.Pointer, dn *int, flags uint64) int
+func Unquote(s unsafe.Pointer, nb int, dp unsafe.Pointer, ep *int, flags uint64) int {
+    return __Unquote(rt.NoEscape(unsafe.Pointer(s)), nb, rt.NoEscape(unsafe.Pointer(dp)), rt.NoEscape(unsafe.Pointer(ep)), flags)
+}
 
 //go:nosplit
-//go:noescape
-//goland:noinspection GoUnusedParameter
-func Unquote(s unsafe.Pointer, nb int, dp unsafe.Pointer, ep *int, flags uint64) int
+func HTMLEscape(s unsafe.Pointer, nb int, dp unsafe.Pointer, dn *int) int {
+    return __HTMLEscape(rt.NoEscape(unsafe.Pointer(s)), nb, rt.NoEscape(unsafe.Pointer(dp)), rt.NoEscape(unsafe.Pointer(dn)))
+}
 
 //go:nosplit
-//go:noescape
-//goland:noinspection GoUnusedParameter
-func HTMLEscape(s unsafe.Pointer, nb int, dp unsafe.Pointer, dn *int) int
+func Value(s unsafe.Pointer, n int, p int, v *types.JsonState, flags uint64) int {
+    return __Value(rt.NoEscape(unsafe.Pointer(s)), n, p, rt.NoEscape(unsafe.Pointer(v)), flags)
+}
 
 //go:nosplit
-//go:noescape
-//goland:noinspection GoUnusedParameter
-func Value(s unsafe.Pointer, n int, p int, v *types.JsonState, allow_control int) int
+func SkipOne(s *string, p *int, m *types.StateMachine, flags uint64) int {
+    return __SkipOne(rt.NoEscape(unsafe.Pointer(s)), rt.NoEscape(unsafe.Pointer(p)), rt.NoEscape(unsafe.Pointer(m)), flags)
+}
 
 //go:nosplit
-//go:noescape
-//goland:noinspection GoUnusedParameter
-func SkipOne(s *string, p *int, m *types.StateMachine) int
+func SkipOneFast(s *string, p *int) int {
+    return __SkipOneFast(rt.NoEscape(unsafe.Pointer(s)), rt.NoEscape(unsafe.Pointer(p)))
+}
 
 //go:nosplit
-//go:noescape
-//goland:noinspection GoUnusedParameter
-func ValidateOne(s *string, p *int, m *types.StateMachine) int
+func GetByPath(s *string, p *int, path *[]interface{}, m *types.StateMachine) int {
+    return __GetByPath(rt.NoEscape(unsafe.Pointer(s)), rt.NoEscape(unsafe.Pointer(p)), rt.NoEscape(unsafe.Pointer(path)), rt.NoEscape(unsafe.Pointer(m)))
+}
 
 //go:nosplit
-//go:noescape
-//goland:noinspection GoUnusedParameter
-func I64toa(out *byte, val int64) (ret int)
+func ValidateOne(s *string, p *int, m *types.StateMachine) int {
+    return __ValidateOne(rt.NoEscape(unsafe.Pointer(s)), rt.NoEscape(unsafe.Pointer(p)), rt.NoEscape(unsafe.Pointer(m)))
+}
 
 //go:nosplit
-//go:noescape
-//goland:noinspection GoUnusedParameter
-func U64toa(out *byte, val uint64) (ret int)
+func I64toa(out *byte, val int64) (ret int) {
+    return __I64toa(rt.NoEscape(unsafe.Pointer(out)), val)
+}
+
+//go:nosplit
+func U64toa(out *byte, val uint64) (ret int) {
+    return __U64toa(rt.NoEscape(unsafe.Pointer(out)), val)
+}
+
+//go:nosplit
+func F64toa(out *byte, val float64) (ret int) {
+    return __F64toa(rt.NoEscape(unsafe.Pointer(out)), val)
+}
+
+//go:nosplit
+func ValidateUTF8(s *string, p *int, m *types.StateMachine) (ret int) {
+    return __ValidateUTF8(rt.NoEscape(unsafe.Pointer(s)), rt.NoEscape(unsafe.Pointer(p)), rt.NoEscape(unsafe.Pointer(m)))
+}
+
+//go:nosplit
+func ValidateUTF8Fast(s *string) (ret int) {
+    return __ValidateUTF8Fast(rt.NoEscape(unsafe.Pointer(s)))
+}
+
+var stubs = []loader.GoC{
+    {"_f64toa", &S_f64toa, &__F64toa},
+    {"_f32toa", &S_f32toa, nil},
+    {"_i64toa", &S_i64toa, &__I64toa},
+    {"_u64toa", &S_u64toa, &__U64toa},
+    {"_lspace", &S_lspace, nil},
+    {"_quote", &S_quote, &__Quote},
+    {"_unquote", &S_unquote, &__Unquote},
+    {"_html_escape", &S_html_escape, &__HTMLEscape},
+    {"_value", &S_value, &__Value},
+    {"_vstring", &S_vstring, nil},
+    {"_vnumber", &S_vnumber, nil},
+    {"_vsigned", &S_vsigned, nil},
+    {"_vunsigned", &S_vunsigned, nil},
+    {"_skip_one", &S_skip_one, &__SkipOne},
+    {"_skip_one_fast", &S_skip_one_fast, &__SkipOneFast},
+    {"_get_by_path", &S_get_by_path, &__GetByPath},
+    {"_skip_array", &S_skip_array, nil},
+    {"_skip_object", &S_skip_object, nil},
+    {"_skip_number", &S_skip_number, nil},
+    {"_validate_one", &S_validate_one, &__ValidateOne},
+    {"_validate_utf8", &S_validate_utf8, &__ValidateUTF8},
+    {"_validate_utf8_fast", &S_validate_utf8_fast, &__ValidateUTF8Fast},
+}
 
 func useAVX() {
-    S_f64toa      = avx.S_f64toa
-    S_i64toa      = avx.S_i64toa
-    S_u64toa      = avx.S_u64toa
-    S_lspace      = avx.S_lspace
-    S_quote       = avx.S_quote
-    S_unquote     = avx.S_unquote
-    S_value       = avx.S_value
-    S_vstring     = avx.S_vstring
-    S_vnumber     = avx.S_vnumber
-    S_vsigned     = avx.S_vsigned
-    S_vunsigned   = avx.S_vunsigned
-    S_skip_one    = avx.S_skip_one
-    S_skip_array  = avx.S_skip_array
-    S_skip_object = avx.S_skip_object
-    S_skip_number = avx.S_skip_number
+    loader.WrapGoC(avx.Text__native_entry__, avx.Funcs, stubs, "avx", "avx/native.c")
 }
 
 func useAVX2() {
-    S_f64toa      = avx2.S_f64toa
-    S_i64toa      = avx2.S_i64toa
-    S_u64toa      = avx2.S_u64toa
-    S_lspace      = avx2.S_lspace
-    S_quote       = avx2.S_quote
-    S_unquote     = avx2.S_unquote
-    S_value       = avx2.S_value
-    S_vstring     = avx2.S_vstring
-    S_vnumber     = avx2.S_vnumber
-    S_vsigned     = avx2.S_vsigned
-    S_vunsigned   = avx2.S_vunsigned
-    S_skip_one    = avx2.S_skip_one
-    S_skip_array  = avx2.S_skip_array
-    S_skip_object = avx2.S_skip_object
-    S_skip_number = avx2.S_skip_number
+    loader.WrapGoC(avx2.Text__native_entry__, avx2.Funcs, stubs, "avx2", "avx2/native.c")
+}
+
+func useSSE() {
+    loader.WrapGoC(sse.Text__native_entry__, sse.Funcs, stubs, "sse", "sse/native.c")
 }
 
 func init() {
@@ -140,6 +205,8 @@ func init() {
         useAVX2()
     } else if cpu.HasAVX {
         useAVX()
+    } else if cpu.HasSSE {
+        useSSE()
     } else {
         panic("Unsupported CPU, maybe it's too old to run Sonic.")
     }

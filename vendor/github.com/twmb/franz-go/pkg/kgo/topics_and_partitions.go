@@ -10,6 +10,10 @@ import (
 	"github.com/twmb/franz-go/pkg/kerr"
 )
 
+/////////////
+// HELPERS // -- ugly types to eliminate the toil of nil maps and lookups
+/////////////
+
 func dupmsi32(m map[string]int32) map[string]int32 {
 	d := make(map[string]int32, len(m))
 	for t, ps := range m {
@@ -71,11 +75,70 @@ func (m mtps) String() string {
 	return sb.String()
 }
 
+type mtmps map[string]map[int32]struct{} // map of topics to map of partitions
+
+func (m *mtmps) add(t string, p int32) {
+	if *m == nil {
+		*m = make(mtmps)
+	}
+	mps := (*m)[t]
+	if mps == nil {
+		mps = make(map[int32]struct{})
+		(*m)[t] = mps
+	}
+	mps[p] = struct{}{}
+}
+
+func (m *mtmps) addt(t string) {
+	if *m == nil {
+		*m = make(mtmps)
+	}
+	mps := (*m)[t]
+	if mps == nil {
+		mps = make(map[int32]struct{})
+		(*m)[t] = mps
+	}
+}
+
+func (m mtmps) onlyt(t string) bool {
+	if m == nil {
+		return false
+	}
+	ps, exists := m[t]
+	return exists && len(ps) == 0
+}
+
+func (m mtmps) remove(t string, p int32) {
+	if m == nil {
+		return
+	}
+	mps, exists := m[t]
+	if !exists {
+		return
+	}
+	delete(mps, p)
+	if len(mps) == 0 {
+		delete(m, t)
+	}
+}
+
+////////////
+// PAUSED // -- types for pausing topics and partitions
+////////////
+
 type pausedTopics map[string]pausedPartitions
 
 type pausedPartitions struct {
 	all bool
 	m   map[int32]struct{}
+}
+
+func (m pausedTopics) t(topic string) (pausedPartitions, bool) {
+	if len(m) == 0 { // potentially nil
+		return pausedPartitions{}, false
+	}
+	pps, exists := m[topic]
+	return pps, exists
 }
 
 func (m pausedTopics) has(topic string, partition int32) (paused bool) {
@@ -174,6 +237,10 @@ func (m pausedTopics) clone() pausedTopics {
 	return dup
 }
 
+//////////
+// GUTS // -- the key types for storing important metadata for topics & partitions
+//////////
+
 func newTopicPartitions() *topicPartitions {
 	parts := new(topicPartitions)
 	parts.v.Store(new(topicPartitionsData))
@@ -190,8 +257,6 @@ type topicPartitions struct {
 }
 
 func (t *topicPartitions) load() *topicPartitionsData { return t.v.Load().(*topicPartitionsData) }
-
-var noTopicsPartitions = newTopicsPartitions()
 
 func newTopicsPartitions() *topicsPartitions {
 	var t topicsPartitions
@@ -312,7 +377,7 @@ func (cl *Client) storePartitionsUpdate(topic string, l *topicPartitions, lv *to
 		return
 	}
 
-	// If we loaded no partitions because of a retriable error, we signal
+	// If we loaded no partitions because of a retryable error, we signal
 	// the waiting goroutine that a try happened. It is possible the
 	// goroutine is quitting and will not be draining unknownWait, so we do
 	// not require the send.
@@ -354,12 +419,11 @@ func (cl *Client) storePartitionsUpdate(topic string, l *topicPartitions, lv *to
 //
 // This has two modes of operation:
 //
-//   1) if no topics were missing, then the metadata request failed outright,
-//      and we need to bump errors on all stored topics and unknown topics.
+//  1. if no topics were missing, then the metadata request failed outright,
+//     and we need to bump errors on all stored topics and unknown topics.
 //
-//   2) if topics were missing, then the metadata request was successful but
-//      had missing data, and we need to bump errors on only what was mising.
-//
+//  2. if topics were missing, then the metadata request was successful but
+//     had missing data, and we need to bump errors on only what was mising.
 func (cl *Client) bumpMetadataFailForTopics(requested map[string]*topicPartitions, err error, missingTopics ...string) {
 	p := &cl.producer
 
@@ -413,6 +477,8 @@ type topicPartitionsData struct {
 	isInternal         bool
 	partitions         []*topicPartition // partition num => partition
 	writablePartitions []*topicPartition // subset of above
+	topic              string
+	when               int64
 }
 
 // topicPartition contains all information from Kafka for a topic's partition,

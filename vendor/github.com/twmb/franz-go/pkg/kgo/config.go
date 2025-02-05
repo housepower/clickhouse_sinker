@@ -60,8 +60,9 @@ func (consumerOpt) consumerOpt()       {}
 func (groupOpt) groupOpt()             {}
 
 // A cfg can be written to while initializing a client, and after that it is
-// only ever read from. Some areas of initializing may follow options, but all
-// initializing is done before NewClient returns.
+// (mostly) only ever read from. Some areas can continue to be modified --
+// particularly reconfiguring what to consume from -- but most areas are
+// static.
 type cfg struct {
 	/////////////////////
 	// GENERAL SECTION //
@@ -69,6 +70,8 @@ type cfg struct {
 
 	id                     *string // client ID
 	dialFn                 func(context.Context, string, string) (net.Conn, error)
+	dialTimeout            time.Duration
+	dialTLS                *tls.Config
 	requestTimeoutOverhead time.Duration
 	connIdleTimeout        time.Duration
 
@@ -111,6 +114,7 @@ type cfg struct {
 	defaultProduceTopic string
 	maxRecordBatchBytes int32
 	maxBufferedRecords  int64
+	maxBufferedBytes    int64
 	produceTimeout      time.Duration
 	recordRetries       int64
 	maxUnknownFailures  int64
@@ -118,6 +122,7 @@ type cfg struct {
 	recordTimeout       time.Duration
 	manualFlushing      bool
 	txnBackoff          time.Duration
+	missingTopicDelete  time.Duration
 
 	partitioner Partitioner
 
@@ -130,15 +135,17 @@ type cfg struct {
 
 	maxWait        int32
 	minBytes       int32
-	maxBytes       int32
-	maxPartBytes   int32
+	maxBytes       lazyI32
+	maxPartBytes   lazyI32
 	resetOffset    Offset
 	isolationLevel int8
 	keepControl    bool
 	rack           string
+	preferLagFn    PreferLagFn
 
-	maxConcurrentFetches int
-	disableFetchSessions bool
+	maxConcurrentFetches     int
+	disableFetchSessions     bool
+	keepRetryableFetchErrors bool
 
 	topics     map[string]*regexp.Regexp   // topics to consume; if regex is true, values are compiled regular expressions
 	partitions map[string]map[int32]Offset // partitions to directly consume from
@@ -177,16 +184,6 @@ type cfg struct {
 	autocommitMarks    bool
 	autocommitInterval time.Duration
 	commitCallback     func(*Client, *kmsg.OffsetCommitRequest, *kmsg.OffsetCommitResponse, error)
-}
-
-// cooperative is a helper that returns whether all group balancers in the
-// config are cooperative.
-func (cfg *cfg) cooperative() bool {
-	cooperative := true
-	for _, balancer := range cfg.balancers {
-		cooperative = cooperative && balancer.IsCooperative()
-	}
-	return cooperative
 }
 
 func (cfg *cfg) validate() error {
@@ -265,10 +262,10 @@ func (cfg *cfg) validate() error {
 
 		// For batches, we want at least 512 (reasonable), and the
 		// upper limit is the max num when a uvarint transitions from 4
-		// to 5 bytes. The upper limit is also more than reasoanble
-		// (268M).
+		// to 5 bytes. The upper limit is also more than reasonable
+		// (256MiB).
 		{name: "max record batch bytes", v: int64(cfg.maxRecordBatchBytes), allowed: 512, badcmp: i64lt},
-		{name: "max record batch bytes", v: int64(cfg.maxRecordBatchBytes), allowed: 268435454, badcmp: i64gt},
+		{name: "max record batch bytes", v: int64(cfg.maxRecordBatchBytes), allowed: 256 << 20, badcmp: i64gt},
 
 		// We do not want the broker write bytes to be less than the
 		// record batch bytes, nor the read bytes to be less than what
@@ -297,6 +294,7 @@ func (cfg *cfg) validate() error {
 
 		// Some random producer settings.
 		{name: "max buffered records", v: cfg.maxBufferedRecords, allowed: 1, badcmp: i64lt},
+		{name: "max buffered bytes", v: cfg.maxBufferedBytes, allowed: 0, badcmp: i64lt},
 		{name: "linger", v: int64(cfg.linger), allowed: int64(time.Minute), badcmp: i64gt, durs: true},
 		{name: "produce timeout", v: int64(cfg.produceTimeout), allowed: int64(100 * time.Millisecond), badcmp: i64lt, durs: true},
 		{name: "record timeout", v: int64(cfg.recordTimeout), allowed: int64(time.Second), badcmp: func(l, r int64) (bool, string) {
@@ -336,10 +334,13 @@ func (cfg *cfg) validate() error {
 		}
 	}
 
-	if len(cfg.group) > 0 {
-		if len(cfg.topics) == 0 {
-			return errors.New("unable to consume from a group when no topics are specified")
+	if cfg.dialFn != nil {
+		if cfg.dialTLS != nil {
+			return errors.New("cannot set both Dialer and DialTLSConfig")
 		}
+	}
+
+	if len(cfg.group) > 0 {
 		if len(cfg.partitions) != 0 {
 			return errors.New("invalid direct-partition consuming option when consuming as a group")
 		}
@@ -382,13 +383,37 @@ func (cfg *cfg) validate() error {
 		return errors.New("invalid group partition assigned/revoked/lost functions set when a group was not specified")
 	}
 
+	processedHooks, err := processHooks(cfg.hooks)
+	if err != nil {
+		return err
+	}
+	cfg.hooks = processedHooks
+
 	return nil
 }
 
-var (
-	defaultDialer = &net.Dialer{Timeout: 10 * time.Second}
-	reVersion     = regexp.MustCompile(`^[a-zA-Z0-9](?:[a-zA-Z0-9.-]*[a-zA-Z0-9])?$`)
-)
+// processHooks will inspect and recursively unpack slices of hooks stopping
+// if the instance implements any hook interface. It will return an error on
+// the first instance that implements no hook interface
+func processHooks(hooks []Hook) ([]Hook, error) {
+	var processedHooks []Hook
+	for _, hook := range hooks {
+		if implementsAnyHook(hook) {
+			processedHooks = append(processedHooks, hook)
+		} else if moreHooks, ok := hook.([]Hook); ok {
+			more, err := processHooks(moreHooks)
+			if err != nil {
+				return nil, err
+			}
+			processedHooks = append(processedHooks, more...)
+		} else {
+			return nil, errors.New("found an argument that implements no hook interfaces")
+		}
+	}
+	return processedHooks, nil
+}
+
+var reVersion = regexp.MustCompile(`^[a-zA-Z0-9](?:[a-zA-Z0-9.-]*[a-zA-Z0-9])?$`)
 
 func softwareVersion() string {
 	info, ok := debug.ReadBuildInfo()
@@ -410,9 +435,9 @@ func defaultCfg() cfg {
 		/////////////
 		// general //
 		/////////////
-		id:     &defaultID,
-		dialFn: defaultDialer.DialContext,
+		id: &defaultID,
 
+		dialTimeout:            10 * time.Second,
 		requestTimeoutOverhead: 10 * time.Second,
 		connIdleTimeout:        20 * time.Second,
 
@@ -458,8 +483,9 @@ func defaultCfg() cfg {
 		maxBrokerWriteBytes: 100 << 20, // Kafka socket.request.max.bytes default is 100<<20
 		maxBrokerReadBytes:  100 << 20,
 
-		metadataMaxAge: 5 * time.Minute,
-		metadataMinAge: 5 * time.Second / 2,
+		metadataMaxAge:     5 * time.Minute,
+		metadataMinAge:     5 * time.Second,
+		missingTopicDelete: 15 * time.Second,
 
 		//////////////
 		// producer //
@@ -469,7 +495,7 @@ func defaultCfg() cfg {
 		acks:                AllISRAcks(),
 		maxProduceInflight:  1,
 		compression:         []CompressionCodec{SnappyCompression(), NoCompression()},
-		maxRecordBatchBytes: 1000000, // Kafka max.message.bytes default is 1000012
+		maxRecordBatchBytes: 1000012, // Kafka max.message.bytes default is 1000012
 		maxBufferedRecords:  10000,
 		produceTimeout:      10 * time.Second,
 		recordRetries:       math.MaxInt64, // effectively unbounded
@@ -518,7 +544,7 @@ func ClientID(id string) Opt {
 }
 
 // SoftwareNameAndVersion sets the client software name and version that will
-// be sent to Kafka as part of the ApiVersions request as of Kafka 2.4.0,
+// be sent to Kafka as part of the ApiVersions request as of Kafka 2.4,
 // overriding the default "kgo" and internal version number.
 //
 // Kafka exposes this through metrics to help operators understand the impact
@@ -527,7 +553,7 @@ func ClientID(id string) Opt {
 // It is generally not recommended to set this. As well, if you do, the name
 // and version must match the following regular expression:
 //
-//     [a-zA-Z0-9](?:[a-zA-Z0-9\.-]*[a-zA-Z0-9])?
+//	[a-zA-Z0-9](?:[a-zA-Z0-9\.-]*[a-zA-Z0-9])?
 //
 // Note this means neither the name nor version can be empty.
 func SoftwareNameAndVersion(name, version string) Opt {
@@ -591,39 +617,39 @@ func ConnIdleTimeout(timeout time.Duration) Opt {
 // This function has the same signature as net.Dialer's DialContext and
 // tls.Dialer's DialContext, meaning you can use this function like so:
 //
-//     kgo.Dialer((&net.Dialer{Timeout: 10*time.Second}).DialContext)
+//	kgo.Dialer((&net.Dialer{Timeout: 10*time.Second}).DialContext)
 //
 // or
 //
-//     kgo.Dialer((&tls.Dialer{...}).DialContext)
-//
+//	kgo.Dialer((&tls.Dialer{...}).DialContext)
 func Dialer(fn func(ctx context.Context, network, host string) (net.Conn, error)) Opt {
 	return clientOpt{func(cfg *cfg) { cfg.dialFn = fn }}
 }
 
-// DialTLSConfig opts in to dialing brokers with the given TLS config with a
+// DialTimeout sets the dial timeout, overriding the default of 10s. This
+// option is useful if you do not want to set a custom dialer, and is useful in
+// tandem with DialTLSConfig.
+func DialTimeout(timeout time.Duration) Opt {
+	return clientOpt{func(cfg *cfg) { cfg.dialTimeout = timeout }}
+}
+
+// DialTLSConfig opts into dialing brokers with the given TLS config with a
 // 10s dial timeout. This is a shortcut for manually specifying a tls dialer
-// using the Dialer option.
+// using the Dialer option. You can also change the default 10s timeout with
+// DialTimeout.
 //
 // Every dial, the input config is cloned. If the config's ServerName is not
 // specified, this function uses net.SplitHostPort to extract the host from the
 // broker being dialed and sets the ServerName. In short, it is not necessary
 // to set the ServerName.
 func DialTLSConfig(c *tls.Config) Opt {
-	return Dialer(func(ctx context.Context, network, host string) (net.Conn, error) {
-		c := c.Clone()
-		if c.ServerName == "" {
-			server, _, err := net.SplitHostPort(host)
-			if err != nil {
-				return nil, fmt.Errorf("unable to split host:port for dialing: %w", err)
-			}
-			c.ServerName = server
-		}
-		return (&tls.Dialer{
-			NetDialer: defaultDialer,
-			Config:    c,
-		}).DialContext(ctx, network, host)
-	})
+	return clientOpt{func(cfg *cfg) { cfg.dialTLS = c }}
+}
+
+// DialTLS opts into dialing brokers with TLS. This is a shortcut for
+// DialTLSConfig with an empty config. See DialTLSConfig for more details.
+func DialTLS() Opt {
+	return DialTLSConfig(new(tls.Config))
 }
 
 // SeedBrokers sets the seed brokers for the client to use, overriding the
@@ -673,7 +699,7 @@ func RetryBackoffFn(backoff func(int) time.Duration) Opt {
 	return clientOpt{func(cfg *cfg) { cfg.retryBackoff = backoff }}
 }
 
-// RequestRetries sets the number of tries that retriable requests are allowed,
+// RequestRetries sets the number of tries that retryable requests are allowed,
 // overriding the default of 20.
 //
 // This option does not apply to produce requests; to limit produce request
@@ -685,10 +711,10 @@ func RequestRetries(n int) Opt {
 // RetryTimeout sets the upper limit on how long we allow requests to retry,
 // overriding the default of:
 //
-//     JoinGroup: cfg.SessionTimeout (default 45s)
-//     SyncGroup: cfg.SessionTimeout (default 45s)
-//     Heartbeat: cfg.SessionTimeout (default 45s)
-//        others: 30s
+//	JoinGroup: cfg.SessionTimeout (default 45s)
+//	SyncGroup: cfg.SessionTimeout (default 45s)
+//	Heartbeat: cfg.SessionTimeout (default 45s)
+//	   others: 30s
 //
 // This timeout applies to any request issued through a client's Request
 // function. It does not apply to fetches nor produces.
@@ -705,10 +731,10 @@ func RetryTimeout(t time.Duration) Opt {
 // RetryTimeoutFn sets the per-request upper limit on how long we allow
 // requests to retry, overriding the default of:
 //
-//     JoinGroup: cfg.SessionTimeout (default 45s)
-//     SyncGroup: cfg.SessionTimeout (default 45s)
-//     Heartbeat: cfg.SessionTimeout (default 45s)
-//        others: 30s
+//	JoinGroup: cfg.SessionTimeout (default 45s)
+//	SyncGroup: cfg.SessionTimeout (default 45s)
+//	Heartbeat: cfg.SessionTimeout (default 45s)
+//	   others: 30s
 //
 // This timeout applies to any request issued through a client's Request
 // function. It does not apply to fetches nor produces.
@@ -765,7 +791,7 @@ func MetadataMaxAge(age time.Duration) Opt {
 }
 
 // MetadataMinAge sets the minimum time between metadata queries, overriding
-// the default 2.5s. You may want to raise or lower this to reduce the number of
+// the default 5s. You may want to raise or lower this to reduce the number of
 // metadata queries the client will make. Notably, if metadata detects an error
 // in any topic or partition, it triggers itself to update as soon as allowed.
 func MetadataMinAge(age time.Duration) Opt {
@@ -802,8 +828,22 @@ func WithHooks(hooks ...Hook) Opt {
 // are expected to backoff slightly and retry the operation. Lower backoffs may
 // increase load on the brokers, while higher backoffs may increase transaction
 // latency in clients.
+//
+// Note that if brokers are hanging in this concurrent transactions state for
+// too long, the client progressively increases the backoff.
 func ConcurrentTransactionsBackoff(backoff time.Duration) Opt {
 	return clientOpt{func(cfg *cfg) { cfg.txnBackoff = backoff }}
+}
+
+// ConsiderMissingTopicDeletedAfter sets the amount of time a topic can be
+// missing from metadata responses _after_ loading it at least once before it
+// is considered deleted, overriding the default of 15s. Note that for newer
+// versions of Kafka, it may take a bit of time (~15s) for the cluster to fully
+// recognize a newly created topic. If this option is set too low, there is
+// some risk that the client will internally purge and re-see a topic a few
+// times until the cluster fully broadcasts the topic creation.
+func ConsiderMissingTopicDeletedAfter(t time.Duration) Opt {
+	return clientOpt{func(cfg *cfg) { cfg.missingTopicDelete = t }}
 }
 
 ////////////////////////////
@@ -851,7 +891,9 @@ func RequiredAcks(acks Acks) ProducerOpt {
 
 // DisableIdempotentWrite disables idempotent produce requests, opting out of
 // Kafka server-side deduplication in the face of reissued requests due to
-// transient network problems.
+// transient network problems. Disabling idempotent write by default
+// upper-bounds the number of in-flight produce requests per broker to 1, vs.
+// the default of 5 when using idempotency.
 //
 // Idempotent production is strictly a win, but does require the
 // IDEMPOTENT_WRITE permission on CLUSTER (pre Kafka 3.0), and not all clients
@@ -877,22 +919,19 @@ func MaxProduceRequestsInflightPerBroker(n int) ProducerOpt {
 // records.
 //
 // Compression is chosen in the order preferred based on broker support.  For
-// example, zstd compression was introduced in Kafka 2.1.0, so the preference
+// example, zstd compression was introduced in Kafka 2.1, so the preference
 // can be first zstd, fallback snappy, fallback none.
 //
 // The default preference is [snappy, none], which should be fine for all old
 // consumers since snappy compression has existed since Kafka 0.8.0.  To use
-// zstd, your brokers must be at least 2.1.0 and all consumers must be upgraded
+// zstd, your brokers must be at least 2.1 and all consumers must be upgraded
 // to support decoding zstd records.
 func ProducerBatchCompression(preference ...CompressionCodec) ProducerOpt {
 	return producerOpt{func(cfg *cfg) { cfg.compression = preference }}
 }
 
 // ProducerBatchMaxBytes upper bounds the size of a record batch, overriding
-// the default 1MB.
-//
-// This corresponds to Kafka's max.message.bytes, which defaults to 1,000,012
-// bytes (just over 1MB).
+// the default 1,000,012 bytes. This mirrors Kafka's max.message.bytes.
 //
 // Record batches are independent of a ProduceRequest: a record batch is
 // specific to a topic and partition, whereas the produce request can contain
@@ -913,6 +952,23 @@ func ProducerBatchMaxBytes(v int32) ProducerOpt {
 // This overrides the default of 10,000.
 func MaxBufferedRecords(n int) ProducerOpt {
 	return producerOpt{func(cfg *cfg) { cfg.maxBufferedRecords = int64(n) }}
+}
+
+// MaxBufferedBytes sets the max amount of bytes that the client will buffer
+// while producing, blocking produces until records are finished if this limit
+// is reached. This overrides the unlimited default.
+//
+// Note that this option does _not_ apply for consuming: the client cannot
+// limit bytes buffered for consuming because of decompression. You can roughly
+// control consuming memory by using [MaxConcurrentFetches], [FetchMaxBytes],
+// and [FetchMaxPartitionBytes].
+//
+// If you produce a record that is larger than n, the record is immediately
+// failed with kerr.MessageTooLarge.
+//
+// Note that this limit applies after [MaxBufferedRecords].
+func MaxBufferedBytes(n int) ProducerOpt {
+	return producerOpt{func(cfg *cfg) { cfg.maxBufferedBytes = int64(n) }}
 }
 
 // RecordPartitioner uses the given partitioner to partition records, overriding
@@ -1014,8 +1070,8 @@ func ProducerLinger(linger time.Duration) ProducerOpt {
 // ManualFlushing disables auto-flushing when producing. While you can still
 // set lingering, it would be useless to do so.
 //
-// With manual flushing, producing while MaxBufferedRecords have already been
-// produced and not flushed will return ErrMaxBuffered.
+// With manual flushing, producing while MaxBufferedRecords or MaxBufferedBytes
+// have already been produced and not flushed will return ErrMaxBuffered.
 func ManualFlushing() ProducerOpt {
 	return producerOpt{func(cfg *cfg) { cfg.manualFlushing = true }}
 }
@@ -1054,13 +1110,13 @@ func RecordDeliveryTimeout(timeout time.Duration) ProducerOpt {
 // the equation. You must also assign a group to consume from.
 //
 // To produce transactionally, you first BeginTransaction, then produce records
-// consumed from a group, then you EndTransaction. All records prodcued outside
+// consumed from a group, then you EndTransaction. All records produced outside
 // of a transaction will fail immediately with an error.
 //
 // After producing a batch, you must commit what you consumed. Auto committing
 // offsets is disabled during transactional consuming / producing.
 //
-// Note that unless using Kafka 2.5.0, a consumer group rebalance may be
+// Note that unless using Kafka 2.5, a consumer group rebalance may be
 // problematic. Production should finish and be committed before the client
 // rejoins the group. It may be safer to use an eager group balancer and just
 // abort the transaction. Alternatively, any time a partition is revoked, you
@@ -1079,8 +1135,8 @@ func TransactionalID(id string) ProducerOpt {
 // default 40s. It is a good idea to keep this less than a group's session
 // timeout, so that a group member will always be alive for the duration of a
 // transaction even if connectivity dies. This helps prevent a transaction
-// finishing after a rebalance, which is problematic pre-Kafka 2.5.0. If you
-// are on Kafka 2.5.0+, then you can use the RequireStableFetchOffsets option
+// finishing after a rebalance, which is problematic pre-Kafka 2.5. If you
+// are on Kafka 2.5+, then you can use the RequireStableFetchOffsets option
 // when assigning the group, and you can set this to whatever you would like.
 //
 // Transaction timeouts begin when the first record is produced within a
@@ -1116,7 +1172,7 @@ func FetchMaxWait(wait time.Duration) ConsumerOpt {
 // recommended to set this option so that decompression does not eat all of
 // your RAM.
 func FetchMaxBytes(b int32) ConsumerOpt {
-	return consumerOpt{func(cfg *cfg) { cfg.maxBytes = b }}
+	return consumerOpt{func(cfg *cfg) { cfg.maxBytes = lazyI32(b) }}
 }
 
 // FetchMinBytes sets the minimum amount of bytes a broker will try to send
@@ -1138,7 +1194,7 @@ func FetchMinBytes(b int32) ConsumerOpt {
 //
 // This corresponds to the Java max.partition.fetch.bytes setting.
 func FetchMaxPartitionBytes(b int32) ConsumerOpt {
-	return consumerOpt{func(cfg *cfg) { cfg.maxPartBytes = b }}
+	return consumerOpt{func(cfg *cfg) { cfg.maxPartBytes = lazyI32(b) }}
 }
 
 // MaxConcurrentFetches sets the maximum number of fetch requests to allow in
@@ -1188,13 +1244,12 @@ func MaxConcurrentFetches(n int) ConsumerOpt {
 // In short form, the following determines the offset for when a partition is
 // seen for the first time, or reset while fetching:
 //
-//     reset at start?                        => log start offset
-//     reset at end?                          => high watermark
-//     reset at exact?                        => this exact offset (3 means offset 3)
-//     reset relative?                        => the above, + / - the relative amount
-//     reset exact or relative out of bounds? => nearest boundary (start or end)
-//     reset after millisec?                  => high watermark, or first offset after millisec if one exists
-//
+//	reset at start?                        => log start offset
+//	reset at end?                          => high watermark
+//	reset at exact?                        => this exact offset (3 means offset 3)
+//	reset relative?                        => the above, + / - the relative amount
+//	reset exact or relative out of bounds? => nearest boundary (start or end)
+//	reset after millisec?                  => high watermark, or first offset after millisec if one exists
 func ConsumeResetOffset(offset Offset) ConsumerOpt {
 	return consumerOpt{func(cfg *cfg) { cfg.resetOffset = offset }}
 }
@@ -1280,7 +1335,7 @@ func ConsumeRegex() ConsumerOpt {
 //
 // A "fetch session" is is a way to reduce bandwidth for fetch requests &
 // responses, and to potentially reduce the amount of work that brokers have to
-// do to handle fetch requests. A fetch session opts in to the broker tracking
+// do to handle fetch requests. A fetch session opts into the broker tracking
 // some state of what the client is interested in. For example, say that you
 // are interested in thousands of topics, and most of these topics are
 // receiving data only rarely. A fetch session allows the client to register
@@ -1303,6 +1358,41 @@ func ConsumeRegex() ConsumerOpt {
 // For more details on fetch sessions, see KIP-227.
 func DisableFetchSessions() ConsumerOpt {
 	return consumerOpt{func(cfg *cfg) { cfg.disableFetchSessions = true }}
+}
+
+// ConsumePreferringLagFn allows you to re-order partitions before they are
+// fetched, given each partition's current lag.
+//
+// By default, the client rotates partitions fetched by one after every fetch
+// request. Kafka answers fetch requests in the order that partitions are
+// requested, filling the fetch response until FetchMaxBytes and
+// FetchMaxPartitionBytes are hit. All partitions eventually rotate to the
+// front, ensuring no partition is starved.
+//
+// With this option, you can return topic order and per-topic partition
+// ordering. These orders will sort to the front (first by topic, then by
+// partition). Any topic or partitions that you do not return are added to the
+// end, preserving their original ordering.
+//
+// For a simple lag preference that sorts the laggiest topics and partitions
+// first, use `kgo.ConsumePreferringLagFn(kgo.PreferLagAt(50))` (or some other
+// similar lag number).
+func ConsumePreferringLagFn(fn PreferLagFn) ConsumerOpt {
+	return consumerOpt{func(cfg *cfg) { cfg.preferLagFn = fn }}
+}
+
+// KeepRetryableFetchErrors switches the client to always return any retryable
+// broker error when fetching, rather than stripping them. By default, the
+// client strips retryable errors from fetch responses; these are usually
+// signals that a client needs to update its metadata to learn of where a
+// partition has moved to (from one broker to another), or they are signals
+// that one broker is temporarily unhealthy (broker not available). You can opt
+// into keeping these errors if you want to specifically react to certain
+// events. For example, if you want to react to you yourself deleting a topic,
+// you can watch for either UNKNOWN_TOPIC_OR_PARTITION or UNKNOWN_TOPIC_ID
+// errors being returned in fetches (and ignore the other errors).
+func KeepRetryableFetchErrors() ConsumerOpt {
+	return consumerOpt{func(cfg *cfg) { cfg.keepRetryableFetchErrors = true }}
 }
 
 //////////////////////////////////
@@ -1331,7 +1421,7 @@ func ConsumerGroup(group string) GroupOpt {
 // For balancing, Kafka chooses the first protocol that all group members agree
 // to support.
 //
-// Note that if you opt in to cooperative-sticky rebalancing, cooperative group
+// Note that if you opt into cooperative-sticky rebalancing, cooperative group
 // balancing is incompatible with eager (classical) rebalancing and requires a
 // careful rollout strategy (see KIP-429).
 func Balancers(balancers ...GroupBalancer) GroupOpt {
@@ -1344,10 +1434,10 @@ func Balancers(balancers ...GroupBalancer) GroupOpt {
 // initiate a rebalance.
 //
 // If you are using a GroupTransactSession for EOS, wish to lower this, and are
-// talking to a Kafka cluster pre 2.5.0, consider lowering the
+// talking to a Kafka cluster pre 2.5, consider lowering the
 // TransactionTimeout. If you do not, you risk a transaction finishing after a
 // group has rebalanced, which could lead to duplicate processing. If you are
-// talking to a Kafka 2.5.0+ cluster, you can safely use the
+// talking to a Kafka 2.5+ cluster, you can safely use the
 // RequireStableFetchOffsets group option and prevent any problems.
 //
 // This option corresponds to Kafka's session.timeout.ms setting and must be
@@ -1385,7 +1475,7 @@ func HeartbeatInterval(interval time.Duration) GroupOpt {
 
 // RequireStableFetchOffsets sets the group consumer to require "stable" fetch
 // offsets before consuming from the group. Proposed in KIP-447 and introduced
-// in Kafka 2.5.0, stable offsets are important when consuming from partitions
+// in Kafka 2.5, stable offsets are important when consuming from partitions
 // that a transactional producer could be committing to.
 //
 // With this option, Kafka will block group consumers from fetching offsets for
@@ -1434,6 +1524,13 @@ func RequireStableFetchOffsets() GroupOpt {
 //
 // This function can largely replace any commit logic you may want to do in
 // OnPartitionsRevoked.
+//
+// Lastly, note that this actually blocks any rebalance from calling
+// OnPartitions{Assigned,Revoked,Lost}. If you are using a cooperative
+// rebalancer such as CooperativeSticky, a rebalance can begin right before you
+// poll, and you will still receive records because no partitions are lost yet.
+// The in-progress rebalance only blocks if you are assigned new partitions or
+// if any of your partitions are revoked.
 func BlockRebalanceOnPoll() GroupOpt {
 	return groupOpt{func(cfg *cfg) { cfg.blockRebalanceOnPoll = true }}
 }
@@ -1460,18 +1557,19 @@ func AdjustFetchOffsetsFn(adjustOffsetsBeforeAssign func(context.Context, map[st
 // OnPartitionsAssigned sets the function to be called when a group is joined
 // after partitions are assigned before fetches for those partitions begin.
 //
-// This function combined with OnPartitionsRevoked should not exceed the
-// rebalance interval. It is possible for the group, immediately after
-// finishing a balance, to re-enter a new balancing session.
+// This function, combined with OnPartitionsRevoked, should not exceed the
+// rebalance interval. It is possible for the group to re-enter a new balancing
+// session immediately after finishing a balance.
 //
-// The OnPartitionsAssigned function is passed the client's context, which is
-// only canceled if the client is closed.
+// This function is passed the client's context, which is only canceled if the
+// client is closed.
 //
-// This function is not called concurrent with any other On callback, and this
-// function is given a new map that the user is free to modify. This function
-// can be called at any time you are polling or processing records. If you want
-// to ensure this function is called serially with processing, consider the
-// BlockRebalanceOnPoll option.
+// This function is not called concurrent with any other OnPartitions callback,
+// and this function is given a new map that the user is free to modify.
+//
+// This function can be called at any time you are polling or processing
+// records. If you want to ensure this function is called serially with
+// processing, consider the BlockRebalanceOnPoll option.
 func OnPartitionsAssigned(onAssigned func(context.Context, *Client, map[string][]int32)) GroupOpt {
 	return groupOpt{func(cfg *cfg) { cfg.onAssigned, cfg.setAssigned = onAssigned, true }}
 }
@@ -1479,17 +1577,12 @@ func OnPartitionsAssigned(onAssigned func(context.Context, *Client, map[string][
 // OnPartitionsRevoked sets the function to be called once this group member
 // has partitions revoked.
 //
-// This function combined with OnPartitionsAssigned should not exceed the
-// rebalance interval. It is possible for the group, immediately after
-// finishing a balance, to re-enter a new balancing session.
+// This function, combined with [OnPartitionsAssigned], should not exceed the
+// rebalance interval. It is possible for the group to re-enter a new balancing
+// session immediately after finishing a balance.
 //
 // If autocommit is enabled, the default OnPartitionsRevoked is a blocking
-// commit all non-dirty offsets (where dirty is the most recent poll). The
-// reason for a blocking commit is so that no later commit cancels the blocking
-// commit. If the commit in OnPartitionsRevoked were canceled, then the
-// rebalance would proceed immediately, the commit that canceled the blocking
-// commit would fail, and duplicates could be consumed after the rebalance
-// completes.
+// commit of all non-dirty offsets (where "dirty" is the most recent poll).
 //
 // The OnPartitionsRevoked function is passed the client's context, which is
 // only canceled if the client is closed. OnPartitionsRevoked function is
@@ -1498,30 +1591,34 @@ func OnPartitionsAssigned(onAssigned func(context.Context, *Client, map[string][
 // autocommitting), it is highly recommended to do a proper blocking commit in
 // OnPartitionsRevoked.
 //
-// This function is not called concurrent with any other On callback, and this
-// function is given a new map that the user is free to modify. This function
-// can be called at any time you are polling or processing records. If you want
-// to ensure this function is called serially with processing, consider the
-// BlockRebalanceOnPoll option.
+// This function is not called concurrent with any other OnPartitions callback,
+// and this function is given a new map that the user is free to modify.
+//
+// This function can be called at any time you are polling or processing
+// records. If you want to ensure this function is called serially with
+// processing, consider the BlockRebalanceOnPoll option.
+//
+// This function is called if a "fatal" group error is encountered and you have
+// not set [OnPartitionsLost]. See OnPartitionsLost for more details.
 func OnPartitionsRevoked(onRevoked func(context.Context, *Client, map[string][]int32)) GroupOpt {
 	return groupOpt{func(cfg *cfg) { cfg.onRevoked, cfg.setRevoked = onRevoked, true }}
 }
 
 // OnPartitionsLost sets the function to be called on "fatal" group errors,
 // such as IllegalGeneration, UnknownMemberID, and authentication failures.
-// This function differs from OnPartitionsRevoked in that it is unlikely that
+// This function differs from [OnPartitionsRevoked] in that it is unlikely that
 // commits will succeed when partitions are outright lost, whereas commits
 // likely will succeed when revoking partitions.
 //
-// If this is not set, you will not know when a group error occurs that
-// forcefully loses all partitions. If you wish to use the same callback for
-// lost and revoked, you can use OnPartitionsLostAsRevoked as a shortcut.
+// Because this function is called on any fatal group error, it is possible for
+// this function to be called without the group ever being joined.
 //
-// This function is not called concurrent with any other On callback, and this
-// function is given a new map that the user is free to modify. This function
-// can be called at any time you are polling or processing records. If you want
-// to ensure this function is called serially with processing, consider the
-// BlockRebalanceOnPoll option.
+// This function is not called concurrent with any other OnPartitions callback,
+// and this function is given a new map that the user is free to modify.
+//
+// This function can be called at any time you are polling or processing
+// records. If you want to ensure this function is called serially with
+// processing, consider the BlockRebalanceOnPoll option.
 func OnPartitionsLost(onLost func(context.Context, *Client, map[string][]int32)) GroupOpt {
 	return groupOpt{func(cfg *cfg) { cfg.onLost, cfg.setLost = onLost, true }}
 }
@@ -1567,7 +1664,7 @@ func DisableAutoCommit() GroupOpt {
 	return groupOpt{func(cfg *cfg) { cfg.autocommitDisable = true }}
 }
 
-// GreedyAutoCommit opts in to committing everything that has been polled when
+// GreedyAutoCommit opts into committing everything that has been polled when
 // autocommitting (the dirty offsets), rather than committing what has
 // previously been polled. This option may result in message loss if your
 // application crashes.
@@ -1596,15 +1693,15 @@ func AutoCommitMarks() GroupOpt {
 // InstanceID sets the group consumer's instance ID, switching the group member
 // from "dynamic" to "static".
 //
-// Prior to Kafka 2.3.0, joining a group gave a group member a new member ID.
+// Prior to Kafka 2.3, joining a group gave a group member a new member ID.
 // The group leader could not tell if this was a rejoining member. Thus, any
 // join caused the group to rebalance.
 //
-// Kafka 2.3.0 introduced the concept of an instance ID, which can persist
-// across restarts. This allows for avoiding many costly rebalances and allows
-// for stickier rebalancing for rejoining members (since the ID for balancing
-// stays the same). The main downsides are that you, the user of a client, have
-// to manage instance IDs properly, and that it may take longer to rebalance in
+// Kafka 2.3 introduced the concept of an instance ID, which can persist across
+// restarts. This allows for avoiding many costly rebalances and allows for
+// stickier rebalancing for rejoining members (since the ID for balancing stays
+// the same). The main downsides are that you, the user of a client, have to
+// manage instance IDs properly, and that it may take longer to rebalance in
 // the event that a client legitimately dies.
 //
 // When using an instance ID, the client does NOT send a leave group request
@@ -1617,7 +1714,12 @@ func AutoCommitMarks() GroupOpt {
 // issues a leave group request on behalf of this instance ID (see kcl), or you
 // can manually use the kmsg package with a proper LeaveGroupRequest.
 //
-// NOTE: Leaving a group with an instance ID is only supported in Kafka 2.4.0+.
+// NOTE: Leaving a group with an instance ID is only supported in Kafka 2.4+.
+//
+// NOTE: If you restart a consumer group leader that is using an instance ID,
+// it will not cause a rebalance even if you change which topics the leader is
+// consuming. If your cluster is 3.2+, this client internally works around this
+// limitation and you do not need to trigger a rebalance manually.
 func InstanceID(id string) GroupOpt {
 	return groupOpt{func(cfg *cfg) { cfg.instanceID = &id }}
 }
@@ -1632,5 +1734,9 @@ func GroupProtocol(protocol string) GroupOpt {
 // AutoCommitCallback sets the callback to use if autocommitting is enabled.
 // This overrides the default callback that logs errors and continues.
 func AutoCommitCallback(fn func(*Client, *kmsg.OffsetCommitRequest, *kmsg.OffsetCommitResponse, error)) GroupOpt {
-	return groupOpt{func(cfg *cfg) { cfg.commitCallback, cfg.setCommitCallback = fn, true }}
+	return groupOpt{func(cfg *cfg) {
+		if fn != nil {
+			cfg.commitCallback, cfg.setCommitCallback = fn, true
+		}
+	}}
 }

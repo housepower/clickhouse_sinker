@@ -31,7 +31,16 @@ var _contextOptionKey = &QueryOptions{
 	},
 }
 
-type Settings map[string]interface{}
+type Settings map[string]any
+
+// CustomSetting is a helper struct to distinguish custom settings from important ones.
+// For native protocol, is_important flag is set to value 0x02 (see https://github.com/ClickHouse/ClickHouse/blob/c873560fe7185f45eed56520ec7d033a7beb1551/src/Core/BaseSettings.h#L516-L521)
+// Only string value is supported until formatting logic that exists in ClickHouse is implemented in clickhouse-go. (https://github.com/ClickHouse/ClickHouse/blob/master/src/Core/Field.cpp#L312 and https://github.com/ClickHouse/clickhouse-go/issues/992)
+type CustomSetting struct {
+	Value string
+}
+
+type Parameters map[string]string
 type (
 	QueryOption  func(*QueryOptions) error
 	QueryOptions struct {
@@ -48,8 +57,11 @@ type (
 			profileInfo   func(*ProfileInfo)
 			profileEvents func([]ProfileEvent)
 		}
-		settings Settings
-		external []*ext.Table
+		settings        Settings
+		parameters      Parameters
+		external        []*ext.Table
+		blockBufferSize uint8
+		userLocation    *time.Location
 	}
 )
 
@@ -67,6 +79,13 @@ func WithQueryID(queryID string) QueryOption {
 	}
 }
 
+func WithBlockBufferSize(size uint8) QueryOption {
+	return func(o *QueryOptions) error {
+		o.blockBufferSize = size
+		return nil
+	}
+}
+
 func WithQuotaKey(quotaKey string) QueryOption {
 	return func(o *QueryOptions) error {
 		o.quotaKey = quotaKey
@@ -77,6 +96,13 @@ func WithQuotaKey(quotaKey string) QueryOption {
 func WithSettings(settings Settings) QueryOption {
 	return func(o *QueryOptions) error {
 		o.settings = settings
+		return nil
+	}
+}
+
+func WithParameters(params Parameters) QueryOption {
+	return func(o *QueryOptions) error {
+		o.parameters = params
 		return nil
 	}
 }
@@ -123,10 +149,22 @@ func WithStdAsync(wait bool) QueryOption {
 	}
 }
 
-func Context(parent context.Context, options ...QueryOption) context.Context {
-	opt := QueryOptions{
-		settings: make(Settings),
+func WithUserLocation(location *time.Location) QueryOption {
+	return func(o *QueryOptions) error {
+		o.userLocation = location
+		return nil
 	}
+}
+
+func ignoreExternalTables() QueryOption {
+	return func(o *QueryOptions) error {
+		o.external = nil
+		return nil
+	}
+}
+
+func Context(parent context.Context, options ...QueryOption) context.Context {
+	opt := queryOptions(parent)
 	for _, f := range options {
 		f(&opt)
 	}

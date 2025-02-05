@@ -156,6 +156,17 @@ func (ds TopicDetails) EachError(fn func(TopicDetail)) {
 	}
 }
 
+// Error iterates over all topic details and returns the first error
+// encountered, if any.
+func (ds TopicDetails) Error() error {
+	for _, t := range ds {
+		if t.Err != nil {
+			return t.Err
+		}
+	}
+	return nil
+}
+
 // TopicsSet returns the topics and partitions as a set.
 func (ds TopicDetails) TopicsSet() TopicsSet {
 	var s TopicsSet
@@ -234,11 +245,13 @@ func (cl *Client) metadata(ctx context.Context, noTopics bool, topics []string) 
 			return Metadata{}, err
 		}
 		td := TopicDetail{
-			Topic:      *t.Topic,
 			ID:         t.TopicID,
 			Partitions: make(map[int32]PartitionDetail),
 			IsInternal: t.IsInternal,
 			Err:        kerr.ErrorForCode(t.ErrorCode),
+		}
+		if t.Topic != nil {
+			td.Topic = *t.Topic
 		}
 		for _, p := range t.Partitions {
 			td.Partitions[p.Partition] = PartitionDetail{
@@ -247,9 +260,9 @@ func (cl *Client) metadata(ctx context.Context, noTopics bool, topics []string) 
 
 				Leader:          p.Leader,
 				LeaderEpoch:     p.LeaderEpoch,
-				Replicas:        int32s(p.Replicas),
-				ISR:             int32s(p.ISR),
-				OfflineReplicas: int32s(p.OfflineReplicas),
+				Replicas:        p.Replicas,
+				ISR:             p.ISR,
+				OfflineReplicas: p.OfflineReplicas,
 
 				Err: kerr.ErrorForCode(p.ErrorCode),
 			}
@@ -359,7 +372,12 @@ func (l ListedOffsets) KOffsets() map[string]map[int32]kgo.Offset {
 
 // ListStartOffsets returns the start (oldest) offsets for each partition in
 // each requested topic. In Kafka terms, this returns the log start offset. If
-// no topics are specified, all topics are listed.
+// no topics are specified, all topics are listed. If a requested topic does
+// not exist, no offsets for it are listed and it is not present in the
+// response.
+//
+// If any topics being listed do not exist, a special -1 partition is added
+// to the response with the expected error code kerr.UnknownTopicOrPartition.
 //
 // This may return *ShardErrors.
 func (cl *Client) ListStartOffsets(ctx context.Context, topics ...string) (ListedOffsets, error) {
@@ -368,7 +386,11 @@ func (cl *Client) ListStartOffsets(ctx context.Context, topics ...string) (Liste
 
 // ListEndOffsets returns the end (newest) offsets for each partition in each
 // requested topic. In Kafka terms, this returns high watermarks. If no topics
-// are specified, all topics are listed.
+// are specified, all topics are listed. If a requested topic does not exist,
+// no offsets for it are listed and it is not present in the response.
+//
+// If any topics being listed do not exist, a special -1 partition is added
+// to the response with the expected error code kerr.UnknownTopicOrPartition.
 //
 // This may return *ShardErrors.
 func (cl *Client) ListEndOffsets(ctx context.Context, topics ...string) (ListedOffsets, error) {
@@ -380,7 +402,11 @@ func (cl *Client) ListEndOffsets(ctx context.Context, topics ...string) (ListedO
 // latest offset. In Kafka terms, committed means the last stable offset, and
 // newest means the high watermark. Record offsets in active, uncommitted
 // transactions will not be returned. If no topics are specified, all topics
-// are listed.
+// are listed. If a requested topic does not exist, no offsets for it are
+// listed and it is not present in the response.
+//
+// If any topics being listed do not exist, a special -1 partition is added
+// to the response with the expected error code kerr.UnknownTopicOrPartition.
 //
 // This may return *ShardErrors.
 func (cl *Client) ListCommittedOffsets(ctx context.Context, topics ...string) (ListedOffsets, error) {
@@ -391,7 +417,12 @@ func (cl *Client) ListCommittedOffsets(ctx context.Context, topics ...string) (L
 // millisecond timestamp. Unlike listing start/end/committed offsets, offsets
 // returned from this function also include the timestamp of the offset. If no
 // topics are specified, all topics are listed. If a partition has no offsets
-// after the requested millisecond, the offset will be -1.
+// after the requested millisecond, the offset will be the current end offset.
+// If a requested topic does not exist, no offsets for it are listed and it is
+// not present in the response.
+//
+// If any topics being listed do not exist, a special -1 partition is added
+// to the response with the expected error code kerr.UnknownTopicOrPartition.
 //
 // This may return *ShardErrors.
 func (cl *Client) ListOffsetsAfterMilli(ctx context.Context, millisecond int64, topics ...string) (ListedOffsets, error) {
@@ -404,23 +435,24 @@ func (cl *Client) listOffsets(ctx context.Context, isolation int8, timestamp int
 		return nil, err
 	}
 
-	req := kmsg.NewPtrListOffsetsRequest()
-	req.IsolationLevel = isolation
-	for t, td := range tds {
-		rt := kmsg.NewListOffsetsRequestTopic()
-		rt.Topic = t
-		for p := range td.Partitions {
-			rp := kmsg.NewListOffsetsRequestTopicPartition()
-			rp.Partition = p
-			rp.Timestamp = timestamp
-			rt.Partitions = append(rt.Partitions, rp)
-		}
-		req.Topics = append(req.Topics, rt)
-	}
-
-	shards := cl.cl.RequestSharded(ctx, req)
+	// If we request with timestamps, we may request twice: once for after
+	// timestamps, and once for any -1 (and no error) offsets where the
+	// timestamp is in the future.
 	list := make(ListedOffsets)
-	return list, shardErrEach(req, shards, func(kr kmsg.Response) error {
+
+	for _, td := range tds {
+		if td.Err != nil {
+			list[td.Topic] = map[int32]ListedOffset{
+				-1: {
+					Topic:     td.Topic,
+					Partition: -1,
+					Err:       td.Err,
+				},
+			}
+		}
+	}
+	rerequest := make(map[string][]int32)
+	shardfn := func(kr kmsg.Response) error {
 		resp := kr.(*kmsg.ListOffsetsResponse)
 		for _, t := range resp.Topics {
 			lt, ok := list[t.Topic]
@@ -440,8 +472,47 @@ func (cl *Client) listOffsets(ctx context.Context, isolation int8, timestamp int
 					LeaderEpoch: p.LeaderEpoch,
 					Err:         kerr.ErrorForCode(p.ErrorCode),
 				}
+				if timestamp != -1 && p.Offset == -1 && p.ErrorCode == 0 {
+					rerequest[t.Topic] = append(rerequest[t.Topic], p.Partition)
+				}
 			}
 		}
 		return nil
-	})
+	}
+
+	req := kmsg.NewPtrListOffsetsRequest()
+	req.IsolationLevel = isolation
+	for t, td := range tds {
+		rt := kmsg.NewListOffsetsRequestTopic()
+		if td.Err != nil {
+			continue
+		}
+		rt.Topic = t
+		for p := range td.Partitions {
+			rp := kmsg.NewListOffsetsRequestTopicPartition()
+			rp.Partition = p
+			rp.Timestamp = timestamp
+			rt.Partitions = append(rt.Partitions, rp)
+		}
+		req.Topics = append(req.Topics, rt)
+	}
+	shards := cl.cl.RequestSharded(ctx, req)
+	err = shardErrEach(req, shards, shardfn)
+	if len(rerequest) > 0 {
+		req.Topics = req.Topics[:0]
+		for t, ps := range rerequest {
+			rt := kmsg.NewListOffsetsRequestTopic()
+			rt.Topic = t
+			for _, p := range ps {
+				rp := kmsg.NewListOffsetsRequestTopicPartition()
+				rp.Partition = p
+				rp.Timestamp = -1 // we always list end offsets when rerequesting
+				rt.Partitions = append(rt.Partitions, rp)
+			}
+			req.Topics = append(req.Topics, rt)
+		}
+		shards = cl.cl.RequestSharded(ctx, req)
+		err = mergeShardErrs(err, shardErrEach(req, shards, shardfn))
+	}
+	return list, err
 }

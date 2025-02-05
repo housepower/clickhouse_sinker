@@ -9,11 +9,11 @@ import (
 	"os"
 )
 
-func isRetriableBrokerErr(err error) bool {
+func isRetryableBrokerErr(err error) bool {
 	// The error could be nil if we are evaluating multiple errors at once,
 	// and only one is non-nil. The intent of this function is to evaluate
-	// whether an **error** is retriable, not a non-error. We return that
-	// nil is not retriable -- the calling code evaluating multiple errors
+	// whether an **error** is retryable, not a non-error. We return that
+	// nil is not retryable -- the calling code evaluating multiple errors
 	// at once would not call into this function if all errors were nil.
 	if err == nil {
 		return false
@@ -44,14 +44,14 @@ func isRetriableBrokerErr(err error) bool {
 		// If a dial fails, potentially we could retry if the resolver
 		// had a temporary hiccup, but we will err on the side of this
 		// being a slightly less temporary error.
-		return !isDialErr(err)
+		return !isDialNonTimeoutErr(err)
 	}
 	// EOF can be returned if a broker kills a connection unexpectedly, and
 	// we can retry that. Same for ErrClosed.
-	if isNetClosedErr(err) || errors.Is(err, io.EOF) {
+	if errors.Is(err, net.ErrClosed) || errors.Is(err, io.EOF) {
 		return true
 	}
-	// We could have a retriable producer ID failure, which then bubbled up
+	// We could have a retryable producer ID failure, which then bubbled up
 	// as errProducerIDLoadFail so as to be retried later.
 	if errors.Is(err, errProducerIDLoadFail) {
 		return true
@@ -71,6 +71,16 @@ func isRetriableBrokerErr(err error) bool {
 	if errors.Is(err, errCorrelationIDMismatch) {
 		return true
 	}
+	// We sometimes load the controller before issuing requests, and the
+	// cluster may not yet be ready and will return -1 for the controller.
+	// We can backoff and retry and hope the cluster has stabilized.
+	if ce := (*errUnknownController)(nil); errors.As(err, &ce) {
+		return true
+	}
+	// Same thought for a non-existing coordinator.
+	if ce := (*errUnknownCoordinator)(nil); errors.As(err, &ce) {
+		return true
+	}
 	var tempErr interface{ Temporary() bool }
 	if errors.As(err, &tempErr) {
 		return tempErr.Temporary()
@@ -78,13 +88,22 @@ func isRetriableBrokerErr(err error) bool {
 	return false
 }
 
-func isDialErr(err error) bool {
+func isDialNonTimeoutErr(err error) bool {
+	var ne *net.OpError
+	return errors.As(err, &ne) && ne.Op == "dial" && !ne.Timeout()
+}
+
+func isAnyDialErr(err error) bool {
 	var ne *net.OpError
 	return errors.As(err, &ne) && ne.Op == "dial"
 }
 
+func isContextErr(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+}
+
 func isSkippableBrokerErr(err error) bool {
-	// Some broker errors are not retriable for the given broker itself,
+	// Some broker errors are not retryable for the given broker itself,
 	// but we *could* skip the broker and try again on the next broker. For
 	// example, if the user input an invalid address and a valid address
 	// for seeds, when we fail dialing the first seed, we cannot retry that
@@ -96,9 +115,7 @@ func isSkippableBrokerErr(err error) bool {
 		return true
 	}
 	var ne *net.OpError
-	if errors.As(err, &ne) &&
-		!errors.Is(err, context.Canceled) &&
-		!errors.Is(err, context.DeadlineExceeded) {
+	if errors.As(err, &ne) && !isContextErr(err) {
 		return true
 	}
 	return false
@@ -154,6 +171,8 @@ var (
 	// Returned for all buffered produce records when a user purges topics.
 	errPurged = errors.New("topic purged while buffered")
 
+	errMissingMetadataPartition = errors.New("metadata update is missing a partition that we were previously using")
+
 	//////////////
 	// EXTERNAL //
 	//////////////
@@ -187,7 +206,41 @@ var (
 	ErrClientClosed = errors.New("client closed")
 )
 
-// ErrDataLoss is returned for Kafka >=2.1.0 when data loss is detected and the
+// ErrFirstReadEOF is returned for responses that immediately error with
+// io.EOF. This is the client's guess as to why a read from a broker is
+// failing with io.EOF. Two cases are currently handled,
+//
+//   - When the client is using TLS but brokers are not, brokers close
+//     connections immediately because the incoming request looks wrong.
+//   - When SASL is required but missing, brokers close connections immediately.
+//
+// There may be other reasons that an immediate io.EOF is encountered (perhaps
+// the connection truly was severed before a response was received), but this
+// error can help you quickly check common problems.
+type ErrFirstReadEOF struct {
+	kind uint8
+	err  error
+}
+
+const (
+	firstReadSASL uint8 = iota
+	firstReadTLS
+)
+
+func (e *ErrFirstReadEOF) Error() string {
+	switch e.kind {
+	case firstReadTLS:
+		return "broker closed the connection immediately after a dial, which happens if the client is using TLS when the broker is not expecting it: is TLS misconfigured on the client or the broker?"
+	default: // firstReadSASL
+		return "broker closed the connection immediately after a request was issued, which happens when SASL is required but not provided: is SASL missing?"
+	}
+}
+
+// Unwrap returns io.EOF (or, if a custom dialer returned a wrapped io.EOF,
+// this returns the custom dialer's wrapped error).
+func (e *ErrFirstReadEOF) Unwrap() error { return e.err }
+
+// ErrDataLoss is returned for Kafka >=2.1 when data loss is detected and the
 // client is able to reset to the last valid offset.
 type ErrDataLoss struct {
 	// Topic is the topic data loss was detected on.
@@ -213,7 +266,10 @@ type errUnknownController struct {
 }
 
 func (e *errUnknownController) Error() string {
-	return fmt.Sprintf("Kafka replied that the controller broker is %d,"+
+	if e.id == -1 {
+		return "broker replied that the controller broker is not available"
+	}
+	return fmt.Sprintf("broker replied that the controller broker is %d,"+
 		" but did not reply with that broker in the broker list", e.id)
 }
 
@@ -225,15 +281,28 @@ type errUnknownCoordinator struct {
 func (e *errUnknownCoordinator) Error() string {
 	switch e.key.typ {
 	case coordinatorTypeGroup:
-		return fmt.Sprintf("Kafka replied that group %s has broker coordinator %d,"+
+		return fmt.Sprintf("broker replied that group %s has broker coordinator %d,"+
 			" but did not reply with that broker in the broker list",
 			e.key.name, e.coordinator)
 	case coordinatorTypeTxn:
-		return fmt.Sprintf("Kafka replied that txn id %s has broker coordinator %d,"+
+		return fmt.Sprintf("broker replied that txn id %s has broker coordinator %d,"+
 			" but did not reply with that broker in the broker list",
 			e.key.name, e.coordinator)
 	default:
-		return fmt.Sprintf("Kafka replied to an unknown coordinator key %s (type %d) that it has a broker coordinator %d,"+
+		return fmt.Sprintf("broker replied to an unknown coordinator key %s (type %d) that it has a broker coordinator %d,"+
 			" but did not reply with that broker in the broker list", e.key.name, e.key.typ, e.coordinator)
 	}
 }
+
+// ErrGroupSession is injected into a poll if an error occurred such that your
+// consumer group member was kicked from the group or was never able to join
+// the group.
+type ErrGroupSession struct {
+	err error
+}
+
+func (e *ErrGroupSession) Error() string {
+	return fmt.Sprintf("unable to join group session: %v", e.err)
+}
+
+func (e *ErrGroupSession) Unwrap() error { return e.err }

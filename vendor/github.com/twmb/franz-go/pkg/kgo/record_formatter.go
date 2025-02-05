@@ -6,13 +6,14 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"regexp"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -25,8 +26,8 @@ import (
 
 // RecordFormatter formats records.
 type RecordFormatter struct {
+	calls atomicI64
 	fns   []func([]byte, *FetchPartition, *Record) []byte
-	calls int64
 }
 
 // AppendRecord appends a record to b given the parsed format and returns the
@@ -57,7 +58,7 @@ func (f *RecordFormatter) AppendPartitionRecord(b []byte, p *FetchPartition, r *
 // and percent "verbs" (copying fmt package lingo). Slashes are used for common
 // escapes,
 //
-//     \t \n \r \\ \xNN
+//	\t \n \r \\ \xNN
 //
 // printing tabs, newlines, carriage returns, slashes, and hex encoded
 // characters.
@@ -65,138 +66,172 @@ func (f *RecordFormatter) AppendPartitionRecord(b []byte, p *FetchPartition, r *
 // Percent encoding opts in to printing aspects of either a record or a fetch
 // partition:
 //
-//     %t    topic
-//     %T    topic length
-//     %k    key
-//     %K    key length
-//     %v    value
-//     %V    value length
-//     %h    begin the header specification
-//     %H    number of headers
-//     %p    partition
-//     %o    offset
-//     %e    leader epoch
-//     %d    timestamp (date, formatting described below)
-//     %x    producer id
-//     %y    producer epoch
+//	%t    topic
+//	%T    topic length
+//	%k    key
+//	%K    key length
+//	%v    value
+//	%V    value length
+//	%h    begin the header specification
+//	%H    number of headers
+//	%p    partition
+//	%o    offset
+//	%e    leader epoch
+//	%d    timestamp (date, formatting described below)
+//	%a    record attributes (formatting required, described below)
+//	%x    producer id
+//	%y    producer epoch
 //
 // For AppendPartitionRecord, the formatter also undersands the following three
 // formatting options:
 //
-//     %[    partition log start offset
-//     %|    partition last stable offset
-//     %]    partition high watermark
+//	%[    partition log start offset
+//	%|    partition last stable offset
+//	%]    partition high watermark
 //
 // The formatter internally tracks the number of times AppendRecord or
 // AppendPartitionRecord have been called. The special option %i prints the
 // iteration / call count:
 //
-//     %i    format iteration number (starts at 1)
+//	%i    format iteration number (starts at 1)
 //
 // Lastly, there are three escapes to print raw characters that are usually
 // used for formatting options:
 //
-//     %%    percent sign
-//     %{    left brace (required if a brace is after another format option)
-//     %}    right brace
+//	%%    percent sign
+//	%{    left brace (required if a brace is after another format option)
+//	%}    right brace
 //
-// Header specification
+// # Header specification
 //
 // Specifying headers is essentially a primitive nested format option,
 // accepting the key and value escapes above:
 //
-//     %K    header key length
-//     %k    header key
-//     %V    header value length
-//     %v    header value
+//	%K    header key length
+//	%k    header key
+//	%V    header value length
+//	%v    header value
 //
 // For example, "%H %h{%k %v }" will print the number of headers, and then each
 // header key and value with a space after each.
 //
-// Verb modifiers
+// # Verb modifiers
 //
 // Most of the previous verb specifications can be modified by adding braces
 // with a given modifier, e.g., "%V{ascii}". All modifiers are described below.
 //
-// Numbers
+// # Numbers
 //
 // All number verbs accept braces that control how the number is printed:
 //
-//     %v{ascii}       the default, print the number as ascii
+//	%v{ascii}       the default, print the number as ascii
+//	%v{number}      alias for ascii
 //
-//     %v{hex64}       print 16 hex characters for the number
-//     %v{hex32}       print 8 hex characters for the number
-//     %v{hex16}       print 4 hex characters for the number
-//     %v{hex8}        print 2 hex characters for the number
-//     %v{hex4}        print 1 hex characters for the number
-//     %v{hex}         print as many hex characters as necessary for the number
+//	%v{hex64}       print 16 hex characters for the number
+//	%v{hex32}       print 8 hex characters for the number
+//	%v{hex16}       print 4 hex characters for the number
+//	%v{hex8}        print 2 hex characters for the number
+//	%v{hex4}        print 1 hex characters for the number
+//	%v{hex}         print as many hex characters as necessary for the number
 //
-//     %v{big64}       print the number in big endian uint64 format
-//     %v{big32}       print the number in big endian uint32 format
-//     %v{big16}       print the number in big endian uint16 format
-//     %v{big8}        alias for byte
+//	%v{big64}       print the number in big endian uint64 format
+//	%v{big32}       print the number in big endian uint32 format
+//	%v{big16}       print the number in big endian uint16 format
+//	%v{big8}        alias for byte
 //
-//     %v{little64}    print the number in little endian uint64 format
-//     %v{little32}    print the number in little endian uint32 format
-//     %v{little16}    print the number in little endian uint16 format
-//     %v{little8}     alias for byte
+//	%v{little64}    print the number in little endian uint64 format
+//	%v{little32}    print the number in little endian uint32 format
+//	%v{little16}    print the number in little endian uint16 format
+//	%v{little8}     alias for byte
 //
-//     %v{byte}        print the number as a single byte
+//	%v{byte}        print the number as a single byte
+//	%v{bool}        print "true" if the number is non-zero, otherwise "false"
 //
 // All numbers are truncated as necessary per each given format.
 //
-// Timestamps
+// # Timestamps
 //
 // Timestamps can be specified in three formats: plain number formatting,
 // native Go timestamp formatting, or strftime formatting. Number formatting is
 // follows the rules above using the millisecond timestamp value. Go and
 // strftime have further internal format options:
 //
-//     %d{go##2006-01-02T15:04:05Z07:00##}
-//     %d{strftime[%F]}
+//	%d{go##2006-01-02T15:04:05Z07:00##}
+//	%d{strftime[%F]}
 //
 // An arbitrary amount of pounds, braces, and brackets are understood before
 // beginning the actual timestamp formatting. For Go formatting, the format is
 // simply passed to the time package's AppendFormat function. For strftime, all
 // "man strftime" options are supported. Time is always in UTC.
 //
-// Text
+// # Attributes
+//
+// Records attributes require formatting, where each formatting option selects
+// which attribute to print and how to print it.
+//
+//	%a{compression}
+//	%a{compression;number}
+//	%a{compression;big64}
+//	%a{compression;hex8}
+//
+// By default, prints the compression as text ("none", "gzip", ...).
+// Compression can be printed as a number with ";number", where number is any
+// number formatting option described above.
+//
+//	%a{timestamp-type}
+//	%a{timestamp-type;big64}
+//
+// Prints -1 for pre-0.10 records, 0 for client generated timestamps, and 1 for
+// broker generated. Number formatting can be controlled with ";number".
+//
+//	%a{transactional-bit}
+//	%a{transactional-bit;bool}
+//
+// Prints 1 if the record is a part of a transaction or 0 if it is not. Number
+// formatting can be controlled with ";number".
+//
+//	%a{control-bit}
+//	%a{control-bit;bool}
+//
+// Prints 1 if the record is a commit marker or 0 if it is not. Number
+// formatting can be controlled with ";number".
+//
+// # Text
 //
 // Topics, keys, and values have "base64", "base64raw", "hex", and "unpack"
 // formatting options:
 //
-//     %t{hex}
-//     %k{unpack{<bBhH>iIqQc.$}}
-//     %v{base64}
-//     %v{base64raw}
+//	%t{hex}
+//	%k{unpack{<bBhH>iIqQc.$}}
+//	%v{base64}
+//	%v{base64raw}
 //
 // Unpack formatting is inside of enclosing pounds, braces, or brackets, the
 // same way that timestamp formatting is understood. The syntax roughly follows
 // Python's struct packing/unpacking rules:
 //
-//     x    pad character (does not parse input)
-//     <    parse what follows as little endian
-//     >    parse what follows as big endian
+//	x    pad character (does not parse input)
+//	<    parse what follows as little endian
+//	>    parse what follows as big endian
 //
-//     b    signed byte
-//     B    unsigned byte
-//     h    int16  ("half word")
-//     H    uint16 ("half word")
-//     i    int32
-//     I    uint32
-//     q    int64  ("quad word")
-//     Q    uint64 ("quad word")
+//	b    signed byte
+//	B    unsigned byte
+//	h    int16  ("half word")
+//	H    uint16 ("half word")
+//	i    int32
+//	I    uint32
+//	q    int64  ("quad word")
+//	Q    uint64 ("quad word")
 //
-//     c    any character
-//     .    alias for c
-//     s    consume the rest of the input as a string
-//     $    match the end of the line (append error string if anything remains)
+//	c    any character
+//	.    alias for c
+//	s    consume the rest of the input as a string
+//	$    match the end of the line (append error string if anything remains)
 //
 // Unlike python, a '<' or '>' can appear anywhere in the format string and
 // affects everything that follows. It is possible to switch endianness
 // multiple times. If the parser needs more data than available, or if the more
 // input remains after '$', an error message will be appended.
-//
 func NewRecordFormatter(layout string) (*RecordFormatter, error) {
 	var f RecordFormatter
 
@@ -304,7 +339,7 @@ func NewRecordFormatter(layout string) (*RecordFormatter, error) {
 				})
 			case 'i':
 				f.fns = append(f.fns, func(b []byte, _ *FetchPartition, _ *Record) []byte {
-					return numfn(b, atomic.AddInt64(&f.calls, 1))
+					return numfn(b, f.calls.Add(1))
 				})
 			case 'x':
 				f.fns = append(f.fns, func(b []byte, _ *FetchPartition, r *Record) []byte {
@@ -332,6 +367,9 @@ func NewRecordFormatter(layout string) (*RecordFormatter, error) {
 			var appendFn func([]byte, []byte) []byte
 			if handledBrace = isOpenBrace; handledBrace {
 				switch {
+				case strings.HasPrefix(layout, "}"):
+					layout = layout[len("}"):]
+					appendFn = appendPlain
 				case strings.HasPrefix(layout, "base64}"):
 					appendFn = appendBase64
 					layout = layout[len("base64}"):]
@@ -374,6 +412,103 @@ func NewRecordFormatter(layout string) (*RecordFormatter, error) {
 				f.fns = append(f.fns, func(b []byte, _ *FetchPartition, r *Record) []byte {
 					return writeR(b, r, func(b []byte, r *Record) []byte { return appendFn(b, r.Value) })
 				})
+			}
+
+		case 'a':
+			if !isOpenBrace {
+				return nil, errors.New("missing open brace sequence on %a signifying how attributes should be written")
+			}
+			handledBrace = true
+
+			num := func(skipText string, rfn func(*Record) int64) error {
+				layout = layout[len(skipText):]
+				numfn, n, err := parseNumWriteLayout(layout)
+				if err != nil {
+					return err
+				}
+				layout = layout[n:]
+				f.fns = append(f.fns, func(b []byte, _ *FetchPartition, r *Record) []byte {
+					return writeR(b, r, func(b []byte, r *Record) []byte { return numfn(b, rfn(r)) })
+				})
+				return nil
+			}
+			bi64 := func(b bool) int64 {
+				if b {
+					return 1
+				}
+				return 0
+			}
+
+			switch {
+			case strings.HasPrefix(layout, "compression}"):
+				layout = layout[len("compression}"):]
+				f.fns = append(f.fns, func(b []byte, _ *FetchPartition, r *Record) []byte {
+					return writeR(b, r, func(b []byte, r *Record) []byte {
+						switch r.Attrs.CompressionType() {
+						case 0:
+							return append(b, "none"...)
+						case 1:
+							return append(b, "gzip"...)
+						case 2:
+							return append(b, "snappy"...)
+						case 3:
+							return append(b, "lz4"...)
+						case 4:
+							return append(b, "zstd"...)
+						default:
+							return append(b, "unknown"...)
+						}
+					})
+				})
+			case strings.HasPrefix(layout, "compression;"):
+				if err := num("compression;", func(r *Record) int64 { return int64(r.Attrs.CompressionType()) }); err != nil {
+					return nil, err
+				}
+
+			case strings.HasPrefix(layout, "timestamp-type}"):
+				layout = layout[len("timestamp-type}"):]
+				f.fns = append(f.fns, func(b []byte, _ *FetchPartition, r *Record) []byte {
+					return writeR(b, r, func(b []byte, r *Record) []byte {
+						return strconv.AppendInt(b, int64(r.Attrs.TimestampType()), 10)
+					})
+				})
+			case strings.HasPrefix(layout, "timestamp-type;"):
+				if err := num("timestamp-type;", func(r *Record) int64 { return int64(r.Attrs.TimestampType()) }); err != nil {
+					return nil, err
+				}
+
+			case strings.HasPrefix(layout, "transactional-bit}"):
+				layout = layout[len("transactional-bit}"):]
+				f.fns = append(f.fns, func(b []byte, _ *FetchPartition, r *Record) []byte {
+					return writeR(b, r, func(b []byte, r *Record) []byte {
+						if r.Attrs.IsTransactional() {
+							return append(b, '1')
+						}
+						return append(b, '0')
+					})
+				})
+			case strings.HasPrefix(layout, "transactional-bit;"):
+				if err := num("transactional-bit;", func(r *Record) int64 { return bi64(r.Attrs.IsTransactional()) }); err != nil {
+					return nil, err
+				}
+
+			case strings.HasPrefix(layout, "control-bit}"):
+				layout = layout[len("control-bit}"):]
+				f.fns = append(f.fns, func(b []byte, _ *FetchPartition, r *Record) []byte {
+					return writeR(b, r, func(b []byte, r *Record) []byte {
+						if r.Attrs.IsControl() {
+							return append(b, '1')
+						}
+						return append(b, '0')
+					})
+				})
+			case strings.HasPrefix(layout, "control-bit;"):
+				if err := num("control-bit;", func(r *Record) int64 { return bi64(r.Attrs.IsControl()) }); err != nil {
+					return nil, err
+				}
+
+			default:
+				return nil, errors.New("unknown %a formatting")
 			}
 
 		case 'h':
@@ -674,7 +809,7 @@ func parseNumWriteLayout(layout string) (func([]byte, int64) []byte, int, error)
 	}
 	end := braceEnd + 1
 	switch layout = layout[:braceEnd]; layout {
-	case "ascii":
+	case "ascii", "number":
 		return writeNumASCII, end, nil
 	case "hex64":
 		return writeNumHex64, end, nil
@@ -702,6 +837,8 @@ func parseNumWriteLayout(layout string) (func([]byte, int64) []byte, int, error)
 		return writeNumLittle32, end, nil
 	case "little16":
 		return writeNumLittle16, end, nil
+	case "bool":
+		return writeNumBool, end, nil
 	default:
 		return nil, 0, fmt.Errorf("invalid output number layout %q", layout)
 	}
@@ -815,6 +952,13 @@ func writeNumLittle16(b []byte, n int64) []byte {
 }
 func writeNumByte(b []byte, n int64) []byte { u := uint64(n); return append(b, byte(u)) }
 
+func writeNumBool(b []byte, n int64) []byte {
+	if n == 0 {
+		return append(b, "false"...)
+	}
+	return append(b, "true"...)
+}
+
 ////////////
 // READER //
 ////////////
@@ -840,27 +984,27 @@ type RecordReader struct {
 // percent "verbs" (copying fmt package lingo). Slashes are used for common
 // escapes,
 //
-//     \t \n \r \\ \xNN
+//	\t \n \r \\ \xNN
 //
 // reading tabs, newlines, carriage returns, slashes, and hex encoded
 // characters.
 //
 // Percent encoding reads into specific values of a Record:
 //
-//     %t    topic
-//     %T    topic length
-//     %k    key
-//     %K    key length
-//     %v    value
-//     %V    value length
-//     %h    begin the header specification
-//     %H    number of headers
-//     %p    partition
-//     %o    offset
-//     %e    leader epoch
-//     %d    timestamp
-//     %x    producer id
-//     %y    producer epoch
+//	%t    topic
+//	%T    topic length
+//	%k    key
+//	%K    key length
+//	%v    value
+//	%V    value length
+//	%h    begin the header specification
+//	%H    number of headers
+//	%p    partition
+//	%o    offset
+//	%e    leader epoch
+//	%d    timestamp
+//	%x    producer id
+//	%y    producer epoch
 //
 // If using length / number verbs (i.e., "sized" verbs), they must occur before
 // what they are sizing.
@@ -868,58 +1012,60 @@ type RecordReader struct {
 // There are three escapes to parse raw characters, rather than opting into
 // some formatting option:
 //
-//     %%    percent sign
-//     %{    left brace
-//     %}    right brace
+//	%%    percent sign
+//	%{    left brace
+//	%}    right brace
 //
 // Unlike record formatting, timestamps can only be read as numbers because Go
 // or strftime formatting can both be variable length and do not play too well
 // with delimiters. Timestamps numbers are read as milliseconds.
 //
-// Numbers
+// # Numbers
 //
 // All size numbers can be parsed in the following ways:
 //
-//     %v{ascii}       parse numeric digits until a non-numeric
+//	%v{ascii}       parse numeric digits until a non-numeric
+//	%v{number}      alias for ascii
 //
-//     %v{hex64}       read 16 hex characters for the number
-//     %v{hex32}       read 8 hex characters for the number
-//     %v{hex16}       read 4 hex characters for the number
-//     %v{hex8}        read 2 hex characters for the number
-//     %v{hex4}        read 1 hex characters for the number
+//	%v{hex64}       read 16 hex characters for the number
+//	%v{hex32}       read 8 hex characters for the number
+//	%v{hex16}       read 4 hex characters for the number
+//	%v{hex8}        read 2 hex characters for the number
+//	%v{hex4}        read 1 hex characters for the number
 //
-//     %v{big64}       read the number as big endian uint64 format
-//     %v{big32}       read the number as big endian uint32 format
-//     %v{big16}       read the number as big endian uint16 format
-//     %v{big8}        alias for byte
+//	%v{big64}       read the number as big endian uint64 format
+//	%v{big32}       read the number as big endian uint32 format
+//	%v{big16}       read the number as big endian uint16 format
+//	%v{big8}        alias for byte
 //
-//     %v{little64}    read the number as little endian uint64 format
-//     %v{little32}    read the number as little endian uint32 format
-//     %v{little16}    read the number as little endian uint16 format
-//     %v{little8}     read the number as a byte
+//	%v{little64}    read the number as little endian uint64 format
+//	%v{little32}    read the number as little endian uint32 format
+//	%v{little16}    read the number as little endian uint16 format
+//	%v{little8}     read the number as a byte
 //
-//     %v{byte}        read the number as a byte
+//	%v{byte}        read the number as a byte
+//	%v{bool}        read "true" as 1, "false" as 0
+//	%v{3}           read 3 characters (any number)
 //
-//     %v{3}           read 3 characters (any number)
-//
-// Header specification
+// # Header specification
 //
 // Similar to number formatting, headers are parsed using a nested primitive
 // format option, accepting the key and value escapes previously mentioned.
 //
-// Text
+// # Text
 //
-// Topics, keys, and values can be decoded uding "base64" and "hex" formatting
-// options. Any size specification is the size of the encoded value actually
-// being read.
+// Topics, keys, and values can be decoded using "base64", "hex", and "json"
+// formatting options. Any size specification is the size of the encoded value
+// actually being read (i.e., size as seen, not size when decoded). JSON values
+// are compacted after being read.
 //
-//     %T%t{hex}     -  4abcd reads four hex characters "abcd"
-//     %V%v{base64}  -  2z9 reads two base64 characters "z9"
+//	%T%t{hex}     -  4abcd reads four hex characters "abcd"
+//	%V%v{base64}  -  2z9 reads two base64 characters "z9"
+//	%v{json} %k   -  {"foo" : "bar"} foo reads a JSON object and then "foo"
 //
 // As well, these text options can be parsed with regular expressions:
 //
-//     %k{re[\d*]}%v{re[\s+]}
-//
+//	%k{re[\d*]}%v{re[\s+]}
 func NewRecordReader(reader io.Reader, layout string) (*RecordReader, error) {
 	r := &RecordReader{r: bufio.NewReader(reader)}
 	if err := r.parseReadLayout(layout); err != nil {
@@ -1152,14 +1298,25 @@ func (r *RecordReader) parseReadLayout(layout string) error {
 		case 't', 'k', 'v':
 			var decodeFn func([]byte) ([]byte, error)
 			var re *regexp.Regexp
+			var isJson bool
 			if handledBrace = isOpenBrace; handledBrace {
 				switch {
+				case strings.HasPrefix(layout, "}"):
+					layout = layout[len("}"):]
 				case strings.HasPrefix(layout, "base64}"):
 					decodeFn = decodeBase64
 					layout = layout[len("base64}"):]
 				case strings.HasPrefix(layout, "hex}"):
 					decodeFn = decodeHex
 					layout = layout[len("hex}"):]
+				case strings.HasPrefix(layout, "json}"):
+					isJson = true
+					decodeFn = func(b []byte) ([]byte, error) {
+						var buf bytes.Buffer
+						err := json.Compact(&buf, b)
+						return buf.Bytes(), err
+					}
+					layout = layout[len("json}"):]
 				case strings.HasPrefix(layout, "re"):
 					restr, rem, err := nomOpenClose(layout[len("re"):])
 					if err != nil {
@@ -1213,9 +1370,14 @@ func (r *RecordReader) parseReadLayout(layout string) error {
 				if re != nil {
 					return errors.New("cannot specify exact size and regular expression")
 				}
+				if isJson {
+					return errors.New("cannot specify exact size and json")
+				}
 				fn.read = readKind{sizefn: func() int { return int(*size) }}
 			} else if re != nil {
 				fn.read = readKind{re: re}
+			} else if isJson {
+				fn.read = readKind{condition: new(jsonReader).read}
 			}
 			r.fns = append(r.fns, fn)
 
@@ -1330,9 +1492,14 @@ func (*RecordReader) parseReadSize(layout string, dst *uint64, needBrace bool) (
 			func([]byte, *Record) error { *dst = uint64(num); return nil },
 		}, end, nil
 
-	case "ascii":
+	case "ascii", "number":
 		return readParse{
-			readKind{condition: func(b byte) bool { return b < '0' || b > '9' }},
+			readKind{condition: func(b byte) int8 {
+				if b < '0' || b > '9' {
+					return -1
+				}
+				return 2 // ignore EOF if we hit it after this
+			}},
 			func(b []byte, _ *Record) (err error) {
 				*dst, err = strconv.ParseUint(kbin.UnsafeString(b), 10, 64)
 				return err
@@ -1417,6 +1584,68 @@ func (*RecordReader) parseReadSize(layout string, dst *uint64, needBrace bool) (
 				return err
 			},
 		}, end, nil
+
+	case "bool":
+		const (
+			stateUnknown uint8 = iota
+			stateTrue
+			stateFalse
+		)
+		var state uint8
+		var last byte
+		return readParse{
+			readKind{condition: func(b byte) (done int8) {
+				defer func() {
+					if done <= 0 {
+						state = stateUnknown
+						last = 0
+					}
+				}()
+
+				switch state {
+				default: // stateUnknown
+					if b == 't' {
+						state = stateTrue
+						last = b
+						return 1
+					} else if b == 'f' {
+						state = stateFalse
+						last = b
+						return 1
+					}
+					return -1
+
+				case stateTrue:
+					if last == 't' && b == 'r' || last == 'r' && b == 'u' {
+						last = b
+						return 1
+					} else if last == 'u' && b == 'e' {
+						return 0
+					}
+					return -1
+
+				case stateFalse:
+					if last == 'f' && b == 'a' || last == 'a' && b == 'l' || last == 'l' && b == 's' {
+						last = b
+						return 1
+					} else if last == 's' && b == 'e' {
+						return 0
+					}
+					return -1
+				}
+			}},
+			func(b []byte, _ *Record) error {
+				switch string(b) {
+				case "true":
+					*dst = 1
+				case "false":
+					*dst = 0
+				default:
+					return fmt.Errorf("invalid bool %s", b)
+				}
+				return nil
+			},
+		}, end, nil
 	}
 }
 
@@ -1433,7 +1662,7 @@ func decodeHex(b []byte) ([]byte, error) {
 type readKind struct {
 	noread    bool
 	exact     []byte
-	condition func(byte) bool
+	condition func(byte) int8 // -2: error, -1: stop, do not consume input; 0: stop, consume input; 1: keep going, consume input, 2: keep going, consume input, can EOF
 	size      int
 	sizefn    func() int
 	handoff   func(*RecordReader, *Record) error
@@ -1518,15 +1747,30 @@ func (r *RecordReader) next(rec *Record) error {
 	return nil
 }
 
-func (r *RecordReader) readCondition(fn func(byte) bool) error {
+func (r *RecordReader) readCondition(fn func(byte) int8) error {
+	var ignoreEOF bool
 	for {
 		peek, err := r.r.Peek(1)
 		if err != nil {
+			if err == io.EOF && ignoreEOF {
+				err = nil
+			}
 			return err
 		}
+		ignoreEOF = false
 		c := peek[0]
-		if fn(c) {
+		switch fn(c) {
+		case -2:
+			return fmt.Errorf("invalid input %q", c)
+		case -1:
 			return nil
+		case 0:
+			r.r.Discard(1)
+			r.buf = append(r.buf, c)
+			return nil
+		case 1:
+		case 2:
+			ignoreEOF = true
 		}
 		r.r.Discard(1)
 		r.buf = append(r.buf, c)
@@ -1585,7 +1829,7 @@ func (r *RecordReader) readExact(d []byte) error {
 func (r *RecordReader) readDelim(d []byte) error {
 	// Empty delimiters opt in to reading the rest of the text.
 	if len(d) == 0 {
-		b, err := io.ReadAll(r.r)
+		b, err := ioutil.ReadAll(r.r)
 		r.buf = b
 		// ReadAll stops at io.EOF, but we need to bubble that up.
 		if err == nil {
@@ -1618,6 +1862,356 @@ func (r *RecordReader) readDelim(d []byte) error {
 		r.r.Discard(len(d))
 		return nil
 	}
+}
+
+type jsonReader struct {
+	state int8
+	n     int8 // misc.
+	nexts []int8
+}
+
+func (*jsonReader) isHex(c byte) bool {
+	switch c {
+	case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
+		'a', 'b', 'c', 'd', 'e', 'f',
+		'A', 'B', 'C', 'D', 'E', 'F':
+		return true
+	default:
+		return false
+	}
+}
+
+func (*jsonReader) isNum(c byte) bool {
+	switch c {
+	case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
+		return true
+	}
+	return false
+}
+
+func (*jsonReader) isNat(c byte) bool {
+	switch c {
+	case '1', '2', '3', '4', '5', '6', '7', '8', '9':
+		return true
+	}
+	return false
+}
+
+func (*jsonReader) isE(c byte) bool {
+	return c == 'e' || c == 'E'
+}
+
+const (
+	jrstAny int8 = iota
+	jrstObj
+	jrstObjSep
+	jrstObjFin
+	jrstArr
+	jrstArrFin
+	jrstStrBegin
+	jrstStr
+	jrstStrEsc
+	jrstStrEscU
+	jrstTrue
+	jrstFalse
+	jrstNull
+	jrstNeg
+	jrstOne
+	jrstDotOrE
+	jrstDot
+	jrstE
+)
+
+func (r *jsonReader) read(c byte) (rr int8) {
+start:
+	switch r.state {
+	case jrstAny:
+		switch c {
+		case ' ', '\t', '\n', '\r':
+			return 1 // skip whitespace, need more
+		case '{':
+			r.state = jrstObj
+			return 1 // object open, need more
+		case '[':
+			r.state = jrstArr
+			return 1 // array open, need more
+		case '"':
+			r.state = jrstStr
+			return 1 // string open, need more
+		case 't':
+			r.state = jrstTrue
+			r.n = 0
+			return 1 // beginning of true, need more
+		case 'f':
+			r.state = jrstFalse
+			r.n = 0
+			return 1 // beginning of false, need more
+		case 'n':
+			r.state = jrstNull
+			r.n = 0
+			return 1 // beginning of null, need more
+		case '-':
+			r.state = jrstNeg
+			return 1 // beginning of negative number, need more
+		case '0':
+			r.state = jrstDotOrE
+			return 1 // beginning of 0e or 0., need more
+		case '1', '2', '3', '4', '5', '6', '7', '8', '9':
+			r.state = jrstOne
+			return 1 // beginning of number, need more
+		default:
+			return -2 // invalid json
+		}
+
+	case jrstObj:
+		switch c {
+		case ' ', '\t', '\n', '\r':
+			return 1 // skip whitespace in json object, need more
+		case '"':
+			r.pushState(jrstStr, jrstObjSep)
+			return 1 // beginning of object key, need to finish, transition to obj sep
+		case '}':
+			return r.popState() // end of object, this is valid json end, pop state
+		default:
+			return -2 // invalid json: expected object key
+		}
+	case jrstObjSep:
+		switch c {
+		case ' ', '\t', '\n', '\r':
+			return 1 // skip whitespace in json object, need more
+		case ':':
+			r.pushState(jrstAny, jrstObjFin)
+			return 1 // beginning of object value, need to finish, transition to obj fin
+		default:
+			return -2 // invalid json: expected object separator
+		}
+	case jrstObjFin:
+		switch c {
+		case ' ', '\r', '\t', '\n':
+			return 1 // skip whitespace in json object, need more
+		case ',':
+			r.pushState(jrstStrBegin, jrstObjSep)
+			return 1 // beginning of new object key, need to finish, transition to obj sep
+		case '}':
+			return r.popState() // end of object, this is valid json end, pop state
+		default:
+			return -2 // invalid json
+		}
+
+	case jrstArr:
+		switch c {
+		case ' ', '\r', '\t', '\n':
+			return 1 // skip whitespace in json array, need more
+		case ']':
+			return r.popState() // end of array, this is valid json end, pop state
+		default:
+			r.pushState(jrstAny, jrstArrFin)
+			goto start // array value began: immediately transition to it
+		}
+	case jrstArrFin:
+		switch c {
+		case ' ', '\r', '\t', '\n':
+			return 1 // skip whitespace in json array, need more
+		case ',':
+			r.state = jrstArr
+			return 1 // beginning of new array value, need more
+		case ']':
+			return r.popState() // end of array, this is valid json end, pop state
+		default:
+			return -2 // invalid json
+		}
+
+	case jrstStrBegin:
+		switch c {
+		case ' ', '\r', '\t', '\n':
+			return 1 // skip whitespace in json object (before beginning of key), need more
+		case '"':
+			r.state = jrstStr
+			return 1 // beginning of object key, need more
+		default:
+			return -2 // invalid json
+		}
+
+	case jrstStr:
+		switch c {
+		case 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+			20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31:
+			return -2 // invalid json: control characters not allowed in string
+		case '"':
+			return r.popState() // end of string, this is valid json end, pop state
+		case '\\':
+			r.state = jrstStrEsc
+			return 1 // beginning of escape sequence, need more
+		default:
+			return 1 // continue string, need more
+		}
+	case jrstStrEsc:
+		switch c {
+		case 'b', 'f', 'n', 'r', 't', '\\', '/', '"':
+			r.state = jrstStr
+			return 1 // end of escape sequence, still need to finish string
+		case 'u':
+			r.state = jrstStrEscU
+			r.n = 0
+			return 1 // beginning of unicode escape sequence, need more
+		default:
+			return -2 // invalid json: invalid escape sequence
+		}
+	case jrstStrEscU:
+		if !r.isHex(c) {
+			return -2 // invalid json: invalid unicode escape sequence
+		}
+		r.n++
+		if r.n == 4 {
+			r.state = jrstStr
+		}
+		return 1 // end of unicode escape sequence, still need to finish string
+
+	case jrstTrue:
+		switch {
+		case r.n == 0 && c == 'r':
+			r.n++
+			return 1
+		case r.n == 1 && c == 'u':
+			r.n++
+			return 1
+		case r.n == 2 && c == 'e':
+			return r.popState() // end of true, this is valid json end, pop state
+		}
+	case jrstFalse:
+		switch {
+		case r.n == 0 && c == 'a':
+			r.n++
+			return 1
+		case r.n == 1 && c == 'l':
+			r.n++
+			return 1
+		case r.n == 2 && c == 's':
+			r.n++
+			return 1
+		case r.n == 3 && c == 'e':
+			return r.popState() // end of false, this is valid json end, pop state
+		}
+	case jrstNull:
+		switch {
+		case r.n == 0 && c == 'u':
+			r.n++
+			return 1
+		case r.n == 1 && c == 'l':
+			r.n++
+			return 1
+		case r.n == 2 && c == 'l':
+			return r.popState() // end of null, this is valid json end, pop state
+		}
+
+	case jrstNeg:
+		if c == '0' {
+			r.state = jrstDotOrE
+			return r.oneOrTwo() // beginning of -0, need to see if there is more (potentially end)
+		} else if r.isNat(c) {
+			r.state = jrstOne
+			return r.oneOrTwo() // beginning of -1 (or 2,3,..9), need to see if there is more (potentially end)
+		}
+		return -2 // invalid, -a or something
+	case jrstOne:
+		if r.isNum(c) {
+			return r.oneOrTwo() // continue the number (potentially end)
+		}
+		fallthrough // not a number, check if e or .
+	case jrstDotOrE:
+		if r.isE(c) {
+			r.state = jrstE
+			return 1 // beginning of exponent, need more
+		}
+		if c == '.' {
+			r.state = jrstDot
+			r.n = 0
+			return 1 // beginning of dot, need more
+		}
+		if r.popStateToStart() {
+			goto start
+		}
+		return -1 // done with number, no more state to bubble to: we are done
+
+	case jrstDot:
+		switch r.n {
+		case 0:
+			if !r.isNum(c) {
+				return -2 // first char after dot must be a number
+			}
+			r.n = 1
+			return r.oneOrTwo() // saw number, keep and continue (potentially end)
+		case 1:
+			if r.isNum(c) {
+				return r.oneOrTwo() // more number, keep and continue (potentially end)
+			}
+			if r.isE(c) {
+				r.state = jrstE
+				r.n = 0
+				return 1 // beginning of exponent (-0.1e), need more
+			}
+			if r.popStateToStart() {
+				goto start
+			}
+			return -1 // done with number, no more state to bubble to: we are done
+		}
+	case jrstE:
+		switch r.n {
+		case 0:
+			if c == '+' || c == '-' {
+				r.n = 1
+				return 1 // beginning of exponent sign, need more
+			}
+			fallthrough
+		case 1:
+			if !r.isNum(c) {
+				return -2 // first char after exponent must be sign or number
+			}
+			r.n = 2
+			return r.oneOrTwo() // saw number, keep and continue (potentially end)
+		case 2:
+			if r.isNum(c) {
+				return r.oneOrTwo() // more number, keep and continue (potentially end)
+			}
+			if r.popStateToStart() {
+				goto start
+			}
+			return -1 // done with number, no more state to bubble to: we are done
+		}
+	}
+	return -2 // unknown state
+}
+
+func (r *jsonReader) pushState(next, next2 int8) {
+	r.nexts = append(r.nexts, next2)
+	r.state = next
+}
+
+func (r *jsonReader) popState() int8 {
+	if len(r.nexts) == 0 {
+		r.state = jrstAny
+		return 0
+	}
+	r.state = r.nexts[len(r.nexts)-1]
+	r.nexts = r.nexts[:len(r.nexts)-1]
+	return 1
+}
+
+func (r *jsonReader) popStateToStart() bool {
+	if len(r.nexts) == 0 {
+		r.state = jrstAny
+		return false
+	}
+	r.state = r.nexts[len(r.nexts)-1]
+	r.nexts = r.nexts[:len(r.nexts)-1]
+	return true
+}
+
+func (r *jsonReader) oneOrTwo() int8 {
+	if len(r.nexts) > 0 {
+		return 1
+	}
+	return 2
 }
 
 ////////////

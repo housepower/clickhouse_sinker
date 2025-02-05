@@ -2,7 +2,6 @@ package rcm
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"math"
 	"path/filepath"
@@ -13,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hjson/hjson-go/v4"
 	"github.com/nacos-group/nacos-sdk-go/clients"
 	"github.com/nacos-group/nacos-sdk-go/clients/config_client"
 	"github.com/nacos-group/nacos-sdk-go/clients/naming_client"
@@ -23,7 +23,6 @@ import (
 	"github.com/viru-tech/clickhouse_sinker/config"
 	"github.com/viru-tech/clickhouse_sinker/util"
 	"go.uber.org/zap"
-	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 var _ RemoteConfManager = (*NacosConfManager)(nil)
@@ -80,22 +79,18 @@ func (ncm *NacosConfManager) Init(properties map[string]interface{}) (err error)
 	if pop, ok := properties["logDir"]; ok {
 		logDir, _ = pop.(string)
 	}
-	logDir, _ = filepath.Abs(logDir)
+	if logDir, err = filepath.Abs(logDir); err != nil {
+		return errors.Wrapf(err, "")
+	}
 	cc := constant.ClientConfig{
 		NamespaceId:         namespaceID,
 		TimeoutMs:           5000,
 		ListenInterval:      10000,
 		NotLoadCacheAtStart: true,
-		LogDir:              filepath.Join(logDir, "nacos_log"),
 		CacheDir:            filepath.Join(logDir, "nacos_cache"),
-		LogLevel:            "debug",
+		CustomLogger:        &NacosLogger{util.Logger.Sugar()},
 		Username:            properties["username"].(string),
 		Password:            properties["password"].(string),
-		LogRollingConfig: &lumberjack.Logger{
-			MaxSize:    10, // megabytes
-			MaxBackups: 1,
-			LocalTime:  true,
-		},
 	}
 
 	ncm.configClient, err = clients.CreateConfigClient(map[string]interface{}{
@@ -136,8 +131,8 @@ func (ncm *NacosConfManager) GetConfig() (conf *config.Config, err error) {
 		err = errors.Wrapf(err, "")
 		return
 	}
-	conf = &config.Config{}
-	if err = json.Unmarshal([]byte(content), conf); err != nil {
+	conf = &config.Config{Groups: make(map[string]*config.GroupConfig)}
+	if err = hjson.Unmarshal([]byte(content), conf); err != nil {
 		err = errors.Wrapf(err, "")
 		return
 	}
@@ -146,7 +141,7 @@ func (ncm *NacosConfManager) GetConfig() (conf *config.Config, err error) {
 
 func (ncm *NacosConfManager) PublishConfig(conf *config.Config) (err error) {
 	var bs []byte
-	if bs, err = json.Marshal(*conf); err != nil {
+	if bs, err = hjson.Marshal(*conf); err != nil {
 		err = errors.Wrapf(err, "")
 		return
 	}
@@ -159,6 +154,10 @@ func (ncm *NacosConfManager) PublishConfig(conf *config.Config) (err error) {
 	if err != nil {
 		err = errors.Wrapf(err, "")
 		return
+	}
+	// update the conf so that properties with default values are no longer nil
+	if err = hjson.Unmarshal(bs, conf); err != nil {
+		err = errors.Wrapf(err, "")
 	}
 	return
 }
@@ -227,6 +226,8 @@ func (ncm *NacosConfManager) Run() {
 	// Assign regularly to handle lag change
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
+	lagticker := time.NewTicker(10 * time.Second)
+	defer lagticker.Stop()
 LOOP_FOR:
 	for {
 		select {
@@ -237,6 +238,12 @@ LOOP_FOR:
 			util.Logger.Debug("assign triggered by 5 min timer")
 			if err := ncm.assign(); err != nil {
 				util.Logger.Error("assign failed", zap.Error(err))
+			} else {
+				lagticker.Reset(10 * time.Second)
+			}
+		case <-lagticker.C:
+			if err := ncm.calculateGroupLag(); err != nil {
+				util.Logger.Error("calculate lag failed", zap.Error(err))
 			}
 		}
 	}
@@ -263,6 +270,8 @@ func (ncm *NacosConfManager) Stop() {
 	if err = ncm.namingClient.Unsubscribe(&subParam); err != nil {
 		util.Logger.Error("ncm.namingClient.Unsubscribe failed", zap.Error(err))
 	}
+	cleanupKafkaClient()
+
 	util.Logger.Info("stopped nacos config manager")
 }
 
@@ -340,8 +349,10 @@ func (ncm *NacosConfManager) assign() (err error) {
 
 	var validTasks []string
 	for _, taskCfg := range newCfg.Tasks {
-		if _, ok := stateLags[taskCfg.Name]; ok {
-			validTasks = append(validTasks, taskCfg.Name)
+		// make sure all tasks get properly assigned
+		validTasks = append(validTasks, taskCfg.Name)
+		if _, ok := stateLags[taskCfg.Name]; !ok {
+			stateLags[taskCfg.Name] = StateLag{State: "NA", Lag: 0}
 		}
 	}
 	sort.Slice(validTasks, func(i, j int) bool {
@@ -426,4 +437,28 @@ func (ncm *NacosConfManager) assign() (err error) {
 	ncm.curVer = newVer
 
 	return
+}
+
+func (ncm *NacosConfManager) calculateGroupLag() (err error) {
+	if len(ncm.curInsts) == 0 || ncm.curCfg == nil || ncm.curInsts[0] != ncm.instance {
+		// Only the first instance is capable to report the lag
+		return
+	}
+	_, err = GetTaskStateAndLags(ncm.curCfg)
+
+	return
+}
+
+type NacosLogger struct {
+	*zap.SugaredLogger
+}
+
+// override the loglevel to avoid log blow up
+func (nlog *NacosLogger) Info(args ...interface{}) {
+	nlog.Debug(args...)
+}
+
+// override the loglevel to avoid log blow up
+func (nlog *NacosLogger) Infof(fmt string, args ...interface{}) {
+	nlog.Debugf(fmt, args...)
 }

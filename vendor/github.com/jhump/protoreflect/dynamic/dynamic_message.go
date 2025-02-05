@@ -10,7 +10,9 @@ import (
 	"strings"
 
 	"github.com/golang/protobuf/proto"
-	"github.com/golang/protobuf/protoc-gen-go/descriptor"
+	protov2 "google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/types/descriptorpb"
 
 	"github.com/jhump/protoreflect/codec"
 	"github.com/jhump/protoreflect/desc"
@@ -411,19 +413,20 @@ func (m *Message) GetField(fd *desc.FieldDescriptor) interface{} {
 // The Go type of the returned value, for scalar fields, is the same as protoc
 // would generate for the field (in a non-dynamic message). The table below
 // lists the scalar types and the corresponding Go types.
-//  +-------------------------+-----------+
-//  |       Declared Type     |  Go Type  |
-//  +-------------------------+-----------+
-//  | int32, sint32, sfixed32 | int32     |
-//  | int64, sint64, sfixed64 | int64     |
-//  | uint32, fixed32         | uint32    |
-//  | uint64, fixed64         | uint64    |
-//  | float                   | float32   |
-//  | double                  | double32  |
-//  | bool                    | bool      |
-//  | string                  | string    |
-//  | bytes                   | []byte    |
-//  +-------------------------+-----------+
+//
+//	+-------------------------+-----------+
+//	|       Declared Type     |  Go Type  |
+//	+-------------------------+-----------+
+//	| int32, sint32, sfixed32 | int32     |
+//	| int64, sint64, sfixed64 | int64     |
+//	| uint32, fixed32         | uint32    |
+//	| uint64, fixed64         | uint64    |
+//	| float                   | float32   |
+//	| double                  | double32  |
+//	| bool                    | bool      |
+//	| string                  | string    |
+//	| bytes                   | []byte    |
+//	+-------------------------+-----------+
 //
 // Values for enum fields will always be int32 values. You can use the enum
 // descriptor associated with the field to lookup value names with those values.
@@ -1883,42 +1886,42 @@ func validElementFieldValueForRv(fd *desc.FieldDescriptor, val reflect.Value, al
 	}
 
 	switch t {
-	case descriptor.FieldDescriptorProto_TYPE_SFIXED32,
-		descriptor.FieldDescriptorProto_TYPE_INT32,
-		descriptor.FieldDescriptorProto_TYPE_SINT32,
-		descriptor.FieldDescriptorProto_TYPE_ENUM:
+	case descriptorpb.FieldDescriptorProto_TYPE_SFIXED32,
+		descriptorpb.FieldDescriptorProto_TYPE_INT32,
+		descriptorpb.FieldDescriptorProto_TYPE_SINT32,
+		descriptorpb.FieldDescriptorProto_TYPE_ENUM:
 		return toInt32(reflect.Indirect(val), fd)
 
-	case descriptor.FieldDescriptorProto_TYPE_SFIXED64,
-		descriptor.FieldDescriptorProto_TYPE_INT64,
-		descriptor.FieldDescriptorProto_TYPE_SINT64:
+	case descriptorpb.FieldDescriptorProto_TYPE_SFIXED64,
+		descriptorpb.FieldDescriptorProto_TYPE_INT64,
+		descriptorpb.FieldDescriptorProto_TYPE_SINT64:
 		return toInt64(reflect.Indirect(val), fd)
 
-	case descriptor.FieldDescriptorProto_TYPE_FIXED32,
-		descriptor.FieldDescriptorProto_TYPE_UINT32:
+	case descriptorpb.FieldDescriptorProto_TYPE_FIXED32,
+		descriptorpb.FieldDescriptorProto_TYPE_UINT32:
 		return toUint32(reflect.Indirect(val), fd)
 
-	case descriptor.FieldDescriptorProto_TYPE_FIXED64,
-		descriptor.FieldDescriptorProto_TYPE_UINT64:
+	case descriptorpb.FieldDescriptorProto_TYPE_FIXED64,
+		descriptorpb.FieldDescriptorProto_TYPE_UINT64:
 		return toUint64(reflect.Indirect(val), fd)
 
-	case descriptor.FieldDescriptorProto_TYPE_FLOAT:
+	case descriptorpb.FieldDescriptorProto_TYPE_FLOAT:
 		return toFloat32(reflect.Indirect(val), fd)
 
-	case descriptor.FieldDescriptorProto_TYPE_DOUBLE:
+	case descriptorpb.FieldDescriptorProto_TYPE_DOUBLE:
 		return toFloat64(reflect.Indirect(val), fd)
 
-	case descriptor.FieldDescriptorProto_TYPE_BOOL:
+	case descriptorpb.FieldDescriptorProto_TYPE_BOOL:
 		return toBool(reflect.Indirect(val), fd)
 
-	case descriptor.FieldDescriptorProto_TYPE_BYTES:
+	case descriptorpb.FieldDescriptorProto_TYPE_BYTES:
 		return toBytes(reflect.Indirect(val), fd)
 
-	case descriptor.FieldDescriptorProto_TYPE_STRING:
+	case descriptorpb.FieldDescriptorProto_TYPE_STRING:
 		return toString(reflect.Indirect(val), fd)
 
-	case descriptor.FieldDescriptorProto_TYPE_MESSAGE,
-		descriptor.FieldDescriptorProto_TYPE_GROUP:
+	case descriptorpb.FieldDescriptorProto_TYPE_MESSAGE,
+		descriptorpb.FieldDescriptorProto_TYPE_GROUP:
 		m, err := asMessage(val, fd.GetFullyQualifiedName())
 		// check that message is correct type
 		if err != nil {
@@ -2053,8 +2056,9 @@ func (m *Message) ProtoMessage() {
 
 // ConvertTo converts this dynamic message into the given message. This is
 // shorthand for resetting then merging:
-//   target.Reset()
-//   m.MergeInto(target)
+//
+//	target.Reset()
+//	m.MergeInto(target)
 func (m *Message) ConvertTo(target proto.Message) error {
 	if err := m.checkType(target); err != nil {
 		return err
@@ -2081,8 +2085,9 @@ func (m *Message) ConvertToDeterministic(target proto.Message) error {
 
 // ConvertFrom converts the given message into this dynamic message. This is
 // shorthand for resetting then merging:
-//   m.Reset()
-//   m.MergeFrom(target)
+//
+//	m.Reset()
+//	m.MergeFrom(target)
 func (m *Message) ConvertFrom(target proto.Message) error {
 	if err := m.checkType(target); err != nil {
 		return err
@@ -2553,11 +2558,77 @@ func (m *Message) mergeFrom(pm proto.Message) error {
 		}
 	}
 
+	// With API v2, it is possible that the new protoreflect interfaces
+	// were used to store an extension, which means it can't be returned
+	// by proto.ExtensionDescs and it's also not in the unrecognized data.
+	// So we have a separate loop to trawl through it...
+	var err error
+	proto.MessageReflect(pm).Range(func(fld protoreflect.FieldDescriptor, val protoreflect.Value) bool {
+		if !fld.IsExtension() {
+			// normal field... we already got it above
+			return true
+		}
+		xt := fld.(protoreflect.ExtensionTypeDescriptor)
+		if _, ok := xt.Type().(*proto.ExtensionDesc); ok {
+			// known extension... we already got it above
+			return true
+		}
+		var fd *desc.FieldDescriptor
+		fd, err = desc.WrapField(fld)
+		if err != nil {
+			return false
+		}
+		v := convertProtoReflectValue(val)
+		if v, err = validFieldValue(fd, v); err != nil {
+			return false
+		}
+		values[fd] = v
+		return true
+	})
+	if err != nil {
+		return err
+	}
+
+	// unrecognized extensions fields:
+	//   In API v2 of proto, some extensions may NEITHER be included in ExtensionDescs
+	//   above NOR included in unrecognized fields below. These are extensions that use
+	//   a custom extension type (not a generated one -- i.e. not a linked in extension).
+	mr := proto.MessageReflect(pm)
+	var extBytes []byte
+	var retErr error
+	mr.Range(func(fld protoreflect.FieldDescriptor, val protoreflect.Value) bool {
+		if !fld.IsExtension() {
+			// normal field, already processed above
+			return true
+		}
+		if extd, ok := fld.(protoreflect.ExtensionTypeDescriptor); ok {
+			if _, ok := extd.Type().(*proto.ExtensionDesc); ok {
+				// normal known extension, already processed above
+				return true
+			}
+		}
+
+		// marshal the extension to bytes and then handle as unknown field below
+		mr.New()
+		mr.Set(fld, val)
+		extBytes, retErr = protov2.MarshalOptions{}.MarshalAppend(extBytes, mr.Interface())
+		return retErr == nil
+	})
+	if retErr != nil {
+		return retErr
+	}
+
 	// now actually perform the merge
 	for fd, v := range values {
 		if err := mergeField(m, fd, v); err != nil {
 			return err
 		}
+	}
+
+	if len(extBytes) > 0 {
+		// treating unrecognized extensions like unknown fields: best-effort
+		// ignore any error returned: pulling in unknown fields is best-effort
+		_ = m.UnmarshalMerge(extBytes)
 	}
 
 	data := internal.GetUnrecognized(pm)
@@ -2567,6 +2638,31 @@ func (m *Message) mergeFrom(pm proto.Message) error {
 	}
 
 	return nil
+}
+
+func convertProtoReflectValue(v protoreflect.Value) interface{} {
+	val := v.Interface()
+	switch val := val.(type) {
+	case protoreflect.Message:
+		return val.Interface()
+	case protoreflect.Map:
+		mp := make(map[interface{}]interface{}, val.Len())
+		val.Range(func(k protoreflect.MapKey, v protoreflect.Value) bool {
+			mp[convertProtoReflectValue(k.Value())] = convertProtoReflectValue(v)
+			return true
+		})
+		return mp
+	case protoreflect.List:
+		sl := make([]interface{}, val.Len())
+		for i := 0; i < val.Len(); i++ {
+			sl[i] = convertProtoReflectValue(val.Get(i))
+		}
+		return sl
+	case protoreflect.EnumNumber:
+		return int32(val)
+	default:
+		return val
+	}
 }
 
 // Validate checks that all required fields are present. It returns an error if any are absent.

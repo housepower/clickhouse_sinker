@@ -3,7 +3,6 @@ package kgo
 import (
 	"math"
 	"math/rand"
-	"sync/atomic"
 	"time"
 
 	"github.com/twmb/franz-go/pkg/kbin"
@@ -84,12 +83,11 @@ type TopicBackupIter interface {
 // As a minimal example, if you do not care about the topic and you set the
 // partition before producing:
 //
-//     kgo.BasicConsistentPartitioner(func(topic) func(*Record, int) int {
-//             return func(r *Record, n int) int {
-//                     return int(r.Partition)
-//             }
-//     })
-//
+//	kgo.BasicConsistentPartitioner(func(topic) func(*Record, int) int {
+//	        return func(r *Record, n int) int {
+//	                return int(r.Partition)
+//	        }
+//	})
 func BasicConsistentPartitioner(partition func(string) func(r *Record, n int) int) Partitioner {
 	return &basicPartitioner{partition}
 }
@@ -161,10 +159,10 @@ func (r *roundRobinTopicPartitioner) Partition(_ *Record, n int) int {
 
 // LeastBackupPartitioner prioritizes partitioning by three factors, in order:
 //
-//  1) pin to the current pick until there is a new batch
-//  2) on new batch, choose the least backed up partition (the partition with
+//  1. pin to the current pick until there is a new batch
+//  2. on new batch, choose the least backed up partition (the partition with
 //     the fewest amount of buffered records)
-//  3) if multiple partitions are equally least-backed-up, choose one at random
+//  3. if multiple partitions are equally least-backed-up, choose one at random
 //
 // This algorithm prioritizes least-backed-up throughput, which may result in
 // unequal partitioning. It is likely that this algorithm will talk most to the
@@ -201,7 +199,7 @@ type (
 
 func (i *leastBackupInput) Next() (int, int64) {
 	last := len(i.mapping) - 1
-	buffered := atomic.LoadInt64(&i.mapping[last].records.buffered)
+	buffered := i.mapping[last].records.buffered.Load()
 	i.mapping = i.mapping[:last]
 	return last, buffered
 }
@@ -250,10 +248,10 @@ func (p *leastBackupTopicPartitioner) PartitionByBackup(_ *Record, n int, backup
 // KIP-794 and release with the Java client in Kafka 3.3. This partitioner
 // returns the same partition until 'bytes' is hit. At that point, a
 // re-partitioning happens. If adaptive is false, this chooses a new random
-// partition. If adaptive is true, this chooses a broker based on the inverse
-// of the backlog currently buffered for that broker. If keys is true, this
-// uses standard hashing based on record key for records with non-nil keys.
-// hasher is optional; if nil, the default hasher murmur2 (Kafka's default).
+// partition, otherwise this chooses a broker based on the inverse of the
+// backlog currently buffered for that broker. If keys is true, this uses
+// standard hashing based on record key for records with non-nil keys. hasher
+// is optional; if nil, the default hasher murmur2 (Kafka's default).
 //
 // The point of this hasher is to create larger batches while producing the
 // same amount to all partitions over the long run. Adaptive opts in to a
@@ -270,6 +268,11 @@ func (p *leastBackupTopicPartitioner) PartitionByBackup(_ *Record, n int, backup
 // similar. Lastly, this client does not have a timeout for partition
 // availability. Realistically, these will be the most backed up partitions so
 // they should be chosen the least.
+//
+// NOTE: This implementation may create sub-optimal batches if lingering is
+// enabled. This client's default is to disable lingering. The patch used to
+// address this in Kafka is KAFKA-14156 (which itself is not perfect in the
+// context of disabling lingering). For more details, read KAFKA-14156.
 func UniformBytesPartitioner(bytes int, adaptive, keys bool, hasher PartitionerHasher) Partitioner {
 	if hasher == nil {
 		hasher = KafkaHasher(murmur2)
@@ -503,8 +506,7 @@ func KafkaHasher(hashFn func([]byte) uint32) PartitionerHasher {
 //
 // In short, to *exactly* match the Sarama defaults, use the following:
 //
-//     kgo.StickyKeyPartitioner(kgo.SaramaHasher(fnv.New32a()))
-//
+//	kgo.StickyKeyPartitioner(kgo.SaramaHasher(fnv.New32a()))
 func SaramaHasher(hashFn func([]byte) uint32) PartitionerHasher {
 	return func(key []byte, n int) int {
 		p := int(hashFn(key)) % n

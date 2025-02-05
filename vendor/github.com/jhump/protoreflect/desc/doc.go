@@ -27,8 +27,7 @@
 // Also see the grpcreflect, dynamic, and grpcdynamic packages in this same
 // repo to see just how useful rich descriptors really are.
 //
-//
-// Loading Descriptors
+// # Loading Descriptors
 //
 // Rich descriptors can be accessed in similar ways as their "poor" cousins
 // (descriptor protos). Instead of using proto.FileDescriptor, use
@@ -40,8 +39,7 @@
 // the descriptors returned from these Load* functions will include source code
 // information, and thus include comments for elements.
 //
-//
-// Creating Descriptors
+// # Creating Descriptors
 //
 // It is also possible create rich descriptors for proto messages that a given
 // Go program doesn't even know about. For example, they could be loaded from a
@@ -62,4 +60,11 @@
 // Also see the desc/builder sub-package, for another API that makes it easier
 // to synthesize descriptors programmatically.
 //
+// Deprecated: This module was created for use with the older "v1" Protobuf API
+// in github.com/golang/protobuf. However, much of this module is no longer
+// necessary as the newer "v2" API in google.golang.org/protobuf provides similar
+// capabilities. Instead of using this github.com/jhump/protoreflect/desc package,
+// see [google.golang.org/protobuf/reflect/protoreflect].
+//
+// [google.golang.org/protobuf/reflect/protoreflect]: https://pkg.go.dev/google.golang.org/protobuf/reflect/protoreflect
 package desc

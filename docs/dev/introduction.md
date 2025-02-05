@@ -12,9 +12,9 @@ Refers to [design](./design.md) for how it works.
 - Uses native ClickHouse client-server TCP protocol, with higher performance than HTTP.
 - Easy to use and deploy, you don't need write any hard code, just care about the configuration file
 - Support multiple parsers: fastjson(recommended), gjson, csv.
-- Support multiple Kafka client: sarama(recommended), kafka-go.
 - Support multiple Kafka security mechanisms: SSL, SASL/PLAIN, SASL/SCRAM, SASL/GSSAPI and combinations of them.
 - Bulk insert (by config `bufferSize` and `flushInterval`).
+- Powered by Franz-go, which is the fastest and most cpu and memory efficient Kafka client in Go. 
 - Parse messages concurrently.
 - Write batches concurrently.
 - Every batch is routed to a determined clickhouse shard. Exit if loop write fail.
@@ -35,6 +35,7 @@ Refers to [design](./design.md) for how it works.
 - [x] Enum
 - [x] Array(T), where T is one of above basic types
 - [x] Nullable(T), where T is one of above basic types
+- [x] Map
 
 Note:
 
@@ -164,7 +165,7 @@ Please follow [`Kafka SSL setup`](https://kafka.apache.org/documentation/#securi
 
 ### Kafka Authentication
 
-clickhouse_sinker support following following authentication mechanisms:
+clickhouse_sinker support the following authentication mechanisms:
 
 - No authentication
 
@@ -326,7 +327,7 @@ Metrics are exposed at `http://ip:port/metrics`. IP is the outbound IP of this m
 
 Sinker registers with Nacos if CLI `--consul-cfg-enable` or env `CONSUL_REGISTER_ENABLE` is present. However Prometheus is [unable](https://github.com/alibaba/nacos/issues/1032) to obtain dynamic service list from nacos server.
 
-- Push to promethues
+- Push to prometheus
 
 If CLI `--metric-push-gateway-addrs` or env `METRIC_PUSH_GATEWAY_ADDRS` (a list of comma-separated urls) is present, metrics are pushed to one of given URLs regualarly.
 
@@ -337,13 +338,6 @@ There are several abstract interfaces which you can implement to support more me
 ```go
 type Parser interface {
     Parse(bs []byte) model.Metric
-}
-
-type Inputer interface {
-    Init(cfg *config.Config, taskName string, putFn func(msg model.InputMessage)) error
-    Run(ctx context.Context)
-    Stop() error
-    CommitMessages(ctx context.Context, message *model.InputMessage) error
 }
 
 // RemoteConfManager can be implemented by many backends: Nacos, Consul, etcd, ZooKeeper...
@@ -366,18 +360,7 @@ type RemoteConfManager interface {
 
 Kafka release history is at [here](https://kafka.apache.org/downloads). Kafka broker [exposes versions of various APIs it supports since 0.10.0.0](https://kafka.apache.org/protocol#api_versions).
 
-### Kafka-go
-
-- Kafka-go [negotiate it's protocol version](https://github.com/segmentio/kafka-go/blob/c66d8ca149e7f1a7905b47a60962745ceb08a6a9/conn.go#L209).
-- Kafka-go [doesn't support Kerberos authentication](https://github.com/segmentio/kafka-go/issues/237).
-
-### Sarama
-
-- Sarama guarantees compatibility [with Kafka 2.6 through 2.8](https://github.com/Shopify/sarama/blob/master/README.md#compatibility-and-api-stability).
-- Sarama [has tied it's protocol usage to the Version field in Config](https://github.com/Shopify/sarama/issues/1732). My experience is setting `Config.Version` to "0.11.0.0" or "2.5.0" cannot cowork with broker 2.2.0.
-- Sarama consumer API provides generation cleanup callback. This ensures `exactly once` when consumer-group rebalance occur.
-
-### Franz
+### Franz-go Kafka client
 
 - Franz negotiates it's protocol version.
 - Franz supports Kerberos authentication.
@@ -385,6 +368,3 @@ Kafka release history is at [here](https://kafka.apache.org/downloads). Kafka br
 - Franz wins Sarama and Kafka-go at benchmark competition.
 - Franz project is young but very active.
 
-### Conclusion
-
-Franz is the best Golang client library, though none is as mature as the officaial Kafka Java client. You need to try another if clickhouse_sinker fails to connect with Kafka.
