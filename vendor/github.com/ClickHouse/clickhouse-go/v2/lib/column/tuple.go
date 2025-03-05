@@ -200,13 +200,6 @@ func setJSONFieldValue(field reflect.Value, value reflect.Value) error {
 		}
 	}
 
-	// check if our target is a string
-	if field.Kind() == reflect.String {
-		if v := reflect.ValueOf(fmt.Sprint(value.Interface())); v.Type().AssignableTo(field.Type()) {
-			field.Set(v)
-			return nil
-		}
-	}
 	if value.CanConvert(field.Type()) {
 		field.Set(value.Convert(field.Type()))
 		return nil
@@ -447,7 +440,7 @@ func (col *Tuple) scan(targetType reflect.Type, row int) (reflect.Value, error) 
 		//tuples can be scanned into slices - specifically default for unnamed tuples
 		rSlice, err := col.scanSlice(targetType, row)
 		if err != nil {
-			return reflect.Value{}, nil
+			return reflect.Value{}, err
 		}
 		return rSlice, nil
 	case reflect.Interface:

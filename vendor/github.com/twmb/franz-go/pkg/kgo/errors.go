@@ -53,7 +53,7 @@ func isRetryableBrokerErr(err error) bool {
 	}
 	// We could have a retryable producer ID failure, which then bubbled up
 	// as errProducerIDLoadFail so as to be retried later.
-	if errors.Is(err, errProducerIDLoadFail) {
+	if pe := (*errProducerIDLoadFail)(nil); errors.As(err, &pe) {
 		return true
 	}
 	// We could have chosen a broker, and then a concurrent metadata update
@@ -139,8 +139,6 @@ var (
 	// restart a new connection ourselves.
 	errSaslReauthLoop = errors.New("the broker is repeatedly giving us sasl lifetimes that are too short to write a request")
 
-	errProducerIDLoadFail = errors.New("unable to initialize a producer ID due to request failures")
-
 	// A temporary error returned when Kafka replies with a different
 	// correlation ID than we were expecting for the request the client
 	// issued.
@@ -172,6 +170,8 @@ var (
 	errPurged = errors.New("topic purged while buffered")
 
 	errMissingMetadataPartition = errors.New("metadata update is missing a partition that we were previously using")
+
+	errNoCommittedOffset = errors.New("partition has no prior committed offset")
 
 	//////////////
 	// EXTERNAL //
@@ -221,6 +221,19 @@ type ErrFirstReadEOF struct {
 	kind uint8
 	err  error
 }
+
+type errProducerIDLoadFail struct {
+	err error
+}
+
+func (e *errProducerIDLoadFail) Error() string {
+	if e.err == nil {
+		return "unable to initialize a producer ID due to request failures"
+	}
+	return fmt.Sprintf("unable to initialize a producer ID due to request failures: %v", e.err)
+}
+
+func (e *errProducerIDLoadFail) Unwrap() error { return e.err }
 
 const (
 	firstReadSASL uint8 = iota
@@ -298,11 +311,26 @@ func (e *errUnknownCoordinator) Error() string {
 // consumer group member was kicked from the group or was never able to join
 // the group.
 type ErrGroupSession struct {
-	err error
+	Err error
 }
 
 func (e *ErrGroupSession) Error() string {
-	return fmt.Sprintf("unable to join group session: %v", e.err)
+	return fmt.Sprintf("unable to join group session: %v", e.Err)
 }
 
-func (e *ErrGroupSession) Unwrap() error { return e.err }
+func (e *ErrGroupSession) Unwrap() error { return e.Err }
+
+type errDecompress struct {
+	err error
+}
+
+func (e *errDecompress) Error() string {
+	return fmt.Sprintf("unable to decompress batch: %v", e.err)
+}
+
+func (e *errDecompress) Unwrap() error { return e.err }
+
+func isDecompressErr(err error) bool {
+	var ed *errDecompress
+	return errors.As(err, &ed)
+}

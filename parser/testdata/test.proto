@@ -1,10 +1,10 @@
 syntax = "proto3";
 
-package viru_tech.clickhouse_sinker.parser.testproto.v1;
+package viru_tech.clickhouse_sinker.parser.testdata.v1;
 
 import "google/protobuf/timestamp.proto";
 
-option go_package = "viru-tech/clickhouse_sinker/parser/testproto";
+option go_package = "viru-tech/clickhouse_sinker/parser/testdata";
 
 message Test {
   NestedTest null = 1;
@@ -64,6 +64,8 @@ message Test {
   string ipv6 = 28;
 
   repeated string array_ipv6 = 29;
+
+  string str_time = 30;
 }
 
 message NestedTest {

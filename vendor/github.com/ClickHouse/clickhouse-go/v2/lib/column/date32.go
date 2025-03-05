@@ -92,9 +92,6 @@ func (col *Date32) Append(v any) (nulls []uint8, err error) {
 	switch v := v.(type) {
 	case []time.Time:
 		for _, t := range v {
-			if err := dateOverflow(minDate32, maxDate32, t, "2006-01-02"); err != nil {
-				return nil, err
-			}
 			col.col.Append(t)
 		}
 	case []*time.Time:
@@ -102,9 +99,6 @@ func (col *Date32) Append(v any) (nulls []uint8, err error) {
 		for i, v := range v {
 			switch {
 			case v != nil:
-				if err := dateOverflow(minDate32, maxDate32, *v, "2006-01-02"); err != nil {
-					return nil, err
-				}
 				col.col.Append(*v)
 			default:
 				nulls[i] = 1
@@ -172,16 +166,10 @@ func (col *Date32) Append(v any) (nulls []uint8, err error) {
 func (col *Date32) AppendRow(v any) error {
 	switch v := v.(type) {
 	case time.Time:
-		if err := dateOverflow(minDate32, maxDate32, v, "2006-01-02"); err != nil {
-			return err
-		}
 		col.col.Append(v)
 	case *time.Time:
 		switch {
 		case v != nil:
-			if err := dateOverflow(minDate32, maxDate32, *v, "2006-01-02"); err != nil {
-				return err
-			}
 			col.col.Append(*v)
 		default:
 			col.col.Append(time.Time{})
@@ -259,10 +247,10 @@ func (col *Date32) Encode(buffer *proto.Buffer) {
 func (col *Date32) row(i int) time.Time {
 	t := col.col.Row(i)
 
-	if col.location != nil {
+	if col.location != nil && col.location != time.UTC {
 		// proto.Date is normalized as time.Time with UTC timezone.
 		// We make sure Date return from ClickHouse matches server timezone or user defined location.
-		t = time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), col.location)
+		t = getTimeWithDifferentLocation(t, col.location)
 	}
 	return t
 }

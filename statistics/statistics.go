@@ -246,6 +246,6 @@ func (p *Pusher) reconnect() {
 		Collector(WriteSeriesSucceed).
 		Collector(collectors.NewGoCollector()).
 		Collector(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{})).
-		Grouping("instance", p.instance).Format(expfmt.FmtText)
+		Grouping("instance", p.instance).Format(expfmt.NewFormat(expfmt.TypeTextPlain))
 	p.inUseAddr = nextAddr
 }

@@ -5,7 +5,9 @@ import (
 	"encoding/binary"
 	"fmt"
 	"hash/crc32"
+	"slices"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -232,6 +234,7 @@ type cursorOffsetNext struct {
 type cursorOffsetPreferred struct {
 	cursorOffsetNext
 	preferredReplica int32
+	ooor             bool
 }
 
 // Moves a cursor from one source to another. This is done while handling
@@ -261,6 +264,69 @@ func (p *cursorOffsetPreferred) move() {
 }
 
 type cursorPreferreds []cursorOffsetPreferred
+
+func (cs cursorPreferreds) String() string {
+	type pnext struct {
+		p    int32
+		next int32
+		ooor bool
+	}
+	ts := make(map[string][]pnext)
+	for _, c := range cs {
+		t := c.from.topic
+		p := c.from.partition
+		ts[t] = append(ts[t], pnext{p, c.preferredReplica, c.ooor})
+	}
+	tsorted := make([]string, 0, len(ts))
+	for t, ps := range ts {
+		tsorted = append(tsorted, t)
+		slices.SortFunc(ps, func(l, r pnext) int {
+			if l.p < r.p {
+				return -1
+			}
+			if l.p > r.p {
+				return 1
+			}
+			if l.next < r.next {
+				return -1
+			}
+			if l.next > r.next {
+				return 1
+			}
+			return 0
+		})
+	}
+	slices.Sort(tsorted)
+
+	sb := new(strings.Builder)
+	for i, t := range tsorted {
+		ps := ts[t]
+		fmt.Fprintf(sb, "%s{", t)
+
+		for j, p := range ps {
+			if j < len(ps)-1 {
+				if p.ooor {
+					fmt.Fprintf(sb, "%d=>%d[ooor], ", p.p, p.next)
+				} else {
+					fmt.Fprintf(sb, "%d=>%d, ", p.p, p.next)
+				}
+			} else {
+				if p.ooor {
+					fmt.Fprintf(sb, "%d=>%d[ooor]", p.p, p.next)
+				} else {
+					fmt.Fprintf(sb, "%d=>%d", p.p, p.next)
+				}
+			}
+		}
+
+		if i < len(tsorted)-1 {
+			fmt.Fprint(sb, "}, ")
+		} else {
+			fmt.Fprint(sb, "}")
+		}
+	}
+	return sb.String()
+}
 
 func (cs cursorPreferreds) eachPreferred(fn func(cursorOffsetPreferred)) {
 	for _, c := range cs {
@@ -433,8 +499,11 @@ func (s *source) discardBuffered() {
 // This returns the number of records taken and whether the source has been
 // completely drained.
 func (s *source) takeNBuffered(paused pausedTopics, n int) (Fetch, int, bool) {
-	var r Fetch
-	var taken int
+	var (
+		r      Fetch
+		rstrip Fetch
+		taken  int
+	)
 
 	b := &s.buffered
 	bf := &b.fetch
@@ -444,6 +513,7 @@ func (s *source) takeNBuffered(paused pausedTopics, n int) (Fetch, int, bool) {
 		// If the topic is outright paused, we allowUsable all
 		// partitions in the topic and skip the topic entirely.
 		if paused.has(t.Topic, -1) {
+			rstrip.Topics = append(rstrip.Topics, *t)
 			bf.Topics = bf.Topics[1:]
 			for _, pCursor := range b.usedOffsets[t.Topic] {
 				pCursor.from.allowUsable()
@@ -461,6 +531,15 @@ func (s *source) takeNBuffered(paused pausedTopics, n int) (Fetch, int, bool) {
 			rt = &r.Topics[len(r.Topics)-1]
 			rt.Partitions = nil
 		}
+		var rtstrip *FetchTopic
+		ensureTopicStripped := func() {
+			if rtstrip != nil {
+				return
+			}
+			rstrip.Topics = append(rstrip.Topics, *t)
+			rtstrip = &rstrip.Topics[len(rstrip.Topics)-1]
+			rtstrip.Partitions = nil
+		}
 
 		tCursors := b.usedOffsets[t.Topic]
 
@@ -468,6 +547,8 @@ func (s *source) takeNBuffered(paused pausedTopics, n int) (Fetch, int, bool) {
 			p := &t.Partitions[0]
 
 			if paused.has(t.Topic, p.Partition) {
+				ensureTopicStripped()
+				rtstrip.Partitions = append(rtstrip.Partitions, *p)
 				t.Partitions = t.Partitions[1:]
 				pCursor := tCursors[p.Partition]
 				pCursor.from.allowUsable()
@@ -521,6 +602,9 @@ func (s *source) takeNBuffered(paused pausedTopics, n int) (Fetch, int, bool) {
 		}
 	}
 
+	if len(rstrip.Topics) > 0 {
+		s.hook(&rstrip, false, true)
+	}
 	s.hook(&r, false, true) // unbuffered, polled
 
 	drained := len(bf.Topics) == 0
@@ -811,6 +895,11 @@ func (s *source) fetch(consumerSession *consumerSession, doneFetch chan<- struct
 	}
 
 	// The logic below here should be relatively quick.
+	//
+	// Note that fetch runs entirely in the context of a consumer session.
+	// loopFetch does not return until this function does, meaning we
+	// cannot concurrently issue a second fetch for partitions that are
+	// being processed below.
 
 	deleteReqUsedOffset := func(topic string, partition int32) {
 		t := req.usedOffsets[topic]
@@ -827,6 +916,12 @@ func (s *source) fetch(consumerSession *consumerSession, doneFetch chan<- struct
 	// These two removals transition responsibility for finishing using the
 	// cursor from the request's used offsets to the new source or the
 	// reloading.
+	if len(preferreds) > 0 {
+		s.cl.cfg.logger.Log(LogLevelInfo, "fetch partitions returned preferred replicas",
+			"from_broker", s.nodeID,
+			"moves", preferreds.String(),
+		)
+	}
 	preferreds.eachPreferred(func(c cursorOffsetPreferred) {
 		c.move()
 		deleteReqUsedOffset(c.from.topic, c.from.partition)
@@ -889,6 +984,9 @@ func (s *source) fetch(consumerSession *consumerSession, doneFetch chan<- struct
 	// reload offsets *always* triggers a metadata update.
 	if updateWhy != nil {
 		why := updateWhy.reason(fmt.Sprintf("fetch had inner topic errors from broker %d", s.nodeID))
+		// loadWithSessionNow triggers a metadata update IF there are
+		// offsets to reload. If there are no offsets to reload, we
+		// trigger one here.
 		if !reloadOffsets.loadWithSessionNow(consumerSession, why) {
 			if updateWhy.isOnly(kerr.UnknownTopicOrPartition) || updateWhy.isOnly(kerr.UnknownTopicID) {
 				s.cl.triggerUpdateMetadata(false, why)
@@ -937,7 +1035,9 @@ func (s *source) handleReqResp(br *broker, req *fetchRequest, resp *kmsg.FetchRe
 		debugWhyStripped multiUpdateWhy
 		numErrsStripped  int
 		kip320           = s.cl.supportsOffsetForLeaderEpoch()
+		kmove            kip951move
 	)
+	defer kmove.maybeBeginMove(s.cl)
 
 	strip := func(t string, p int32, err error) {
 		numErrsStripped++
@@ -969,6 +1069,7 @@ func (s *source) handleReqResp(br *broker, req *fetchRequest, resp *kmsg.FetchRe
 
 		fetchTopic := FetchTopic{
 			Topic:      topic,
+			TopicID:    rt.TopicID,
 			Partitions: make([]FetchPartition, 0, len(rt.Partitions)),
 		}
 
@@ -992,12 +1093,17 @@ func (s *source) handleReqResp(br *broker, req *fetchRequest, resp *kmsg.FetchRe
 				preferreds = append(preferreds, cursorOffsetPreferred{
 					*partOffset,
 					preferred,
+					false,
 				})
 				continue
 			}
 
 			fp := partOffset.processRespPartition(br, rp, s.cl.decompressor, s.cl.cfg.hooks)
 			if fp.Err != nil {
+				if moving := kmove.maybeAddFetchPartition(resp, rp, partOffset.from); moving {
+					strip(topic, partition, fp.Err)
+					continue
+				}
 				updateWhy.add(topic, partition, fp.Err)
 			}
 
@@ -1057,6 +1163,9 @@ func (s *source) handleReqResp(br *broker, req *fetchRequest, resp *kmsg.FetchRe
 				// KIP-392 (case 3) specifies that if we are consuming
 				// from a follower, then if our offset request is before
 				// the low watermark, we list offsets from the follower.
+				// However, Kafka does not actually implement handling
+				// ListOffsets from anything from the leader, so we
+				// need to redirect ourselves back to the leader.
 				//
 				// KIP-392 (case 4) specifies that if we are consuming
 				// a follower and our request is larger than the high
@@ -1110,7 +1219,22 @@ func (s *source) handleReqResp(br *broker, req *fetchRequest, resp *kmsg.FetchRe
 					addList(-1, true)
 
 				case partOffset.offset < fp.LogStartOffset: // KIP-392 case 3
-					addList(s.nodeID, false)
+					// KIP-392 specifies that we should list offsets against the follower,
+					// but that actually is not supported and the Java client redirects
+					// back to the leader. The leader then does *not* direct the client
+					// back to the follower because the follower is not an in sync
+					// replica. If we did not redirect back to the leader, we would spin
+					// loop receiving offset_out_of_range from the follower for Fetch, and
+					// then not_leader_or_follower from the follower for ListOffsets
+					// (even though it is a follower). So, we just set the preferred replica
+					// back to the follower. We go directly back to fetching with the
+					// hope that the offset is available on the leader, and if not, we'll
+					// just get an OOOR error again and fall into case 1 just above.
+					preferreds = append(preferreds, cursorOffsetPreferred{
+						*partOffset,
+						partOffset.from.leader,
+						true,
+					})
 
 				default: // partOffset.offset > fp.HighWatermark, KIP-392 case 4
 					if kip320 {
@@ -1181,7 +1305,10 @@ func (o *cursorOffsetNext) processRespPartition(br *broker, rp *kmsg.FetchRespon
 		o.hwm = rp.HighWatermark
 	}
 
-	aborter := buildAborter(rp)
+	var aborter aborter
+	if br.cl.cfg.isolationLevel == 1 {
+		aborter = buildAborter(rp)
+	}
 
 	// A response could contain any of message v0, message v1, or record
 	// batches, and this is solely dictated by the magic byte (not the
@@ -1309,6 +1436,19 @@ func (o *cursorOffsetNext) processRespPartition(br *broker, rp *kmsg.FetchRespon
 				h.OnFetchBatchRead(br.meta, o.from.topic, o.from.partition, m)
 			}
 		})
+
+		// If we encounter a decompression error BUT we have successfully decompressed
+		// one batch, it is likely that we have received a partial batch. Kafka returns
+		// UP TO the requested max partition bytes, sometimes truncating data at the end.
+		// It returns at least one valid batch, but everything after is copied as is
+		// (i.e. a quick slab copy). We set the error to nil and return what we have.
+		//
+		// If we have a decompression error immediately, we keep it and bubble it up.
+		// The client cannot progress, and the end user needs visibility.
+		if isDecompressErr(fp.Err) && len(fp.Records) > 0 {
+			fp.Err = nil
+			break
+		}
 	}
 
 	return fp
@@ -1396,6 +1536,7 @@ func (o *cursorOffsetNext) processRecordBatch(
 	if compression := byte(batch.Attributes & 0x0007); compression != 0 {
 		var err error
 		if rawRecords, err = decompressor.decompress(rawRecords, compression); err != nil {
+			fp.Err = &errDecompress{err}
 			return 0, 0 // truncated batch
 		}
 	}
@@ -1462,6 +1603,7 @@ func (o *cursorOffsetNext) processV1OuterMessage(
 
 	rawInner, err := decompressor.decompress(message.Value, compression)
 	if err != nil {
+		fp.Err = &errDecompress{err}
 		return 0, 0 // truncated batch
 	}
 
@@ -1573,6 +1715,7 @@ func (o *cursorOffsetNext) processV0OuterMessage(
 
 	rawInner, err := decompressor.decompress(message.Value, compression)
 	if err != nil {
+		fp.Err = &errDecompress{err}
 		return 0, 0 // truncated batch
 	}
 
@@ -1693,7 +1836,11 @@ func recordToRecord(
 		ProducerID:    batch.ProducerID,
 		ProducerEpoch: batch.ProducerEpoch,
 		LeaderEpoch:   batch.PartitionLeaderEpoch,
-		Offset:        batch.FirstOffset + int64(record.OffsetDelta),
+	}
+	if batch.FirstOffset == -1 {
+		r.Offset = -1
+	} else {
+		r.Offset = batch.FirstOffset + int64(record.OffsetDelta)
 	}
 	if r.Attrs.TimestampType() == 0 {
 		r.Timestamp = timeFromMillis(batch.FirstTimestamp + record.TimestampDelta64)
@@ -2026,7 +2173,7 @@ func (f *fetchRequest) MaxVersion() int16 {
 	if f.disableIDs || f.session.disableIDs {
 		return 12
 	}
-	return 15
+	return 16
 }
 func (f *fetchRequest) SetVersion(v int16) { f.version = v }
 func (f *fetchRequest) GetVersion() int16  { return f.version }

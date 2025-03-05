@@ -13,6 +13,8 @@ import (
 	"github.com/twmb/franz-go/pkg/kerr"
 )
 
+func ctx2fn(ctx context.Context) func() context.Context { return func() context.Context { return ctx } }
+
 // TransactionEndTry is simply a named bool.
 type TransactionEndTry bool
 
@@ -157,6 +159,18 @@ func (s *GroupTransactSession) Close() {
 	s.cl.Close()
 }
 
+// AllowRebalance is a wrapper around Client.AllowRebalance, with the exact
+// same semantics. Refer to that function's documentation.
+func (s *GroupTransactSession) AllowRebalance() {
+	s.cl.AllowRebalance()
+}
+
+// CloseAllowingRebalance is a wrapper around Client.CloseAllowingRebalance,
+// with the exact same semantics. Refer to that function's documentation.
+func (s *GroupTransactSession) CloseAllowingRebalance() {
+	s.cl.CloseAllowingRebalance()
+}
+
 // PollFetches is a wrapper around Client.PollFetches, with the exact same
 // semantics. Refer to that function's documentation.
 //
@@ -279,7 +293,8 @@ func (s *GroupTransactSession) End(ctx context.Context, commit TransactionEndTry
 				errors.Is(err, kerr.CoordinatorLoadInProgress),
 				errors.Is(err, kerr.NotCoordinator),
 				errors.Is(err, kerr.ConcurrentTransactions),
-				errors.Is(err, kerr.UnknownServerError):
+				errors.Is(err, kerr.UnknownServerError),
+				errors.Is(err, kerr.TransactionAbortable):
 				return true
 			}
 			return false
@@ -406,6 +421,11 @@ retry:
 			willTryCommit = false
 			goto retry
 
+		case errors.Is(endTxnErr, kerr.TransactionAbortable):
+			s.cl.cfg.logger.Log(LogLevelInfo, "end transaction returned TransactionAbortable; retrying as abort")
+			willTryCommit = false
+			goto retry
+
 		case errors.Is(endTxnErr, kerr.UnknownServerError):
 			s.cl.cfg.logger.Log(LogLevelInfo, "end transaction with commit unknown server error; retrying")
 			after := time.NewTimer(s.cl.cfg.retryBackoff(tries))
@@ -468,7 +488,7 @@ func (cl *Client) BeginTransaction() error {
 		return errors.New("invalid attempt to begin a transaction while already in a transaction")
 	}
 
-	needRecover, didRecover, err := cl.maybeRecoverProducerID()
+	needRecover, didRecover, err := cl.maybeRecoverProducerID(context.Background())
 	if needRecover && !didRecover {
 		cl.cfg.logger.Log(LogLevelInfo, "unable to begin transaction due to unrecoverable producer id error", "err", err)
 		return fmt.Errorf("producer ID has a fatal, unrecoverable error, err: %w", err)
@@ -515,7 +535,7 @@ const (
 	// Deprecated: Kafka 3.6 removed support for the hacky behavior that
 	// this option was abusing. Thus, as of Kafka 3.6, this option does not
 	// work against Kafka. This option also has never worked for Redpanda
-	// becuse Redpanda always strictly validated that partitions were a
+	// because Redpanda always strictly validated that partitions were a
 	// part of a transaction. Later versions of Kafka and Redpanda will
 	// remove the need for AddPartitionsToTxn at all and thus this option
 	// ultimately will be unnecessary anyway.
@@ -557,7 +577,7 @@ func (cl *Client) EndAndBeginTransaction(
 	// expect to be in one.
 	defer func() {
 		if rerr == nil {
-			needRecover, didRecover, err := cl.maybeRecoverProducerID()
+			needRecover, didRecover, err := cl.maybeRecoverProducerID(ctx)
 			if needRecover && !didRecover {
 				cl.cfg.logger.Log(LogLevelInfo, "unable to begin transaction due to unrecoverable producer id error", "err", err)
 				rerr = fmt.Errorf("producer ID has a fatal, unrecoverable error, err: %w", err)
@@ -620,12 +640,12 @@ func (cl *Client) EndAndBeginTransaction(
 	}
 
 	// From EndTransaction: if the pid has an error, we may try to recover.
-	id, epoch, err := cl.producerID()
+	id, epoch, err := cl.producerID(ctx2fn(ctx))
 	if err != nil {
 		if commit {
 			return kerr.OperationNotAttempted
 		}
-		if _, didRecover, _ := cl.maybeRecoverProducerID(); didRecover {
+		if _, didRecover, _ := cl.maybeRecoverProducerID(ctx); didRecover {
 			return nil
 		}
 	}
@@ -818,8 +838,9 @@ func (cl *Client) UnsafeAbortBufferedRecords() {
 //
 // If the producer ID has an error and you are trying to commit, this will
 // return with kerr.OperationNotAttempted. If this happened, retry
-// EndTransaction with TryAbort. Not other error is retryable, and you should
-// not retry with TryAbort.
+// EndTransaction with TryAbort. If this returns kerr.TransactionAbortable, you
+// can retry with TryAbort. No other error is retryable, and you should not
+// retry with TryAbort.
 //
 // If records failed with UnknownProducerID and your Kafka version is at least
 // 2.5, then aborting here will potentially allow the client to recover for
@@ -882,7 +903,7 @@ func (cl *Client) EndTransaction(ctx context.Context, commit TransactionEndTry) 
 		return nil
 	}
 
-	id, epoch, err := cl.producerID()
+	id, epoch, err := cl.producerID(ctx2fn(ctx))
 	if err != nil {
 		if commit {
 			return kerr.OperationNotAttempted
@@ -892,7 +913,7 @@ func (cl *Client) EndTransaction(ctx context.Context, commit TransactionEndTry) 
 		// there is no reason to issue an abort now that the id is
 		// different. Otherwise, we issue our EndTxn which will likely
 		// fail, but that is ok, we will just return error.
-		_, didRecover, _ := cl.maybeRecoverProducerID()
+		_, didRecover, _ := cl.maybeRecoverProducerID(ctx)
 		if didRecover {
 			return nil
 		}
@@ -939,11 +960,11 @@ func (cl *Client) EndTransaction(ctx context.Context, commit TransactionEndTry) 
 // error), whether it is possible to recover, and, if not, the error.
 //
 // We call this when beginning a transaction or when ending with an abort.
-func (cl *Client) maybeRecoverProducerID() (necessary, did bool, err error) {
+func (cl *Client) maybeRecoverProducerID(ctx context.Context) (necessary, did bool, err error) {
 	cl.producer.mu.Lock()
 	defer cl.producer.mu.Unlock()
 
-	id, epoch, err := cl.producerID()
+	id, epoch, err := cl.producerID(ctx2fn(ctx))
 	if err == nil {
 		return false, false, nil
 	}
@@ -1009,7 +1030,7 @@ start:
 		select {
 		case <-time.After(backoff):
 		case <-ctx.Done():
-			cl.cfg.logger.Log(LogLevelError, fmt.Sprintf("abandoning %s retry due to client ctx quitting", name))
+			cl.cfg.logger.Log(LogLevelError, fmt.Sprintf("abandoning %s retry due to request ctx quitting", name))
 			return err
 		case <-cl.ctx.Done():
 			cl.cfg.logger.Log(LogLevelError, fmt.Sprintf("abandoning %s retry due to client ctx quitting", name))
@@ -1081,7 +1102,7 @@ func (cl *Client) commitTransactionOffsets(
 	}
 
 	if !g.offsetsAddedToTxn {
-		if err := cl.addOffsetsToTxn(g.ctx, g.cfg.group); err != nil {
+		if err := cl.addOffsetsToTxn(ctx, g.cfg.group); err != nil {
 			if onDone != nil {
 				onDone(nil, nil, err)
 			}
@@ -1111,7 +1132,7 @@ func (cl *Client) commitTransactionOffsets(
 // this initializes one if it is not yet initialized. This would only be the
 // case if trying to commit before any records have been sent.
 func (cl *Client) addOffsetsToTxn(ctx context.Context, group string) error {
-	id, epoch, err := cl.producerID()
+	id, epoch, err := cl.producerID(ctx2fn(ctx))
 	if err != nil {
 		return err
 	}
@@ -1218,7 +1239,7 @@ func (g *groupConsumer) prepareTxnOffsetCommit(ctx context.Context, uncommitted 
 
 	// We're now generating the producerID before addOffsetsToTxn.
 	// We will not make this request until after addOffsetsToTxn, but it's possible to fail here due to a failed producerID.
-	id, epoch, err := g.cl.producerID()
+	id, epoch, err := g.cl.producerID(ctx2fn(ctx))
 	if err != nil {
 		return req, err
 	}

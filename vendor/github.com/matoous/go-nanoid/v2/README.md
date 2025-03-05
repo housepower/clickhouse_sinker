@@ -1,12 +1,10 @@
 # Go Nanoid
 
-[![Build Status](https://github.com/matoous/go-nanoid/workflows/Tests/badge.svg)](https://github.com/matoous/go-nanoid/actions) 
-[![Build Status](https://github.com/matoous/go-nanoid/workflows/Lint/badge.svg)](https://github.com/matoous/go-nanoid/actions) 
+[![CI](https://github.com/matoous/go-nanoid/workflows/CI/badge.svg)](https://github.com/matoous/go-nanoid/actions) 
 [![GoDoc](https://godoc.org/github.com/matoous/go-nanoid?status.svg)](https://godoc.org/github.com/matoous/go-nanoid)
 [![Go Report Card](https://goreportcard.com/badge/github.com/matoous/go-nanoid)](https://goreportcard.com/report/github.com/matoous/go-nanoid)
 [![GitHub issues](https://img.shields.io/github/issues/matoous/go-nanoid.svg)](https://github.com/matoous/go-nanoid/issues)
 [![License](https://img.shields.io/badge/license-MIT%20License-blue.svg)](https://github.com/matoous/go-nanoid/LICENSE)
-
 
 This package is Go implementation of [ai's](https://github.com/ai) [nanoid](https://github.com/ai/nanoid)!
 
@@ -17,12 +15,14 @@ and has the same number of unique options in just 22 symbols instead of 36.
 
 **Fast.** Nanoid is as fast as UUID but can be used in URLs.
 
+There's also this alternative: https://github.com/jaevor/go-nanoid.
+
 ## Install
 
 Via go get tool
 
 ``` bash
-$ go get github.com/matoous/go-nanoid
+$ go get github.com/matoous/go-nanoid/v2
 ```
 
 ## Usage

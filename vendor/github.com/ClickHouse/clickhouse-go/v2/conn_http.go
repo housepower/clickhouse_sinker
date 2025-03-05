@@ -123,7 +123,12 @@ func dialHttp(ctx context.Context, addr string, num int, opt *Options) (*httpCon
 	var debugf = func(format string, v ...any) {}
 	if opt.Debug {
 		if opt.Debugf != nil {
-			debugf = opt.Debugf
+			debugf = func(format string, v ...any) {
+				opt.Debugf(
+					"[clickhouse][conn=%d][%s] "+format,
+					append([]interface{}{num, addr}, v...)...,
+				)
+			}
 		} else {
 			debugf = log.New(os.Stdout, fmt.Sprintf("[clickhouse][conn=%d][%s]", num, addr), 0).Printf
 		}
@@ -161,6 +166,9 @@ func dialHttp(ctx context.Context, addr string, num int, opt *Options) (*httpCon
 		headers["X-ClickHouse-User"] = opt.Auth.Username
 		if len(opt.Auth.Password) > 0 {
 			headers["X-ClickHouse-Key"] = opt.Auth.Password
+			headers["X-ClickHouse-SSL-Certificate-Auth"] = "off"
+		} else {
+			headers["X-ClickHouse-SSL-Certificate-Auth"] = "on"
 		}
 	}
 
@@ -193,8 +201,13 @@ func dialHttp(ctx context.Context, addr string, num int, opt *Options) (*httpCon
 	query.Set("default_format", "Native")
 	u.RawQuery = query.Encode()
 
+	httpProxy := http.ProxyFromEnvironment
+	if opt.HTTPProxyURL != nil {
+		httpProxy = http.ProxyURL(opt.HTTPProxyURL)
+	}
+
 	t := &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
+		Proxy: httpProxy,
 		DialContext: (&net.Dialer{
 			Timeout: opt.DialTimeout,
 		}).DialContext,
@@ -217,7 +230,7 @@ func dialHttp(ctx context.Context, addr string, num int, opt *Options) (*httpCon
 		url:             u,
 		buffer:          new(chproto.Buffer),
 		compression:     opt.Compression.Method,
-		blockCompressor: compress.NewWriter(),
+		blockCompressor: compress.NewWriter(compress.Level(opt.Compression.Level), compress.Method(opt.Compression.Method)),
 		compressionPool: compressionPool,
 		blockBufferSize: opt.BlockBufferSize,
 		headers:         headers,
@@ -243,7 +256,7 @@ func dialHttp(ctx context.Context, addr string, num int, opt *Options) (*httpCon
 		url:             u,
 		buffer:          new(chproto.Buffer),
 		compression:     opt.Compression.Method,
-		blockCompressor: compress.NewWriter(),
+		blockCompressor: compress.NewWriter(compress.Level(opt.Compression.Level), compress.Method(opt.Compression.Method)),
 		compressionPool: compressionPool,
 		location:        location,
 		blockBufferSize: opt.BlockBufferSize,
@@ -364,7 +377,7 @@ func (h *httpConnect) writeData(block *proto.Block) error {
 	if h.compression == CompressionLZ4 || h.compression == CompressionZSTD {
 		// Performing compression. Supported and requires
 		data := h.buffer.Buf[start:]
-		if err := h.blockCompressor.Compress(compress.Method(h.compression), data); err != nil {
+		if err := h.blockCompressor.Compress(data); err != nil {
 			return errors.Wrap(err, "compress")
 		}
 		h.buffer.Buf = append(h.buffer.Buf[:start], h.blockCompressor.Data...)
@@ -372,11 +385,10 @@ func (h *httpConnect) writeData(block *proto.Block) error {
 	return nil
 }
 
-func (h *httpConnect) readData(ctx context.Context, reader *chproto.Reader) (*proto.Block, error) {
-	opts := queryOptions(ctx)
+func (h *httpConnect) readData(reader *chproto.Reader, timezone *time.Location) (*proto.Block, error) {
 	location := h.location
-	if opts.userLocation != nil {
-		location = opts.userLocation
+	if timezone != nil {
+		location = timezone
 	}
 
 	block := proto.Block{Timezone: location}
@@ -425,9 +437,6 @@ func (h *httpConnect) readRawResponse(response *http.Response) (body []byte, err
 	if err != nil {
 		return nil, err
 	}
-	if response.StatusCode == http.StatusForbidden {
-		return nil, errors.New(string(body))
-	}
 	if h.compression == CompressionLZ4 || h.compression == CompressionZSTD {
 		chReader := chproto.NewReader(reader)
 		chReader.EnableCompression()
@@ -435,7 +444,7 @@ func (h *httpConnect) readRawResponse(response *http.Response) (body []byte, err
 	}
 
 	body, err = io.ReadAll(reader)
-	if err != nil {
+	if err != nil && !errors.Is(err, io.EOF) {
 		return nil, err
 	}
 	return body, nil

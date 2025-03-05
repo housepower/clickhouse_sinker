@@ -350,6 +350,14 @@ func (cl *Client) updateMetadata() (retryWhy multiUpdateWhy, err error) {
 		for topic := range latest {
 			allTopics = append(allTopics, topic)
 		}
+
+		// We filter out topics will not match any of our regex's.
+		// This ensures that the `tps` field does not contain topics
+		// we will never use (the client works with misc. topics in
+		// there, but it's better to avoid it -- and allows us to use
+		// `tps` in GetConsumeTopics).
+		allTopics = c.filterMetadataAllTopics(allTopics)
+
 		tpsConsumerLoad = tpsConsumer.ensureTopics(allTopics)
 		defer tpsConsumer.storeData(tpsConsumerLoad)
 
@@ -379,31 +387,8 @@ func (cl *Client) updateMetadata() (retryWhy multiUpdateWhy, err error) {
 		}
 	}
 
-	// Migrating a cursor requires stopping any consumer session. If we
-	// stop a session, we need to eventually re-start any offset listing or
-	// epoch loading that was stopped. Thus, we simply merge what we
-	// stopped into what we will reload.
-	var (
-		consumerSessionStopped bool
-		reloadOffsets          listOrEpochLoads
-		tpsPrior               *topicsPartitions
-	)
-	stopConsumerSession := func() {
-		if consumerSessionStopped {
-			return
-		}
-		consumerSessionStopped = true
-		loads, tps := cl.consumer.stopSession()
-		reloadOffsets.mergeFrom(loads)
-		tpsPrior = tps
-	}
-	defer func() {
-		if consumerSessionStopped {
-			session := cl.consumer.startNewSession(tpsPrior)
-			defer session.decWorker()
-			reloadOffsets.loadWithSession(session, "resuming reload offsets after session stopped for cursor migrating in metadata")
-		}
-	}()
+	css := &consumerSessionStopper{cl: cl}
+	defer css.maybeRestart()
 
 	var missingProduceTopics []*topicPartitions
 	for _, m := range []struct {
@@ -426,8 +411,7 @@ func (cl *Client) updateMetadata() (retryWhy multiUpdateWhy, err error) {
 				priorParts,
 				newParts,
 				m.isProduce,
-				&reloadOffsets,
-				stopConsumerSession,
+				css,
 				&retryWhy,
 			)
 		}
@@ -528,6 +512,7 @@ func (mp metadataPartition) newPartition(cl *Client, isProduce bool) *topicParti
 			failing:             mp.loadErr != 0,
 			sink:                mp.sns.sink,
 			topicPartitionData:  td,
+			lastAckedOffset:     -1,
 		}
 	} else {
 		p.cursor = &cursor{
@@ -554,6 +539,11 @@ func (cl *Client) fetchTopicMetadata(all bool, reqTopics []string) (map[string]*
 	if err != nil {
 		return nil, err
 	}
+
+	// Since we've fetched the metadata for some topics we can optimistically cache it
+	// for mapped metadata too. This may reduce the number of Metadata requests issued
+	// by the client.
+	cl.storeCachedMappedMetadata(meta, nil)
 
 	topics := make(map[string]*metadataTopic, len(meta.Topics))
 
@@ -661,8 +651,7 @@ func (cl *Client) mergeTopicPartitions(
 	l *topicPartitions,
 	mt *metadataTopic,
 	isProduce bool,
-	reloadOffsets *listOrEpochLoads,
-	stopConsumerSession func(),
+	css *consumerSessionStopper,
 	retryWhy *multiUpdateWhy,
 ) {
 	lv := *l.load() // copy so our field writes do not collide with reads
@@ -695,6 +684,8 @@ func (cl *Client) mergeTopicPartitions(
 			for _, topicPartition := range lv.partitions {
 				topicPartition.records.bumpRepeatedLoadErr(lv.loadErr)
 			}
+		} else if !kerr.IsRetriable(r.loadErr) || cl.cfg.keepRetryableFetchErrors {
+			cl.consumer.addFakeReadyForDraining(topic, -1, r.loadErr, "metadata refresh has a load error on this entire topic")
 		}
 		retryWhy.add(topic, -1, r.loadErr)
 		return
@@ -753,7 +744,7 @@ func (cl *Client) mergeTopicPartitions(
 		}
 		newTP := r.partitions[part]
 
-		// Like above for the entire topic, an individual partittion
+		// Like above for the entire topic, an individual partition
 		// can have a load error. Unlike for the topic, individual
 		// partition errors are always retryable.
 		//
@@ -765,6 +756,8 @@ func (cl *Client) mergeTopicPartitions(
 			newTP.loadErr = err
 			if isProduce {
 				newTP.records.bumpRepeatedLoadErr(newTP.loadErr)
+			} else if !kerr.IsRetriable(newTP.loadErr) || cl.cfg.keepRetryableFetchErrors {
+				cl.consumer.addFakeReadyForDraining(topic, int32(part), newTP.loadErr, "metadata refresh has a load error on this partition")
 			}
 			retryWhy.add(topic, int32(part), newTP.loadErr)
 			continue
@@ -849,11 +842,7 @@ func (cl *Client) mergeTopicPartitions(
 			if isProduce {
 				oldTP.migrateProductionTo(newTP) // migration clears failing state
 			} else {
-				oldTP.migrateCursorTo(
-					newTP,
-					reloadOffsets,
-					stopConsumerSession,
-				)
+				oldTP.migrateCursorTo(newTP, css)
 			}
 		}
 	}
