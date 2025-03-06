@@ -58,7 +58,67 @@ var (
 		ArrayIpv4:      []string{"1.2.3.4", "2.3.4.5"},
 		Ipv6:           "fe80::74e6:b5f3:fe92:830e",
 		ArrayIpv6:      []string{"fe80::74e6:b5f3:fe92:830e", "fe80::2a3:aeff:fe53:743e"},
-		StrTime:        "2022-09-01 13:20:30",
+		StrTime:        "2022-09-01 10:20:30",
+		MapInt64Str: map[int64]string{
+			1: "foo",
+			2: "bar",
+		},
+		MapStrStr: map[string]string{
+			"i": "first",
+			"j": "second",
+		},
+		MapStrUint32: map[string]uint32{
+			"i": 1,
+			"j": 2,
+		},
+		MapStrUint64: map[string]uint64{
+			"k": 3,
+			"l": 4,
+		},
+		MapStrInt32: map[string]int32{
+			"i": -1,
+			"j": -2,
+		},
+		MapStrInt64: map[string]int64{
+			"k": -3,
+			"l": -4,
+		},
+		MapStrFloat: map[string]float32{
+			"i": 3.1415,
+			"j": 9.876,
+		},
+		MapStrDouble: map[string]float64{
+			"k": 3.141592653589793,
+			"l": 2.71828182846,
+		},
+		MapStrBool: map[string]bool{
+			"i": true,
+			"j": false,
+		},
+		MapStrDate: map[string]*timestamppb.Timestamp{
+			"i": timestamppb.New(time.Date(2008, 8, 8, 0, 0, 0, 0, time.Local).UTC()),
+			"j": timestamppb.New(time.Date(2022, 1, 1, 0, 0, 0, 0, time.Local).UTC()),
+		},
+		MapStrObj: map[string]*testdata.NestedTest{
+			"i": {
+				Str: "first",
+			},
+			"j": {
+				Str: "second",
+			},
+		},
+		MapStrList: map[string]*testdata.NestedRepeatedTest{
+			"i": {
+				Str: []string{
+					"first", "second",
+				},
+			},
+			"j": {
+				Str: []string{
+					"third", "fourth",
+				},
+			},
+		},
 	}
 	testMaxNumMessage = &testdata.Test{
 		NumInt32:  math.MaxInt32,
@@ -86,7 +146,7 @@ func createProtoMetric(t *testing.T, message *testdata.Test) model.Metric {
 	schemaRegistry.EXPECT().Register(testSubject, schemaInfo, false).Return(testSchemaID, nil)
 	schemaRegistry.EXPECT().GetBySubjectAndID(testSubject, testSchemaID).Return(schemaInfo, nil).Times(2)
 
-	pp, err := NewParserPool(protoName, nil, "", "", timeUnit, testTopic, schemaRegistry, "")
+	pp, err := NewParserPool(protoName, nil, "", "UTC", timeUnit, testTopic, schemaRegistry, "")
 	require.NoError(t, err)
 
 	serializer, err := protobuf.NewSerializer(schemaRegistry, serde.ValueSerde, protobuf.NewSerializerConfig())
@@ -769,6 +829,37 @@ func TestProtoGetArray(t *testing.T) {
 		desc := fmt.Sprintf(`%s.GetArray("%s", %s)`, protoName, tc.Field, model.GetTypeName(tc.Type))
 		v := metric.GetArray(tc.Field, tc.Type)
 		require.Equal(t, tc.ExpVal, v, desc)
+	}
+}
+
+func TestProtoGetMap(t *testing.T) {
+	t.Parallel()
+	testCases := []MapCase{
+		{"map_str_str", &model.TypeInfo{Type: model.Map, MapKey: &model.TypeInfo{Type: model.String}, MapValue: &model.TypeInfo{Type: model.String}}, map[string]string{"i": "first", "j": "second"}},
+		{"map_str_uint32", &model.TypeInfo{Type: model.Map, MapKey: &model.TypeInfo{Type: model.String}, MapValue: &model.TypeInfo{Type: model.UInt32}}, map[string]uint32{"i": 1, "j": 2}},
+		{"map_str_uint64", &model.TypeInfo{Type: model.Map, MapKey: &model.TypeInfo{Type: model.String}, MapValue: &model.TypeInfo{Type: model.UInt64}}, map[string]uint64{"k": 3, "l": 4}},
+		{"map_str_int32", &model.TypeInfo{Type: model.Map, MapKey: &model.TypeInfo{Type: model.String}, MapValue: &model.TypeInfo{Type: model.Int32}}, map[string]int32{"i": -1, "j": -2}},
+		{"map_str_int64", &model.TypeInfo{Type: model.Map, MapKey: &model.TypeInfo{Type: model.String}, MapValue: &model.TypeInfo{Type: model.Int64}}, map[string]int64{"k": -3, "l": -4}},
+		{"map_int64_str", &model.TypeInfo{Type: model.Map, MapKey: &model.TypeInfo{Type: model.Int64}, MapValue: &model.TypeInfo{Type: model.String}}, map[int64]string{1: "foo", 2: "bar"}},
+		{"map_str_float", &model.TypeInfo{Type: model.Map, MapKey: &model.TypeInfo{Type: model.String}, MapValue: &model.TypeInfo{Type: model.Float32}}, map[string]float32{"i": 3.1415, "j": 9.876}},
+		{"map_str_double", &model.TypeInfo{Type: model.Map, MapKey: &model.TypeInfo{Type: model.String}, MapValue: &model.TypeInfo{Type: model.Float64}}, map[string]float64{"k": 3.141592653589793, "l": 2.71828182846}},
+		{"map_str_bool", &model.TypeInfo{Type: model.Map, MapKey: &model.TypeInfo{Type: model.String}, MapValue: &model.TypeInfo{Type: model.Bool}}, map[string]bool{"i": true, "j": false}},
+		{"map_str_date", &model.TypeInfo{Type: model.Map, MapKey: &model.TypeInfo{Type: model.String}, MapValue: &model.TypeInfo{Type: model.DateTime}}, map[string]time.Time{"i": time.Date(2008, 8, 8, 0, 0, 0, 0, time.Local).UTC(), "j": time.Date(2022, 1, 1, 0, 0, 0, 0, time.Local).UTC()}},
+		{"map_str_obj", &model.TypeInfo{Type: model.Map, MapKey: &model.TypeInfo{Type: model.String}, MapValue: &model.TypeInfo{Type: model.Map}}, map[any]any{"i": map[any]any{"str": "first"}, "j": map[any]any{"str": "second"}}},
+		{"map_str_list", &model.TypeInfo{Type: model.Map, MapKey: &model.TypeInfo{Type: model.String}, MapValue: &model.TypeInfo{Type: model.Map}}, map[any]any{"i": map[any]any{"str": []any{"first", "second"}}, "j": map[any]any{"str": []any{"third", "fourth"}}}},
+		// wrong type for map key
+		{"map_str_str", &model.TypeInfo{Type: model.Map, MapKey: &model.TypeInfo{Type: model.String}, MapValue: &model.TypeInfo{Type: model.Map}}, map[any]any{"i": map[any]any{}, "j": map[any]any{}}},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.field, func(t *testing.T) {
+			t.Parallel()
+			metric := createProtoMetric(t, testBaseMessage)
+			desc := fmt.Sprintf(`%s.GetMap("%s")`, protoName, tc.field)
+			v := metric.GetMap(tc.field, tc.typ)
+			require.NotNil(t, v, desc)
+			compareMap(t, v, tc.expVal, desc)
+		})
 	}
 }
 

@@ -754,16 +754,22 @@ func compareMap(t *testing.T, map1 interface{}, map2 interface{}, desc string) {
 	// v1 - map[interface{}]interface{}, v2 could be any map type
 	var compareValueFunc func(v1, v2 reflect.Value) = func(v1, v2 reflect.Value) {
 		switch v2.Kind() {
-		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int64:
 			assert.Equal(t, v1.Interface().(int64), v2.Int())
-		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		case reflect.Int32:
+			assert.Equal(t, v1.Interface().(int32), int32(v2.Int()))
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint64, reflect.Uintptr:
 			assert.Equal(t, v1.Interface().(uint64), v2.Uint())
+		case reflect.Uint32:
+			assert.Equal(t, v1.Interface().(uint32), uint32(v2.Uint()))
 		case reflect.String:
 			assert.Equal(t, v1.Interface().(string), v2.String())
 		case reflect.Bool:
 			assert.Equal(t, v1.Interface().(bool), v2.Bool())
-		case reflect.Float32, reflect.Float64:
-			assert.Equal(t, v1.Interface().(float64), v2.Float())
+		case reflect.Float32:
+			assert.InDelta(t, v1.Interface().(float32), v2.Float(), 1e-6)
+		case reflect.Float64:
+			assert.InDelta(t, v1.Interface().(float64), v2.Float(), 1e-6)
 		case reflect.Map:
 			compareMap(t, v1.Interface(), v2.Interface(), desc)
 		case reflect.Array:
@@ -784,6 +790,10 @@ func compareMap(t *testing.T, map1 interface{}, map2 interface{}, desc string) {
 				assert.Fail(t, "uncovered array type comparison, update compareValueFunc accordingly")
 			}
 		default:
+			if reflect.TypeOf(v1.Interface()) == reflect.TypeOf(model.NewOrderedMap()) {
+				compareMap(t, v1.Interface(), v2.Interface(), desc)
+				break
+			}
 			// Normal equality suffices
 			assert.Equal(t, v1.Interface(), v2.Interface())
 		}

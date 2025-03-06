@@ -66,8 +66,36 @@ message Test {
   repeated string array_ipv6 = 29;
 
   string str_time = 30;
+
+  map<string, string> map_str_str = 31;
+
+  map<string, uint32> map_str_uint32 = 32;
+
+  map<string, uint64> map_str_uint64 = 33;
+
+  map<string, int32> map_str_int32 = 34;
+
+  map<string, int64> map_str_int64 = 35;
+
+  map<string, float> map_str_float = 36;
+
+  map<string, double> map_str_double = 37;
+
+  map<int64, string> map_int64_str = 38;
+
+  map<string, bool> map_str_bool = 39;
+
+  map<string, google.protobuf.Timestamp> map_str_date = 40;
+
+  map<string, NestedTest> map_str_obj = 41;
+
+  map<string, NestedRepeatedTest> map_str_list = 42;
 }
 
 message NestedTest {
   string str = 1;
+}
+
+message NestedRepeatedTest {
+  repeated string str = 1;
 }
