@@ -172,6 +172,9 @@ func (service *Service) Put(msg *model.InputMessage, traceId string, flushFn fun
 		return nil
 	} else {
 		row = service.metric2Row(metric, msg)
+		if row == nil {
+			return nil
+		}
 		if taskCfg.DynamicSchema.Enable {
 			foundNewKeys = metric.GetNewKeys(&service.knownKeys, &service.newKeys, &service.warnKeys, service.whiteList, service.blackList, msg.Partition, msg.Offset)
 		}
@@ -277,6 +280,18 @@ func (service *Service) metric2Row(metric model.Metric, msg *model.InputMessage)
 				}
 			} else {
 				val := model.GetValueByType(metric, dim)
+				if dim.NotNullable && val == nil {
+					// null 不能插入到非 nullbale字段中
+					util.Logger.Warn("null value detected, throw this message",
+						zap.String("dimension", dim.Name),
+						zap.String("task", service.taskCfg.Name),
+						zap.String("topic", msg.Topic),
+						zap.Int("partition", msg.Partition),
+						zap.Int64("offset", msg.Offset),
+						zap.String("key", string(msg.Key)),
+						zap.Time("timestamp", *msg.Timestamp))
+					return nil
+				}
 				row = append(row, val)
 			}
 		}

@@ -2,6 +2,7 @@ package output
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/housepower/clickhouse_sinker/model"
 	"github.com/housepower/clickhouse_sinker/pool"
@@ -15,6 +16,23 @@ func writeRows(prepareSQL string, rows model.Rows, idxBegin, idxEnd int, conn *p
 
 func getDims(database, table string, excludedColumns []string, parser string, conn *pool.Conn) (dims []*model.ColumnWithType, err error) {
 	var rs *pool.Rows
+	notNullable := make(map[string]bool)
+	if rs, err = conn.Query(fmt.Sprintf(referedSQLTemplate, database, table)); err != nil {
+		err = errors.Wrapf(err, "")
+		return
+	}
+	var default_expression, referenced_col_type, col_name, ori_type string
+	for rs.Next() {
+		if err = rs.Scan(&default_expression, &referenced_col_type, &col_name, &ori_type); err != nil {
+			err = errors.Wrapf(err, "")
+			return
+		}
+		if strings.HasPrefix(referenced_col_type, "Nullable(") && !strings.HasSuffix(ori_type, "Nullable(") {
+			notNullable[default_expression] = true
+		}
+	}
+
+	rs.Close()
 	if rs, err = conn.Query(fmt.Sprintf(selectSQLTemplate, database, table)); err != nil {
 		err = errors.Wrapf(err, "")
 		return
@@ -29,7 +47,16 @@ func getDims(database, table string, excludedColumns []string, parser string, co
 			return
 		}
 		if !util.StringContains(excludedColumns, name) && defaultKind != "MATERIALIZED" {
-			dims = append(dims, &model.ColumnWithType{Name: name, Type: model.WhichType(typ), SourceName: util.GetSourceName(parser, name)})
+			nnull, ok := notNullable[name]
+			if !ok {
+				nnull = false
+			}
+			dims = append(dims, &model.ColumnWithType{
+				Name:        name,
+				Type:        model.WhichType(typ),
+				SourceName:  util.GetSourceName(parser, name),
+				NotNullable: nnull,
+			})
 		}
 	}
 	if len(dims) == 0 {

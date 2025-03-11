@@ -53,9 +53,10 @@ type DimMetrics struct {
 
 // ColumnWithType
 type ColumnWithType struct {
-	Name       string
-	Type       *TypeInfo
-	SourceName string
+	Name        string
+	Type        *TypeInfo
+	SourceName  string
+	NotNullable bool
 }
 
 // struct for ingesting a clickhouse Map type value

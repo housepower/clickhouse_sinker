@@ -37,9 +37,25 @@ import (
 )
 
 var (
-	ErrTblNotExist    = errors.Newf("table doesn't exist")
-	selectSQLTemplate = `select name, type, default_kind from system.columns where database = '%s' and table = '%s'`
-
+	ErrTblNotExist     = errors.Newf("table doesn't exist")
+	selectSQLTemplate  = `select name, type, default_kind from system.columns where database = '%s' and table = '%s'`
+	referedSQLTemplate = `SELECT 
+    current_col.default_expression,
+    referenced_col.type AS referenced_col_type,
+    current_col.name,
+    current_col.type
+FROM 
+    system.columns AS current_col
+JOIN 
+    system.columns AS referenced_col 
+ON 
+    current_col.database = referenced_col.database 
+    AND current_col.table = referenced_col.table 
+    AND current_col.default_expression = referenced_col.name 
+WHERE 
+    current_col.database = '%s' 
+    AND
+    current_col.table = '%s';`
 	wrSeriesQuota int = 16384
 
 	SeriesQuotas sync.Map
