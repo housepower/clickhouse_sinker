@@ -208,7 +208,7 @@ func (service *Service) Put(msg *model.InputMessage, traceId string, flushFn fun
 	if atomic.LoadInt32(&service.cntNewKeys) == 0 && service.consumer.state.Load() == util.StateRunning {
 		msgRow := model.MsgRow{Msg: msg, Row: row}
 		if service.sharder.policy != nil {
-			if msgRow.Shard, err = service.sharder.Calc(msgRow.Row); err != nil {
+			if msgRow.Shard, err = service.sharder.Calc(msgRow.Row, msg.Offset); err != nil {
 				util.Logger.Fatal("shard number calculation failed", zap.String("task", taskCfg.Name), zap.Error(err))
 			}
 		} else {

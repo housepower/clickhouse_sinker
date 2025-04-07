@@ -49,15 +49,22 @@ func NewShardingPolicy(shardingKey string, shardingStripe uint64, dims []*model.
 		}
 	}
 	if colSeq < 0 {
-		err = errors.Newf("invalid shardingKey '%s', no such column", shardingKey)
-		return
+		util.Logger.Info("shardingKey is __offset__, use offset as sharding key")
+		if policy.stripe <= 0 {
+			policy.stripe = uint64(1)
+		}
 	}
 	policy.colSeq = colSeq
 	return
 }
 
-func (policy *ShardingPolicy) Calc(row *model.Row) (shard int, err error) {
-	val := (*row)[policy.colSeq]
+func (policy *ShardingPolicy) Calc(row *model.Row, offset int64) (shard int, err error) {
+	var val interface{}
+	if policy.colSeq < 0 {
+		val = offset
+	} else {
+		val = (*row)[policy.colSeq]
+	}
 	if policy.stripe > 0 {
 		var valu64 uint64
 		switch v := val.(type) {
@@ -122,10 +129,8 @@ func NewSharder(service *Service) (sh *Sharder, err error) {
 	var policy *ShardingPolicy
 	shards := pool.NumShard()
 	taskCfg := service.taskCfg
-	if taskCfg.ShardingKey != "" {
-		if policy, err = NewShardingPolicy(taskCfg.ShardingKey, taskCfg.ShardingStripe, service.clickhouse.Dims, shards); err != nil {
-			return sh, errors.Wrapf(err, "error when creating sharding policy for task '%s'", service.taskCfg.Name)
-		}
+	if policy, err = NewShardingPolicy(taskCfg.ShardingKey, taskCfg.ShardingStripe, service.clickhouse.Dims, shards); err != nil {
+		return sh, errors.Wrapf(err, "error when creating sharding policy for task '%s'", service.taskCfg.Name)
 	}
 	sh = &Sharder{
 		service: service,
@@ -140,8 +145,8 @@ func NewSharder(service *Service) (sh *Sharder, err error) {
 	return
 }
 
-func (sh *Sharder) Calc(row *model.Row) (int, error) {
-	return sh.policy.Calc(row)
+func (sh *Sharder) Calc(row *model.Row, offset int64) (int, error) {
+	return sh.policy.Calc(row, offset)
 }
 
 func (sh *Sharder) PutElement(msgRow *model.MsgRow) {
