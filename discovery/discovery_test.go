@@ -37,11 +37,17 @@ func TestDiffShards(t *testing.T) {
 		Replicas{"127.0.0.1:8082", "127.0.0.1:8083"},
 		Replicas{"127.0.0.1:8081", "127.0.0.1:8080"},
 	}
-	assert.Equal(t, false, diffShards(old1, new2))
+	assert.Equal(t, true, diffShards(old1, new2))
 
 	var new3 = Shards{
 		Replicas{"127.0.0.1:8082", "127.0.0.1:8083"},
 		Replicas{"127.0.0.2:8081", "127.0.0.1:8080"},
 	}
 	assert.Equal(t, true, diffShards(old1, new3))
+
+	var new4 = Shards{
+		Replicas{"127.0.0.1:8081", "127.0.0.1:8080"},
+		Replicas{"127.0.0.1:8083", "127.0.0.1:8082"},
+	}
+	assert.Equal(t, false, diffShards(old1, new4))
 }

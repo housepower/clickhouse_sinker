@@ -142,8 +142,8 @@ func diffShards(old, new Shards) bool {
 	if len(old) != len(new) {
 		return true
 	}
-	sort.Sort(old)
-	sort.Sort(new)
+	// sort.Sort(old)
+	// sort.Sort(new)
 	for i := range old {
 		if diffReplicas(old[i], new[i]) {
 			return true
