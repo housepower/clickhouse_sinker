@@ -193,7 +193,6 @@ LOOP:
 		traceId := util.GenTraceId()
 		util.LogTrace(traceId, util.TraceKindFetchStart, zap.String("consumer group", k.grpConfig.Name), zap.Int("buffersize", k.grpConfig.BufferSize))
 		fetches := k.cl.PollRecords(k.ctx, k.grpConfig.BufferSize)
-		OnConsumerPoll(k.consumerId)
 		err := fetches.Err()
 		if fetches == nil || fetches.IsClientClosed() || errors.Is(err, context.Canceled) {
 			break
@@ -202,6 +201,7 @@ LOOP:
 			err = errors.Wrapf(err, "")
 			util.Logger.Info("kgo.Client.PollFetchs() got an error", zap.Error(err))
 		}
+		OnConsumerPoll(k.consumerId)
 		fetchRecords := fetches.NumRecords()
 		util.Rs.Inc(int64(fetchRecords))
 		util.LogTrace(traceId, util.TraceKindFetchEnd, zap.String("consumer group", k.grpConfig.Name), zap.Int64("records", int64(fetchRecords)))
