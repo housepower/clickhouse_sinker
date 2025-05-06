@@ -318,6 +318,9 @@ func (cfg *Config) Normallize(constructGroup bool, httpAddr string, cred util.Cr
 	if cfg.Kafka.Properties.MaxPollInterval == 0 {
 		cfg.Kafka.Properties.MaxPollInterval = DefaultMaxPollIntervalMs
 	}
+	if cfg.Kafka.Properties.MaxPollInterval < 30000 {
+		cfg.Kafka.Properties.MaxPollInterval = 30000
+	}
 	if cfg.Kafka.AssignInterval == 0 {
 		cfg.Kafka.AssignInterval = defaultAssignIntervalMin
 	}
