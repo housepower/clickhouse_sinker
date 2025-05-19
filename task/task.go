@@ -25,6 +25,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/cespare/xxhash/v2"
 	"github.com/housepower/clickhouse_sinker/config"
 	"github.com/housepower/clickhouse_sinker/model"
 	"github.com/housepower/clickhouse_sinker/output"
@@ -120,6 +121,11 @@ func (service *Service) Init() (err error) {
 	service.nameKey = service.clickhouse.NameKey
 	service.limiter = rate.NewLimiter(rate.Every(10*time.Second), 1)
 	service.offShift = int64(util.GetShift(taskCfg.BufferSize))
+
+	if len(service.clickhouse.SortingKeys) > 0 {
+		service.taskCfg.ShardingKey = "__shardingkey"
+		service.taskCfg.ShardingStripe = 1
+	}
 
 	if service.sharder, err = NewSharder(service); err != nil {
 		return
@@ -262,6 +268,15 @@ func (service *Service) metric2Row(metric model.Metric, msg *model.InputMessage)
 		}
 		return &row
 	} else {
+		var shardingVal uint64
+		if len(service.clickhouse.SortingKeys) > 0 {
+			var sortingKeys []string
+			for _, dim := range service.clickhouse.SortingKeys {
+				sortingKeys = append(sortingKeys, fmt.Sprintf("%v", model.GetValueByType(metric, dim)))
+			}
+
+			shardingVal = xxhash.Sum64String(strings.Join(sortingKeys, "."))
+		}
 		row := make(model.Row, 0, len(service.dims))
 		for _, dim := range service.dims {
 			if strings.HasPrefix(dim.Name, "__kafka") {
@@ -278,6 +293,8 @@ func (service *Service) metric2Row(metric model.Metric, msg *model.InputMessage)
 				} else {
 					row = append(row, nil)
 				}
+			} else if dim.Name == "__shardingkey" {
+				row = append(row, shardingVal)
 			} else {
 				val := model.GetValueByType(metric, dim)
 				if dim.NotNullable && val == nil {
@@ -295,6 +312,7 @@ func (service *Service) metric2Row(metric model.Metric, msg *model.InputMessage)
 				row = append(row, val)
 			}
 		}
+
 		return &row
 	}
 }

@@ -83,9 +83,10 @@ type ClickHouse struct {
 
 	seriesQuota *model.SeriesQuota
 
-	numFlying int32
-	mux       sync.Mutex
-	taskDone  *sync.Cond
+	numFlying   int32
+	mux         sync.Mutex
+	taskDone    *sync.Cond
+	SortingKeys []*model.ColumnWithType
 }
 
 type DistTblInfo struct {
@@ -446,6 +447,9 @@ func (c *ClickHouse) initSchema() (err error) {
 	if conn, _, err = sc.NextGoodReplica(c.cfg.Clickhouse.Ctx, 0); err != nil {
 		return
 	}
+	if err = c.ensureShardingkey(conn, c.TableName, c.taskCfg.Parser); err != nil {
+		return
+	}
 	if c.taskCfg.AutoSchema {
 		if c.Dims, err = getDims(c.dbName, c.TableName, c.taskCfg.ExcludeColumns, c.taskCfg.Parser, conn); err != nil {
 			return
@@ -693,4 +697,66 @@ func (c *ClickHouse) GetMetricTable() string {
 
 func (c *ClickHouse) SetSeriesQuota(sq *model.SeriesQuota) {
 	c.seriesQuota = sq
+}
+
+func (c *ClickHouse) ensureShardingkey(conn *pool.Conn, tblName string, parser string) (err error) {
+	if c.taskCfg.ShardingKey != "" {
+		return
+	}
+	if c.taskCfg.PrometheusSchema {
+		return
+	}
+	// get engine
+	query := fmt.Sprintf("SELECT engine FROM system.tables WHERE database = '%s' AND table = '%s'",
+		c.dbName, tblName)
+	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", c.taskCfg.Name))
+	var engine string
+	err = conn.QueryRow(query).Scan(&engine)
+	if err != nil {
+		return
+	}
+	//get sortingkey
+	if strings.Contains(engine, "Replacing") {
+		query = fmt.Sprintf("SELECT name, type FROM system.columns WHERE (database = '%s') AND (table = '%s') AND (is_in_sorting_key = 1)",
+			c.dbName, tblName)
+		util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", c.taskCfg.Name))
+		rows, _ := conn.Query(query)
+		sortingKeys := make([]string, 0)
+		for rows.Next() {
+			var sortingkey, typ string
+			err = rows.Scan(&sortingkey, &typ)
+			if err != nil {
+				return
+			}
+			sortingKeys = append(sortingKeys, sortingkey)
+			c.SortingKeys = append(c.SortingKeys, &model.ColumnWithType{
+				Name:       sortingkey,
+				Type:       model.WhichType(typ),
+				SourceName: util.GetSourceName(parser, sortingkey),
+			})
+		}
+		rows.Close()
+		util.Logger.Info(fmt.Sprintf("sortingKeys: %v", sortingKeys),
+			zap.String("db", c.dbName),
+			zap.String("table", tblName),
+			zap.String("task", c.taskCfg.Name))
+		var version string
+		if err = conn.QueryRow("SELECT version()").Scan(&version); err != nil {
+			version = "1.0.0.0"
+		}
+		var onCluster string
+		if c.cfg.Clickhouse.Cluster != "" {
+			onCluster = fmt.Sprintf("ON CLUSTER `%s`", c.cfg.Clickhouse.Cluster)
+		}
+		query = fmt.Sprintf("ALTER TABLE `%s`.`%s` %s ADD COLUMN IF NOT EXISTS `__shardingkey` Int64",
+			c.dbName, tblName, onCluster)
+		if util.CompareClickHouseVersion(version, "23.3") >= 0 {
+			query += " SETTINGS alter_sync = 0"
+		}
+		util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", c.taskCfg.Name))
+		if err = conn.Exec(query); err != nil {
+			return
+		}
+	}
+	return
 }
