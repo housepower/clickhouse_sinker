@@ -447,6 +447,25 @@ func (c *ClickHouse) initSchema() (err error) {
 	if conn, _, err = sc.NextGoodReplica(c.cfg.Clickhouse.Ctx, 0); err != nil {
 		return
 	}
+	// Check distributed metric table
+	if chCfg := &c.cfg.Clickhouse; chCfg.Cluster != "" {
+		withDistTable := false
+		info, e := c.getDistTbls(c.TableName, chCfg.Cluster)
+		if e != nil {
+			return e
+		}
+		c.distMetricTbls = make([]string, 0)
+		for _, i := range info {
+			c.distMetricTbls = append(c.distMetricTbls, i.name)
+			if i.cluster == c.cfg.Clickhouse.Cluster {
+				withDistTable = true
+			}
+		}
+		if !withDistTable {
+			err = errors.Newf("Please create distributed table for %s in cluster '%s'.", c.TableName, c.cfg.Clickhouse.Cluster)
+			return
+		}
+	}
 	if err = c.ensureShardingkey(conn, c.TableName, c.taskCfg.Parser); err != nil {
 		return
 	}
@@ -503,25 +522,25 @@ func (c *ClickHouse) initSchema() (err error) {
 	}
 	util.Logger.Info(fmt.Sprintf("Prepare sql=> %s", c.prepareSQL), zap.String("task", c.taskCfg.Name))
 
-	// Check distributed metric table
-	if chCfg := &c.cfg.Clickhouse; chCfg.Cluster != "" {
-		withDistTable := false
-		info, e := c.getDistTbls(c.TableName, chCfg.Cluster)
-		if e != nil {
-			return e
-		}
-		c.distMetricTbls = make([]string, 0)
-		for _, i := range info {
-			c.distMetricTbls = append(c.distMetricTbls, i.name)
-			if i.cluster == c.cfg.Clickhouse.Cluster {
-				withDistTable = true
-			}
-		}
-		if !withDistTable {
-			err = errors.Newf("Please create distributed table for %s in cluster '%s'.", c.TableName, c.cfg.Clickhouse.Cluster)
-			return
-		}
-	}
+	// // Check distributed metric table
+	// if chCfg := &c.cfg.Clickhouse; chCfg.Cluster != "" {
+	// 	withDistTable := false
+	// 	info, e := c.getDistTbls(c.TableName, chCfg.Cluster)
+	// 	if e != nil {
+	// 		return e
+	// 	}
+	// 	c.distMetricTbls = make([]string, 0)
+	// 	for _, i := range info {
+	// 		c.distMetricTbls = append(c.distMetricTbls, i.name)
+	// 		if i.cluster == c.cfg.Clickhouse.Cluster {
+	// 			withDistTable = true
+	// 		}
+	// 	}
+	// 	if !withDistTable {
+	// 		err = errors.Newf("Please create distributed table for %s in cluster '%s'.", c.TableName, c.cfg.Clickhouse.Cluster)
+	// 		return
+	// 	}
+	// }
 	return nil
 }
 
@@ -756,6 +775,21 @@ func (c *ClickHouse) ensureShardingkey(conn *pool.Conn, tblName string, parser s
 		util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", c.taskCfg.Name))
 		if err = conn.Exec(query); err != nil {
 			return
+		}
+
+		// var distTables []DistTblInfo
+		// distTables, err = c.getDistTbls(tblName, c.cfg.Clickhouse.Cluster)
+		// if err != nil {
+		// 	return
+		// }
+
+		for _, distTbl := range c.distMetricTbls {
+			query := fmt.Sprintf("ALTER TABLE `%s`.`%s` %s ADD COLUMN IF NOT EXISTS `__shardingkey` Int64",
+				c.dbName, distTbl, onCluster)
+			util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", c.taskCfg.Name))
+			if err = conn.Exec(query); err != nil {
+				return
+			}
 		}
 	}
 	return
