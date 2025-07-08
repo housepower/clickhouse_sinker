@@ -39,10 +39,10 @@ import (
 )
 
 var (
-	countSeriesSQL = `SELECT DISTINCT count() FROM %s WHERE %s GLOBAL IN (
-	SELECT DISTINCT %s FROM %s WHERE timestamp >= addSeconds(now(), -%d));`
+	countSeriesSQL = `SELECT DISTINCT COUNT() FROM %s WHERE %s GLOBAL IN (
+	SELECT DISTINCT %s FROM %s WHERE TIMESTAMP >= addSeconds(now(), -%d));`
 	loadSeriesSQL = `SELECT DISTINCT toInt64(%s) AS sid, toInt64(%s) AS mid FROM %s WHERE sid GLOBAL IN (
-	SELECT DISTINCT toInt64(%s) FROM %s WHERE timestamp >= addSeconds(now(), -%d)
+	SELECT DISTINCT toInt64(%s) FROM %s WHERE TIMESTAMP >= addSeconds(now(), -%d)
 	) ORDER BY sid;`
 )
 
@@ -216,7 +216,6 @@ func (s *Sinker) Run() {
 					continue
 				}
 				if s.curCfg != nil {
-					pollInterval = s.curCfg.Kafka.Properties.MaxPollInterval
 					sdInterval = s.curCfg.Discovery.CheckInterval
 					curInterval = s.curCfg.ReloadSeriesMapInterval
 				}

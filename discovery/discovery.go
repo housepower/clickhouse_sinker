@@ -119,7 +119,7 @@ func (d *Discovery) Dispatcher() error {
 func (d *Discovery) Publish() {
 	d.config.Discovery.UpdatedBy = "discovery-changed"
 	d.config.Discovery.UpdatedAt = time.Now()
-	d.ncm.PublishConfig(d.config)
+	d.ncm.PublishConfig(d.config) //nolint:errcheck
 }
 
 func hosts2shards(hosts [][]string) Shards {
@@ -156,8 +156,8 @@ func diffReplicas(old, new []string) bool {
 	if len(old) != len(new) {
 		return true
 	}
-	sort.Sort(sort.StringSlice(old))
-	sort.Sort(sort.StringSlice(new))
+	sort.Strings(old)
+	sort.Strings(new)
 	for i := range old {
 		if old[i] != new[i] {
 			return true
