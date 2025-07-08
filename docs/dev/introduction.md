@@ -30,7 +30,7 @@ Refers to [design](./design.md) for how it works.
 - [x] Float32, Float64
 - [x] Decimal, Decimal32, Decimal64, Decimal128, Decimal256
 - [x] String, FixedString, LowCardinality(String)
-- [x] Date, DateTime, DateTime64. Assuming that all values of a field of kafka message has the same layout, and layouts of each field are unrelated. Automatically detect the layout from [these date layouts](https://github.com/housepower/clickhouse_sinker/blob/master/parser/parser.go) till the first successful detection and reuse that layout forever.
+- [x] Date, DateTime, DateTime64. Assuming that all values of a field of kafka message has the same layout, and layouts of each field are unrelated. Automatically detect the layout from [these date layouts](https://github.com/viru-tech/clickhouse_sinker/blob/master/parser/parser.go) till the first successful detection and reuse that layout forever.
 - [x] UUID
 - [x] Enum
 - [x] Array(T), where T is one of above basic types
@@ -66,7 +66,7 @@ Note:
 - Kafka topic apache_access_log1: partition 1, replicator factor: 1
 - Kafka topic apache_access_log2: partition 2, replicator factor: 1
 - Kafka topic apache_access_log4: partition 4, replicator factor: 1
-- Generate json messages via kafka_gen_log(https://github.com/housepower/clickhouse_sinker/blob/master/cmd/kafka_gen_log). Messages avg lenght is 754 bytes.
+- Generate json messages via kafka_gen_log(https://github.com/viru-tech/clickhouse_sinker/blob/master/cmd/kafka_gen_log). Messages avg lenght is 754 bytes.
 
 | config     | thoughput(rows/s) | writer total cost   | clickhouse cost per node |
 |-----------------------------|-------------------|---------------|---------------|
@@ -95,7 +95,7 @@ Kafka Source -> JSON decode -> DateTime formart conversion -> Interger type conv
 
 ## Configuration
 
-Refers to how [integration test](https://github.com/housepower/clickhouse_sinker/blob/master/go.test.sh) use the example config. Also refers to [code](https://github.com/housepower/clickhouse_sinker/blob/master/config/config.go) for all config items.
+Refers to how [integration test](https://github.com/viru-tech/clickhouse_sinker/blob/master/go.test.sh) use the example config. Also refers to [code](https://github.com/viru-tech/clickhouse_sinker/blob/master/config/config.go) for all config items.
 
 ### Kafka Encryption
 

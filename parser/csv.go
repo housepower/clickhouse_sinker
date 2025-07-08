@@ -19,6 +19,8 @@ import (
 	"bytes"
 	"encoding/csv"
 	"fmt"
+	"github.com/viru-tech/clickhouse_sinker/model"
+	"github.com/viru-tech/clickhouse_sinker/util"
 	"math"
 	"net"
 	"regexp"
@@ -26,8 +28,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/housepower/clickhouse_sinker/model"
-	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/shopspring/decimal"
 	"github.com/thanos-io/thanos/pkg/errors"
 	"github.com/tidwall/gjson"
@@ -68,19 +68,13 @@ type CsvMetric struct {
 	values []string
 }
 
-// GetString get the value as string
+// GetString get the value as string.
 func (c *CsvMetric) GetString(key string, nullable bool) (val interface{}) {
-	var idx int
-	var ok bool
-	if idx, ok = c.pp.csvFormat[key]; !ok || c.values[idx] == "null" {
-		if nullable {
-			return
-		}
-		val = ""
-		return
-	}
-	val = c.values[idx]
-	return
+	return c.stringOrDefault(key, nullable, "")
+}
+
+func (c *CsvMetric) GetUUID(key string, nullable bool) interface{} {
+	return c.stringOrDefault(key, nullable, zeroUUID)
 }
 
 // GetDecimal returns the value as decimal
@@ -111,7 +105,7 @@ func (c *CsvMetric) GetBool(key string, nullable bool) (val interface{}) {
 		val = false
 		return
 	}
-	val = (c.values[idx] == "true")
+	val = c.values[idx] == "true"
 	return
 }
 
@@ -155,18 +149,28 @@ func (c *CsvMetric) GetFloat64(key string, nullable bool) (val interface{}) {
 	return CsvGetFloat[float64](c, key, nullable, math.MaxFloat64)
 }
 
-func (c *CsvMetric) GetIPv4(key string, nullable bool) (val interface{}) {
-	return c.GetUint32(key, nullable)
+func (c *CsvMetric) GetIPv4(key string, nullable bool) interface{} {
+	return c.stringOrDefault(key, nullable, net.IPv4zero.String())
 }
 
-func (c *CsvMetric) GetIPv6(key string, nullable bool) (val interface{}) {
-	s := c.GetString(key, nullable).(string)
-	if net.ParseIP(s) != nil {
-		val = s
-	} else {
-		val = net.IPv6zero.String()
+func (c *CsvMetric) GetIPv6(key string, nullable bool) interface{} {
+	return c.stringOrDefault(key, nullable, net.IPv6zero.String())
+}
+
+func (c *CsvMetric) stringOrDefault(key string, nullable bool, defaultValue string) interface{} {
+	var idx int
+	var ok bool
+	if idx, ok = c.pp.csvFormat[key]; !ok || c.values[idx] == "null" {
+		if nullable {
+			return nil
+		}
+		return defaultValue
 	}
-	return val
+
+	if v := c.values[idx]; v != "" {
+		return v
+	}
+	return defaultValue
 }
 
 func CsvGetInt[T constraints.Signed](c *CsvMetric, key string, nullable bool, min, max int64) (val interface{}) {
@@ -272,7 +276,7 @@ func (c *CsvMetric) GetArray(key string, typ int) (val interface{}) {
 	case model.Bool:
 		results := make([]bool, 0, len(array))
 		for _, e := range array {
-			v := (e.Exists() && e.Type == gjson.True)
+			v := e.Exists() && e.Type == gjson.True
 			results = append(results, v)
 		}
 		val = results
@@ -320,6 +324,24 @@ func (c *CsvMetric) GetArray(key string, typ int) (val interface{}) {
 				s = e.Str
 			default:
 				s = e.Raw
+			}
+			results = append(results, s)
+		}
+		val = results
+	case model.UUID:
+		results := make([]string, 0, len(array))
+		var s string
+		for _, e := range array {
+			switch e.Type {
+			case gjson.Null:
+				s = ""
+			case gjson.String:
+				s = e.Str
+			default:
+				s = e.Raw
+			}
+			if s == "" {
+				s = zeroUUID
 			}
 			results = append(results, s)
 		}

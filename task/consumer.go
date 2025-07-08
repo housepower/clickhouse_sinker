@@ -22,10 +22,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/housepower/clickhouse_sinker/config"
-	"github.com/housepower/clickhouse_sinker/input"
-	"github.com/housepower/clickhouse_sinker/model"
-	"github.com/housepower/clickhouse_sinker/util"
+	"github.com/viru-tech/clickhouse_sinker/config"
+	"github.com/viru-tech/clickhouse_sinker/input"
+	"github.com/viru-tech/clickhouse_sinker/model"
+	"github.com/viru-tech/clickhouse_sinker/util"
 	"go.uber.org/zap"
 
 	_ "github.com/ClickHouse/clickhouse-go/v2"

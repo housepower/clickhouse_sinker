@@ -12,8 +12,8 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/housepower/clickhouse_sinker.git"
+    "url": "git+https://github.com/viru-tech/clickhouse_sinker.git"
   },
   "license": "Apache-2.0",
-  "homepage": "https://github.com/housepower/clickhouse_sinker#readme"
+  "homepage": "https://github.com/viru-tech/clickhouse_sinker#readme"
 }

@@ -20,7 +20,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/housepower/clickhouse_sinker/util"
+	"github.com/viru-tech/clickhouse_sinker/util"
 )
 
 const (
@@ -39,6 +39,7 @@ const (
 	Decimal
 	DateTime
 	String
+	UUID
 	Object
 	Map
 	IPv4
@@ -89,6 +90,8 @@ func GetTypeName(typ int) (name string) {
 		name = "DateTime"
 	case String:
 		name = "String"
+	case UUID:
+		name = "UUID"
 	case Object:
 		name = "Object('json')"
 	case Map:
@@ -103,53 +106,59 @@ func GetTypeName(typ int) (name string) {
 	return
 }
 
-func GetValueByType(metric Metric, cwt *ColumnWithType) (val interface{}) {
+func GetValueByType(metric Metric, cwt *ColumnWithType) interface{} {
 	name := cwt.SourceName
 	if cwt.Type.Array {
-		val = metric.GetArray(name, cwt.Type.Type)
-	} else {
-		switch cwt.Type.Type {
-		case Bool:
-			val = metric.GetBool(name, cwt.Type.Nullable)
-		case Int8:
-			val = metric.GetInt8(name, cwt.Type.Nullable)
-		case Int16:
-			val = metric.GetInt16(name, cwt.Type.Nullable)
-		case Int32:
-			val = metric.GetInt32(name, cwt.Type.Nullable)
-		case Int64:
-			val = metric.GetInt64(name, cwt.Type.Nullable)
-		case UInt8:
-			val = metric.GetUint8(name, cwt.Type.Nullable)
-		case UInt16:
-			val = metric.GetUint16(name, cwt.Type.Nullable)
-		case UInt32:
-			val = metric.GetUint32(name, cwt.Type.Nullable)
-		case UInt64:
-			val = metric.GetUint64(name, cwt.Type.Nullable)
-		case Float32:
-			val = metric.GetFloat32(name, cwt.Type.Nullable)
-		case Float64:
-			val = metric.GetFloat64(name, cwt.Type.Nullable)
-		case Decimal:
-			val = metric.GetDecimal(name, cwt.Type.Nullable)
-		case DateTime:
-			val = metric.GetDateTime(name, cwt.Type.Nullable)
-		case String:
-			val = metric.GetString(name, cwt.Type.Nullable)
-		case Map:
-			val = metric.GetMap(name, cwt.Type)
-		case Object:
-			val = metric.GetObject(name, cwt.Type.Nullable)
-		case IPv4:
-			val = metric.GetIPv4(name, cwt.Type.Nullable)
-		case IPv6:
-			val = metric.GetIPv6(name, cwt.Type.Nullable)
-		default:
-			util.Logger.Fatal("LOGIC ERROR: reached switch default condition")
-		}
+		return metric.GetArray(name, cwt.Type.Type)
 	}
-	return
+
+	switch cwt.Type.Type {
+	case Bool:
+		return metric.GetBool(name, cwt.Type.Nullable)
+	case Int8:
+		return metric.GetInt8(name, cwt.Type.Nullable)
+	case Int16:
+		return metric.GetInt16(name, cwt.Type.Nullable)
+	case Int32:
+		return metric.GetInt32(name, cwt.Type.Nullable)
+	case Int64:
+		return metric.GetInt64(name, cwt.Type.Nullable)
+	case UInt8:
+		return metric.GetUint8(name, cwt.Type.Nullable)
+	case UInt16:
+		return metric.GetUint16(name, cwt.Type.Nullable)
+	case UInt32:
+		return metric.GetUint32(name, cwt.Type.Nullable)
+	case UInt64:
+		return metric.GetUint64(name, cwt.Type.Nullable)
+	case Float32:
+		return metric.GetFloat32(name, cwt.Type.Nullable)
+	case Float64:
+		return metric.GetFloat64(name, cwt.Type.Nullable)
+	case Decimal:
+		return metric.GetDecimal(name, cwt.Type.Nullable)
+	case DateTime:
+		return metric.GetDateTime(name, cwt.Type.Nullable)
+	case String:
+		if cwt.Const != "" {
+			return cwt.Const
+		}
+		return metric.GetString(name, cwt.Type.Nullable)
+	case UUID:
+		return metric.GetUUID(name, cwt.Type.Nullable)
+	case Map:
+		return metric.GetMap(name, cwt.Type)
+	case Object:
+		return metric.GetObject(name, cwt.Type.Nullable)
+	case IPv4:
+		return metric.GetIPv4(name, cwt.Type.Nullable)
+	case IPv6:
+		return metric.GetIPv6(name, cwt.Type.Nullable)
+	default:
+		util.Logger.Fatal("LOGIC ERROR: reached switch default condition")
+	}
+
+	return ""
 }
 
 func WhichType(typ string) (ti *TypeInfo) {
@@ -200,7 +209,25 @@ func WhichType(typ string) (ti *TypeInfo) {
 
 func init() {
 	typeInfo = make(map[string]*TypeInfo)
-	for _, t := range []int{Bool, Int8, Int16, Int32, Int64, UInt8, UInt16, UInt32, UInt64, Float32, Float64, DateTime, String, Object, IPv4, IPv6} {
+	for _, t := range []int{
+		Bool,
+		Int8,
+		Int16,
+		Int32,
+		Int64,
+		UInt8,
+		UInt16,
+		UInt32,
+		UInt64,
+		Float32,
+		Float64,
+		DateTime,
+		String,
+		UUID,
+		Object,
+		IPv4,
+		IPv6,
+	} {
 		tn := GetTypeName(t)
 		typeInfo[tn] = &TypeInfo{Type: t}
 		nullTn := fmt.Sprintf("Nullable(%s)", tn)
@@ -208,9 +235,10 @@ func init() {
 		arrTn := fmt.Sprintf("Array(%s)", tn)
 		typeInfo[arrTn] = &TypeInfo{Type: t, Array: true}
 	}
-	typeInfo["UUID"] = &TypeInfo{Type: String}
-	typeInfo["Nullable(UUID)"] = &TypeInfo{Type: String, Nullable: true}
-	typeInfo["Array(UUID)"] = &TypeInfo{Type: String, Array: true}
+	// TODO: check
+	//typeInfo["UUID"] = &TypeInfo{Type: String}
+	//typeInfo["Nullable(UUID)"] = &TypeInfo{Type: String, Nullable: true}
+	//typeInfo["Array(UUID)"] = &TypeInfo{Type: String, Array: true}
 	typeInfo["Date"] = &TypeInfo{Type: DateTime}
 	typeInfo["Nullable(Date)"] = &TypeInfo{Type: DateTime, Nullable: true}
 	typeInfo["Array(Date)"] = &TypeInfo{Type: DateTime, Array: true}

@@ -20,12 +20,12 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/push"
 	"github.com/prometheus/common/expfmt"
 	"github.com/thanos-io/thanos/pkg/errors"
+	"github.com/viru-tech/clickhouse_sinker/util"
 	"go.uber.org/zap"
 )
 
@@ -246,6 +246,6 @@ func (p *Pusher) reconnect() {
 		Collector(WriteSeriesSucceed).
 		Collector(collectors.NewGoCollector()).
 		Collector(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{})).
-		Grouping("instance", p.instance).Format(expfmt.FmtText)
+		Grouping("instance", p.instance).Format(expfmt.NewFormat(expfmt.TypeTextPlain))
 	p.inUseAddr = nextAddr
 }

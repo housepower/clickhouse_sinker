@@ -23,25 +23,26 @@ import (
 
 // Metric interface for metric collection
 type Metric interface {
-	GetBool(key string, nullable bool) (val interface{})
-	GetInt8(key string, nullable bool) (val interface{})
-	GetInt16(key string, nullable bool) (val interface{})
-	GetInt32(key string, nullable bool) (val interface{})
-	GetInt64(key string, nullable bool) (val interface{})
-	GetUint8(key string, nullable bool) (val interface{})
-	GetUint16(key string, nullable bool) (val interface{})
-	GetUint32(key string, nullable bool) (val interface{})
-	GetUint64(key string, nullable bool) (val interface{})
-	GetFloat32(key string, nullable bool) (val interface{})
-	GetFloat64(key string, nullable bool) (val interface{})
-	GetDecimal(key string, nullable bool) (val interface{})
-	GetDateTime(key string, nullable bool) (val interface{})
-	GetString(key string, nullable bool) (val interface{})
-	GetObject(key string, nullable bool) (val interface{})
-	GetMap(key string, typeinfo *TypeInfo) (val interface{})
-	GetArray(key string, t int) (val interface{})
-	GetIPv4(key string, nullable bool) (val interface{})
-	GetIPv6(key string, nullable bool) (val interface{})
+	GetBool(key string, nullable bool) interface{}
+	GetInt8(key string, nullable bool) interface{}
+	GetInt16(key string, nullable bool) interface{}
+	GetInt32(key string, nullable bool) interface{}
+	GetInt64(key string, nullable bool) interface{}
+	GetUint8(key string, nullable bool) interface{}
+	GetUint16(key string, nullable bool) interface{}
+	GetUint32(key string, nullable bool) interface{}
+	GetUint64(key string, nullable bool) interface{}
+	GetFloat32(key string, nullable bool) interface{}
+	GetFloat64(key string, nullable bool) interface{}
+	GetDecimal(key string, nullable bool) interface{}
+	GetDateTime(key string, nullable bool) interface{}
+	GetString(key string, nullable bool) interface{}
+	GetUUID(key string, nullable bool) interface{}
+	GetObject(key string, nullable bool) interface{}
+	GetMap(key string, typeinfo *TypeInfo) interface{}
+	GetArray(key string, t int) interface{}
+	GetIPv4(key string, nullable bool) interface{}
+	GetIPv6(key string, nullable bool) interface{}
 	GetNewKeys(knownKeys, newKeys, warnKeys *sync.Map, white, black *regexp.Regexp, partition int, offset int64) bool
 }
 
@@ -53,10 +54,13 @@ type DimMetrics struct {
 
 // ColumnWithType
 type ColumnWithType struct {
-	Name        string
-	Type        *TypeInfo
-	SourceName  string
+	Name       string
+	Type       *TypeInfo
+	SourceName string
 	NotNullable bool
+
+	// Const is used to set column value to some constant from config.
+	Const string
 }
 
 // struct for ingesting a clickhouse Map type value

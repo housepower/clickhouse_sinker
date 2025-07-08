@@ -39,6 +39,7 @@ CREATE TABLE dist_apache_access_log ON CLUSTER abc AS apache_access_log ENGINE =
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -54,9 +55,9 @@ import (
 	"time"
 
 	"github.com/google/gops/agent"
-	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/thanos-io/thanos/pkg/errors"
 	"github.com/twmb/franz-go/pkg/kgo"
+	"github.com/viru-tech/clickhouse_sinker/util"
 	"go.uber.org/zap"
 )
 
@@ -176,7 +177,7 @@ func (g *LogGenerator) Init() error {
 			g.logfiles = append(g.logfiles, fp)
 		}
 	}
-	if g.logfiles == nil || len(g.logfiles) == 0 {
+	if len(g.logfiles) == 0 {
 		err := errors.Newf("There is no files under %v match pattern %v", LogfileDir, LogfilePattern)
 		return err
 	}
@@ -286,7 +287,7 @@ func (g *LogGenerator) Run() {
 				Xforwardfor:     "",
 			}
 			_ = wp.Submit(func() {
-				if b, err = JSONMarshal(&logObj); err != nil {
+				if b, err = json.Marshal(&logObj); err != nil {
 					err = errors.Wrapf(err, "")
 					util.Logger.Fatal("got error", zap.Error(err))
 				}

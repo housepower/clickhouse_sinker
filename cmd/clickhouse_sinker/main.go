@@ -26,10 +26,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	cm "github.com/housepower/clickhouse_sinker/config_manager"
-	"github.com/housepower/clickhouse_sinker/health"
-	"github.com/housepower/clickhouse_sinker/task"
-	"github.com/housepower/clickhouse_sinker/util"
+	cm "github.com/viru-tech/clickhouse_sinker/config_manager"
+	"github.com/viru-tech/clickhouse_sinker/health"
+	"github.com/viru-tech/clickhouse_sinker/task"
+	"github.com/viru-tech/clickhouse_sinker/util"
 	"go.uber.org/zap"
 
 	_ "github.com/ClickHouse/clickhouse-go/v2"
@@ -191,7 +191,7 @@ func main() {
 					}
 				}
 			})
-			health.Health.AddLivenessCheck("task", func() error {
+			err := health.Health.AddLivenessCheck("task", func() error {
 				var err error
 				if runner != nil && runner.GetCurrentConfig() != nil {
 					var stateLags map[string]cm.StateLag
@@ -211,6 +211,10 @@ func main() {
 				}
 				return nil
 			})
+			if err != nil {
+				return fmt.Errorf("failed to add check handler: %w", err)
+			}
+
 			mux.Handle("/metrics", httpMetrics)
 			mux.HandleFunc("/ready", health.Health.ReadyEndpoint) // GET /ready?full=1
 			mux.HandleFunc("/live", health.Health.LiveEndpoint)   // GET /live?full=1

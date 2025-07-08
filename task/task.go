@@ -25,26 +25,29 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/housepower/clickhouse_sinker/config"
-	"github.com/housepower/clickhouse_sinker/model"
-	"github.com/housepower/clickhouse_sinker/output"
-	"github.com/housepower/clickhouse_sinker/parser"
-	"github.com/housepower/clickhouse_sinker/statistics"
-	"github.com/housepower/clickhouse_sinker/util"
+	"github.com/confluentinc/confluent-kafka-go/schemaregistry"
+	"github.com/viru-tech/clickhouse_sinker/config"
+	"github.com/viru-tech/clickhouse_sinker/model"
+	"github.com/viru-tech/clickhouse_sinker/output"
+	"github.com/viru-tech/clickhouse_sinker/parser"
+	"github.com/viru-tech/clickhouse_sinker/statistics"
+	"github.com/viru-tech/clickhouse_sinker/util"
 	"go.uber.org/zap"
 	"golang.org/x/time/rate"
 )
 
 // TaskService holds the configuration for each task
 type Service struct {
-	clickhouse *output.ClickHouse
-	pp         *parser.Pool
-	taskCfg    *config.TaskConfig
-	whiteList  *regexp.Regexp
-	blackList  *regexp.Regexp
-	lblBlkList *regexp.Regexp
-	dims       []*model.ColumnWithType
-	numDims    int
+	clickhouse     *output.ClickHouse
+	schemaRegistry schemaregistry.Client
+	pp             *parser.Pool
+	cfg            *config.Config
+	taskCfg        *config.TaskConfig
+	whiteList      *regexp.Regexp
+	blackList      *regexp.Regexp
+	lblBlkList     *regexp.Regexp
+	dims           []*model.ColumnWithType
+	numDims        int
 
 	idxSerID int
 	nameKey  string
@@ -65,6 +68,7 @@ func cloneTask(s *Service, newGroup *Consumer) (service *Service) {
 	service = &Service{
 		clickhouse: s.clickhouse,
 		pp:         s.pp,
+		cfg:        s.cfg,
 		taskCfg:    s.taskCfg,
 		consumer:   s.consumer,
 		whiteList:  s.whiteList,
@@ -84,13 +88,9 @@ func cloneTask(s *Service, newGroup *Consumer) (service *Service) {
 // NewTaskService creates an instance of new tasks with kafka, clickhouse and paser instances
 func NewTaskService(cfg *config.Config, taskCfg *config.TaskConfig, c *Consumer) (service *Service) {
 	ck := output.NewClickHouse(cfg, taskCfg)
-	pp, err := parser.NewParserPool(taskCfg.Parser, taskCfg.CsvFormat, taskCfg.Delimiter, taskCfg.TimeZone, taskCfg.TimeUnit, taskCfg.Fields)
-	if err != nil {
-		util.Logger.Fatal("failed to create task", zap.String("group", c.grpConfig.Name), zap.String("task", taskCfg.Name), zap.Error(err))
-	}
 	service = &Service{
 		clickhouse: ck,
-		pp:         pp,
+		cfg:        cfg,
 		taskCfg:    taskCfg,
 		consumer:   c,
 	}
@@ -106,12 +106,23 @@ func NewTaskService(cfg *config.Config, taskCfg *config.TaskConfig, c *Consumer)
 	return
 }
 
-// Init initializes the kafak and clickhouse task associated with this service
+// Init initializes the kafka and clickhouse task associated with this service
 func (service *Service) Init() (err error) {
 	taskCfg := service.taskCfg
 	util.Logger.Info("task initializing", zap.String("task", taskCfg.Name))
 	if err = service.clickhouse.Init(); err != nil {
 		return
+	}
+
+	if service.cfg.SchemaRegistry.URL != "" {
+		service.schemaRegistry, err = schemaregistry.NewClient(schemaregistry.NewConfig(service.cfg.SchemaRegistry.URL))
+		if err != nil {
+			return
+		}
+	}
+	service.pp, err = parser.NewParserPool(taskCfg.Parser, taskCfg.CsvFormat, taskCfg.Delimiter, taskCfg.TimeZone, taskCfg.TimeUnit, taskCfg.Topic, service.schemaRegistry, taskCfg.Fields)
+	if err != nil {
+		util.Logger.Fatal("failed to create task", zap.String("group", service.consumer.grpConfig.Name), zap.String("task", taskCfg.Name), zap.Error(err))
 	}
 
 	service.dims = service.clickhouse.Dims

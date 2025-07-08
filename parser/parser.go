@@ -21,42 +21,54 @@ import (
 	"sync"
 	"time"
 
-	"github.com/housepower/clickhouse_sinker/model"
-	"github.com/housepower/clickhouse_sinker/util"
+	"github.com/confluentinc/confluent-kafka-go/schemaregistry"
+	"github.com/confluentinc/confluent-kafka-go/schemaregistry/serde"
 	"github.com/thanos-io/thanos/pkg/errors"
 	"github.com/valyala/fastjson"
+	"github.com/viru-tech/clickhouse_sinker/util"
+
+	"github.com/viru-tech/clickhouse_sinker/model"
+)
+
+const (
+	gjsonName    = "gjson"
+	fastJsonName = "fastjson"
+	csvName      = "csv"
+	protoName    = "proto"
+
+	zeroUUID = "00000000-0000-0000-0000-000000000000"
 )
 
 var (
 	Layouts = []string{
-		//DateTime, RFC3339
-		"2006-01-02T15:04:05Z07:00", //time.RFC3339, `date --iso-8601=s` on Ubuntu 20.04
-		"2006-01-02T15:04:05Z0700",  //`date --iso-8601=s` on CentOS 7.6
+		// DateTime, RFC3339
+		"2006-01-02T15:04:05Z07:00", // time.RFC3339, `date --iso-8601=s` on Ubuntu 20.04
+		"2006-01-02T15:04:05Z0700",  // `date --iso-8601=s` on CentOS 7.6
 		"2006-01-02T15:04:05",
-		//DateTime, ISO8601
-		"2006-01-02 15:04:05Z07:00", //`date --rfc-3339=s` output format
+		// DateTime, ISO8601
+		"2006-01-02 15:04:05Z07:00", // `date --rfc-3339=s` output format
 		"2006-01-02 15:04:05Z0700",
 		"2006-01-02 15:04:05",
-		//DateTime, other layouts supported by golang
-		"Mon Jan _2 15:04:05 2006",        //time.ANSIC
-		"Mon Jan _2 15:04:05 MST 2006",    //time.UnixDate
-		"Mon Jan 02 15:04:05 -0700 2006",  //time.RubyDate
-		"02 Jan 06 15:04 MST",             //time.RFC822
-		"02 Jan 06 15:04 -0700",           //time.RFC822Z
-		"Monday, 02-Jan-06 15:04:05 MST",  //time.RFC850
-		"Mon, 02 Jan 2006 15:04:05 MST",   //time.RFC1123
-		"Mon, 02 Jan 2006 15:04:05 -0700", //time.RFC1123Z
-		//DateTime, linux utils
+		// DateTime, other layouts supported by golang
+		"Mon Jan _2 15:04:05 2006",        // time.ANSIC
+		"Mon Jan _2 15:04:05 MST 2006",    // time.UnixDate
+		"Mon Jan 02 15:04:05 -0700 2006",  // time.RubyDate
+		"02 Jan 06 15:04 MST",             // time.RFC822
+		"02 Jan 06 15:04 -0700",           // time.RFC822Z
+		"Monday, 02-Jan-06 15:04:05 MST",  // time.RFC850
+		"Mon, 02 Jan 2006 15:04:05 MST",   // time.RFC1123
+		"Mon, 02 Jan 2006 15:04:05 -0700", // time.RFC1123Z
+		// DateTime, linux utils
 		"Mon Jan 02 15:04:05 MST 2006",    // `date` on CentOS 7.6 default output format
 		"Mon 02 Jan 2006 03:04:05 PM MST", // `date` on Ubuntu 20.4 default output format
-		//DateTime, home-brewed
+		// DateTime, home-brewed
 		"Jan 02, 2006 15:04:05Z07:00",
 		"Jan 02, 2006 15:04:05Z0700",
 		"Jan 02, 2006 15:04:05",
 		"02/Jan/2006 15:04:05 Z07:00",
 		"02/Jan/2006 15:04:05 Z0700",
 		"02/Jan/2006 15:04:05",
-		//Date
+		// Date
 		"2006-01-02",
 		"02/01/2006",
 		"02/Jan/2006",
@@ -74,19 +86,31 @@ type Parser interface {
 
 // Pool may be used for pooling Parsers for similarly typed JSONs.
 type Pool struct {
-	name         string
-	csvFormat    map[string]int
-	delimiter    string
-	timeZone     *time.Location
-	timeUnit     float64
-	knownLayouts sync.Map
-	pool         sync.Pool
-	once         sync.Once // only need to detect new keys from fields once
-	fields       string
+	name           string
+	topic          string
+	csvFormat      map[string]int
+	delimiter      string
+	timeZone       *time.Location
+	timeUnit       float64
+	knownLayouts   sync.Map
+	pool           sync.Pool
+	schemaRegistry schemaregistry.Client
+	deserializer   *serde.BaseDeserializer
+	once           sync.Once // only need to detect new keys from fields once
+	fields         string
 }
 
 // NewParserPool creates a parser pool
-func NewParserPool(name string, csvFormat []string, delimiter string, timezone string, timeunit float64, fields string) (pp *Pool, err error) {
+func NewParserPool(
+	name string,
+	csvFormat []string,
+	delimiter string,
+	timezone string,
+	timeunit float64,
+	topic string,
+	schemaRegistry schemaregistry.Client,
+	fields string,
+) (pp *Pool, err error) {
 	var tz *time.Location
 	if timezone == "" {
 		tz = time.Local
@@ -94,13 +118,25 @@ func NewParserPool(name string, csvFormat []string, delimiter string, timezone s
 		err = errors.Wrapf(err, "")
 		return
 	}
+
 	pp = &Pool{
-		name:      name,
-		delimiter: delimiter,
-		timeZone:  tz,
-		timeUnit:  timeunit,
-		fields:    fields,
+		name:           name,
+		topic:          topic,
+		delimiter:      delimiter,
+		timeZone:       tz,
+		timeUnit:       timeunit,
+		fields:         fields,
+		schemaRegistry: schemaRegistry,
 	}
+
+	if schemaRegistry != nil {
+		pp.deserializer = &serde.BaseDeserializer{}
+		if err = pp.deserializer.ConfigureDeserializer(schemaRegistry, serde.ValueSerde, serde.NewDeserializerConfig()); err != nil {
+			err = errors.Wrapf(err, "")
+			return
+		}
+	}
+
 	if csvFormat != nil {
 		pp.csvFormat = make(map[string]int, len(csvFormat))
 		for i, title := range csvFormat {
@@ -117,14 +153,25 @@ func (pp *Pool) Get() (Parser, error) {
 	v := pp.pool.Get()
 	if v == nil {
 		switch pp.name {
-		case "gjson":
+		case gjsonName:
 			return &GjsonParser{pp: pp}, nil
-		case "csv":
+		case csvName:
 			if pp.fields != "" {
 				util.Logger.Warn("extra fields for csv parser is not supported, fields ignored")
 			}
 			return &CsvParser{pp: pp}, nil
-		case "fastjson":
+		case protoName:
+			deserializer := &ProtoDeserializer{
+				schemaRegistry:   pp.schemaRegistry,
+				baseDeserializer: pp.deserializer,
+				fileDescriptors:  newFileDescriptorsCache(),
+				topic:            pp.topic,
+			}
+			return &ProtoParser{
+				pp:           pp,
+				deserializer: deserializer,
+			}, nil
+		case fastJsonName:
 			fallthrough
 		default:
 			var obj *fastjson.Object
@@ -203,7 +250,7 @@ func parseInLocation(val string, loc *time.Location) (t time.Time, layout string
 
 func UnixFloat(sec, unit float64) (t time.Time) {
 	sec, _ = new(big.Float).Mul(big.NewFloat(sec), big.NewFloat(unit)).Float64()
-	//2^32 seconds since epoch: 2106-02-07T06:28:16Z
+	// 2^32 seconds since epoch: 2106-02-07T06:28:16Z
 	if sec < 0 || sec >= 4294967296.0 {
 		return Epoch
 	}

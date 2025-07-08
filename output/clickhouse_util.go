@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/housepower/clickhouse_sinker/model"
-	"github.com/housepower/clickhouse_sinker/pool"
-	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/thanos-io/thanos/pkg/errors"
+	"github.com/viru-tech/clickhouse_sinker/model"
+	"github.com/viru-tech/clickhouse_sinker/pool"
+	"github.com/viru-tech/clickhouse_sinker/util"
 )
 
 func writeRows(prepareSQL string, rows model.Rows, idxBegin, idxEnd int, conn *pool.Conn) (numBad int, err error) {

@@ -5,10 +5,10 @@ import (
 	"sort"
 	"time"
 
-	"github.com/housepower/clickhouse_sinker/config"
-	cm "github.com/housepower/clickhouse_sinker/config_manager"
-	"github.com/housepower/clickhouse_sinker/pool"
-	"github.com/housepower/clickhouse_sinker/util"
+	"github.com/viru-tech/clickhouse_sinker/config"
+	cm "github.com/viru-tech/clickhouse_sinker/config_manager"
+	"github.com/viru-tech/clickhouse_sinker/pool"
+	"github.com/viru-tech/clickhouse_sinker/util"
 )
 
 var (

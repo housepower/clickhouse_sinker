@@ -24,14 +24,14 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/exp/constraints"
-
-	"github.com/housepower/clickhouse_sinker/model"
-	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/shopspring/decimal"
 	"github.com/thanos-io/thanos/pkg/errors"
 	"github.com/valyala/fastjson"
 	"go.uber.org/zap"
+	"golang.org/x/exp/constraints"
+
+	"github.com/viru-tech/clickhouse_sinker/model"
+	"github.com/viru-tech/clickhouse_sinker/util"
 )
 
 var _ Parser = (*FastjsonParser)(nil)
@@ -67,15 +67,19 @@ type FastjsonMetric struct {
 }
 
 func (c *FastjsonMetric) GetString(key string, nullable bool) (val interface{}) {
-	return getString(c.value.Get(key), nullable)
+	return getFastjsonStringOrDefault(c.value.Get(key), nullable, "")
+}
+
+func (c *FastjsonMetric) GetUUID(key string, nullable bool) interface{} {
+	return getFastjsonStringOrDefault(c.value.Get(key), nullable, zeroUUID)
 }
 
 func (c *FastjsonMetric) GetBool(key string, nullable bool) interface{} {
-	return getBool(c.value.Get(key), nullable)
+	return getFastjsonBool(c.value.Get(key), nullable)
 }
 
 func (c *FastjsonMetric) GetDecimal(key string, nullable bool) (val interface{}) {
-	return getDecimal(c.value.Get(key), nullable)
+	return getFastjsonDecimal(c.value.Get(key), nullable)
 }
 
 func (c *FastjsonMetric) GetInt8(key string, nullable bool) (val interface{}) {
@@ -124,6 +128,28 @@ func (c *FastjsonMetric) GetIPv4(key string, nullable bool) (val interface{}) {
 
 func (c *FastjsonMetric) GetIPv6(key string, nullable bool) (val interface{}) {
 	return getIPv6(c.value.Get(key), nullable)
+}
+
+func getFastjsonStringOrDefault(v *fastjson.Value, nullable bool, defaultValue string) interface{} {
+	if v == nil || v.Type() == fastjson.TypeNull {
+		if nullable {
+			return nil
+		}
+		return defaultValue
+	}
+
+	var val string
+	if v.Type() == fastjson.TypeString {
+		b, _ := v.StringBytes()
+		val = string(b)
+	} else {
+		val = v.String()
+	}
+
+	if val != "" {
+		return val
+	}
+	return defaultValue
 }
 
 func FastjsonGetInt[T constraints.Signed](v *fastjson.Value, nullable bool, min, max int64) (val interface{}) {
@@ -188,7 +214,7 @@ func FastjsonGetFloat[T constraints.Float](v *fastjson.Value, nullable bool, max
 }
 
 func (c *FastjsonMetric) GetDateTime(key string, nullable bool) (val interface{}) {
-	return getDateTime(c, key, c.value.Get(key), nullable)
+	return getFastjsonDateTime(c, key, c.value.Get(key), nullable)
 }
 
 func (c *FastjsonMetric) GetObject(key string, nullable bool) (val interface{}) {
@@ -253,30 +279,12 @@ func val2map(v *fastjson.Value) (m map[string]interface{}) {
 	return
 }
 
-func getString(v *fastjson.Value, nullable bool) (val interface{}) {
-	if v == nil || v.Type() == fastjson.TypeNull {
-		if nullable {
-			return
-		}
-		val = ""
-		return
-	}
-	switch v.Type() {
-	case fastjson.TypeString:
-		b, _ := v.StringBytes()
-		val = string(b)
-	default:
-		val = v.String()
-	}
-	return
-}
-
-func getBool(v *fastjson.Value, nullable bool) (val interface{}) {
+func getFastjsonBool(v *fastjson.Value, nullable bool) (val interface{}) {
 	if !fjCompatibleBool(v) {
 		val = getDefaultBool(nullable)
 		return
 	}
-	val = (v.Type() == fastjson.TypeTrue)
+	val = v.Type() == fastjson.TypeTrue
 	return
 }
 
@@ -285,7 +293,7 @@ func getIPv4(v *fastjson.Value, nullable bool) (val interface{}) {
 		if nullable {
 			return
 		}
-		val = ""
+		val = net.IPv4zero.String()
 		return
 	}
 	switch v.Type() {
@@ -310,7 +318,7 @@ func getIPv6(v *fastjson.Value, nullable bool) (val interface{}) {
 		if nullable {
 			return
 		}
-		val = ""
+		val = net.IPv6zero.String()
 		return
 	}
 	switch v.Type() {
@@ -328,7 +336,7 @@ func getIPv6(v *fastjson.Value, nullable bool) (val interface{}) {
 	return
 }
 
-func getDecimal(v *fastjson.Value, nullable bool) (val interface{}) {
+func getFastjsonDecimal(v *fastjson.Value, nullable bool) (val interface{}) {
 	if !fjCompatibleFloat(v) {
 		val = getDefaultDecimal(nullable)
 		return
@@ -341,7 +349,7 @@ func getDecimal(v *fastjson.Value, nullable bool) (val interface{}) {
 	return
 }
 
-func getDateTime(c *FastjsonMetric, sourcename string, v *fastjson.Value, nullable bool) (val interface{}) {
+func getFastjsonDateTime(c *FastjsonMetric, sourcename string, v *fastjson.Value, nullable bool) (val interface{}) {
 	if !fjCompatibleDateTime(v) {
 		val = getDefaultDateTime(nullable)
 		return
@@ -379,7 +387,7 @@ func getArray(c *FastjsonMetric, sourcename string, v *fastjson.Value, typ int) 
 	case model.Bool:
 		arr := make([]bool, 0)
 		for _, e := range array {
-			v := (e != nil && e.Type() == fastjson.TypeTrue)
+			v := e != nil && e.Type() == fastjson.TypeTrue
 			arr = append(arr, v)
 		}
 		val = arr
@@ -422,6 +430,25 @@ func getArray(c *FastjsonMetric, sourcename string, v *fastjson.Value, typ int) 
 				s = string(b)
 			default:
 				s = e.String()
+			}
+			arr = append(arr, s)
+		}
+		val = arr
+	case model.UUID:
+		arr := make([]string, 0)
+		var s string
+		for _, e := range array {
+			switch e.Type() {
+			case fastjson.TypeNull:
+				s = ""
+			case fastjson.TypeString:
+				b, _ := e.StringBytes()
+				s = string(b)
+			default:
+				s = e.String()
+			}
+			if s == "" {
+				s = zeroUUID
 			}
 			arr = append(arr, s)
 		}
@@ -569,7 +596,7 @@ func (c *FastjsonMetric) castMapValueByType(sourcename string, value *fastjson.V
 	} else {
 		switch typeinfo.Type {
 		case model.Bool:
-			val = getBool(value, typeinfo.Nullable)
+			val = getFastjsonBool(value, typeinfo.Nullable)
 		case model.Int8:
 			val = FastjsonGetInt[int8](value, typeinfo.Nullable, math.MinInt8, math.MaxInt8)
 		case model.Int16:
@@ -595,11 +622,11 @@ func (c *FastjsonMetric) castMapValueByType(sourcename string, value *fastjson.V
 		case model.Float64:
 			val = FastjsonGetFloat[float64](value, typeinfo.Nullable, math.MaxFloat64)
 		case model.Decimal:
-			val = getDecimal(value, typeinfo.Nullable)
+			val = getFastjsonDecimal(value, typeinfo.Nullable)
 		case model.DateTime:
-			val = getDateTime(c, sourcename, value, typeinfo.Nullable)
+			val = getFastjsonDateTime(c, sourcename, value, typeinfo.Nullable)
 		case model.String:
-			val = getString(value, typeinfo.Nullable)
+			val = getFastjsonStringOrDefault(value, typeinfo.Nullable, "")
 		case model.Map:
 			val = getMap(c, value, typeinfo)
 		case model.Object:

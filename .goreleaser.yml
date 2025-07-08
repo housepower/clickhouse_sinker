@@ -1,46 +1,31 @@
-# This is an example goreleaser.yaml file with some sane defaults.
-# Make sure to check the documentation at http://goreleaser.com
-before:
-  hooks:
-    # You may remove this if you don't use go modules.
-    - go mod download
-    # you may remove this if you don't need go generate
-    - go generate ./...
 builds:
   - id: clickhouse_sinker
-    env:
-      - CGO_ENABLED=0
-    goos:
-      - linux
-    goarch:
-      - amd64
-      - arm64
-    main: cmd/clickhouse_sinker/main.go
+    main: ./cmd/clickhouse_sinker
     binary: clickhouse_sinker
-  - id: nacos_publish_config
-    env:
-      - CGO_ENABLED=0
     goos:
       - linux
     goarch:
       - amd64
-      - arm64
-    main: cmd/nacos_publish_config/main.go
-    binary: nacos_publish_config
-archives:
-  - replacements:
-      darwin: Darwin
-      linux: Linux
-      windows: Windows
-      386: i386
-      amd64: x86_64
-checksum:
-  name_template: 'checksums.txt'
+    env:
+      - CGO_ENABLED=1
+
+release:
+  draft: true
+  target_commitish: '{{ .Commit }}'
+
 snapshot:
-  name_template: "{{ .Tag }}-next"
-changelog:
-  sort: asc
-  filters:
-    exclude:
-      - '^docs:'
-      - '^test:'
+  name_template: "{{.Tag}}"
+
+checksum:
+  name_template: "checksums.txt"
+
+nfpms:
+  - vendor: clickhouse_sinker
+    homepage: https://github.com/viru-tech/clickhouse_sinker
+    maintainer: VIRU developers
+    description: Sinker program that transfer kafka message into ClickHouse.
+    license: MIT
+    formats:
+      - deb
+      - rpm
+    file_name_template: "{{.ProjectName}}_{{.Os}}_{{.Arch}}"

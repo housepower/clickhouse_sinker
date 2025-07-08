@@ -12,6 +12,5 @@ nacos_cache
 *.pem
 *.p12
 dist
-vendor
 bin/
 

@@ -13,6 +13,7 @@ services:
       ZOO_4LW_COMMANDS_WHITELIST: "*"
     security_opt:
       - label:disable
+
   kafka:
     image: confluentinc/cp-kafka:7.5.3
     container_name: kafka
@@ -33,6 +34,7 @@ services:
       - zookeeper
     security_opt:
       - label:disable
+
   clickhouse:
     image: clickhouse/clickhouse-server:23.8
     restart: always
@@ -48,6 +50,7 @@ services:
       - "./docker/metrika.xml:/etc/clickhouse-server/config.d/metrika.xml"
     security_opt:
       - label:disable
+
   nacos:
     image: nacos/nacos-server:1.4.1
     container_name: nacos-standalone

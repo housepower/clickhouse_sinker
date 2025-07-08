@@ -23,10 +23,10 @@ import (
 	"time"
 
 	_ "github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/housepower/clickhouse_sinker/config"
-	cm "github.com/housepower/clickhouse_sinker/config_manager"
-	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/jinzhu/copier"
+	"github.com/viru-tech/clickhouse_sinker/config"
+	cm "github.com/viru-tech/clickhouse_sinker/config_manager"
+	"github.com/viru-tech/clickhouse_sinker/util"
 	"go.uber.org/zap"
 )
 

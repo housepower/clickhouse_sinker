@@ -1,31 +1,30 @@
+BIN_FOLDER := bin
 VERSION=$(shell git describe --tags --dirty)
+
+SINKER_LDFLAGS += -s -v -w
 SINKER_LDFLAGS += -X "main.version=$(VERSION)"
 SINKER_LDFLAGS += -X "main.date=$(shell date --iso-8601=s)"
 SINKER_LDFLAGS += -X "main.commit=$(shell git rev-parse HEAD)"
 SINKER_LDFLAGS += -X "main.builtBy=$(shell echo `whoami`@`hostname`)"
-DEFAULT_CFG_PATH = /etc/clickhouse_sinker.hjson
-IMG_TAGGED = hub.eoitek.net/aimeter/clickhouse_sinker:${VERSION}
-IMG_LATEST = hub.eoitek.net/aimeter/clickhouse_sinker:latest
-export GOPROXY=https://goproxy.cn,direct
 
-GO        := CGO_ENABLED=0 go
-GOBUILD   := $(GO) build $(BUILD_FLAG)
+GOBUILD := CGO_ENABLED=1 go build $(BUILD_FLAG)
 
-
-.PHONY: pre
-pre:
-	go mod tidy
+.PHONY: vendor
+vendor:
+	$(V)go mod tidy
+	$(V)go mod vendor
+	$(V)git add vendor go.mod go.sum
 
 .PHONY: build
-build: pre
-	$(GOBUILD) -ldflags '$(SINKER_LDFLAGS)' -o bin/ ./...
+build: vendor
+	$(GOBUILD) -ldflags '$(SINKER_LDFLAGS)' -o ${BIN_FOLDER}/ ./...
 
 .PHONY: debug
-debug: pre
-	$(GOBUILD) -ldflags '$(SINKER_LDFLAGS)' -gcflags "all=-N -l" -o bin/ ./...
+debug: vendor
+	$(GOBUILD) -ldflags '$(SINKER_LDFLAGS)' -gcflags "all=-N -l" -o ${BIN_FOLDER}/ ./...
 
 .PHONY: benchtest
-benchtest: pre
+benchtest: vendor
 	go test -bench=. ./...
 
 .PHONY: systest
@@ -34,34 +33,19 @@ systest: build
 	bash go.metrictest.sh
 
 .PHONY: gotest
-gotest: pre
+gotest: vendor
 	go test -v ./... -coverprofile=coverage.out -covermode count
 	go tool cover -func coverage.out
 
 .PHONY: lint
 lint:
-	golangci-lint run -D errcheck,govet,gosimple
+	golangci-lint run
 
 .PHONY: run
-run: pre
+run: vendor
 	go run cmd/clickhouse_sinker/main.go --local-cfg-file docker/test_dynamic_schema.hjson
 
-.PHONY: release
-release:
-	goreleaser release --skip-publish --clean
-
-.PHONY: docker-build
-docker-build: release
-	docker build . -t clickhouse_sinker:${VERSION} -f Dockerfile_goreleaser
-	docker tag clickhouse_sinker:${VERSION} ${IMG_TAGGED}
-	docker tag clickhouse_sinker:${VERSION} ${IMG_LATEST}
-	docker rmi clickhouse_sinker:${VERSION}
-
-.PHONY: docker-push
-docker-push:
-	docker push ${IMG_TAGGED}
-	docker push ${IMG_LATEST}
-
-.PHONY: docker-run
-docker-run:
-	docker run -d -v ${DEFAULT_CFG_PATH}:${DEFAULT_CFG_PATH} ${IMG_LATEST}
+.PHONY: generate
+generate:
+	buf generate
+	go generate -x ./...

@@ -29,8 +29,8 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/exp/constraints"
 
-	"github.com/housepower/clickhouse_sinker/model"
-	"github.com/housepower/clickhouse_sinker/util"
+	"github.com/viru-tech/clickhouse_sinker/model"
+	"github.com/viru-tech/clickhouse_sinker/util"
 )
 
 var _ Parser = (*GjsonParser)(nil)
@@ -57,8 +57,12 @@ func (c *GjsonMetric) getField(key string) gjson.Result {
 	return ret
 }
 
-func (c *GjsonMetric) GetString(key string, nullable bool) (val interface{}) {
-	return getGJsonString(c.getField(key), nullable)
+func (c *GjsonMetric) GetString(key string, nullable bool) interface{} {
+	return getGjsonStringOrDefault(c.getField(key), nullable, "")
+}
+
+func (c *GjsonMetric) GetUUID(key string, nullable bool) interface{} {
+	return getGjsonStringOrDefault(c.getField(key), nullable, zeroUUID)
 }
 
 func (c *GjsonMetric) GetBool(key string, nullable bool) (val interface{}) {
@@ -115,6 +119,30 @@ func (c *GjsonMetric) GetIPv4(key string, nullable bool) (val interface{}) {
 
 func (c *GjsonMetric) GetIPv6(key string, nullable bool) (val interface{}) {
 	return getGJsonIPv6(c, c.getField(key), nullable)
+}
+
+func getGjsonStringOrDefault(r gjson.Result, nullable bool, defaultValue string) interface{} {
+	if !r.Exists() || r.Type == gjson.Null {
+		if nullable {
+			return nil
+		}
+		return defaultValue
+	}
+
+	var val string
+	switch r.Type {
+	case gjson.Null:
+		return defaultValue
+	case gjson.String:
+		val = r.Str
+	default:
+		val = r.Raw
+	}
+
+	if val != "" {
+		return val
+	}
+	return defaultValue
 }
 
 func GjsonGetInt[T constraints.Signed](c *GjsonMetric, r gjson.Result, nullable bool, min, max int64) (val interface{}) {
@@ -483,7 +511,7 @@ func getGJsonIPv4(c *GjsonMetric, r gjson.Result, nullable bool) (val interface{
 		if nullable {
 			return
 		}
-		val = ""
+		val = net.IPv4zero.String()
 		return
 	}
 	switch r.Type {
@@ -509,7 +537,7 @@ func getGJsonIPv6(c *GjsonMetric, r gjson.Result, nullable bool) (val interface{
 		if nullable {
 			return
 		}
-		val = ""
+		val = net.IPv6zero.String()
 		return
 	}
 	switch r.Type {
@@ -591,6 +619,24 @@ func getGJsonArray(c *GjsonMetric, key string, r gjson.Result, typ int) (val int
 				f = float64(0.0)
 			}
 			results = append(results, decimal.NewFromFloat(f))
+		}
+		val = results
+	case model.UUID:
+		results := make([]string, 0, len(array))
+		var s string
+		for _, e := range array {
+			switch e.Type {
+			case gjson.Null:
+				s = ""
+			case gjson.String:
+				s = e.Str
+			default:
+				s = e.Raw
+			}
+			if s == "" {
+				s = zeroUUID
+			}
+			results = append(results, s)
 		}
 		val = results
 	case model.String:

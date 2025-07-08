@@ -27,12 +27,12 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/avast/retry-go/v4"
-	"github.com/housepower/clickhouse_sinker/config"
-	"github.com/housepower/clickhouse_sinker/model"
-	"github.com/housepower/clickhouse_sinker/pool"
-	"github.com/housepower/clickhouse_sinker/statistics"
-	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/thanos-io/thanos/pkg/errors"
+	"github.com/viru-tech/clickhouse_sinker/config"
+	"github.com/viru-tech/clickhouse_sinker/model"
+	"github.com/viru-tech/clickhouse_sinker/pool"
+	"github.com/viru-tech/clickhouse_sinker/statistics"
+	"github.com/viru-tech/clickhouse_sinker/util"
 	"go.uber.org/zap"
 )
 
@@ -453,10 +453,16 @@ func (c *ClickHouse) initSchema() (err error) {
 	} else {
 		c.Dims = make([]*model.ColumnWithType, 0, len(c.taskCfg.Dims))
 		for _, dim := range c.taskCfg.Dims {
+			mtype := model.WhichType(dim.Type)
+			if dim.Const != "" && (mtype.Type != model.String || mtype.Array) {
+				return fmt.Errorf("only non-array %s columns can be set as a constant", model.GetTypeName(mtype.Type))
+			}
+
 			c.Dims = append(c.Dims, &model.ColumnWithType{
 				Name:       dim.Name,
 				Type:       model.WhichType(dim.Type),
 				SourceName: dim.SourceName,
+				Const:      dim.Const,
 			})
 		}
 	}

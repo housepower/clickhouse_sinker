@@ -14,7 +14,6 @@
     }
     kafka: {
         brokers: 127.0.0.1:9093
-        version: 2.6.0
     }
     task: {
         name: test_dynamic_schema

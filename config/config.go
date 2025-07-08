@@ -27,7 +27,7 @@ import (
 	"github.com/hjson/hjson-go/v4"
 	"go.uber.org/zap"
 
-	"github.com/housepower/clickhouse_sinker/util"
+	"github.com/viru-tech/clickhouse_sinker/util"
 
 	"github.com/thanos-io/thanos/pkg/errors"
 )
@@ -35,6 +35,7 @@ import (
 // Config struct used for different configurations use
 type Config struct {
 	Kafka                   KafkaConfig
+	SchemaRegistry          SchemaRegistryConfig
 	Clickhouse              ClickHouseConfig
 	Discovery               Discovery
 	Task                    *TaskConfig
@@ -102,6 +103,11 @@ type KafkaConfig struct {
 	RebalanceByLags bool
 }
 
+// SchemaRegistryConfig configuration parameters
+type SchemaRegistryConfig struct {
+	URL string
+}
+
 // ClickHouseConfig configuration parameters
 type ClickHouseConfig struct {
 	Cluster  string
@@ -164,6 +170,8 @@ type TaskConfig struct {
 		Name       string
 		Type       string
 		SourceName string
+		// Const is used to set column value to some constant from config.
+		Const string
 	} `json:"dims"`
 	// DynamicSchema will add columns present in message to clickhouse. Requires AutoSchema be true.
 	DynamicSchema struct {
@@ -467,6 +475,10 @@ func (cfg *Config) normallizeTask(taskCfg *TaskConfig) (err error) {
 		taskCfg.AutoSchema = true
 	} else {
 		taskCfg.PromLabelsBlackList = ""
+	}
+	if taskCfg.Parser == "proto" && cfg.SchemaRegistry.URL == "" {
+		err = errors.Newf("Schema registry is required for parser %s", taskCfg.Parser)
+		return
 	}
 	if taskCfg.DynamicSchema.Enable {
 		taskCfg.AutoSchema = true

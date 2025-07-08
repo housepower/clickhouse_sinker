@@ -26,15 +26,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/housepower/clickhouse_sinker/config"
-	cm "github.com/housepower/clickhouse_sinker/config_manager"
-	"github.com/housepower/clickhouse_sinker/discovery"
-	"github.com/housepower/clickhouse_sinker/input"
-	"github.com/housepower/clickhouse_sinker/model"
-	"github.com/housepower/clickhouse_sinker/output"
-	"github.com/housepower/clickhouse_sinker/pool"
-	"github.com/housepower/clickhouse_sinker/statistics"
-	"github.com/housepower/clickhouse_sinker/util"
+	"github.com/viru-tech/clickhouse_sinker/config"
+	cm "github.com/viru-tech/clickhouse_sinker/config_manager"
+	"github.com/viru-tech/clickhouse_sinker/discovery"
+	"github.com/viru-tech/clickhouse_sinker/input"
+	"github.com/viru-tech/clickhouse_sinker/model"
+	"github.com/viru-tech/clickhouse_sinker/output"
+	"github.com/viru-tech/clickhouse_sinker/pool"
+	"github.com/viru-tech/clickhouse_sinker/statistics"
+	"github.com/viru-tech/clickhouse_sinker/util"
 	"go.uber.org/zap"
 )
 
@@ -591,7 +591,7 @@ func (s *Sinker) initBmSeries() (err error) {
 		if sqAny, ok := output.SeriesQuotas.Load(k); ok {
 			sq = sqAny.(*model.SeriesQuota)
 			sq.Lock()
-			res := sq.BmSeries != nil && len(sq.BmSeries) > 0
+			res := len(sq.BmSeries) > 0
 			sq.Unlock()
 			if res {
 				continue

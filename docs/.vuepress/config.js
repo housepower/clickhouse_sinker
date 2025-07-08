@@ -35,7 +35,7 @@ module.exports = {
           { text: "Configuration", link: "/configuration/flag" },
           {
             text: "GitHub",
-            link: "https://github.com/housepower/clickhouse_sinker",
+            link: "https://github.com/viru-tech/clickhouse_sinker",
           },
         ],
         sidebar: {
