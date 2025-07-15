@@ -188,6 +188,8 @@ func (c *Conn) write_v2(prepareSQL string, rows model.Rows, idxBegin, idxEnd int
 		err = errors.Wrapf(err, "pool.Conn.PrepareBatch %s", prepareSQL)
 		return
 	}
+	defer batch.Close()
+
 	var bmBad *roaring.Bitmap
 	for i, row := range rows {
 		if err = batch.Append((*row)[idxBegin:idxEnd]...); err != nil {
@@ -238,6 +240,14 @@ func (c *Conn) Write(prepareSQL string, rows model.Rows, idxBegin, idxEnd int) (
 	}
 	util.Logger.Debug("loop write completed", zap.Int("numbad", numBad))
 	return numBad, err
+}
+
+func (c *Conn) AsyncInsert(query string, wait bool) error {
+	if c.protocol == clickhouse.HTTP {
+		return fmt.Errorf("DO NOT SUPPORT THIS FUNCTION")
+	} else {
+		return c.c.AsyncInsert(c.ctx, query, wait)
+	}
 }
 
 func (c *Conn) Close() error {

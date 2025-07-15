@@ -55,14 +55,15 @@ type Fetches struct {
 // KafkaFranz implements input.Inputer
 // refers to examples/group_consuming/main.go
 type KafkaFranz struct {
-	cfg       *config.Config
-	grpConfig *config.GroupConfig
-	cl        *kgo.Client
-	ctx       context.Context
-	cancel    context.CancelFunc
-	wgRun     sync.WaitGroup
-	fetch     chan Fetches
-	cleanupFn func()
+	cfg        *config.Config
+	grpConfig  *config.GroupConfig
+	consumerId string
+	cl         *kgo.Client
+	ctx        context.Context
+	cancel     context.CancelFunc
+	wgRun      sync.WaitGroup
+	fetch      chan Fetches
+	cleanupFn  func()
 }
 
 // NewKafkaFranz get instance of kafka reader
@@ -94,6 +95,7 @@ func (k *KafkaFranz) Init(cfg *config.Config, gCfg *config.GroupConfig, f chan F
 		kgo.FetchMaxBytes(maxPartBytes),
 		kgo.FetchMaxPartitionBytes(maxPartBytes),
 		kgo.OnPartitionsRevoked(k.onPartitionRevoked),
+		kgo.OnPartitionsAssigned(k.onPartitionAssigned),
 		kgo.RebalanceTimeout(time.Millisecond*time.Duration(cfg.Kafka.Properties.RebalanceTimeout)),
 		kgo.SessionTimeout(time.Millisecond*time.Duration(cfg.Kafka.Properties.SessionTimeout)),
 		kgo.HeartbeatInterval(time.Millisecond*time.Duration(cfg.Kafka.Properties.HeartbeatInterval)),
@@ -181,11 +183,17 @@ func (k *KafkaFranz) Run() {
 LOOP:
 	for {
 		if !util.Rs.Allow() {
+			select {
+			case <-k.ctx.Done():
+				break LOOP
+			default:
+			}
 			continue
 		}
 		traceId := util.GenTraceId()
 		util.LogTrace(traceId, util.TraceKindFetchStart, zap.String("consumer group", k.grpConfig.Name), zap.Int("buffersize", k.grpConfig.BufferSize))
 		fetches := k.cl.PollRecords(k.ctx, k.grpConfig.BufferSize)
+		OnConsumerPoll(k.consumerId)
 		err := fetches.Err()
 		if fetches == nil || fetches.IsClientClosed() || errors.Is(err, context.Canceled) {
 			break
@@ -198,7 +206,11 @@ LOOP:
 		util.Rs.Inc(int64(fetchRecords))
 		util.LogTrace(traceId, util.TraceKindFetchEnd, zap.String("consumer group", k.grpConfig.Name), zap.Int64("records", int64(fetchRecords)))
 		// Automatically end the program if it remains inactive for a specific duration of time.
-		t := time.NewTimer(processTimeOut * time.Minute)
+		timeout := processTimeOut * time.Minute
+		if processTimeOut < time.Duration(k.cfg.Kafka.Properties.RebalanceTimeout)*time.Millisecond {
+			timeout = time.Duration(k.cfg.Kafka.Properties.RebalanceTimeout) * time.Millisecond
+		}
+		t := time.NewTimer(timeout)
 		select {
 		case k.fetch <- Fetches{
 			TraceId: traceId,
@@ -209,7 +221,7 @@ LOOP:
 			t.Stop()
 			break LOOP
 		case <-t.C:
-			util.Logger.Fatal(fmt.Sprintf("Sinker abort because group %s was not processing in last %d minutes", k.grpConfig.Name, processTimeOut))
+			util.Logger.Fatal(fmt.Sprintf("Sinker abort because group %s was not processing in last %d minutes", k.grpConfig.Name, timeout/time.Minute))
 		}
 	}
 	k.cl.Close() // will trigger k.onPartitionRevoked
@@ -264,4 +276,10 @@ func (k *KafkaFranz) onPartitionRevoked(_ context.Context, _ *kgo.Client, _ map[
 	util.Logger.Info("consumer group cleanup",
 		zap.String("consumer group", k.grpConfig.Name),
 		zap.Duration("cost", time.Since(begin)))
+}
+
+func (k *KafkaFranz) onPartitionAssigned(_ context.Context, _ *kgo.Client, _ map[string][]int32) {
+	memberId, _ := k.cl.GroupMetadata()
+	k.consumerId = memberId
+	NewConsumerPoller(k.consumerId, k.grpConfig.Name, k.cl)
 }

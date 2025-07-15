@@ -58,8 +58,7 @@ type Service struct {
 	cntNewKeys int32 // size of newKeys
 
 	sharder  *Sharder
-	limiter1 *rate.Limiter
-	limiter2 *rate.Limiter
+	limiter  *rate.Limiter //作用：控制打日志的频率
 	offShift int64
 	consumer *Consumer
 }
@@ -130,8 +129,7 @@ func (service *Service) Init() (err error) {
 	service.numDims = len(service.dims)
 	service.idxSerID = service.clickhouse.IdxSerID
 	service.nameKey = service.clickhouse.NameKey
-	service.limiter1 = rate.NewLimiter(rate.Every(10*time.Second), 1)
-	service.limiter2 = rate.NewLimiter(rate.Every(10*time.Second), 1)
+	service.limiter = rate.NewLimiter(rate.Every(10*time.Second), 1)
 	service.offShift = int64(util.GetShift(taskCfg.BufferSize))
 
 	if service.sharder, err = NewSharder(service); err != nil {
@@ -178,13 +176,16 @@ func (service *Service) Put(msg *model.InputMessage, traceId string, flushFn fun
 	if metric, err = p.Parse(msg.Value); err != nil {
 		// directly return, ignore the row with parsing errors
 		statistics.ParseMsgsErrorTotal.WithLabelValues(taskCfg.Name).Inc()
-		if service.limiter1.Allow() {
+		if service.limiter.Allow() {
 			util.Logger.Error(fmt.Sprintf("failed to parse message(topic %v, partition %d, offset %v)",
 				msg.Topic, msg.Partition, msg.Offset), zap.String("message value", string(msg.Value)), zap.String("task", taskCfg.Name), zap.Error(err))
 		}
 		return nil
 	} else {
 		row = service.metric2Row(metric, msg)
+		if row == nil {
+			return nil
+		}
 		if taskCfg.DynamicSchema.Enable {
 			foundNewKeys = metric.GetNewKeys(&service.knownKeys, &service.newKeys, &service.warnKeys, service.whiteList, service.blackList, msg.Partition, msg.Offset)
 		}
@@ -240,6 +241,7 @@ func (service *Service) metric2Row(metric model.Metric, msg *model.InputMessage)
 		newSeries := service.clickhouse.AllowWriteSeries(seriesID, mgmtID)
 		rowcount := service.idxSerID + 1 // including __series_id__
 		if newSeries {
+			// 啥意思？
 			rowcount += (service.numDims - service.idxSerID + 3)
 		}
 
@@ -255,9 +257,15 @@ func (service *Service) metric2Row(metric model.Metric, msg *model.InputMessage)
 				dim := service.dims[i]
 				val := model.GetValueByType(metric, dim)
 				row = append(row, val)
-				if val != nil && dim.Type.Type == model.String && dim.Name != service.nameKey && dim.Name != "le" && (service.lblBlkList == nil || !service.lblBlkList.MatchString(dim.Name)) {
+				if dim.Type.Type == model.String && dim.Name != service.nameKey && dim.Name != "le" && (service.lblBlkList == nil || !service.lblBlkList.MatchString(dim.Name)) {
 					// "labels" JSON excludes "le", so that "labels" can be used as group key for histogram queries.
-					labelVal := val.(string)
+					// todo: what does "le" mean?
+					var labelVal string
+					if val == nil {
+						labelVal = "null"
+					} else {
+						labelVal = val.(string)
+					}
 					labels = append(labels, fmt.Sprintf(`%s: %s`, strconv.Quote(dim.Name), strconv.Quote(labelVal)))
 				}
 			}
@@ -283,6 +291,18 @@ func (service *Service) metric2Row(metric model.Metric, msg *model.InputMessage)
 				}
 			} else {
 				val := model.GetValueByType(metric, dim)
+				if dim.NotNullable && val == nil {
+					// null 不能插入到非 nullbale字段中
+					util.Logger.Warn("null value detected, throw this message",
+						zap.String("dimension", dim.Name),
+						zap.String("task", service.taskCfg.Name),
+						zap.String("topic", msg.Topic),
+						zap.Int("partition", msg.Partition),
+						zap.Int64("offset", msg.Offset),
+						zap.String("key", string(msg.Key)),
+						zap.Time("timestamp", *msg.Timestamp))
+					return nil
+				}
 				row = append(row, val)
 			}
 		}

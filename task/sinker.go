@@ -26,9 +26,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/viru-tech/clickhouse_sinker/config"
 	cm "github.com/viru-tech/clickhouse_sinker/config_manager"
+	"github.com/viru-tech/clickhouse_sinker/discovery"
+	"github.com/viru-tech/clickhouse_sinker/input"
 	"github.com/viru-tech/clickhouse_sinker/model"
 	"github.com/viru-tech/clickhouse_sinker/output"
 	"github.com/viru-tech/clickhouse_sinker/pool"
@@ -38,14 +39,10 @@ import (
 )
 
 var (
-	createTableSQL = `CREATE TABLE IF NOT EXISTS %s AS %s.%s ENGINE=Merge('%s', '%s')`
-	dropTableSQL   = `DROP TABLE IF EXISTS %s `
-	countSeriesSQL = `WITH (SELECT max(timestamp) FROM %s) AS m
-	SELECT count() FROM %s FINAL WHERE %s GLOBAL IN (
-	SELECT DISTINCT %s FROM %s WHERE timestamp >= addSeconds(m, -%d));`
-	loadSeriesSQL = `WITH (SELECT max(timestamp) FROM %s) AS m
-	SELECT toInt64(%s) AS sid, toInt64(%s) AS mid FROM %s FINAL WHERE sid GLOBAL IN (
-	SELECT DISTINCT toInt64(%s) FROM %s WHERE timestamp >= addSeconds(m, -%d)
+	countSeriesSQL = `SELECT DISTINCT COUNT() FROM %s WHERE %s GLOBAL IN (
+	SELECT DISTINCT %s FROM %s WHERE TIMESTAMP >= addSeconds(now(), -%d));`
+	loadSeriesSQL = `SELECT DISTINCT toInt64(%s) AS sid, toInt64(%s) AS mid FROM %s WHERE sid GLOBAL IN (
+	SELECT DISTINCT toInt64(%s) FROM %s WHERE TIMESTAMP >= addSeconds(now(), -%d)
 	) ORDER BY sid;`
 )
 
@@ -131,7 +128,8 @@ func (s *Sinker) Run() {
 			util.Logger.Fatal("s.applyConfig failed", zap.Error(err))
 			return
 		}
-
+		pollTicker := time.NewTicker(time.Duration(s.curCfg.Kafka.Properties.MaxPollInterval) * time.Millisecond)
+		defer pollTicker.Stop()
 		reloadBmSeriesTicker := time.NewTicker(time.Duration(s.curCfg.ReloadSeriesMapInterval) * time.Second)
 		defer reloadBmSeriesTicker.Stop()
 	LOOP:
@@ -157,9 +155,27 @@ func (s *Sinker) Run() {
 						zap.String("consumer", c.grpConfig.Name))
 				}
 			case <-reloadBmSeriesTicker.C:
-				util.Logger.Info("offloading out-of-date series record")
-				if err = s.reloadBmSeries(); err != nil {
-					util.Logger.Error("reloadBmSeries failed", zap.Error(err))
+				needReload := false
+				output.SeriesQuotas.Range(func(key, value any) bool {
+					needReload = true
+					return false
+				})
+				if needReload {
+					util.Logger.Info("offloading out-of-date series record")
+					if err = s.reloadBmSeries(); err != nil {
+						util.Logger.Error("reloadBmSeries failed", zap.Error(err))
+					}
+				}
+			case <-pollTicker.C:
+				consumerName := input.Walk(s.curCfg.Kafka.Properties.MaxPollInterval)
+				if consumerName != "" {
+					if consumer, ok := s.consumers[consumerName]; ok {
+						util.Logger.Warn("consumer restarted because of max.poll.interval.ms changed", zap.String("consumer", consumerName), zap.Int("max.poll.interval.ms", s.curCfg.Kafka.Properties.MaxPollInterval))
+						go func() {
+							consumer.stop()
+							s.consumerRestartCh <- consumer
+						}()
+					}
 				}
 			}
 		}
@@ -167,14 +183,19 @@ func (s *Sinker) Run() {
 		if s.cmdOps.NacosServiceName != "" {
 			go s.rcm.Run()
 		}
+		sd := discovery.NewDiscovery(s.curCfg, s.rcm, s.rcm != nil)
 		// Golang <-time.After() is not garbage collected before expiry.
 		ticker := time.NewTicker(10 * time.Second)
 		defer ticker.Stop()
-
-		// start the ticker with default value 1 hour
 		curInterval := 3600
 		reloadBmSeriesTicker := time.NewTicker(time.Second * time.Duration(curInterval))
 		defer reloadBmSeriesTicker.Stop()
+		pollInterval := config.DefaultMaxPollIntervalMs
+		pollTicker := time.NewTicker(time.Duration(pollInterval) * time.Millisecond)
+		defer pollTicker.Stop()
+		sdInterval := config.DefaultDiscoveryIntervalSec
+		sdTicker := time.NewTicker(time.Duration(sdInterval) * time.Second)
+		defer sdTicker.Stop()
 	WORKLOOP:
 		for {
 			select {
@@ -195,17 +216,25 @@ func (s *Sinker) Run() {
 					continue
 				}
 				if s.curCfg != nil {
+					sdInterval = s.curCfg.Discovery.CheckInterval
 					curInterval = s.curCfg.ReloadSeriesMapInterval
 				}
 				if err = s.applyConfig(newCfg); err != nil {
 					util.Logger.Error("s.applyConfig failed", zap.Error(err))
 					continue
 				}
+				if curInterval != newCfg.Kafka.Properties.MaxPollInterval {
+					pollTicker.Reset(time.Duration(newCfg.Kafka.Properties.MaxPollInterval) * time.Millisecond)
+				}
+				if sdInterval != newCfg.Discovery.CheckInterval {
+					sdTicker.Reset(time.Duration(newCfg.Discovery.CheckInterval) * time.Second)
+				}
 				if curInterval != newCfg.ReloadSeriesMapInterval {
-					reloadBmSeriesTicker.Reset(time.Duration(newCfg.ReloadSeriesMapInterval) * time.Second)
+					reloadBmSeriesTicker.Reset(time.Second * time.Duration(newCfg.ReloadSeriesMapInterval))
 				}
 			case c := <-s.consumerRestartCh:
 				// only restart the consumer which was not changed in applyAnotherConfig
+				util.Logger.Info("consumer going to restart", zap.String("consumer", c.grpConfig.Name))
 				if c == s.consumers[c.grpConfig.Name] {
 					newGroup := newConsumer(s, c.grpConfig)
 					s.consumers[c.grpConfig.Name] = newGroup
@@ -221,9 +250,36 @@ func (s *Sinker) Run() {
 						zap.String("consumer", c.grpConfig.Name))
 				}
 			case <-reloadBmSeriesTicker.C:
-				util.Logger.Info("offloading out-of-date series record")
-				if err = s.reloadBmSeries(); err != nil {
-					util.Logger.Error("reloadBmSeries failed", zap.Error(err))
+				needReload := false
+				output.SeriesQuotas.Range(func(key, value any) bool {
+					needReload = true
+					return false
+				})
+				if needReload {
+					util.Logger.Info("offloading out-of-date series record")
+					if err = s.reloadBmSeries(); err != nil {
+						util.Logger.Error("reloadBmSeries failed", zap.Error(err))
+					}
+				}
+			case <-pollTicker.C:
+				consumerName := input.Walk(curInterval)
+				if consumerName != "" {
+					if consumer, ok := s.consumers[consumerName]; ok {
+						util.Logger.Warn("consumer restarted because of max.poll.interval.ms changed", zap.String("consumer", consumerName), zap.Int("max.poll.interval.ms", curInterval))
+						go func() {
+							consumer.stop()
+							s.consumerRestartCh <- consumer
+						}()
+					}
+				}
+			case <-sdTicker.C:
+				sd.SetConfig(*s.curCfg)
+				if sd.IsEnabled() {
+					if err = sd.GetCKConn(); err == nil {
+						if err = sd.Dispatcher(); err != nil {
+							util.Logger.Error("sd.Dispatcher failed", zap.Error(err))
+						}
+					}
 				}
 			}
 		}
@@ -325,7 +381,8 @@ func (s *Sinker) applyFirstConfig(newCfg *config.Config) (err error) {
 		for _, tsk := range grpCfg.Configs {
 			task := NewTaskService(newCfg, tsk, c)
 			if err = task.Init(); err != nil {
-				return
+				util.Logger.Warn("task init failed", zap.String("name", tsk.Name), zap.Error(err))
+				continue
 			}
 		}
 		s.consumers[group] = c
@@ -367,7 +424,8 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 			for _, tsk := range grpCfg.Configs {
 				task := NewTaskService(newCfg, tsk, c)
 				if err = task.Init(); err != nil {
-					return
+					util.Logger.Warn("task init failed", zap.String("name", tsk.Name), zap.Error(err))
+					continue
 				}
 				tasksToStart = append(tasksToStart, tsk.Name)
 			}
@@ -438,7 +496,8 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 				for _, tCfg := range v.Configs {
 					task := NewTaskService(newCfg, tCfg, c)
 					if err = task.Init(); err != nil {
-						return
+						util.Logger.Warn("task init failed", zap.String("name", v.Name), zap.Error(err))
+						continue
 					}
 				}
 				s.consumers[v.Name] = c
@@ -521,7 +580,7 @@ func (s *Sinker) initBmSeries() (err error) {
 	})
 
 	var conn *pool.Conn
-	if conn, _, err = pool.GetShardConn(0).NextGoodReplica(0); err != nil {
+	if conn, _, err = pool.GetShardConn(0).NextGoodReplica(s.curCfg.Clickhouse.Ctx, 0); err != nil {
 		return
 	}
 
@@ -589,7 +648,7 @@ func (s *Sinker) reloadBmSeries() (err error) {
 	}
 
 	var conn *pool.Conn
-	if conn, _, err = pool.GetShardConn(0).NextGoodReplica(0); err != nil {
+	if conn, _, err = pool.GetShardConn(0).NextGoodReplica(s.curCfg.Clickhouse.Ctx, 0); err != nil {
 		return
 	}
 
@@ -602,6 +661,9 @@ func (s *Sinker) reloadBmSeries() (err error) {
 
 		sq := sqMap[k]
 		sq.Lock()
+		/*
+			FIXME: BmSeries and seriesMap will stored in memory at the same time
+		*/
 		sq.BmSeries = seriesMap
 		sq.Birth = time.Now()
 		sq.Unlock()
@@ -614,36 +676,27 @@ func (s *Sinker) reloadBmSeries() (err error) {
 func loadBmSeries(conn *pool.Conn, sqKey string, tasks []*Service, activeSeriesRange int) (result map[int64]int64, err error) {
 	// merge all metric tables to get the latest timestamp
 	// old bmseries record won't be loaded into memory to avoid OOM
-	var reg string
 	var dimSerID, dimMgmtID string
 
 	/* FIXME: We can't assume that the series_id and mgmt_id of all tasks are the same,
 	because some tasks may be old and some are newly created
 	*/
-	for _, svc := range tasks {
-		r := svc.clickhouse.GetMetricTable()
-		dimSerID, dimMgmtID = svc.clickhouse.DimSerID, svc.clickhouse.DimMgmtID
-		if r != "" {
-			reg += ("^" + r + "$|")
-		}
-	}
-	mergetable := strings.ReplaceAll(sqKey+uuid.New().String(), "-", "_")
+	svc := tasks[0]
 	dbname := strings.Split(sqKey, ".")[0]
-	query := fmt.Sprintf(createTableSQL, mergetable, dbname, tasks[0].clickhouse.GetMetricTable(), dbname, reg[:len(reg)-1])
-	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", tasks[0].taskCfg.Name))
-	if err = conn.Exec(query); err != nil {
-		return
-	}
+	dimSerID, dimMgmtID = svc.clickhouse.DimSerID, svc.clickhouse.DimMgmtID
+	metricTable := dbname + "." + svc.clickhouse.GetMetricTable()
 
 	var count uint64
-	query = fmt.Sprintf(countSeriesSQL, mergetable, sqKey, dimSerID, dimSerID, mergetable, activeSeriesRange)
+	query := fmt.Sprintf(countSeriesSQL, sqKey, dimSerID, dimSerID, metricTable, activeSeriesRange)
 	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", tasks[0].taskCfg.Name))
 	if err = conn.QueryRow(query).Scan(&count); err != nil {
 		return
 	}
+	if count < 1<<20 {
+		count = 1 << 20 //100w allocate 38M memory
+	}
 	seriesMap := make(map[int64]int64, count)
-
-	query = fmt.Sprintf(loadSeriesSQL, mergetable, dimSerID, dimMgmtID, sqKey, dimSerID, mergetable, activeSeriesRange)
+	query = fmt.Sprintf(loadSeriesSQL, dimSerID, dimMgmtID, sqKey, dimSerID, metricTable, activeSeriesRange)
 	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", tasks[0].taskCfg.Name))
 	rs, err := conn.Query(query)
 	if err != nil {
@@ -658,9 +711,6 @@ func loadBmSeries(conn *pool.Conn, sqKey string, tasks []*Service, activeSeriesR
 		}
 		seriesMap[seriesID] = mgmtID
 	}
-	query = fmt.Sprintf(dropTableSQL, mergetable)
-	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", tasks[0].taskCfg.Name))
-	err = conn.Exec(query)
-
+	util.Logger.Info(fmt.Sprintf("loaded %d series for %s", len(seriesMap), sqKey))
 	return seriesMap, err
 }

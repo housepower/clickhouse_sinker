@@ -140,6 +140,7 @@ func (ncm *NacosConfManager) GetConfig() (conf *config.Config, err error) {
 }
 
 func (ncm *NacosConfManager) PublishConfig(conf *config.Config) (err error) {
+	util.Logger.Info("publish config to nacos")
 	var bs []byte
 	if bs, err = hjson.Marshal(*conf); err != nil {
 		err = errors.Wrapf(err, "")
@@ -223,27 +224,29 @@ func (ncm *NacosConfManager) Run() {
 		util.Logger.Fatal("ncm.namingClient.Subscribe failed with permanent error", zap.Error(err))
 	}
 
-	// Assign regularly to handle lag change
-	ticker := time.NewTicker(5 * time.Minute)
-	defer ticker.Stop()
-	lagticker := time.NewTicker(10 * time.Second)
-	defer lagticker.Stop()
-LOOP_FOR:
-	for {
-		select {
-		case <-ncm.ctx.Done():
-			util.Logger.Info("NacosConfManager.Run quit due to context has been canceled")
-			break LOOP_FOR
-		case <-ticker.C:
-			util.Logger.Debug("assign triggered by 5 min timer")
-			if err := ncm.assign(); err != nil {
-				util.Logger.Error("assign failed", zap.Error(err))
-			} else {
-				lagticker.Reset(10 * time.Second)
-			}
-		case <-lagticker.C:
-			if err := ncm.calculateGroupLag(); err != nil {
-				util.Logger.Error("calculate lag failed", zap.Error(err))
+	if ncm.curCfg.Kafka.RebalanceByLags {
+		// Assign regularly to handle lag change
+		ticker := time.NewTicker(time.Duration(ncm.curCfg.Kafka.AssignInterval) * time.Minute)
+		defer ticker.Stop()
+		lagticker := time.NewTicker(time.Duration(ncm.curCfg.Kafka.CalcLagInterval) * time.Second)
+		defer lagticker.Stop()
+	LOOP_FOR:
+		for {
+			select {
+			case <-ncm.ctx.Done():
+				util.Logger.Info("NacosConfManager.Run quit due to context has been canceled")
+				break LOOP_FOR
+			case <-ticker.C:
+				util.Logger.Debug("assign triggered by 5 min timer")
+				if err := ncm.assign(); err != nil {
+					util.Logger.Error("assign failed", zap.Error(err))
+				} else {
+					lagticker.Reset(10 * time.Second)
+				}
+			case <-lagticker.C:
+				if err := ncm.calculateGroupLag(); err != nil {
+					util.Logger.Error("calculate lag failed", zap.Error(err))
+				}
 			}
 		}
 	}
@@ -334,83 +337,107 @@ func (ncm *NacosConfManager) assign() (err error) {
 		return
 	}
 	if reflect.DeepEqual(ncm.curInsts, newInsts) &&
-		reflect.DeepEqual(ncm.curCfg, newCfg) &&
+		reflect.DeepEqual(ncm.curCfg.Tasks, newCfg.Tasks) &&
+		reflect.DeepEqual(ncm.curCfg.Task, newCfg.Task) &&
 		ncm.curCfg.Assignment.UpdatedBy == ncm.instance &&
 		time.Unix(ncm.curCfg.Assignment.UpdatedAt, 0).Add(10*time.Minute).After(time.Now()) {
 		util.Logger.Info("Both instances and config are up-to-date, and the config was published by myself in less than 10 minutes.")
 		return
 	}
 
-	var stateLags map[string]StateLag
-	if stateLags, err = GetTaskStateAndLags(newCfg); err != nil {
-		return
-	}
-	util.Logger.Debug(fmt.Sprintf("task state and lags %+v", stateLags))
-
-	var validTasks []string
-	for _, taskCfg := range newCfg.Tasks {
-		// make sure all tasks get properly assigned
-		validTasks = append(validTasks, taskCfg.Name)
-		if _, ok := stateLags[taskCfg.Name]; !ok {
-			stateLags[taskCfg.Name] = StateLag{State: "NA", Lag: 0}
-		}
-	}
-	sort.Slice(validTasks, func(i, j int) bool {
-		taskNameI := validTasks[i]
-		lagI := stateLags[taskNameI].Lag
-		taskNameJ := validTasks[j]
-		lagJ := stateLags[taskNameJ].Lag
-		return (lagI > lagJ) || (lagI == lagJ && taskNameI < taskNameJ)
-	})
-
 	instAgs := make([]*InstanceAssignment, len(newInsts))
-	for i, instance := range newInsts {
-		instAgs[i] = &InstanceAssignment{
-			Instance: instance,
+	if ncm.curCfg.Kafka.RebalanceByLags {
+		var stateLags map[string]StateLag
+		if stateLags, err = GetTaskStateAndLags(newCfg); err != nil {
+			return
 		}
-	}
-	// distribute tasks in snake way
-	for idxTask := 0; idxTask < len(validTasks); idxTask++ {
-		idxInst := idxTask % len(newInsts)
-		if (idxTask/len(newInsts))%2 == 1 {
-			idxInst = len(newInsts) - 1 - idxInst
-		}
-		taskName := validTasks[idxTask]
-		taskLag := stateLags[taskName].Lag
-		instAg := instAgs[idxInst]
-		instAg.TotalLag += taskLag
-		instAg.TaskLags = append(instAg.TaskLags, TaskLag{Task: taskName, Lag: taskLag})
-	}
-	// balance
-	if len(newInsts) >= 2 && len(validTasks) > len(newInsts) {
-		last := len(newInsts) - 1
-		for {
-			sort.Slice(instAgs, func(i, j int) bool {
-				return (instAgs[i].TotalLag > instAgs[j].TotalLag) || (instAgs[i].TotalLag == instAgs[j].TotalLag && instAgs[i].Instance < instAgs[j].Instance)
-			})
-			diffLag := float64(instAgs[0].TotalLag - instAgs[last].TotalLag)
-			diffLagAbs := math.Abs(diffLag)
-			if diffLag == 0.0 {
-				break
+		util.Logger.Debug(fmt.Sprintf("task state and lags %+v", stateLags))
+
+		var validTasks []string
+		for _, taskCfg := range newCfg.Tasks {
+			// make sure all tasks get properly assigned
+			validTasks = append(validTasks, taskCfg.Name)
+			if _, ok := stateLags[taskCfg.Name]; !ok {
+				stateLags[taskCfg.Name] = StateLag{State: "NA", Lag: 0}
 			}
-			var moved bool
-			for idx := 0; idx < len(instAgs[0].TaskLags); idx++ {
-				movingTask := instAgs[0].TaskLags[idx]
-				if math.Abs(diffLag-float64(2*movingTask.Lag)) < diffLagAbs {
-					instAgs[0].TotalLag -= movingTask.Lag
-					instAgs[last].TotalLag += movingTask.Lag
-					instAgs[0].TaskLags = append(instAgs[0].TaskLags[:idx], instAgs[0].TaskLags[idx+1:]...)
-					instAgs[last].TaskLags = append(instAgs[last].TaskLags, movingTask)
-					sort.Slice(instAgs[last].TaskLags, func(i, j int) bool {
-						return instAgs[last].TaskLags[i].Lag > instAgs[last].TaskLags[j].Lag
-					})
-					moved = true
+		}
+		sort.Slice(validTasks, func(i, j int) bool {
+			taskNameI := validTasks[i]
+			lagI := stateLags[taskNameI].Lag
+			taskNameJ := validTasks[j]
+			lagJ := stateLags[taskNameJ].Lag
+			return (lagI > lagJ) || (lagI == lagJ && taskNameI < taskNameJ)
+		})
+
+		for i, instance := range newInsts {
+			instAgs[i] = &InstanceAssignment{
+				Instance: instance,
+			}
+		}
+		// distribute tasks in snake way
+		for idxTask := 0; idxTask < len(validTasks); idxTask++ {
+			idxInst := idxTask % len(newInsts)
+			if (idxTask/len(newInsts))%2 == 1 {
+				idxInst = len(newInsts) - 1 - idxInst
+			}
+			taskName := validTasks[idxTask]
+			taskLag := stateLags[taskName].Lag
+			instAg := instAgs[idxInst]
+			instAg.TotalLag += taskLag
+			instAg.TaskLags = append(instAg.TaskLags, TaskLag{Task: taskName, Lag: taskLag})
+		}
+		// balance
+		if len(newInsts) >= 2 && len(validTasks) > len(newInsts) {
+			last := len(newInsts) - 1
+			for {
+				sort.Slice(instAgs, func(i, j int) bool {
+					return (instAgs[i].TotalLag > instAgs[j].TotalLag) || (instAgs[i].TotalLag == instAgs[j].TotalLag && instAgs[i].Instance < instAgs[j].Instance)
+				})
+				diffLag := float64(instAgs[0].TotalLag - instAgs[last].TotalLag)
+				diffLagAbs := math.Abs(diffLag)
+				if diffLag == 0.0 {
+					break
+				}
+				var moved bool
+				for idx := 0; idx < len(instAgs[0].TaskLags); idx++ {
+					movingTask := instAgs[0].TaskLags[idx]
+					if math.Abs(diffLag-float64(2*movingTask.Lag)) < diffLagAbs {
+						instAgs[0].TotalLag -= movingTask.Lag
+						instAgs[last].TotalLag += movingTask.Lag
+						instAgs[0].TaskLags = append(instAgs[0].TaskLags[:idx], instAgs[0].TaskLags[idx+1:]...)
+						instAgs[last].TaskLags = append(instAgs[last].TaskLags, movingTask)
+						sort.Slice(instAgs[last].TaskLags, func(i, j int) bool {
+							return instAgs[last].TaskLags[i].Lag > instAgs[last].TaskLags[j].Lag
+						})
+						moved = true
+						break
+					}
+				}
+				if !moved {
 					break
 				}
 			}
-			if !moved {
-				break
+		}
+	} else {
+		var validTasks []string
+		for _, taskCfg := range newCfg.Tasks {
+			// make sure all tasks get properly assigned
+			validTasks = append(validTasks, taskCfg.Name)
+		}
+		for i, instance := range newInsts {
+			instAgs[i] = &InstanceAssignment{
+				Instance: instance,
 			}
+		}
+		// distribute tasks in snake way
+		for idxTask := 0; idxTask < len(validTasks); idxTask++ {
+			idxInst := idxTask % len(newInsts)
+			if (idxTask/len(newInsts))%2 == 1 {
+				idxInst = len(newInsts) - 1 - idxInst
+			}
+			taskName := validTasks[idxTask]
+			instAg := instAgs[idxInst]
+			instAg.TaskLags = append(instAg.TaskLags, TaskLag{Task: taskName})
 		}
 	}
 

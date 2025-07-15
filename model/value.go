@@ -16,6 +16,7 @@ limitations under the License.
 package model
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -44,6 +45,7 @@ const (
 	Map
 	IPv4
 	IPv6
+	JSON
 )
 
 type TypeInfo struct {
@@ -94,6 +96,8 @@ func GetTypeName(typ int) (name string) {
 		name = "UUID"
 	case Object:
 		name = "Object('json')"
+	case JSON:
+		name = "JSON"
 	case Map:
 		name = "Map"
 	case IPv4:
@@ -150,6 +154,12 @@ func GetValueByType(metric Metric, cwt *ColumnWithType) interface{} {
 		return metric.GetMap(name, cwt.Type)
 	case Object:
 		return metric.GetObject(name, cwt.Type.Nullable)
+	case JSON:
+		val := metric.GetObject(name, cwt.Type.Nullable)
+		data, err := json.Marshal(val)
+		if err == nil {
+			return data
+		}
 	case IPv4:
 		return metric.GetIPv4(name, cwt.Type.Nullable)
 	case IPv6:
@@ -227,6 +237,7 @@ func init() {
 		Object,
 		IPv4,
 		IPv6,
+		JSON,
 	} {
 		tn := GetTypeName(t)
 		typeInfo[tn] = &TypeInfo{Type: t}

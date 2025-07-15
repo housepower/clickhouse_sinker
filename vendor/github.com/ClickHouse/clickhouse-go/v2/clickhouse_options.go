@@ -20,6 +20,7 @@ package clickhouse
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -29,7 +30,6 @@ import (
 	"time"
 
 	"github.com/ClickHouse/ch-go/compress"
-	"github.com/pkg/errors"
 )
 
 type CompressionMethod byte
@@ -77,6 +77,7 @@ var compressionMap = map[string]CompressionMethod{
 
 type Auth struct { // has_control_character
 	Database string
+
 	Username string
 	Password string
 }
@@ -123,7 +124,7 @@ func ParseDSN(dsn string) (*Options, error) {
 
 type Dial func(ctx context.Context, addr string, opt *Options) (DialResult, error)
 type DialResult struct {
-	conn *connect
+	conn nativeTransport
 }
 
 type HTTPProxy func(*http.Request) (*url.URL, error)
@@ -149,11 +150,17 @@ type Options struct {
 	FreeBufOnConnRelease bool              // drop preserved memory buffer after each query
 	HttpHeaders          map[string]string // set additional headers on HTTP requests
 	HttpUrlPath          string            // set additional URL path for HTTP requests
+	HttpMaxConnsPerHost  int               // MaxConnsPerHost for http.Transport
 	BlockBufferSize      uint8             // default 2 - can be overwritten on query
 	MaxCompressionBuffer int               // default 10485760 - measured in bytes  i.e.
 
 	// HTTPProxy specifies an HTTP proxy URL to use for requests made by the client.
 	HTTPProxyURL *url.URL
+
+	// GetJWT should return a JWT for authentication with ClickHouse Cloud.
+	// This is called per connection/request, so you may cache the token in your app if needed.
+	// Use this instead of Auth.Username and Auth.Password if you're using JWT auth.
+	GetJWT GetJWTFunc
 
 	scheme      string
 	ReadTimeout time.Duration
@@ -210,7 +217,7 @@ func (o *Options) fromDSN(in string) error {
 		case "compress_level":
 			level, err := strconv.ParseInt(params.Get(v), 10, 8)
 			if err != nil {
-				return errors.Wrap(err, "compress_level invalid value")
+				return fmt.Errorf("compress_level invalid value: %w", err)
 			}
 
 			if o.Compression == nil {
@@ -226,7 +233,7 @@ func (o *Options) fromDSN(in string) error {
 		case "max_compression_buffer":
 			max, err := strconv.Atoi(params.Get(v))
 			if err != nil {
-				return errors.Wrap(err, "max_compression_buffer invalid value")
+				return fmt.Errorf("max_compression_buffer invalid value: %w", err)
 			}
 			o.MaxCompressionBuffer = max
 		case "dial_timeout":
@@ -282,25 +289,27 @@ func (o *Options) fromDSN(in string) error {
 		case "max_open_conns":
 			maxOpenConns, err := strconv.Atoi(params.Get(v))
 			if err != nil {
-				return errors.Wrap(err, "max_open_conns invalid value")
+				return fmt.Errorf("max_open_conns invalid value: %w", err)
 			}
 			o.MaxOpenConns = maxOpenConns
 		case "max_idle_conns":
 			maxIdleConns, err := strconv.Atoi(params.Get(v))
 			if err != nil {
-				return errors.Wrap(err, "max_idle_conns invalid value")
+				return fmt.Errorf("max_idle_conns invalid value: %w", err)
 			}
 			o.MaxIdleConns = maxIdleConns
 		case "conn_max_lifetime":
 			connMaxLifetime, err := time.ParseDuration(params.Get(v))
 			if err != nil {
-				return errors.Wrap(err, "conn_max_lifetime invalid value")
+				return fmt.Errorf("conn_max_lifetime invalid value: %w", err)
 			}
 			o.ConnMaxLifetime = connMaxLifetime
 		case "username":
 			o.Auth.Username = params.Get(v)
 		case "password":
 			o.Auth.Password = params.Get(v)
+		case "database":
+			o.Auth.Database = params.Get(v)
 		case "client_info_product":
 			chunks := strings.Split(params.Get(v), ",")
 

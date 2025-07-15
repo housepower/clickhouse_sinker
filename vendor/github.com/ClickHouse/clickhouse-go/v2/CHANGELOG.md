@@ -1,3 +1,125 @@
+# v2.37.2, 2025-06-23 <!-- Release notes generated using configuration in .github/release.yml at main -->
+
+## What's Changed
+### Other Changes 🛠
+* remove dependency on v1, update ch-go by @SpencerTorres in https://github.com/ClickHouse/clickhouse-go/pull/1580
+
+
+**Full Changelog**: https://github.com/ClickHouse/clickhouse-go/compare/v2.37.1...v2.37.2
+
+# v2.37.1, 2025-06-17 <!-- Release notes generated using configuration in .github/release.yml at main -->
+
+## What's Changed
+### Bug fixes 🐛 
+* Fix Native API HTTP bugs by @SpencerTorres in https://github.com/ClickHouse/clickhouse-go/pull/1578
+* Fixed critical bug with the new HTTP Native API where connections were not being released.
+* Also fixed random HTTP 400 errors with large batches over HTTP 
+
+
+
+**Full Changelog**: https://github.com/ClickHouse/clickhouse-go/compare/v2.37.0...v2.37.1
+
+# v2.37.0, 2025-06-16 <!-- Release notes generated using configuration in .github/release.yml at main -->
+
+## What's Changed
+### Enhancements 🎉 
+* Scanning Datetime and Datetime64 into int64 by @vaibhav-kt in https://github.com/ClickHouse/clickhouse-go/pull/1560
+* Supports scanning of Array, IPv4, IPv6, and Map types into Go values that implement the `sql.Scanner` interface. by @zapateo in https://github.com/ClickHouse/clickhouse-go/pull/1570
+* Support HTTP connnections in Native Go interface by @SpencerTorres in https://github.com/ClickHouse/clickhouse-go/pull/1577 (see details at bottom of release notes!)
+
+### Bug fixes 🐛  
+* fix: Prevent panic on slice map keys by @disq in https://github.com/ClickHouse/clickhouse-go/pull/1567
+* object_json: split JSON tag to remove any trailing omitempty by @dschofie in https://github.com/ClickHouse/clickhouse-go/pull/1547
+* fix: namedValue namedDatevalue usage error by @tosolveit in https://github.com/ClickHouse/clickhouse-go/pull/1575
+* Fix false positives in TestInterfaceArray by @tosolveit in https://github.com/ClickHouse/clickhouse-go/pull/1572
+
+### HTTP in ClickHouse API
+
+This release includes a bug fix / enhancement for the "ClickHouse API" interface. Previously the only way to use HTTP was through the `database/sql` interface, but now you can use `Protocol: clickhouse.HTTP` in your `clickhouse.Open` options.
+HTTP still has some limitations to be aware of for things like batch flushing and session context, so be cautious when switching over code to this protocol. Please report any issues you may have with this change. Native protocol shouldn't be affected, but you can downgrade to v2.36.x if you notice any issues.
+
+## New Contributors
+* @disq made their first contribution in https://github.com/ClickHouse/clickhouse-go/pull/1567
+* @vaibhav-kt made their first contribution in https://github.com/ClickHouse/clickhouse-go/pull/1560
+* @tosolveit made their first contribution in https://github.com/ClickHouse/clickhouse-go/pull/1572
+* @dschofie made their first contribution in https://github.com/ClickHouse/clickhouse-go/pull/1547
+* @zapateo made their first contribution in https://github.com/ClickHouse/clickhouse-go/pull/1570
+
+**Full Changelog**: https://github.com/ClickHouse/clickhouse-go/compare/v2.36.0...v2.37.0
+
+# v2.36.0, 2025-06-03 <!-- Release notes generated using configuration in .github/release.yml at main -->
+
+## What's Changed
+### Enhancements 🎉 
+* Add `Close` function to batch interface by @SpencerTorres in https://github.com/ClickHouse/clickhouse-go/pull/1566
+
+
+**Full Changelog**: https://github.com/ClickHouse/clickhouse-go/compare/v2.35.0...v2.36.0
+
+# v2.35.0, 2025-05-22 <!-- Release notes generated using configuration in .github/release.yml at main -->
+
+## What's Changed
+### Enhancements 🎉
+* JWT Authentication by @SpencerTorres in https://github.com/ClickHouse/clickhouse-go/pull/1538
+* Add support for overriding `database` in DSN URL by @kokizzu in https://github.com/ClickHouse/clickhouse-go/pull/1541
+
+
+**Full Changelog**: https://github.com/ClickHouse/clickhouse-go/compare/v2.34.0...v2.35.0
+
+# v2.34.0, 2025-04-01 <!-- Release notes generated using configuration in .github/release.yml at main -->
+
+## What's Changed
+
+### Enhancements 🎉 
+* allow appending to Decimal column with `string` by @rutaka-n in https://github.com/ClickHouse/clickhouse-go/pull/1532
+* Enhancements for decimal strings by @SpencerTorres in https://github.com/ClickHouse/clickhouse-go/pull/1535
+### Bug fixes 🐛 
+* Add length check to `FixedString` to prevent panic by @SpencerTorres in https://github.com/ClickHouse/clickhouse-go/pull/1534
+### Other Changes 🛠
+* chore: replace github.com/pkg/errors with stdlib by @hazzik in https://github.com/ClickHouse/clickhouse-go/pull/1530
+
+## New Contributors
+* @hazzik made their first contribution in https://github.com/ClickHouse/clickhouse-go/pull/1530
+
+**Full Changelog**: https://github.com/ClickHouse/clickhouse-go/compare/v2.33.1...v2.34.0
+
+# v2.33.1, 2025-03-18 <!-- Release notes generated using configuration in .github/release.yml at main -->
+
+## What's Changed
+### Bug fixes 🐛 
+* fix concurrent map write errors with context by @SpencerTorres in https://github.com/ClickHouse/clickhouse-go/pull/1523
+
+
+**Full Changelog**: https://github.com/ClickHouse/clickhouse-go/compare/v2.33.0...v2.33.1
+
+# v2.33.0, 2025-03-07 <!-- Release notes generated using configuration in .github/release.yml at main -->
+
+## What's Changed
+### Enhancements 🎉 
+* Add handling for nested structs in named tuples by @Exca-DK in https://github.com/ClickHouse/clickhouse-go/pull/1500
+* Add option to control MaxConnsPerHost for http.Transport by @holycheater in https://github.com/ClickHouse/clickhouse-go/pull/1517
+
+### Bug fixes 🐛 
+* fix ConnOpenRandom strategy, issue: #1509 by @PalanQu in https://github.com/ClickHouse/clickhouse-go/pull/1510
+* fix: preserve nil elements in map by @SpencerTorres in https://github.com/ClickHouse/clickhouse-go/pull/1516
+
+
+## New Contributors
+* @PalanQu made their first contribution in https://github.com/ClickHouse/clickhouse-go/pull/1510
+* @Exca-DK made their first contribution in https://github.com/ClickHouse/clickhouse-go/pull/1500
+* @holycheater made their first contribution in https://github.com/ClickHouse/clickhouse-go/pull/1517
+
+**Full Changelog**: https://github.com/ClickHouse/clickhouse-go/compare/v2.32.2...v2.33.0
+
+# v2.32.2, 2025-02-20 <!-- Release notes generated using configuration in .github/release.yml at main -->
+
+## What's Changed
+### Bug Fixes 🐛 
+* fix: decode prefix of nested columns in Variant by @SpencerTorres in https://github.com/ClickHouse/clickhouse-go/pull/1506
+
+
+**Full Changelog**: https://github.com/ClickHouse/clickhouse-go/compare/v2.32.1...v2.32.2
+
 # v2.32.1, 2025-02-17 <!-- Release notes generated using configuration in .github/release.yml at main -->
 
 ## What's Changed

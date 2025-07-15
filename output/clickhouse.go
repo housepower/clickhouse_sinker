@@ -37,19 +37,26 @@ import (
 )
 
 var (
-	ErrTblNotExist    = errors.Newf("table doesn't exist")
-	selectSQLTemplate = `select name, type, default_kind from system.columns where database = '%s' and table = '%s'`
-
-	// https://github.com/ClickHouse/ClickHouse/issues/24036
-	// src/Common/ErrorCodes.cpp
-	// src/Storages/MergeTree/ReplicatedMergeTreeBlockOutputStream.cpp
-	// ZooKeeper issues(https://issues.apache.org/jira/browse/ZOOKEEPER-4410) can cause ClickHouse exeception: "Code": 999, "Message": "Cannot allocate block number..."
-	// CKServer too many parts possibly reason: https://github.com/ClickHouse/ClickHouse/issues/6720#issuecomment-526045768
-	// zooKeeper Connection loss issue: https://cwiki.apache.org/confluence/display/ZOOKEEPER/FAQ#:~:text=How%20should%20I%20handle%20the%20CONNECTION_LOSS%20error%3F
-	// zooKeeper Session expired issue: https://cwiki.apache.org/confluence/display/ZOOKEEPER/FAQ#:~:text=How%20should%20I%20handle%20SESSION_EXPIRED%3F
-	// TOO_MANY_SIMULTANEOUS_QUERIES, NO_ZOOKEEPER, TABLE_IS_READ_ONLY, TOO_MANY_PARTS, UNKNOWN_STATUS_OF_INSERT, KEEPER_EXCEPTION, POCO_EXCEPTION
-	replicaSpecificErrorCodes = []int32{202, 225, 242, 252, 319, 999, 1000}
-	wrSeriesQuota             = 16384
+	ErrTblNotExist     = errors.Newf("table doesn't exist")
+	selectSQLTemplate  = `select name, type, default_kind from system.columns where database = '%s' and table = '%s'`
+	referedSQLTemplate = `SELECT 
+    current_col.default_expression,
+    referenced_col.type AS referenced_col_type,
+    current_col.name,
+    current_col.type
+FROM 
+    system.columns AS current_col
+JOIN 
+    system.columns AS referenced_col 
+ON 
+    current_col.database = referenced_col.database 
+    AND current_col.table = referenced_col.table 
+    AND current_col.default_expression = referenced_col.name 
+WHERE 
+    current_col.database = '%s' 
+    AND
+    current_col.table = '%s';`
+	wrSeriesQuota int = 16384
 
 	SeriesQuotas sync.Map
 )
@@ -91,11 +98,11 @@ func init() {
 		var result = make(map[string]string)
 		SeriesQuotas.Range(func(key, value interface{}) bool {
 			if sq, ok := value.(*model.SeriesQuota); ok {
-				sq.Lock()
+				sq.RLock()
 				if bs, err := json.Marshal(sq); err == nil {
 					result[key.(string)] = string(bs)
 				}
-				sq.Unlock()
+				sq.RUnlock()
 			}
 			return true
 		})
@@ -157,9 +164,11 @@ func (c *ClickHouse) AllowWriteSeries(sid, mid int64) (allowed bool) {
 	defer c.seriesQuota.Unlock()
 	mid2, loaded := c.seriesQuota.BmSeries[sid]
 	if !loaded {
+		util.Logger.Debug("found new series", zap.Int64("mid", mid), zap.Int64("sid", sid))
 		allowed = true
 		statistics.WriteSeriesAllowNew.WithLabelValues(c.taskCfg.Name).Inc()
 	} else if mid != mid2 {
+		util.Logger.Debug("found new series map", zap.Int64("mid", mid), zap.Int64("sid", sid))
 		if c.seriesQuota.WrSeries < wrSeriesQuota {
 			c.seriesQuota.WrSeries++
 			allowed = true
@@ -223,7 +232,7 @@ func (c *ClickHouse) write(batch *model.Batch, sc *pool.ShardConn, dbVer *int) (
 		return
 	}
 	var conn *pool.Conn
-	if conn, *dbVer, err = sc.NextGoodReplica(*dbVer); err != nil {
+	if conn, *dbVer, err = sc.NextGoodReplica(c.cfg.Clickhouse.Ctx, *dbVer); err != nil {
 		return
 	}
 	util.Logger.Debug("writing batch", zap.String("task", c.taskCfg.Name), zap.String("replica", sc.GetReplica()), zap.Int("dbVer", *dbVer))
@@ -269,7 +278,7 @@ func (c *ClickHouse) loopWrite(batch *model.Batch, sc *pool.ShardConn, traceId s
 		retry.LastErrorOnly(true),
 		retry.Attempts(uint(times)),
 		retry.Delay(10*time.Second),
-		retry.RetryIf(func(err error) bool { return shouldReconnect(err, sc) }),
+		retry.MaxDelay(1*time.Minute),
 		retry.OnRetry(func(n uint, err error) {
 			retrycount++
 			util.Logger.Error("flush batch failed",
@@ -395,10 +404,11 @@ func (c *ClickHouse) initSeriesSchema(conn *pool.Conn) (err error) {
 	// Check distributed series table
 	if chCfg := &c.cfg.Clickhouse; chCfg.Cluster != "" {
 		withDistTable := false
-		info, e := c.getDistTbls(c.seriesTbl)
+		info, e := c.getDistTbls(c.seriesTbl, chCfg.Cluster)
 		if e != nil {
 			return e
 		}
+		c.distSeriesTbls = make([]string, 0)
 		for _, i := range info {
 			c.distSeriesTbls = append(c.distSeriesTbls, i.name)
 			if i.cluster == c.cfg.Clickhouse.Cluster {
@@ -433,7 +443,7 @@ func (c *ClickHouse) initSchema() (err error) {
 
 	sc := pool.GetShardConn(0)
 	var conn *pool.Conn
-	if conn, _, err = sc.NextGoodReplica(0); err != nil {
+	if conn, _, err = sc.NextGoodReplica(c.cfg.Clickhouse.Ctx, 0); err != nil {
 		return
 	}
 	if c.taskCfg.AutoSchema {
@@ -498,10 +508,11 @@ func (c *ClickHouse) initSchema() (err error) {
 	// Check distributed metric table
 	if chCfg := &c.cfg.Clickhouse; chCfg.Cluster != "" {
 		withDistTable := false
-		info, e := c.getDistTbls(c.TableName)
+		info, e := c.getDistTbls(c.TableName, chCfg.Cluster)
 		if e != nil {
 			return e
 		}
+		c.distMetricTbls = make([]string, 0)
 		for _, i := range info {
 			c.distMetricTbls = append(c.distMetricTbls, i.name)
 			if i.cluster == c.cfg.Clickhouse.Cluster {
@@ -557,6 +568,8 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 			strVal = "DateTime64(3)"
 		case model.Object:
 			strVal = model.GetTypeName(intVal)
+		case model.JSON:
+			strVal = "JSON"
 		default:
 			err = errors.Newf("%s: BUG: unsupported column type %s", taskCfg.Name, model.GetTypeName(intVal))
 			return false
@@ -582,13 +595,13 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 
 	sc := pool.GetShardConn(0)
 	var conn *pool.Conn
-	if conn, _, err = sc.NextGoodReplica(0); err != nil {
+	if conn, _, err = sc.NextGoodReplica(c.cfg.Clickhouse.Ctx, 0); err != nil {
 		return
 	}
 
 	var version string
-	if err = conn.QueryRow("SELECT Version()").Scan(&version); err != nil {
-		return
+	if err = conn.QueryRow("SELECT version()").Scan(&version); err != nil {
+		version = "1.0.0.0"
 	}
 	alterTable := func(tbl, col string) error {
 		query := fmt.Sprintf("ALTER TABLE `%s`.`%s` %s %s", c.dbName, tbl, onCluster, col)
@@ -627,15 +640,15 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 	return
 }
 
-func (c *ClickHouse) getDistTbls(table string) (distTbls []DistTblInfo, err error) {
+func (c *ClickHouse) getDistTbls(table, clusterName string) (distTbls []DistTblInfo, err error) {
 	taskCfg := c.taskCfg
 	sc := pool.GetShardConn(0)
 	var conn *pool.Conn
-	if conn, _, err = sc.NextGoodReplica(0); err != nil {
+	if conn, _, err = sc.NextGoodReplica(c.cfg.Clickhouse.Ctx, 0); err != nil {
 		return
 	}
-	query := fmt.Sprintf(`SELECT name, (extractAllGroups(engine_full, '(Distributed\\(\')(.*)\',\\s+\'(.*)\',\\s+\'(.*)\'(.*)')[1])[2] AS cluster
-	 FROM system.tables WHERE engine='Distributed' AND database='%s' AND match(engine_full, 'Distributed\(\'.*\', \'%s\', \'%s\'.*\)')`,
+	query := fmt.Sprintf(`SELECT name, (extractAllGroups(engine_full, '(Distributed\\(\')(.*)\',\\s+\'(.*)\',\\s+\'(.*)\'(.*)')[1])[2] AS CLUSTER
+	 FROM system.tables WHERE engine='Distributed' AND DATABASE='%s' AND MATCH(engine_full, 'Distributed\(\'.*\', \'%s\', \'%s\'.*\)')`,
 		c.dbName, c.dbName, table)
 	util.Logger.Info(fmt.Sprintf("executing sql=> %s", query), zap.String("task", taskCfg.Name))
 	var rows *pool.Rows
@@ -644,21 +657,30 @@ func (c *ClickHouse) getDistTbls(table string) (distTbls []DistTblInfo, err erro
 		return
 	}
 	defer rows.Close()
+	var curInfo DistTblInfo
 	for rows.Next() {
 		var name, cluster string
 		if err = rows.Scan(&name, &cluster); err != nil {
 			err = errors.Wrapf(err, "")
 			return
 		}
-		distTbls = append(distTbls, DistTblInfo{name: name, cluster: cluster})
+		if cluster == clusterName {
+			// distributed table
+			curInfo = DistTblInfo{name: name, cluster: cluster}
+		} else {
+			// logic table
+			distTbls = append(distTbls, DistTblInfo{name: name, cluster: cluster})
+		}
 	}
+	// dist table always in the end
+	distTbls = append(distTbls, curInfo)
 	return
 }
 
 func (c *ClickHouse) GetSeriesQuotaKey() string {
 	if c.taskCfg.PrometheusSchema {
 		if c.cfg.Clickhouse.Cluster != "" {
-			return c.dbName + "." + c.distSeriesTbls[0]
+			return c.dbName + "." + c.distSeriesTbls[len(c.distSeriesTbls)-1]
 		} else {
 			return c.dbName + "." + c.seriesTbl
 		}
@@ -669,7 +691,7 @@ func (c *ClickHouse) GetSeriesQuotaKey() string {
 func (c *ClickHouse) GetMetricTable() string {
 	if c.taskCfg.PrometheusSchema {
 		if c.cfg.Clickhouse.Cluster != "" {
-			return c.distMetricTbls[0]
+			return c.distMetricTbls[len(c.distMetricTbls)-1]
 		} else {
 			return c.TableName
 		}

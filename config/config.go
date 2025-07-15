@@ -16,10 +16,12 @@ limitations under the License.
 package config
 
 import (
+	"context"
 	"net"
 	"os"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/hjson/hjson-go/v4"
@@ -35,6 +37,7 @@ type Config struct {
 	Kafka                   KafkaConfig
 	SchemaRegistry          SchemaRegistryConfig
 	Clickhouse              ClickHouseConfig
+	Discovery               Discovery
 	Task                    *TaskConfig
 	Tasks                   []*TaskConfig
 	Assignment              Assignment
@@ -55,6 +58,7 @@ type KafkaConfig struct {
 		SessionTimeout         int `json:"session.timeout.ms"`
 		RebalanceTimeout       int `json:"rebalance.timeout.ms"`
 		RequestTimeoutOverhead int `json:"request.timeout.ms"`
+		MaxPollInterval        int `json:"max.poll.interval.ms"`
 	}
 	ResetSaslRealm bool
 	Security       map[string]string
@@ -94,6 +98,9 @@ type KafkaConfig struct {
 			DisablePAFXFAST    bool
 		}
 	}
+	AssignInterval  int
+	CalcLagInterval int
+	RebalanceByLags bool
 }
 
 // SchemaRegistryConfig configuration parameters
@@ -115,9 +122,28 @@ type ClickHouseConfig struct {
 	Secure bool
 	// Whether skip verify clickhouse-server cert
 	InsecureSkipVerify bool
+	RetryTimes         int // <=0 means retry infinitely
+	MaxOpenConns       int
+	ReadTimeout        int
+	AsyncInsert        bool
+	AsyncSettings      struct {
+		// refers to https://clickhouse.com/docs/en/operations/settings/settings#async-insert
+		AsyncInsertMaxDataSize    int `json:"async_insert_max_data_size,omitempty"`
+		AsyncInsertMaxQueryNumber int `json:"async_insert_max_query_number,omitempty"` // 450
+		AsyncInsertBusyTimeoutMs  int `json:"async_insert_busy_timeout_ms,omitempty"`  // 200
+		WaitforAsyncInsert        int `json:"wait_for_async_insert,omitempty"`
+		WaitforAsyncInsertTimeout int `json:"wait_for_async_insert_timeout,omitempty"`
+		AsyncInsertThreads        int `json:"async_insert_threads,omitempty"` // 16
+		AsyncInsertDeduplicate    int `json:"async_insert_deduplicate,omitempty"`
+	}
+	Ctx context.Context `json:"-"`
+}
 
-	RetryTimes   int // <=0 means retry infinitely
-	MaxOpenConns int
+type Discovery struct {
+	Enabled       bool
+	CheckInterval int
+	UpdatedBy     string
+	UpdatedAt     time.Time
 }
 
 // TaskConfig parameters
@@ -195,20 +221,26 @@ type Assignment struct {
 }
 
 const (
-	MaxBufferSize                  = 1 << 20 // 1048576
-	defaultBufferSize              = 1 << 18 // 262144
-	maxFlushInterval               = 600
-	defaultFlushInterval           = 10
-	defaultTimeZone                = "Local"
-	defaultLogLevel                = "info"
-	defaultKerberosConfigPath      = "/etc/krb5.conf"
-	defaultMaxOpenConns            = 1
-	defaultReloadSeriesMapInterval = 3600   // 1 hour
-	defaultActiveSeriesRange       = 86400  // 1 day
-	defaultHeartbeatInterval       = 3000   // 3 s
-	defaultSessionTimeout          = 120000 // 2 min
-	defaultRebalanceTimeout        = 120000 // 2 min
-	defaultRequestTimeoutOverhead  = 60000  // 1 min
+	MaxBufferSize                     = 1 << 20 // 1048576
+	defaultBufferSize                 = 1 << 18 // 262144
+	maxFlushInterval                  = 600
+	defaultFlushInterval              = 10
+	defaultTimeZone                   = "Local"
+	defaultLogLevel                   = "info"
+	defaultKerberosConfigPath         = "/etc/krb5.conf"
+	defaultMaxOpenConns               = 1
+	defaultRetryTimes                 = 3
+	defaultReadTimeoutSec             = 3600
+	defaultReloadSeriesMapIntervalSec = 3600    // 1 hour
+	defaultActiveSeriesRangeSec       = 300     // 5 min
+	defaultHeartbeatIntervalMs        = 60000   // 1 min
+	defaultSessionTimeoutMs           = 300000  // 5 min
+	defaultRebalanceTimeoutMs         = 600000  // 10 min
+	defaultRequestTimeoutOverheadMs   = 300000  // 5 min
+	DefaultMaxPollIntervalMs          = 3600000 // 1 hour
+	defaultAssignIntervalMin          = 5       // 5min
+	defaultCalcLagIntervalMin         = 10      // 10min
+	DefaultDiscoveryIntervalSec       = 60      // 1min
 )
 
 func ParseLocalCfgFile(cfgPath string) (cfg *Config, err error) {
@@ -280,23 +312,38 @@ func (cfg *Config) Normallize(constructGroup bool, httpAddr string, cred util.Cr
 		}
 	}
 	if cfg.Kafka.Properties.HeartbeatInterval == 0 {
-		cfg.Kafka.Properties.HeartbeatInterval = defaultHeartbeatInterval
+		cfg.Kafka.Properties.HeartbeatInterval = defaultHeartbeatIntervalMs
 	}
 	if cfg.Kafka.Properties.RebalanceTimeout == 0 {
-		cfg.Kafka.Properties.RebalanceTimeout = defaultRebalanceTimeout
+		cfg.Kafka.Properties.RebalanceTimeout = defaultRebalanceTimeoutMs
 	}
 	if cfg.Kafka.Properties.RequestTimeoutOverhead == 0 {
-		cfg.Kafka.Properties.RequestTimeoutOverhead = defaultRequestTimeoutOverhead
+		cfg.Kafka.Properties.RequestTimeoutOverhead = defaultRequestTimeoutOverheadMs
 	}
 	if cfg.Kafka.Properties.SessionTimeout == 0 {
-		cfg.Kafka.Properties.SessionTimeout = defaultSessionTimeout
+		cfg.Kafka.Properties.SessionTimeout = defaultSessionTimeoutMs
+	}
+	if cfg.Kafka.Properties.MaxPollInterval == 0 {
+		cfg.Kafka.Properties.MaxPollInterval = DefaultMaxPollIntervalMs
+	}
+	if cfg.Kafka.AssignInterval == 0 {
+		cfg.Kafka.AssignInterval = defaultAssignIntervalMin
+	}
+	if cfg.Kafka.CalcLagInterval == 0 {
+		cfg.Kafka.CalcLagInterval = defaultCalcLagIntervalMin
+	}
+	if cfg.Discovery.CheckInterval == 0 {
+		cfg.Discovery.CheckInterval = DefaultDiscoveryIntervalSec
 	}
 
-	if cfg.Clickhouse.RetryTimes < 0 {
-		cfg.Clickhouse.RetryTimes = 0
+	if cfg.Clickhouse.RetryTimes <= 0 {
+		cfg.Clickhouse.RetryTimes = defaultRetryTimes
 	}
 	if cfg.Clickhouse.MaxOpenConns <= 0 {
 		cfg.Clickhouse.MaxOpenConns = defaultMaxOpenConns
+	}
+	if cfg.Clickhouse.ReadTimeout <= 0 {
+		cfg.Clickhouse.ReadTimeout = defaultReadTimeoutSec
 	}
 
 	if cfg.Clickhouse.Protocol == "" {
@@ -358,11 +405,38 @@ func (cfg *Config) Normallize(constructGroup bool, httpAddr string, cred util.Cr
 		cfg.LogLevel = defaultLogLevel
 	}
 	if cfg.ReloadSeriesMapInterval <= 0 {
-		cfg.ReloadSeriesMapInterval = defaultReloadSeriesMapInterval
+		cfg.ReloadSeriesMapInterval = defaultReloadSeriesMapIntervalSec
 	}
 	if cfg.ActiveSeriesRange <= 0 {
-		cfg.ActiveSeriesRange = defaultActiveSeriesRange
+		cfg.ActiveSeriesRange = defaultActiveSeriesRangeSec
 	}
+
+	if cfg.Clickhouse.Protocol == clickhouse.HTTP.String() {
+		cfg.Clickhouse.AsyncInsert = false
+	}
+
+	ctx := context.Background()
+	if cfg.Clickhouse.AsyncInsert {
+		util.TrySetValue(&cfg.Clickhouse.AsyncSettings.AsyncInsertMaxDataSize, 1<<20)
+		util.TrySetValue(&cfg.Clickhouse.AsyncSettings.AsyncInsertMaxQueryNumber, 450)
+		util.TrySetValue(&cfg.Clickhouse.AsyncSettings.AsyncInsertBusyTimeoutMs, 200)
+		util.TrySetValue(&cfg.Clickhouse.AsyncSettings.WaitforAsyncInsert, 1)
+		util.TrySetValue(&cfg.Clickhouse.AsyncSettings.WaitforAsyncInsertTimeout, 120)
+		util.TrySetValue(&cfg.Clickhouse.AsyncSettings.AsyncInsertThreads, 16)
+		util.TrySetValue(&cfg.Clickhouse.AsyncSettings.AsyncInsertDeduplicate, 0)
+
+		ctx = clickhouse.Context(context.Background(), clickhouse.WithSettings(clickhouse.Settings{
+			"async_insert":                  1,
+			"async_insert_max_data_size":    cfg.Clickhouse.AsyncSettings.AsyncInsertMaxDataSize,
+			"async_insert_max_query_number": cfg.Clickhouse.AsyncSettings.AsyncInsertMaxQueryNumber,
+			"async_insert_busy_timeout_ms":  cfg.Clickhouse.AsyncSettings.AsyncInsertBusyTimeoutMs,
+			"wait_for_async_insert":         cfg.Clickhouse.AsyncSettings.WaitforAsyncInsert,
+			"wait_for_async_insert_timeout": cfg.Clickhouse.AsyncSettings.WaitforAsyncInsertTimeout,
+			"async_insert_threads":          cfg.Clickhouse.AsyncSettings.AsyncInsertThreads,
+			"async_insert_deduplicate":      cfg.Clickhouse.AsyncSettings.AsyncInsertDeduplicate,
+		}))
+	}
+	cfg.Clickhouse.Ctx = ctx
 
 	return
 }

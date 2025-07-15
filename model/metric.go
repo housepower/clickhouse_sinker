@@ -57,6 +57,8 @@ type ColumnWithType struct {
 	Name       string
 	Type       *TypeInfo
 	SourceName string
+	NotNullable bool
+
 	// Const is used to set column value to some constant from config.
 	Const string
 }
@@ -106,9 +108,9 @@ func NewOrderedMap() *OrderedMap {
 }
 
 type SeriesQuota struct {
-	sync.Mutex     `json:"-"`
+	sync.RWMutex   `json:"-"`
 	NextResetQuota time.Time
-	BmSeries       map[int64]int64 // sid:mid
+	BmSeries       map[int64]int64
 	WrSeries       int
 	Birth          time.Time
 }
