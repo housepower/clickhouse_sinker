@@ -17,6 +17,7 @@ package parser
 
 import (
 	"fmt"
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"math"
 	"net"
 	"regexp"
@@ -261,22 +262,48 @@ func val2map(v *fastjson.Value) (m map[string]interface{}) {
 	m = make(map[string]interface{}, obj.Len())
 	obj.Visit(func(key []byte, v *fastjson.Value) {
 		strKey := string(key)
-		switch v.Type() {
-		case fastjson.TypeString:
-			var vb []byte
-			if vb, err = v.StringBytes(); err != nil {
-				return
-			}
-			m[strKey] = string(vb)
-		case fastjson.TypeNumber:
-			var f float64
-			if f, err = v.Float64(); err != nil {
-				return
-			}
-			m[strKey] = f
-		}
+		val := val2any(v)
+		m[strKey] = val
 	})
+
 	return
+}
+
+func val2any(v *fastjson.Value) any {
+	var err error
+	switch v.Type() {
+	case fastjson.TypeString:
+		var vb []byte
+		if vb, err = v.StringBytes(); err != nil {
+			return nil
+		}
+		return string(vb)
+	case fastjson.TypeNumber:
+		var f float64
+		if f, err = v.Float64(); err != nil {
+			return nil
+		}
+		return f
+	case fastjson.TypeObject:
+		return clickhouse.NewDynamic(val2map(v))
+	case fastjson.TypeArray:
+		var val []*fastjson.Value
+		if val, err = v.Array(); err != nil {
+			return nil
+		}
+		arr := make([]any, len(val))
+		for i := range val {
+			arr[i] = val2any(val[i])
+		}
+
+		return arr
+	case fastjson.TypeTrue:
+		return true
+	case fastjson.TypeFalse:
+		return false
+	default:
+		return nil
+	}
 }
 
 func getFastjsonBool(v *fastjson.Value, nullable bool) (val interface{}) {
@@ -629,7 +656,7 @@ func (c *FastjsonMetric) castMapValueByType(sourcename string, value *fastjson.V
 			val = getFastjsonStringOrDefault(value, typeinfo.Nullable, "")
 		case model.Map:
 			val = getMap(c, value, typeinfo)
-		case model.Object:
+		case model.Object, model.JSON:
 			val = val2map(value)
 		default:
 			util.Logger.Fatal("LOGIC ERROR: reached switch default condition")

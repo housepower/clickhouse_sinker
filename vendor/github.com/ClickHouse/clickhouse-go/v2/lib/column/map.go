@@ -18,6 +18,7 @@
 package column
 
 import (
+	"database/sql"
 	"database/sql/driver"
 	"fmt"
 	"reflect"
@@ -83,11 +84,14 @@ func (col *Map) parse(t Type, tz *time.Location) (_ Interface, err error) {
 		if col.values, err = Type(strings.TrimSpace(types[1])).Column(col.name, tz); err != nil {
 			return nil, err
 		}
-		col.scanType = reflect.MapOf(
-			col.keys.ScanType(),
-			col.values.ScanType(),
-		)
-		return col, nil
+
+		if col.keys.ScanType().Comparable() {
+			col.scanType = reflect.MapOf(
+				col.keys.ScanType(),
+				col.values.ScanType(),
+			)
+			return col, nil
+		}
 	}
 	return nil, &UnsupportedColumnTypeError{
 		t: t,
@@ -111,6 +115,9 @@ func (col *Map) Row(i int, ptr bool) any {
 }
 
 func (col *Map) ScanRow(dest any, i int) error {
+	if scanner, ok := dest.(sql.Scanner); ok {
+		return scanner.Scan(col.row(i).Interface())
+	}
 	value := reflect.Indirect(reflect.ValueOf(dest))
 	if value.Type() == col.scanType {
 		value.Set(col.row(i))
@@ -328,9 +335,19 @@ func (col *Map) row(n int) reflect.Value {
 		from = int(prev)
 	)
 	for next := 0; next < size; next++ {
+		mapValue := col.values.Row(from+next, false)
+		var mapReflectValue reflect.Value
+		if mapValue == nil {
+			// Convert interface{} nil to typed nil (such as nil *string) to preserve map element
+			// https://github.com/ClickHouse/clickhouse-go/issues/1515
+			mapReflectValue = reflect.New(value.Type().Elem()).Elem()
+		} else {
+			mapReflectValue = reflect.ValueOf(mapValue)
+		}
+
 		value.SetMapIndex(
 			reflect.ValueOf(col.keys.Row(from+next, false)),
-			reflect.ValueOf(col.values.Row(from+next, false)),
+			mapReflectValue,
 		)
 	}
 	return value

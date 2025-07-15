@@ -7,6 +7,7 @@ import (
 	"github.com/bufbuild/protocompile"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/dynamicpb"
+	"google.golang.org/protobuf/types/known/structpb"
 	"io"
 	"math"
 	"net"
@@ -167,7 +168,7 @@ func (m *ProtoMetric) GetDateTime(key string, nullable bool) interface{} {
 	}
 
 	if field.Kind() == protoreflect.MessageKind {
-		return getProtoDateTime(m.msg.Get(field), nullable)
+		return getProtoDateTime(field, m.msg.Get(field), nullable)
 	}
 	if field.Kind() != protoreflect.StringKind {
 		return getDefaultDateTime(nullable)
@@ -212,7 +213,107 @@ func (m *ProtoMetric) GetUUID(key string, nullable bool) interface{} {
 }
 
 func (m *ProtoMetric) GetObject(key string, nullable bool) interface{} {
-	return nil
+	field := m.msg.Descriptor().Fields().ByName(protoreflect.Name(key))
+	data := m.msg.Get(field)
+	if field.IsMap() {
+		return getObjectMap(field, data)
+	}
+
+	if field.Kind() != protoreflect.MessageKind {
+		return getObjectOrDefault(nil, nullable)
+	}
+
+	if field.Message().FullName() == "google.protobuf.Struct" {
+		out := new(structpb.Struct)
+		proto.Merge(out, data.Message().Interface())
+		return getObjectOrDefault(out.AsMap(), nullable)
+	}
+
+	return getObjectOrDefault(getMessage(data), nullable)
+}
+
+func getObjectOrDefault(out map[string]any, nullable bool) any {
+	if nullable && len(out) == 0 {
+		return nil
+	}
+
+	return out
+}
+
+func getMessage(data protoreflect.Value) map[string]any {
+	ret := make(map[string]any)
+	data.Message().Range(func(descriptor protoreflect.FieldDescriptor, value protoreflect.Value) bool {
+		name := descriptor.Name()
+
+		if descriptor.IsMap() {
+			ret[string(name)] = getObjectMap(descriptor, value)
+			return true
+		}
+
+		if descriptor.IsList() {
+			ret[string(name)] = getProtoList(descriptor, value.List())
+			return true
+		}
+
+		if descriptor.Kind() == protoreflect.MessageKind {
+			ret[string(name)] = getMessage(value)
+			return true
+		}
+
+		val, isScalar := tryScalar(descriptor, value)
+		if isScalar {
+			ret[string(name)] = val
+			return true
+		}
+
+		return true
+	})
+
+	return ret
+}
+
+func getObjectMap(field protoreflect.FieldDescriptor, data protoreflect.Value) any {
+	ret := make(map[string]any)
+	data.Map().Range(func(key protoreflect.MapKey, value protoreflect.Value) bool {
+		switch field.MapValue().Kind() {
+		case protoreflect.MessageKind:
+			ret[key.String()] = getMessage(value)
+		case protoreflect.EnumKind:
+			ret[key.String()] = value.Enum()
+		default:
+			ret[key.String()] = value.Interface()
+		}
+		return true
+	})
+	return ret
+}
+
+func tryScalar(descriptor protoreflect.FieldDescriptor, value protoreflect.Value) (any, bool) {
+	kind := descriptor.Kind()
+	switch kind {
+	case protoreflect.Int64Kind, protoreflect.Sfixed64Kind, protoreflect.Sint64Kind:
+		return getIntFromProto[int64](kind, value, false, math.MinInt64, math.MaxInt64), true
+	case protoreflect.Int32Kind, protoreflect.Sfixed32Kind, protoreflect.Sint32Kind:
+		return getIntFromProto[int32](kind, value, false, math.MinInt32, math.MaxInt32), true
+	case protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
+		return getUIntFromProto[uint64](kind, value, false, math.MaxUint64), true
+	case protoreflect.Uint32Kind, protoreflect.Fixed32Kind:
+		return getUIntFromProto[uint32](kind, value, false, math.MaxUint32), true
+	case protoreflect.FloatKind:
+		return getFloatFromProto[float32](kind, value, false, math.MaxFloat32), true
+	case protoreflect.DoubleKind:
+		return getFloatFromProto[float64](kind, value, false, math.MaxFloat64), true
+	case protoreflect.StringKind:
+		return getProtoString(value), true
+	case protoreflect.BytesKind:
+		return value.Bytes(), true
+	case protoreflect.BoolKind:
+		return value.Bool(), true
+	case protoreflect.EnumKind:
+		return value.Enum(), true
+	default:
+		return nil, false
+	}
 }
 
 func (m *ProtoMetric) GetMap(key string, typeInfo *model.TypeInfo) interface{} {
@@ -225,15 +326,14 @@ func (m *ProtoMetric) GetMap(key string, typeInfo *model.TypeInfo) interface{} {
 	if !field.IsMap() {
 		return regularMap
 	}
-	a := field.Kind()
-	_ = a
+
 	data := m.msg.Get(field).Map()
 	data.Range(func(key protoreflect.MapKey, value protoreflect.Value) bool {
 		switch typeInfo.MapValue.Type {
 		case model.Map:
 			regularMap.Put(key.Interface(), protoObjectToMap(value))
 		case model.DateTime:
-			regularMap.Put(key.Interface(), getProtoDateTime(value, typeInfo.MapValue.Nullable))
+			regularMap.Put(key.Interface(), getProtoDateTime(field.MapValue(), value, typeInfo.MapValue.Nullable))
 		default:
 			regularMap.Put(key.Interface(), value.Interface())
 		}
@@ -255,7 +355,7 @@ func protoObjectToMap(value protoreflect.Value) (resultMap *model.OrderedMap) {
 	valMap := value.Message()
 	valMap.Range(func(descriptor protoreflect.FieldDescriptor, value protoreflect.Value) bool {
 		if descriptor.IsList() {
-			resultMap.Put(descriptor.JSONName(), getProtoList(value.List()))
+			resultMap.Put(descriptor.JSONName(), getProtoList(descriptor, value.List()))
 			return true
 		}
 		if descriptor.IsMap() {
@@ -270,10 +370,17 @@ func protoObjectToMap(value protoreflect.Value) (resultMap *model.OrderedMap) {
 	return resultMap
 }
 
-func getProtoList(list protoreflect.List) []any {
+func getProtoList(field protoreflect.FieldDescriptor, list protoreflect.List) []any {
 	var res []any
 	for i := range list.Len() {
-		res = append(res, list.Get(i).Interface())
+		switch field.Kind() {
+		case protoreflect.MessageKind:
+			res = append(res, getMessage(list.Get(i)))
+		case protoreflect.EnumKind:
+			res = append(res, list.Get(i).Enum())
+		default:
+			res = append(res, list.Get(i).Interface())
+		}
 	}
 
 	return res
@@ -372,7 +479,7 @@ func (m *ProtoMetric) GetArray(key string, t int) interface{} {
 	case model.DateTime:
 		arr := make([]time.Time, 0)
 		for i := 0; i < list.Len(); i++ {
-			item := getProtoDateTime(list.Get(i), false).(time.Time)
+			item := getProtoDateTime(field, list.Get(i), false).(time.Time)
 			arr = append(arr, item)
 		}
 		return arr
@@ -551,27 +658,15 @@ func getProtoDecimal(kind protoreflect.Kind, value protoreflect.Value, nullable 
 	}
 }
 
-func getProtoDateTime(value protoreflect.Value, nullable bool) interface{} {
-	timestampField, ok := value.Interface().(*dynamicpb.Message)
-	if !ok {
+func getProtoDateTime(field protoreflect.FieldDescriptor, value protoreflect.Value, nullable bool) interface{} {
+	if field.Message().FullName() != "google.protobuf.Timestamp" {
 		return getDefaultDateTime(nullable)
 	}
 
-	secondsField := timestampField.ProtoReflect().Descriptor().Fields().ByName("seconds")
-	nanosField := timestampField.ProtoReflect().Descriptor().Fields().ByName("nanos")
-	if secondsField == nil || nanosField == nil {
-		return getDefaultDateTime(nullable)
-	}
+	ts := new(timestamppb.Timestamp)
+	proto.Merge(ts, value.Message().Interface())
 
-	seconds := timestampField.ProtoReflect().Get(secondsField)
-	nanos := timestampField.ProtoReflect().Get(nanosField)
-
-	timestamp := &timestamppb.Timestamp{
-		Seconds: seconds.Int(),
-		Nanos:   int32(nanos.Int()),
-	}
-
-	return timestamp.AsTime()
+	return ts.AsTime()
 }
 
 func getProtoString(value protoreflect.Value) string {

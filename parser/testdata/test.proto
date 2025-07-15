@@ -4,6 +4,8 @@ package viru_tech.clickhouse_sinker.parser.testdata.v1;
 
 import "google/protobuf/timestamp.proto";
 
+import "google/protobuf/struct.proto";
+
 option go_package = "viru-tech/clickhouse_sinker/parser/testdata";
 
 message Test {
@@ -90,6 +92,10 @@ message Test {
   map<string, NestedTest> map_str_obj = 41;
 
   map<string, NestedRepeatedTest> map_str_list = 42;
+
+  google.protobuf.Struct object = 43;
+
+  ComplexCustomObject complex_obj = 44;
 }
 
 message NestedTest {
@@ -98,4 +104,24 @@ message NestedTest {
 
 message NestedRepeatedTest {
   repeated string str = 1;
+}
+
+message ComplexCustomObject {
+  int64 number = 1;
+
+  repeated string arr = 2;
+
+  map<string, int64> map_str_int = 3;
+
+  NestedRepeatedTest nested = 4;
+
+  SampleEnum enum = 5;
+
+  map<string, SampleEnum> map_enum_str = 6;
+}
+
+enum SampleEnum {
+  ENUM_INVALID = 0;
+
+  ENUM_VALID = 1;
 }

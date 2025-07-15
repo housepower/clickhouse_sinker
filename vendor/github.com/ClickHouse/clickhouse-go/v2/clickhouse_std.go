@@ -34,7 +34,7 @@ import (
 	"syscall"
 
 	"github.com/ClickHouse/clickhouse-go/v2/lib/column"
-	ldriver "github.com/ClickHouse/clickhouse-go/v2/lib/driver"
+	chdriver "github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 )
 
 var globalConnID int64
@@ -54,7 +54,10 @@ func (o *stdConnOpener) Driver() driver.Driver {
 			debugf = log.New(os.Stdout, "[clickhouse-std] ", 0).Printf
 		}
 	}
-	return &stdDriver{debugf: debugf}
+	return &stdDriver{
+		opt:    o.opt,
+		debugf: debugf,
+	}
 }
 
 func (o *stdConnOpener) Connect(ctx context.Context) (_ driver.Conn, err error) {
@@ -83,15 +86,15 @@ func (o *stdConnOpener) Connect(ctx context.Context) (_ driver.Conn, err error) 
 		return nil, ErrAcquireConnNoAddress
 	}
 
-	random := rand.Int()
 	for i := range o.opt.Addr {
 		var num int
 		switch o.opt.ConnOpenStrategy {
 		case ConnOpenInOrder:
 			num = i
 		case ConnOpenRoundRobin:
-			num = (int(connID) + i) % len(o.opt.Addr)
+			num = (connID + i) % len(o.opt.Addr)
 		case ConnOpenRandom:
+			random := rand.Int()
 			num = (random + i) % len(o.opt.Addr)
 		}
 		if conn, err = dialFunc(ctx, o.opt.Addr[num], connID, o.opt); err == nil {
@@ -193,14 +196,15 @@ func OpenDB(opt *Options) *sql.DB {
 type stdConnect interface {
 	isBad() bool
 	close() error
-	query(ctx context.Context, release func(*connect, error), query string, args ...any) (*rows, error)
+	query(ctx context.Context, release nativeTransportRelease, query string, args ...any) (*rows, error)
 	exec(ctx context.Context, query string, args ...any) error
 	ping(ctx context.Context) (err error)
-	prepareBatch(ctx context.Context, query string, options ldriver.PrepareBatchOptions, release func(*connect, error), acquire func(context.Context) (*connect, error)) (ldriver.Batch, error)
+	prepareBatch(ctx context.Context, release nativeTransportRelease, acquire nativeTransportAcquire, query string, options chdriver.PrepareBatchOptions) (chdriver.Batch, error)
 	asyncInsert(ctx context.Context, query string, wait bool, args ...any) error
 }
 
 type stdDriver struct {
+	opt    *Options
 	conn   stdConnect
 	commit func() error
 	debugf func(format string, v ...any)
@@ -306,8 +310,8 @@ func (std *stdDriver) ExecContext(ctx context.Context, query string, args []driv
 	}
 
 	var err error
-	if options := queryOptions(ctx); options.async.ok {
-		err = std.conn.asyncInsert(ctx, query, options.async.wait, rebind(args)...)
+	if asyncOpt := queryOptionsAsync(ctx); asyncOpt.ok {
+		err = std.conn.asyncInsert(ctx, query, asyncOpt.wait, rebind(args)...)
 	} else {
 		err = std.conn.exec(ctx, query, rebind(args)...)
 	}
@@ -329,7 +333,7 @@ func (std *stdDriver) QueryContext(ctx context.Context, query string, args []dri
 		return nil, driver.ErrBadConn
 	}
 
-	r, err := std.conn.query(ctx, func(*connect, error) {}, query, rebind(args)...)
+	r, err := std.conn.query(ctx, func(nativeTransport, error) {}, query, rebind(args)...)
 	if isConnBrokenError(err) {
 		std.debugf("QueryContext got a fatal error, resetting connection: %v\n", err)
 		return nil, driver.ErrBadConn
@@ -354,7 +358,7 @@ func (std *stdDriver) PrepareContext(ctx context.Context, query string) (driver.
 		return nil, driver.ErrBadConn
 	}
 
-	batch, err := std.conn.prepareBatch(ctx, query, ldriver.PrepareBatchOptions{}, func(*connect, error) {}, func(context.Context) (*connect, error) { return nil, nil })
+	batch, err := std.conn.prepareBatch(ctx, func(nativeTransport, error) {}, func(context.Context) (nativeTransport, error) { return nil, nil }, query, chdriver.PrepareBatchOptions{})
 	if err != nil {
 		if isConnBrokenError(err) {
 			std.debugf("PrepareContext got a fatal error, resetting connection: %v\n", err)
@@ -383,7 +387,7 @@ func (std *stdDriver) Close() error {
 }
 
 type stdBatch struct {
-	batch  ldriver.Batch
+	batch  chdriver.Batch
 	debugf func(format string, v ...any)
 }
 

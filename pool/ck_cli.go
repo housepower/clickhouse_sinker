@@ -188,6 +188,8 @@ func (c *Conn) write_v2(prepareSQL string, rows model.Rows, idxBegin, idxEnd int
 		err = errors.Wrapf(err, "pool.Conn.PrepareBatch %s", prepareSQL)
 		return
 	}
+	defer batch.Close()
+
 	var bmBad *roaring.Bitmap
 	for i, row := range rows {
 		if err = batch.Append((*row)[idxBegin:idxEnd]...); err != nil {
