@@ -388,7 +388,7 @@ func (c *ClickHouse) initSeriesSchema(conn *pool.Conn) (err error) {
 		for i := range params {
 			params[i] = "?"
 		}
-		c.promSerSQL = "INSERT INTO " + c.cfg.Clickhouse.DB + "." + c.TableName + " (" + strings.Join(serDimsQuoted, ",") + ") " +
+		c.promSerSQL = "INSERT INTO " + c.dbName + "." + c.seriesTbl + " (" + strings.Join(serDimsQuoted, ",") + ") " +
 			"VALUES (" + strings.Join(params, ",") + ")"
 	} else {
 		serDimsQuoted := make([]string, len(seriesDims))
@@ -502,7 +502,7 @@ func (c *ClickHouse) initSchema() (err error) {
 		for i := range params {
 			params[i] = "?"
 		}
-		c.prepareSQL = "INSERT INTO " + c.cfg.Clickhouse.DB + "." + c.TableName + " (" + strings.Join(quotedDms, ",") + ") " +
+		c.prepareSQL = "INSERT INTO " + c.dbName + "." + c.TableName + " (" + strings.Join(quotedDms, ",") + ") " +
 			"VALUES (" + strings.Join(params, ",") + ")"
 
 	} else {
