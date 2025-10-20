@@ -498,7 +498,7 @@ func (c *ClickHouse) initSchema() (err error) {
 		for i := 0; i < numDims; i++ {
 			quotedDms[i] = fmt.Sprintf("`%s`", c.Dims[i].Name)
 		}
-		var params = make([]string, c.NumDims)
+		var params = make([]string, numDims)
 		for i := range params {
 			params[i] = "?"
 		}
