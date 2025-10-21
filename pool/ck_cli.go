@@ -67,10 +67,11 @@ func (r *Rows) Scan(dest ...any) error {
 }
 
 type Conn struct {
-	protocol clickhouse.Protocol
-	c        driver.Conn
-	db       *sql.DB
-	ctx      context.Context
+	protocol    clickhouse.Protocol
+	c           driver.Conn
+	db          *sql.DB
+	ctx         context.Context
+	poolManager *SQLPoolManager
 }
 
 func (c *Conn) Query(query string, args ...any) (*Rows, error) {
@@ -122,12 +123,17 @@ func (c *Conn) Ping() error {
 	}
 }
 
-func (c *Conn) write_v1(prepareSQL string, rows model.Rows, idxBegin, idxEnd int) (numBad int, err error) {
+func (c *Conn) write_v1_isolated(prepareSQL string, rows model.Rows, idxBegin, idxEnd int) (numBad int, err error) {
 	var errExec error
+
+	dedicatedDB, err := c.poolManager.Get(prepareSQL)
+	if err != nil {
+		return 0, errors.Wrapf(err, "get dedicated pool")
+	}
 
 	var stmt *sql.Stmt
 	var tx *sql.Tx
-	tx, err = c.db.Begin()
+	tx, err = dedicatedDB.Begin()
 	if err != nil {
 		err = errors.Wrapf(err, "pool.Conn.Begin")
 		return
@@ -232,7 +238,7 @@ func (c *Conn) write_v2(prepareSQL string, rows model.Rows, idxBegin, idxEnd int
 func (c *Conn) Write(prepareSQL string, rows model.Rows, idxBegin, idxEnd int) (numBad int, err error) {
 	util.Logger.Debug("start write to ck", zap.Int("begin", idxBegin), zap.Int("end", idxEnd))
 	if c.protocol == clickhouse.HTTP {
-		numBad, err = c.write_v1(prepareSQL, rows, idxBegin, idxEnd)
+		numBad, err = c.write_v1_isolated(prepareSQL, rows, idxBegin, idxEnd)
 	} else {
 		numBad, err = c.write_v2(prepareSQL, rows, idxBegin, idxEnd)
 	}

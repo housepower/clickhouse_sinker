@@ -114,6 +114,8 @@ func (sc *ShardConn) NextGoodReplica(ctx context.Context, failedVer int) (db *Co
 			conn.db.SetMaxOpenConns(sc.chCfg.MaxOpenConns)
 			conn.db.SetMaxIdleConns(sc.chCfg.MaxOpenConns)
 			conn.db.SetConnMaxLifetime(time.Minute * 10)
+
+			conn.poolManager = NewSQLPoolManager(&sc.opts)
 		} else {
 			sc.opts.Compression = &clickhouse.Compression{
 				Method: clickhouse.CompressionLZ4,
