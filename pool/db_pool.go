@@ -44,7 +44,15 @@ func (m *SQLPoolManager) Get(sql string) (*sql.DB, error) {
 		util.Logger.Debug("Get existing SQL pool",
 			zap.String("sql_hash", fmt.Sprintf("%x", key)),
 			zap.String("sql", sql))
-		return pool, nil
+		if err := pool.Ping(); err != nil {
+			util.Logger.Warn("Existing pool connection is invalid, creating new one",
+				zap.String("sql_hash", fmt.Sprintf("%x", key)),
+				zap.Error(err))
+
+			m.pools.Remove(key)
+		} else {
+			return pool, nil
+		}
 	}
 
 	pool := clickhouse.OpenDB(&clickhouse.Options{
