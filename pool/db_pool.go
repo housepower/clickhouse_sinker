@@ -55,18 +55,19 @@ func (m *SQLPoolManager) Get(sql string) (*sql.DB, error) {
 		}
 	}
 
-	pool := clickhouse.OpenDB(&clickhouse.Options{
-		Addr:             m.baseOpts.Addr,
-		Auth:             m.baseOpts.Auth,
-		DialTimeout:      m.baseOpts.DialTimeout,
-		ConnOpenStrategy: clickhouse.ConnOpenInOrder,
-		Protocol:         clickhouse.HTTP,
-	})
+	pool := clickhouse.OpenDB(m.baseOpts)
 
 	pool.SetMaxOpenConns(5)
 	pool.SetMaxIdleConns(2)
 	pool.SetConnMaxLifetime(0)
 	pool.SetConnMaxIdleTime(30 * time.Second)
+
+	if err := pool.Ping(); err != nil {
+		util.Logger.Warn("Failed to ping SQL pool",
+			zap.String("sql_hash", fmt.Sprintf("%x", key)),
+			zap.Error(err))
+		return nil, err
+	}
 
 	m.pools.Add(key, pool)
 
