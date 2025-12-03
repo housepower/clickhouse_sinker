@@ -456,7 +456,8 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 					sort.Strings(c.grpConfig.Topics)
 					sort.Strings(group.Topics)
 					if !reflect.DeepEqual(c.grpConfig.Topics, group.Topics) ||
-						c.grpConfig.BufferSize != group.BufferSize {
+						c.grpConfig.BufferSize != group.BufferSize ||
+						c.grpConfig.MaxPartBytes != group.MaxPartBytes {
 						deleteConsumers = append(deleteConsumers, name)
 					} else {
 						// apply TaskConfig Change

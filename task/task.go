@@ -120,7 +120,8 @@ func (service *Service) Init() (err error) {
 	service.idxSerID = service.clickhouse.IdxSerID
 	service.nameKey = service.clickhouse.NameKey
 	service.limiter = rate.NewLimiter(rate.Every(10*time.Second), 1)
-	service.offShift = int64(util.GetShift(taskCfg.BufferSize))
+	//service.offShift = int64(util.GetShift(taskCfg.BufferSize))
+	service.offShift = int64(taskCfg.BufferSize)
 
 	if len(service.clickhouse.SortingKeys) > 0 {
 		service.taskCfg.ShardingKey = "__shardingkey"
