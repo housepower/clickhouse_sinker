@@ -89,10 +89,10 @@ func (k *KafkaFranz) Init(cfg *config.Config, gCfg *config.GroupConfig, f chan F
 		kgo.DisableAutoCommit(),
 	)
 
-	maxPartBytes := int32(1 << (util.GetShift(100*k.grpConfig.MaxPartBytes) - 1))
+	maxPartBytes := int32(1 << (util.GetShift(200*k.grpConfig.MaxFetchSize) - 1))
 
 	opts = append(opts,
-		kgo.FetchMaxBytes(maxPartBytes),
+		kgo.FetchMaxBytes(10*maxPartBytes),
 		kgo.FetchMaxPartitionBytes(maxPartBytes),
 		kgo.OnPartitionsRevoked(k.onPartitionRevoked),
 		kgo.OnPartitionsAssigned(k.onPartitionAssigned),
@@ -116,7 +116,7 @@ func GetFranzConfig(kfkCfg *config.KafkaConfig) (opts []kgo.Opt, err error) {
 	opts = []kgo.Opt{
 		kgo.SeedBrokers(strings.Split(kfkCfg.Brokers, ",")...),
 		// kgo.BrokerMaxReadBytes(), // 100 MB
-		kgo.MaxConcurrentFetches(2),
+		kgo.MaxConcurrentFetches(kfkCfg.MaxConcurrentFetches),
 		kgo.WithLogger(kzap.New(util.Logger)),
 	}
 	if kfkCfg.TLS.Enable {
@@ -191,8 +191,8 @@ LOOP:
 			continue
 		}
 		traceId := util.GenTraceId()
-		util.LogTrace(traceId, util.TraceKindFetchStart, zap.String("consumer group", k.grpConfig.Name), zap.Int("buffersize", k.grpConfig.MaxPartBytes))
-		fetches := k.cl.PollRecords(k.ctx, k.grpConfig.MaxPartBytes)
+		util.LogTrace(traceId, util.TraceKindFetchStart, zap.String("consumer group", k.grpConfig.Name), zap.Int("buffersize", k.grpConfig.MaxFetchSize))
+		fetches := k.cl.PollRecords(k.ctx, k.grpConfig.MaxFetchSize)
 		err := fetches.Err()
 		if fetches == nil || fetches.IsClientClosed() || errors.Is(err, context.Canceled) {
 			break
