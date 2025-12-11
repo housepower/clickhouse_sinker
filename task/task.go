@@ -255,9 +255,10 @@ func (service *Service) metric2Row(metric model.Metric, msg *model.InputMessage)
 				row = append(row, val)
 				if val != nil && dim.Type.Type == model.String && dim.Name != service.nameKey && dim.Name != "le" && (service.lblBlkList == nil || !service.lblBlkList.MatchString(dim.Name)) {
 					// "labels" JSON excludes "le", so that "labels" can be used as group key for histogram queries.
-					// todo: what does "le" mean?
-					labelVal := val.(string)
-					labels = append(labels, fmt.Sprintf(`%s: %s`, strconv.Quote(dim.Name), strconv.Quote(labelVal)))
+					if !(service.taskCfg.DynamicSchema.NotNullable && val == "") {
+						labelVal := val.(string)
+						labels = append(labels, fmt.Sprintf(`%s: %s`, strconv.Quote(dim.Name), strconv.Quote(labelVal)))
+					}
 				}
 			}
 			row[service.idxSerID+2] = fmt.Sprintf("{%s}", strings.Join(labels, ", "))
