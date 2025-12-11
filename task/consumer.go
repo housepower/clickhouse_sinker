@@ -84,6 +84,7 @@ func (c *Consumer) start() {
 	c.ctx, c.cancel = context.WithCancel(context.Background())
 	c.inputer = input.NewKafkaFranz()
 	c.state.Store(util.StateRunning)
+	util.Rs.Reset()
 	if err := c.inputer.Init(c.sinker.curCfg, c.grpConfig, c.fetchesCh, c.cleanupFn); err == nil {
 		go c.inputer.Run()
 		go c.processFetch()
