@@ -238,6 +238,14 @@ func CsvGetFloat[T constraints.Float](c *CsvMetric, key string, nullable bool, m
 }
 
 func (c *CsvMetric) GetDateTime(key string, nullable bool) (val interface{}) {
+	return getCsvDateTime(c, key, nullable, nil)
+}
+
+func (c *CsvMetric) GetDateTimeWithType(key string, nullable bool, typeinfo *model.TypeInfo) (val interface{}) {
+	return getCsvDateTime(c, key, nullable, typeinfo)
+}
+
+func getCsvDateTime(c *CsvMetric, key string, nullable bool, typeinfo *model.TypeInfo) (val interface{}) {
 	var idx int
 	var ok bool
 	if idx, ok = c.pp.csvFormat[key]; !ok || c.values[idx] == "null" {
@@ -254,13 +262,25 @@ func (c *CsvMetric) GetDateTime(key string, nullable bool) (val interface{}) {
 			val = Epoch
 		}
 	} else {
-		val = UnixFloat(dd, c.pp.timeUnit)
+		timeUnit := c.pp.timeUnit
+		if typeinfo != nil && typeinfo.DateTime64Precision > 0 {
+			timeUnit = GetTimeUnitByPrecision(typeinfo.DateTime64Precision)
+		}
+		val = UnixFloat(dd, timeUnit)
 	}
 	return
 }
 
 // GetArray parse an CSV encoded array
 func (c *CsvMetric) GetArray(key string, typ int) (val interface{}) {
+	return getCsvArray(c, key, typ, nil)
+}
+
+func (c *CsvMetric) GetArrayWithType(key string, typ int, typeinfo *model.TypeInfo) (val interface{}) {
+	return getCsvArray(c, key, typ, typeinfo)
+}
+
+func getCsvArray(c *CsvMetric, key string, typ int, typeinfo *model.TypeInfo) (val interface{}) {
 	s := c.GetString(key, false)
 	str, _ := s.(string)
 	var array []gjson.Result
@@ -330,7 +350,11 @@ func (c *CsvMetric) GetArray(key string, typ int) (val interface{}) {
 		for _, e := range array {
 			switch e.Type {
 			case gjson.Number:
-				t = UnixFloat(e.Num, c.pp.timeUnit)
+				timeUnit := c.pp.timeUnit
+				if typeinfo != nil && typeinfo.DateTime64Precision > 0 {
+					timeUnit = GetTimeUnitByPrecision(typeinfo.DateTime64Precision)
+				}
+				t = UnixFloat(e.Num, timeUnit)
 			case gjson.String:
 				var err error
 				if t, err = c.pp.ParseDateTime(key, e.Str); err != nil {

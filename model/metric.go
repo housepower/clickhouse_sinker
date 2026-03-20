@@ -36,10 +36,12 @@ type Metric interface {
 	GetFloat64(key string, nullable bool) (val interface{})
 	GetDecimal(key string, nullable bool) (val interface{})
 	GetDateTime(key string, nullable bool) (val interface{})
+	GetDateTimeWithType(key string, nullable bool, typeinfo *TypeInfo) (val interface{})
 	GetString(key string, nullable bool) (val interface{})
 	GetObject(key string, nullable bool) (val interface{})
 	GetMap(key string, typeinfo *TypeInfo) (val interface{})
 	GetArray(key string, t int) (val interface{})
+	GetArrayWithType(key string, t int, typeinfo *TypeInfo) (val interface{})
 	GetIPv4(key string, nullable bool) (val interface{})
 	GetIPv6(key string, nullable bool) (val interface{})
 	GetNewKeys(knownKeys, newKeys, warnKeys *sync.Map, white, black *regexp.Regexp, partition int, offset int64) bool

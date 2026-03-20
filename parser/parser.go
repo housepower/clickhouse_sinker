@@ -203,10 +203,24 @@ func parseInLocation(val string, loc *time.Location) (t time.Time, layout string
 
 func UnixFloat(sec, unit float64) (t time.Time) {
 	sec, _ = new(big.Float).Mul(big.NewFloat(sec), big.NewFloat(unit)).Float64()
-	//2^32 seconds since epoch: 2106-02-07T06:28:16Z
 	if sec < 0 || sec >= 4294967296.0 {
 		return Epoch
 	}
 	i, f := math.Modf(sec)
 	return time.Unix(int64(i), int64(f*1e9)).UTC()
+}
+
+func GetTimeUnitByPrecision(precision int) float64 {
+	switch precision {
+	case 0:
+		return 1.0
+	case 3:
+		return 0.001
+	case 6:
+		return 0.000001
+	case 9:
+		return 0.000000001
+	default:
+		return math.Pow10(-precision)
+	}
 }

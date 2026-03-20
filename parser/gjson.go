@@ -189,12 +189,20 @@ func (c *GjsonMetric) GetDateTime(key string, nullable bool) (val interface{}) {
 	return getGJsonDateTime(c, key, c.getField(key), nullable)
 }
 
+func (c *GjsonMetric) GetDateTimeWithType(key string, nullable bool, typeinfo *model.TypeInfo) (val interface{}) {
+	return getGJsonDateTimeWithType(c, key, c.getField(key), nullable, typeinfo)
+}
+
 func (c *GjsonMetric) GetObject(key string, nullable bool) (val interface{}) {
 	return
 }
 
 func (c *GjsonMetric) GetArray(key string, typ int) (val interface{}) {
-	return getGJsonArray(c, key, c.getField(key), typ)
+	return getGJsonArray(c, key, c.getField(key), typ, nil)
+}
+
+func (c *GjsonMetric) GetArrayWithType(key string, typ int, typeinfo *model.TypeInfo) (val interface{}) {
+	return getGJsonArray(c, key, c.getField(key), typ, typeinfo)
 }
 
 func (c *GjsonMetric) GetMap(key string, typeinfo *model.TypeInfo) (val interface{}) {
@@ -391,7 +399,7 @@ func gjDetectType(v gjson.Result, depth int) (typ int, array bool) {
 
 func (c *GjsonMetric) castResultByType(sourcename string, value gjson.Result, typeinfo *model.TypeInfo) (val interface{}) {
 	if typeinfo.Array {
-		val = getGJsonArray(c, sourcename, value, typeinfo.Type)
+		val = getGJsonArray(c, sourcename, value, typeinfo.Type, typeinfo)
 		return
 	} else {
 		switch typeinfo.Type {
@@ -529,13 +537,21 @@ func getGJsonIPv6(c *GjsonMetric, r gjson.Result, nullable bool) (val interface{
 }
 
 func getGJsonDateTime(c *GjsonMetric, key string, r gjson.Result, nullable bool) (val interface{}) {
+	return getGJsonDateTimeWithType(c, key, r, nullable, nil)
+}
+
+func getGJsonDateTimeWithType(c *GjsonMetric, key string, r gjson.Result, nullable bool, typeinfo *model.TypeInfo) (val interface{}) {
 	if !gjCompatibleDateTime(r) {
 		val = getDefaultDateTime(nullable)
 		return
 	}
 	switch r.Type {
 	case gjson.Number:
-		val = UnixFloat(r.Num, c.pp.timeUnit)
+		timeUnit := c.pp.timeUnit
+		if typeinfo != nil && typeinfo.DateTime64Precision > 0 {
+			timeUnit = GetTimeUnitByPrecision(typeinfo.DateTime64Precision)
+		}
+		val = UnixFloat(r.Num, timeUnit)
 	case gjson.String:
 		var err error
 		if val, err = c.pp.ParseDateTime(key, r.Str); err != nil {
@@ -547,7 +563,7 @@ func getGJsonDateTime(c *GjsonMetric, key string, r gjson.Result, nullable bool)
 	return
 }
 
-func getGJsonArray(c *GjsonMetric, key string, r gjson.Result, typ int) (val interface{}) {
+func getGJsonArray(c *GjsonMetric, key string, r gjson.Result, typ int, typeinfo *model.TypeInfo) (val interface{}) {
 	var array []gjson.Result
 	if r.IsArray() {
 		array = r.Array()
@@ -614,7 +630,11 @@ func getGJsonArray(c *GjsonMetric, key string, r gjson.Result, typ int) (val int
 		for _, e := range array {
 			switch e.Type {
 			case gjson.Number:
-				t = UnixFloat(e.Num, c.pp.timeUnit)
+				timeUnit := c.pp.timeUnit
+				if typeinfo != nil && typeinfo.DateTime64Precision > 0 {
+					timeUnit = GetTimeUnitByPrecision(typeinfo.DateTime64Precision)
+				}
+				t = UnixFloat(e.Num, timeUnit)
 			case gjson.String:
 				var err error
 				if t, err = c.pp.ParseDateTime(key, e.Str); err != nil {

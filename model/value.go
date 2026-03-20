@@ -18,6 +18,7 @@ package model
 import (
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/housepower/clickhouse_sinker/util"
@@ -46,11 +47,12 @@ const (
 )
 
 type TypeInfo struct {
-	Type     int
-	Nullable bool
-	Array    bool
-	MapKey   *TypeInfo
-	MapValue *TypeInfo
+	Type                int
+	Nullable            bool
+	Array               bool
+	MapKey              *TypeInfo
+	MapValue            *TypeInfo
+	DateTime64Precision int
 }
 
 var (
@@ -106,7 +108,11 @@ func GetTypeName(typ int) (name string) {
 func GetValueByType(metric Metric, cwt *ColumnWithType) (val interface{}) {
 	name := cwt.SourceName
 	if cwt.Type.Array {
-		val = metric.GetArray(name, cwt.Type.Type)
+		if cwt.Type.Type == DateTime {
+			val = metric.GetArrayWithType(name, cwt.Type.Type, cwt.Type)
+		} else {
+			val = metric.GetArray(name, cwt.Type.Type)
+		}
 	} else {
 		switch cwt.Type.Type {
 		case Bool:
@@ -134,7 +140,7 @@ func GetValueByType(metric Metric, cwt *ColumnWithType) (val interface{}) {
 		case Decimal:
 			val = metric.GetDecimal(name, cwt.Type.Nullable)
 		case DateTime:
-			val = metric.GetDateTime(name, cwt.Type.Nullable)
+			val = metric.GetDateTimeWithType(name, cwt.Type.Nullable, cwt.Type)
 		case String:
 			val = metric.GetString(name, cwt.Type.Nullable)
 		case Map:
@@ -170,6 +176,21 @@ func WhichType(typ string) (ti *TypeInfo) {
 	}
 	if strings.HasPrefix(typ, "DateTime64") {
 		dataType = DateTime
+		ti = &TypeInfo{Type: dataType, Nullable: nullable, Array: array}
+		if idx := strings.Index(typ, "("); idx != -1 {
+			parenEnd := strings.Index(typ[idx:], ")")
+			if parenEnd != -1 {
+				precisionStr := typ[idx+1 : idx+parenEnd]
+				if precision, err := strconv.Atoi(precisionStr); err == nil && precision >= 0 && precision <= 9 {
+					ti.DateTime64Precision = precision
+				}
+			}
+		}
+		typeInfo[origTyp] = ti
+		return ti
+	} else if strings.HasPrefix(typ, "DateTime") {
+		dataType = DateTime
+		ti.DateTime64Precision = 0
 	} else if strings.HasPrefix(typ, "Decimal") {
 		dataType = Decimal
 	} else if strings.HasPrefix(typ, "FixedString") {
