@@ -674,18 +674,18 @@ func (c *FastjsonMetric) GetNewKeys(knownKeys, newKeys, warnKeys *sync.Map, whit
 	}
 	obj.Visit(func(key []byte, v *fastjson.Value) {
 		strKey := string(key)
-		if _, loaded := knownKeys.LoadOrStore(strKey, nil); !loaded {
+		if _, loaded := knownKeys.Load(strKey); !loaded {
 			if (white == nil || white.MatchString(strKey)) &&
 				(black == nil || !black.MatchString(strKey)) {
 				if typ, arr := fjDetectType(v, 0); typ != model.Unknown && typ != model.Object && !arr {
 					newKeys.Store(strKey, typ)
+					knownKeys.Store(strKey, nil)
 					foundNew = true
 				} else if _, loaded = warnKeys.LoadOrStore(strKey, nil); !loaded {
 					util.Logger.Warn("FastjsonMetric.GetNewKeys ignored new key due to unsupported type of dynamic column", zap.Int("partition", partition), zap.Int64("offset", offset), zap.String("key", strKey), zap.String("value", v.String()))
 				}
 			} else if _, loaded = warnKeys.LoadOrStore(strKey, nil); !loaded {
 				util.Logger.Warn("FastjsonMetric.GetNewKeys ignored new key due to white/black list setting", zap.Int("partition", partition), zap.Int64("offset", offset), zap.String("key", strKey), zap.String("value", v.String()))
-				knownKeys.Store(strKey, nil)
 			}
 		}
 	})

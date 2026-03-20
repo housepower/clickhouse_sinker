@@ -282,18 +282,18 @@ func GjsonFloatArray[T constraints.Float](a []gjson.Result, max float64) (arr []
 func (c *GjsonMetric) GetNewKeys(knownKeys, newKeys, warnKeys *sync.Map, white, black *regexp.Regexp, partition int, offset int64) (foundNew bool) {
 	ite := func(k, v gjson.Result) bool {
 		strKey := k.Str
-		if _, loaded := knownKeys.LoadOrStore(strKey, nil); !loaded {
+		if _, loaded := knownKeys.Load(strKey); !loaded {
 			if (white == nil || white.MatchString(strKey)) &&
 				(black == nil || !black.MatchString(strKey)) {
 				if typ, array := gjDetectType(v, 0); typ != model.Unknown && typ != model.Object && !array {
 					newKeys.Store(strKey, typ)
+					knownKeys.Store(strKey, nil)
 					foundNew = true
 				} else if _, loaded = warnKeys.LoadOrStore(strKey, nil); !loaded {
 					util.Logger.Warn("GjsonMetric.GetNewKeys failed to detect field type", zap.Int("partition", partition), zap.Int64("offset", offset), zap.String("key", strKey), zap.String("value", v.String()))
 				}
 			} else if _, loaded = warnKeys.LoadOrStore(strKey, nil); !loaded {
 				util.Logger.Warn("GjsonMetric.GetNewKeys ignored new key due to white/black list setting", zap.Int("partition", partition), zap.Int64("offset", offset), zap.String("key", strKey), zap.String("value", v.String()))
-				knownKeys.Store(strKey, nil)
 			}
 		}
 		return true
