@@ -273,6 +273,16 @@ func (k *KafkaFranz) Stop() {
 	case quit <- struct{}{}:
 	default:
 	}
+
+	// kgo.NewClient() starts internal goroutines (manage, heartbeat, metadata) immediately.
+	// cl.Close() was previously only called inside Run(). If Run() was never called — e.g.
+	// when applyFirstConfig() created a kgo.Client for task A but then failed on task B and
+	// returned early — the client would leak, accumulating consumer group members (+1 every
+	// 10s Nacos poll) and TCP connections until the process ran out of ports.
+	// kgo.Client.Close() is idempotent, so double-close from Run()+Stop() is safe.
+	if k.cl != nil {
+		k.cl.Close()
+	}
 }
 
 // Description of this kafka consumer, consumer group name
