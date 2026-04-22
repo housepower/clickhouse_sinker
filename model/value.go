@@ -52,6 +52,7 @@ type TypeInfo struct {
 	Array               bool
 	MapKey              *TypeInfo
 	MapValue            *TypeInfo
+	DateTime64          bool
 	DateTime64Precision int
 }
 
@@ -108,11 +109,7 @@ func GetTypeName(typ int) (name string) {
 func GetValueByType(metric Metric, cwt *ColumnWithType) (val interface{}) {
 	name := cwt.SourceName
 	if cwt.Type.Array {
-		if cwt.Type.Type == DateTime {
-			val = metric.GetArrayWithType(name, cwt.Type.Type, cwt.Type)
-		} else {
-			val = metric.GetArray(name, cwt.Type.Type)
-		}
+		val = metric.GetArrayWithType(name, cwt.Type.Type, cwt.Type)
 	} else {
 		switch cwt.Type.Type {
 		case Bool:
@@ -176,11 +173,15 @@ func WhichType(typ string) (ti *TypeInfo) {
 	}
 	if strings.HasPrefix(typ, "DateTime64") {
 		dataType = DateTime
-		ti = &TypeInfo{Type: dataType, Nullable: nullable, Array: array}
+		ti = &TypeInfo{Type: dataType, Nullable: nullable, Array: array, DateTime64: true}
 		if idx := strings.Index(typ, "("); idx != -1 {
 			parenEnd := strings.Index(typ[idx:], ")")
 			if parenEnd != -1 {
 				precisionStr := typ[idx+1 : idx+parenEnd]
+				if comma := strings.Index(precisionStr, ","); comma != -1 {
+					precisionStr = precisionStr[:comma]
+				}
+				precisionStr = strings.TrimSpace(precisionStr)
 				if precision, err := strconv.Atoi(precisionStr); err == nil && precision >= 0 && precision <= 9 {
 					ti.DateTime64Precision = precision
 				}
@@ -190,7 +191,6 @@ func WhichType(typ string) (ti *TypeInfo) {
 		return ti
 	} else if strings.HasPrefix(typ, "DateTime") {
 		dataType = DateTime
-		ti.DateTime64Precision = 0
 	} else if strings.HasPrefix(typ, "Decimal") {
 		dataType = Decimal
 	} else if strings.HasPrefix(typ, "FixedString") {

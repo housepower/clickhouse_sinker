@@ -275,7 +275,7 @@ func getArray(c *FastjsonMetric, sourcename string, v *fastjson.Value, typ int, 
 					t = Epoch
 				} else {
 					timeUnit := c.pp.timeUnit
-					if typeinfo != nil && typeinfo.DateTime64Precision > 0 {
+					if typeinfo != nil && typeinfo.DateTime64 {
 						timeUnit = GetTimeUnitByPrecision(typeinfo.DateTime64Precision)
 					}
 					t = UnixFloat(f, timeUnit)
@@ -440,7 +440,7 @@ func (c *FastjsonMetric) castMapValueByType(sourcename string, value *fastjson.V
 		case model.Decimal:
 			val = getDecimal(value, typeinfo.Nullable)
 		case model.DateTime:
-			val = getDateTime(c, sourcename, value, typeinfo.Nullable)
+			val = getDateTimeWithType(c, sourcename, value, typeinfo.Nullable, typeinfo)
 		case model.String:
 			val = getString(value, typeinfo.Nullable)
 		case model.Map:
@@ -815,7 +815,7 @@ func getDateTimeWithType(c *FastjsonMetric, sourcename string, v *fastjson.Value
 			return
 		}
 		timeUnit := c.pp.timeUnit
-		if typeinfo != nil && typeinfo.DateTime64Precision > 0 {
+		if typeinfo != nil && typeinfo.DateTime64 {
 			timeUnit = GetTimeUnitByPrecision(typeinfo.DateTime64Precision)
 		}
 		val = UnixFloat(f, timeUnit)

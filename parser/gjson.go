@@ -432,7 +432,7 @@ func (c *GjsonMetric) castResultByType(sourcename string, value gjson.Result, ty
 		case model.Decimal:
 			val = getGJsonDecimal(value, typeinfo.Nullable)
 		case model.DateTime:
-			val = getGJsonDateTime(c, sourcename, value, typeinfo.Nullable)
+			val = getGJsonDateTimeWithType(c, sourcename, value, typeinfo.Nullable, typeinfo)
 		case model.String:
 			val = getGJsonString(value, typeinfo.Nullable)
 		case model.Map:
@@ -548,7 +548,7 @@ func getGJsonDateTimeWithType(c *GjsonMetric, key string, r gjson.Result, nullab
 	switch r.Type {
 	case gjson.Number:
 		timeUnit := c.pp.timeUnit
-		if typeinfo != nil && typeinfo.DateTime64Precision > 0 {
+		if typeinfo != nil && typeinfo.DateTime64 {
 			timeUnit = GetTimeUnitByPrecision(typeinfo.DateTime64Precision)
 		}
 		val = UnixFloat(r.Num, timeUnit)
@@ -631,7 +631,7 @@ func getGJsonArray(c *GjsonMetric, key string, r gjson.Result, typ int, typeinfo
 			switch e.Type {
 			case gjson.Number:
 				timeUnit := c.pp.timeUnit
-				if typeinfo != nil && typeinfo.DateTime64Precision > 0 {
+				if typeinfo != nil && typeinfo.DateTime64 {
 					timeUnit = GetTimeUnitByPrecision(typeinfo.DateTime64Precision)
 				}
 				t = UnixFloat(e.Num, timeUnit)

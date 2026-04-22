@@ -531,6 +531,47 @@ func TestParserDateTime(t *testing.T) {
 	doTestSimple(t, "GetDateTime", testCases)
 }
 
+func TestGetValueByTypeDateTime64Precision(t *testing.T) {
+	initialize.Do(initMetrics)
+	require.Nil(t, errInit)
+
+	testCases := []struct {
+		field string
+		typ   string
+		exp   interface{}
+	}{
+		{"num_int", "DateTime", UnixFloat(123, timeUnit)},
+		{"num_int", "DateTime64(0)", UnixFloat(123, 1)},
+		{"num_int", "DateTime64(3)", UnixFloat(123, 0.001)},
+		{"num_int", "DateTime64(3, 'UTC')", UnixFloat(123, 0.001)},
+		{"num_int", "DateTime64(6)", UnixFloat(123, 0.000001)},
+		{"array_num_int_1", "Array(DateTime64(3))", []time.Time{
+			Epoch,
+			UnixFloat(255, 0.001),
+			UnixFloat(256, 0.001),
+			UnixFloat(65535, 0.001),
+			UnixFloat(65536, 0.001),
+			UnixFloat(4294967295, 0.001),
+			UnixFloat(4294967296, 0.001),
+			Epoch,
+			Epoch,
+		}},
+	}
+
+	for _, name := range names {
+		metric := metrics[name]
+		for _, tc := range testCases {
+			cwt := &model.ColumnWithType{
+				Name:       tc.field,
+				SourceName: tc.field,
+				Type:       model.WhichType(tc.typ),
+			}
+			desc := fmt.Sprintf("%s.GetValueByType(%s as %s)", name, tc.field, tc.typ)
+			assert.Equal(t, tc.exp, model.GetValueByType(metric, cwt), desc)
+		}
+	}
+}
+
 func TestParserArray(t *testing.T) {
 	initialize.Do(initMetrics)
 	require.Nil(t, errInit)

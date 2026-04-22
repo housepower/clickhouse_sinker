@@ -263,7 +263,7 @@ func getCsvDateTime(c *CsvMetric, key string, nullable bool, typeinfo *model.Typ
 		}
 	} else {
 		timeUnit := c.pp.timeUnit
-		if typeinfo != nil && typeinfo.DateTime64Precision > 0 {
+		if typeinfo != nil && typeinfo.DateTime64 {
 			timeUnit = GetTimeUnitByPrecision(typeinfo.DateTime64Precision)
 		}
 		val = UnixFloat(dd, timeUnit)
@@ -351,7 +351,7 @@ func getCsvArray(c *CsvMetric, key string, typ int, typeinfo *model.TypeInfo) (v
 			switch e.Type {
 			case gjson.Number:
 				timeUnit := c.pp.timeUnit
-				if typeinfo != nil && typeinfo.DateTime64Precision > 0 {
+				if typeinfo != nil && typeinfo.DateTime64 {
 					timeUnit = GetTimeUnitByPrecision(typeinfo.DateTime64Precision)
 				}
 				t = UnixFloat(e.Num, timeUnit)
