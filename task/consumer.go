@@ -171,7 +171,24 @@ func (c *Consumer) processFetch() {
 		c.mux.Lock()
 		c.numFlying++
 		c.mux.Unlock()
-		c.sinker.commitsCh <- &Commit{group: c.grpConfig.Name, offsets: recMap, wg: &wg, consumer: c}
+		// Honour ctx so stop() can unblock this send. Without the ctx
+		// case, a stuck commitFn (e.g. one whose com.wg.Wait is waiting
+		// on a CK write that's stuck retrying against a dropped table)
+		// can fill commitsCh and freeze every consumer's processFetch
+		// — including the one a deleteConsumers path is trying to stop.
+		select {
+		case c.sinker.commitsCh <- &Commit{group: c.grpConfig.Name, offsets: recMap, wg: &wg, consumer: c}:
+		case <-c.ctx.Done():
+			c.mux.Lock()
+			if c.numFlying > 0 {
+				c.numFlying--
+				if c.numFlying == 0 {
+					c.commitDone.Broadcast()
+				}
+			}
+			c.mux.Unlock()
+			return
+		}
 		recMap = make(model.RecordMap)
 	}
 

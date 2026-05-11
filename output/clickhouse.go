@@ -290,7 +290,18 @@ func (c *ClickHouse) loopWrite(batch *model.Batch, sc *pool.ShardConn, traceId s
 			statistics.FlushMsgsErrorTotal.WithLabelValues(c.taskCfg.Name).Add(float64(batch.RealSize))
 		}),
 	); err != nil {
-		util.Logger.Fatal("ClickHouse.loopWrite failed", zap.String("task", c.taskCfg.Name), zap.Error(err))
+		// Don't Fatal — that kills the whole process for a single bad batch,
+		// which is exactly what users saw when the platform dropped a CK
+		// table out from under sinker. Log loudly and abandon this batch so
+		// batch.Wg.Done() can fire, the commit goroutine unblocks, and the
+		// table precheck on the next reload tick gets a chance to remove
+		// the offending task without taking sibling tasks down.
+		util.Logger.Error("ClickHouse.loopWrite gave up after retries, abandoning batch",
+			zap.String("task", c.taskCfg.Name),
+			zap.String("group", batch.GroupId),
+			zap.Int("rows", batch.RealSize),
+			zap.Error(err))
+		statistics.FlushMsgsErrorTotal.WithLabelValues(c.taskCfg.Name).Add(float64(batch.RealSize))
 	}
 }
 

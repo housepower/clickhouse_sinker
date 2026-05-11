@@ -592,6 +592,24 @@ func (s *Sinker) filterMissingTopics(newCfg *config.Config) {
 	}
 }
 
+// waitGroupWithTimeout blocks until wg.Wait returns or timeout fires.
+// Returns true if wg completed in time, false on timeout. When false the
+// helper goroutine is still alive and will exit naturally once wg eventually
+// finishes (no leak — the channel send is non-blocking, the receiver is gone).
+func waitGroupWithTimeout(wg *sync.WaitGroup, timeout time.Duration) bool {
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return true
+	case <-time.After(timeout):
+		return false
+	}
+}
+
 // sameDroppedSet reports whether two task-name sets have identical membership.
 func sameDroppedSet(a, b map[string]bool) bool {
 	if len(a) != len(b) {
@@ -775,11 +793,32 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 	return
 }
 
+// commitWaitTimeout bounds how long commitFn will block on a single batch's
+// CK writes before giving up on the commit. A stuck batch (e.g. CK table
+// dropped at runtime, loopWrite stuck in retry backoff) used to freeze this
+// single goroutine, which in turn filled commitsCh and stalled every
+// consumer's processFetch — symptomatically "all tasks frozen".
+const commitWaitTimeout = 90 * time.Second
+
 func (s *Sinker) commitFn() {
 	for {
 		select {
 		case com := <-s.commitsCh:
-			com.wg.Wait()
+			if !waitGroupWithTimeout(com.wg, commitWaitTimeout) {
+				util.Logger.Warn("commitFn timed out waiting for batch to finish, skipping this commit",
+					zap.String("consumergroup", com.consumer.grpConfig.Name),
+					zap.Duration("timeout", commitWaitTimeout))
+				c := com.consumer
+				c.mux.Lock()
+				if c.numFlying > 0 {
+					c.numFlying--
+					if c.numFlying == 0 {
+						c.commitDone.Broadcast()
+					}
+				}
+				c.mux.Unlock()
+				continue
+			}
 			c := com.consumer
 
 			if !c.errCommit {
