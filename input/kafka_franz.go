@@ -190,9 +190,16 @@ func GetFranzConfig(kfkCfg *config.KafkaConfig) (opts []kgo.Opt, err error) {
 func (k *KafkaFranz) Run() {
 	k.wgRun.Add(1)
 	defer k.wgRun.Done()
+	var lastPauseLog, lastErrLog time.Time
 LOOP:
 	for {
 		if !util.Rs.Allow() {
+			if now := time.Now(); now.Sub(lastPauseLog) > 5*time.Second {
+				util.Logger.Warn("KafkaFranz.Run paused by global record pool limit",
+					zap.String("group", k.grpConfig.Name),
+					zap.Int64("realSize", util.Rs.Get()))
+				lastPauseLog = now
+			}
 			select {
 			case <-k.ctx.Done():
 				break LOOP
@@ -209,12 +216,28 @@ LOOP:
 		}
 		if err != nil {
 			err = errors.Wrapf(err, "")
-			util.Logger.Info("kgo.Client.PollFetchs() got an error", zap.Error(err))
+			if now := time.Now(); now.Sub(lastErrLog) > 5*time.Second {
+				util.Logger.Info("kgo.Client.PollFetchs() got an error", zap.Error(err))
+				lastErrLog = now
+			}
 		}
 		OnConsumerPoll(k.consumerId)
 		fetchRecords := fetches.NumRecords()
 		util.Rs.Inc(int64(fetchRecords))
 		util.LogTrace(traceId, util.TraceKindFetchEnd, zap.String("consumer group", k.grpConfig.Name), zap.Int64("records", int64(fetchRecords)))
+		// Persistent metadata errors (e.g. UNKNOWN_TOPIC_ID after the broker
+		// deletes a topic this consumer still has an assignment for) make
+		// PollRecords return immediately with no records. Without this backoff
+		// the loop spins at ~10k/s, drowns the shared zap logger and starves
+		// other tasks. Respect ctx so Stop() still returns promptly.
+		if err != nil && fetchRecords == 0 {
+			select {
+			case <-k.ctx.Done():
+				break LOOP
+			case <-time.After(time.Second):
+			}
+			continue
+		}
 		// Automatically end the program if it remains inactive for a specific duration of time.
 		timeout := processTimeOut * time.Minute
 		if processTimeOut < time.Duration(k.cfg.Kafka.Properties.RebalanceTimeout)*time.Millisecond {

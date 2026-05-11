@@ -17,6 +17,7 @@ package task
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"os"
 	"reflect"
@@ -26,6 +27,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/housepower/clickhouse_sinker/config"
 	cm "github.com/housepower/clickhouse_sinker/config_manager"
 	"github.com/housepower/clickhouse_sinker/discovery"
@@ -35,6 +37,7 @@ import (
 	"github.com/housepower/clickhouse_sinker/pool"
 	"github.com/housepower/clickhouse_sinker/statistics"
 	"github.com/housepower/clickhouse_sinker/util"
+	"github.com/thanos-io/thanos/pkg/errors"
 	"go.uber.org/zap"
 )
 
@@ -62,6 +65,12 @@ type Sinker struct {
 	exitCh            chan struct{}
 	stopCommitCh      chan struct{}
 	consumerRestartCh chan *Consumer
+
+	// lastTopicDropped / lastTableDropped remember the previous-cycle dropped
+	// task sets so filterMissingTopics / filterMissingTables only emit warns
+	// when membership actually changes, instead of every 10s ticker.
+	lastTopicDropped map[string]bool
+	lastTableDropped map[string]bool
 }
 
 // NewSinker get an instance of sinker with the task list
@@ -78,6 +87,8 @@ func NewSinker(rcm cm.RemoteConfManager, http string, cmd *util.CmdOptions) *Sin
 		consumerRestartCh: make(chan *Consumer),
 		consumers:         make(map[string]*Consumer),
 		httpAddr:          http,
+		lastTopicDropped:  make(map[string]bool),
+		lastTableDropped:  make(map[string]bool),
 	}
 	return s
 }
@@ -346,6 +357,8 @@ func (s *Sinker) applyConfig(newCfg *config.Config) (err error) {
 		util.Logger.Error("failed to decrypt config password", zap.Error(err))
 		return err
 	}
+	s.filterMissingTopics(newCfg)
+	s.filterMissingTables(newCfg)
 	if s.curCfg == nil {
 		// The first time invoking of applyConfig
 		err = s.applyFirstConfig(newCfg)
@@ -362,6 +375,250 @@ func (s *Sinker) applyConfig(newCfg *config.Config) (err error) {
 		util.Logger.Warn("No task fetched from Nacos, make sure the program is running with correct commandline option!")
 	}
 	return
+}
+
+// filterMissingTables drops tasks whose ClickHouse table is absent. Same
+// rationale and Tasks-removal semantics as filterMissingTopics.
+func (s *Sinker) filterMissingTables(newCfg *config.Config) {
+	if os.Getenv("SKIP_TABLE_PRECHECK") != "" {
+		return
+	}
+	if len(newCfg.Groups) == 0 {
+		return
+	}
+	existing, err := listExistingTables(&newCfg.Clickhouse)
+	if err != nil {
+		util.Logger.Warn("table precheck skipped: failed to list ClickHouse tables, applying all tasks as-is",
+			zap.Error(err))
+		return
+	}
+	droppedNames := make(map[string]bool)
+	type groupDrop struct {
+		groupName    string
+		droppedTasks []string
+		emptyGroup   bool
+	}
+	var changes []groupDrop
+	for groupName, gCfg := range newCfg.Groups {
+		droppedTasks := []string{}
+		for taskName, tCfg := range gCfg.Configs {
+			tableName := tCfg.TableName
+			if idx := strings.Index(tableName, "."); idx > 0 {
+				tableName = tableName[idx+1:]
+			}
+			if !existing[tableName] {
+				delete(gCfg.Configs, taskName)
+				droppedTasks = append(droppedTasks, taskName)
+				droppedNames[taskName] = true
+			}
+		}
+		if len(droppedTasks) == 0 {
+			continue
+		}
+		topicSet := make(map[string]bool)
+		for _, t := range gCfg.Configs {
+			topicSet[t.Topic] = true
+		}
+		keptTopics := gCfg.Topics[:0]
+		for _, topic := range gCfg.Topics {
+			if topicSet[topic] {
+				keptTopics = append(keptTopics, topic)
+			}
+		}
+		gCfg.Topics = keptTopics
+		emptyGroup := len(gCfg.Configs) == 0
+		if emptyGroup {
+			delete(newCfg.Groups, groupName)
+		}
+		changes = append(changes, groupDrop{groupName, droppedTasks, emptyGroup})
+	}
+	dropTasksFromCfg(newCfg, droppedNames)
+
+	if !sameDroppedSet(droppedNames, s.lastTableDropped) {
+		for _, ch := range changes {
+			if ch.emptyGroup {
+				util.Logger.Warn("dropped consumer group: all tables missing on ClickHouse",
+					zap.String("group", ch.groupName),
+					zap.Strings("droppedTasks", ch.droppedTasks))
+			} else {
+				util.Logger.Warn("dropped tasks: tables missing on ClickHouse",
+					zap.String("group", ch.groupName),
+					zap.Strings("droppedTasks", ch.droppedTasks))
+			}
+		}
+		var recovered []string
+		for name := range s.lastTableDropped {
+			if !droppedNames[name] {
+				recovered = append(recovered, name)
+			}
+		}
+		if len(recovered) > 0 {
+			util.Logger.Info("tasks recovered after ClickHouse tables reappeared",
+				zap.Strings("tasks", recovered))
+		}
+		s.lastTableDropped = droppedNames
+	}
+}
+
+// listExistingTables opens a short-lived ClickHouse connection to enumerate
+// the tables in the configured database. It deliberately does NOT use the
+// global pool.ShardConn so it can run before applyFirstConfig has initialized
+// the cluster connection.
+func listExistingTables(chCfg *config.ClickHouseConfig) (map[string]bool, error) {
+	if len(chCfg.Hosts) == 0 || len(chCfg.Hosts[0]) == 0 {
+		return nil, errors.Newf("no clickhouse hosts configured")
+	}
+	addr := fmt.Sprintf("%s:%d", chCfg.Hosts[0][0], chCfg.Port)
+	proto := clickhouse.Native
+	if chCfg.Protocol == clickhouse.HTTP.String() {
+		proto = clickhouse.HTTP
+	}
+	opts := &clickhouse.Options{
+		Addr:     []string{addr},
+		Protocol: proto,
+		Auth: clickhouse.Auth{
+			Database: chCfg.DB,
+			Username: chCfg.Username,
+			Password: chCfg.Password,
+		},
+		DialTimeout: 10 * time.Second,
+		ReadTimeout: 10 * time.Second,
+	}
+	if chCfg.Secure {
+		opts.TLS = &tls.Config{InsecureSkipVerify: chCfg.InsecureSkipVerify}
+	}
+	conn, err := clickhouse.Open(opts)
+	if err != nil {
+		return nil, errors.Wrapf(err, "")
+	}
+	defer conn.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	rows, err := conn.Query(ctx, "SELECT name FROM system.tables WHERE database = ?", chCfg.DB)
+	if err != nil {
+		return nil, errors.Wrapf(err, "")
+	}
+	defer rows.Close()
+
+	existing := make(map[string]bool)
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, errors.Wrapf(err, "")
+		}
+		existing[name] = true
+	}
+	return existing, nil
+}
+
+// filterMissingTopics drops tasks whose topic is absent on the Kafka cluster.
+// It removes them from both newCfg.Groups AND newCfg.Tasks — the latter is
+// required so reflect.DeepEqual(newCfg.Tasks, s.curCfg.Tasks) becomes false
+// when a previously-healthy task's topic disappears at runtime, triggering
+// applyAnotherConfig's deleteConsumers path. Without removing from Tasks, the
+// surviving (now-broken) consumer would be left running and spin in commit
+// failure loops.
+func (s *Sinker) filterMissingTopics(newCfg *config.Config) {
+	if os.Getenv("SKIP_TOPIC_PRECHECK") != "" {
+		return
+	}
+	existing, err := cm.ListExistingTopics(&newCfg.Kafka)
+	if err != nil {
+		util.Logger.Warn("topic precheck skipped: failed to list Kafka topics, applying all tasks as-is",
+			zap.Error(err))
+		return
+	}
+	droppedNames := make(map[string]bool)
+	type groupDrop struct {
+		groupName    string
+		droppedTasks []string
+		emptyGroup   bool
+	}
+	var changes []groupDrop
+	for groupName, gCfg := range newCfg.Groups {
+		droppedTasks := []string{}
+		for taskName, tCfg := range gCfg.Configs {
+			if !existing[tCfg.Topic] {
+				delete(gCfg.Configs, taskName)
+				droppedTasks = append(droppedTasks, taskName)
+				droppedNames[taskName] = true
+			}
+		}
+		if len(droppedTasks) == 0 {
+			continue
+		}
+		keptTopics := gCfg.Topics[:0]
+		for _, topic := range gCfg.Topics {
+			if existing[topic] {
+				keptTopics = append(keptTopics, topic)
+			}
+		}
+		emptyGroup := len(gCfg.Configs) == 0
+		if emptyGroup {
+			delete(newCfg.Groups, groupName)
+		} else {
+			gCfg.Topics = keptTopics
+		}
+		changes = append(changes, groupDrop{groupName, droppedTasks, emptyGroup})
+	}
+	dropTasksFromCfg(newCfg, droppedNames)
+
+	// Only log when the dropped set changes, otherwise every 10s ticker would
+	// spam the same warn. recovered tasks get an info-level note.
+	if !sameDroppedSet(droppedNames, s.lastTopicDropped) {
+		for _, ch := range changes {
+			if ch.emptyGroup {
+				util.Logger.Warn("dropped consumer group: all topics missing on Kafka",
+					zap.String("group", ch.groupName),
+					zap.Strings("droppedTasks", ch.droppedTasks))
+			} else {
+				util.Logger.Warn("dropped tasks: topics missing on Kafka",
+					zap.String("group", ch.groupName),
+					zap.Strings("droppedTasks", ch.droppedTasks))
+			}
+		}
+		var recovered []string
+		for name := range s.lastTopicDropped {
+			if !droppedNames[name] {
+				recovered = append(recovered, name)
+			}
+		}
+		if len(recovered) > 0 {
+			util.Logger.Info("tasks recovered after Kafka topics reappeared",
+				zap.Strings("tasks", recovered))
+		}
+		s.lastTopicDropped = droppedNames
+	}
+}
+
+// sameDroppedSet reports whether two task-name sets have identical membership.
+func sameDroppedSet(a, b map[string]bool) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k := range a {
+		if !b[k] {
+			return false
+		}
+	}
+	return true
+}
+
+// dropTasksFromCfg removes the named tasks from cfg.Tasks in place. Doing this
+// is what lets reflect.DeepEqual against s.curCfg.Tasks notice the change, so
+// applyAnotherConfig's deleteConsumers branch can actually run.
+func dropTasksFromCfg(cfg *config.Config, droppedNames map[string]bool) {
+	if len(droppedNames) == 0 {
+		return
+	}
+	keptTasks := cfg.Tasks[:0]
+	for _, t := range cfg.Tasks {
+		if !droppedNames[t.Name] {
+			keptTasks = append(keptTasks, t)
+		}
+	}
+	cfg.Tasks = keptTasks
 }
 
 func (s *Sinker) applyFirstConfig(newCfg *config.Config) (err error) {

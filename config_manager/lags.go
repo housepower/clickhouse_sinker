@@ -3,6 +3,7 @@ package rcm
 import (
 	"context"
 	"reflect"
+	"time"
 
 	"github.com/housepower/clickhouse_sinker/config"
 	"github.com/housepower/clickhouse_sinker/input"
@@ -48,6 +49,38 @@ func GetTaskStateAndLags(cfg *config.Config) (stateLags map[string]StateLag, err
 		}
 		stateLags[taskCfg.Name] = StateLag{State: state, Lag: totalLags}
 		statistics.ConsumeLags.WithLabelValues(taskCfg.ConsumerGroup, taskCfg.Topic, taskCfg.Name).Set(float64(totalLags))
+	}
+	return
+}
+
+// ListExistingTopics returns the set of topic names that currently exist on the
+// configured Kafka cluster. Returns (nil, err) only when the admin RPC fails
+// outright; callers should fall back to "don't filter anything" in that case to
+// avoid blocking startup on a transient Kafka issue.
+func ListExistingTopics(kfkCfg *config.KafkaConfig) (existing map[string]bool, err error) {
+	kconf := *kfkCfg
+	if !reflect.DeepEqual(&kconf, kafkaConfig) {
+		cleanupKafkaClient()
+		if err = newClient(kconf); err != nil {
+			return
+		}
+		kafkaConfig = &kconf
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	details, err := theAdm.ListTopics(ctx)
+	if err != nil {
+		err = errors.Wrapf(err, "")
+		return
+	}
+	existing = make(map[string]bool, len(details))
+	for name, d := range details {
+		if d.Err != nil {
+			continue
+		}
+		existing[name] = true
 	}
 	return
 }
