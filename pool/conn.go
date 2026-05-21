@@ -21,9 +21,11 @@ package pool
 import (
 	"context"
 	"crypto/tls"
+	stderrors "errors"
 	"fmt"
 	"math/rand"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -32,6 +34,11 @@ import (
 	"github.com/thanos-io/thanos/pkg/errors"
 	"go.uber.org/zap"
 )
+
+// ErrAllReplicasDown is the sentinel error returned by NextGoodReplica when
+// every replica of a shard fails to open. Callers use errors.Is to detect this
+// specific failure and decide whether to reroute the batch to another shard.
+var ErrAllReplicasDown = stderrors.New("all replicas down")
 
 var (
 	lock        sync.Mutex
@@ -49,6 +56,62 @@ type ShardConn struct {
 	writingPool *util.WorkerPool //the all tasks' writing ClickHouse, cpu-net balance
 	protocol    clickhouse.Protocol
 	chCfg       *config.ClickHouseConfig
+
+	// healthy is true while at least one replica is reachable. It flips to
+	// false once a writer observes ErrAllReplicasDown and calls MarkUnhealthy;
+	// the probe goroutine flips it back to true after it can re-open a replica.
+	healthy atomic.Bool
+	// closed is set by Close so the probe goroutine exits promptly during
+	// shutdown / config reload.
+	closed atomic.Bool
+}
+
+// Healthy reports whether routing should still target this shard.
+func (sc *ShardConn) Healthy() bool {
+	return sc.healthy.Load()
+}
+
+// MarkUnhealthy flips the shard to unhealthy (if not already) and starts a
+// single probe goroutine that retries NextGoodReplica every 60s until a
+// replica comes back. Idempotent: concurrent callers will only ever spawn
+// one probe per unhealthy episode.
+func (sc *ShardConn) MarkUnhealthy() {
+	if sc.closed.Load() {
+		return
+	}
+	if sc.healthy.CompareAndSwap(true, false) {
+		util.Logger.Warn("shard marked unavailable; probing every 60s",
+			zap.Strings("replicas", sc.replicas))
+		go sc.probeLoop()
+	}
+}
+
+func (sc *ShardConn) probeLoop() {
+	ticker := time.NewTicker(60 * time.Second)
+	defer ticker.Stop()
+	ctx := context.Background()
+	if sc.chCfg != nil && sc.chCfg.Ctx != nil {
+		ctx = sc.chCfg.Ctx
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		if sc.closed.Load() {
+			return
+		}
+		sc.lock.Lock()
+		curVer := sc.dbVer
+		sc.lock.Unlock()
+		if _, _, err := sc.NextGoodReplica(ctx, curVer); err == nil {
+			sc.healthy.Store(true)
+			util.Logger.Info("shard recovered, resume routing",
+				zap.Strings("replicas", sc.replicas))
+			return
+		}
+	}
 }
 
 func (sc *ShardConn) SubmitTask(fn func()) (err error) {
@@ -68,6 +131,7 @@ func (sc *ShardConn) GetReplica() (replica string) {
 
 // Close closes the current replica connection
 func (sc *ShardConn) Close() {
+	sc.closed.Store(true)
 	sc.lock.Lock()
 	defer sc.lock.Unlock()
 	if sc.conn != nil {
@@ -131,7 +195,7 @@ func (sc *ShardConn) NextGoodReplica(ctx context.Context, failedVer int) (db *Co
 		sc.conn = &conn
 		return sc.conn, sc.dbVer, nil
 	}
-	err = errors.Newf("no good replica among replicas %v since %d", sc.replicas, savedNextRep)
+	err = errors.Wrapf(ErrAllReplicasDown, "no good replica among replicas %v since %d", sc.replicas, savedNextRep)
 	return nil, sc.dbVer, err
 }
 
@@ -177,6 +241,7 @@ func InitClusterConn(chCfg *config.ClickHouseConfig) (err error) {
 			},
 			writingPool: util.NewWorkerPool(chCfg.MaxOpenConns, 1),
 		}
+		sc.healthy.Store(true)
 		if chCfg.Secure {
 			tlsConfig := &tls.Config{}
 			tlsConfig.InsecureSkipVerify = chCfg.InsecureSkipVerify
@@ -225,6 +290,30 @@ func GetShardConn(batchNum int64) (sc *ShardConn) {
 	defer lock.Unlock()
 	sc = clusterConn[batchNum%int64(len(clusterConn))]
 	return
+}
+
+// PickHealthyShardSkipping returns a healthy shard chosen round-robin by
+// batchNum, skipping `exclude` and any shard currently marked unhealthy.
+// Returns nil when no healthy alternative exists. Intended for the
+// skipUnavailableShards reroute path; the caller is responsible for ensuring
+// reroute is semantically safe (i.e. the task has no shardingKey).
+func PickHealthyShardSkipping(batchNum int64, exclude *ShardConn) *ShardConn {
+	lock.Lock()
+	defer lock.Unlock()
+	candidates := make([]*ShardConn, 0, len(clusterConn))
+	for _, sc := range clusterConn {
+		if sc == exclude || !sc.Healthy() {
+			continue
+		}
+		candidates = append(candidates, sc)
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
+	if batchNum < 0 {
+		batchNum = -batchNum
+	}
+	return candidates[batchNum%int64(len(candidates))]
 }
 
 // CloseAll closed all connection and destroys the pool

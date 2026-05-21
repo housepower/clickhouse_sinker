@@ -119,6 +119,12 @@ type ClickHouseConfig struct {
 	InsecureSkipVerify bool
 	RetryTimes         int // <=0 means retry infinitely
 	MaxOpenConns       int
+	// SkipUnavailableShards, when true and the task has no shardingKey, lets the
+	// writer reroute a batch to a healthy shard if every replica of its target
+	// shard is unreachable. Only takes effect for tasks without business-meaning
+	// sharding (shardingKey == ""); tasks with a shardingKey keep the strict
+	// shard mapping. Name mirrors ClickHouse's own skip_unavailable_shards.
+	SkipUnavailableShards bool
 	ReadTimeout        int
 	AsyncInsert        bool
 	AsyncSettings      struct {

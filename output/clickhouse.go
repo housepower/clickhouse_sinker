@@ -274,8 +274,18 @@ func (c *ClickHouse) loopWrite(batch *model.Batch, sc *pool.ShardConn, traceId s
 	if times <= 0 {
 		times = 0
 	}
+	// Reroute is only safe when the task has no business-meaning sharding key:
+	// with a shardingKey, identical inputs must always land on the same shard,
+	// so we keep retrying the failed shard. SortingKeys also impose business
+	// sharding (the virtual __shardingkey column is hashed from them in
+	// task.go), so they disqualify reroute too. Only pure offset-based round
+	// robin (no shardingKey AND no SortingKeys) is free to move shards.
+	canReroute := c.cfg.Clickhouse.SkipUnavailableShards &&
+		c.taskCfg.ShardingKey == "" &&
+		len(c.SortingKeys) == 0
+	currentSc := sc
 	if err := retry.Do(
-		func() error { return c.write(batch, sc, &dbVer) },
+		func() error { return c.write(batch, currentSc, &dbVer) },
 		retry.LastErrorOnly(true),
 		retry.Attempts(uint(times)),
 		retry.Delay(10*time.Second),
@@ -288,6 +298,25 @@ func (c *ClickHouse) loopWrite(batch *model.Batch, sc *pool.ShardConn, traceId s
 				zap.Int("try", int(retrycount)),
 				zap.Error(err))
 			statistics.FlushMsgsErrorTotal.WithLabelValues(c.taskCfg.Name).Add(float64(batch.RealSize))
+			// Only the "all replicas of this shard are down" case is reroutable;
+			// other failures (bad SQL, broken table, parse errors) repeat on
+			// every shard, so let the regular retry+abandon flow handle them.
+			if canReroute && errors.Is(err, pool.ErrAllReplicasDown) {
+				currentSc.MarkUnhealthy()
+				if next := pool.PickHealthyShardSkipping(batch.BatchIdx, currentSc); next != nil {
+					util.Logger.Warn("rerouting batch to healthy shard",
+						zap.String("task", c.taskCfg.Name),
+						zap.String("group", batch.GroupId),
+						zap.String("from", currentSc.GetReplica()),
+						zap.String("to", next.GetReplica()))
+					currentSc = next
+					dbVer = 0
+				} else {
+					util.Logger.Warn("no healthy shard available for reroute; keep retrying same shard",
+						zap.String("task", c.taskCfg.Name),
+						zap.String("group", batch.GroupId))
+				}
+			}
 		}),
 	); err != nil {
 		// Don't Fatal — that kills the whole process for a single bad batch,
