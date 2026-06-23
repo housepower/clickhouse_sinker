@@ -31,7 +31,7 @@ func TestWriteFailureDefaults(t *testing.T) {
 	if err := cfg.Normallize(false, "", util.Credentials{}); err != nil {
 		t.Fatalf("Normallize failed: %v", err)
 	}
-	if cfg.Clickhouse.RetryMaxDuration != "30m" {
-		t.Fatalf("RetryMaxDuration default = %q, want 30m", cfg.Clickhouse.RetryMaxDuration)
+	if cfg.Clickhouse.RetryTimes != 3 {
+		t.Fatalf("RetryTimes default = %d, want 3", cfg.Clickhouse.RetryTimes)
 	}
 }

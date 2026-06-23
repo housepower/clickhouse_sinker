@@ -98,7 +98,6 @@ type ClickHouse struct {
 	// lifecycleCtx teardown 取消源,由 Sinker 注入;loopWrite 重试等待用。
 	lifecycleCtx context.Context
 
-	retryMaxDur    time.Duration
 	retryableCodes map[int32]bool
 	fatalCodes     map[int32]bool
 	deadLetter     *DeadLetterSink
@@ -151,11 +150,6 @@ func (c *ClickHouse) Init() (err error) {
 	c.retryableCodes = buildCodeSet(c.cfg.Clickhouse.RetryableErrorCodes)
 	c.fatalCodes = buildCodeSet(c.cfg.Clickhouse.FatalErrorCodes)
 	c.limiter = rate.NewLimiter(rate.Every(10*time.Second), 1)
-	if d, e := time.ParseDuration(c.cfg.Clickhouse.RetryMaxDuration); e == nil && d > 0 {
-		c.retryMaxDur = d
-	} else {
-		c.retryMaxDur = 30 * time.Minute
-	}
 	if c.taskCfg.WriteFailure != nil && c.taskCfg.WriteFailure.Strategy == config.WriteFailureWriteToKafka {
 		if c.deadLetter != nil {
 			c.deadLetter.Close()
@@ -395,7 +389,6 @@ func (c *ClickHouse) loopWrite(batch *model.Batch, sc *pool.ShardConn, traceId s
 		len(c.SortingKeys) == 0
 	currentSc := sc
 
-	var firstFail time.Time
 	backoff := 10 * time.Second
 	attempts := 0
 	maxAttempts := c.cfg.Clickhouse.RetryTimes // <=0 表示不按次数限制
@@ -445,15 +438,10 @@ func (c *ClickHouse) loopWrite(batch *model.Batch, sc *pool.ShardConn, traceId s
 			}
 		}
 
-		if firstFail.IsZero() {
-			firstFail = time.Now()
-		}
-		exceeded := time.Since(firstFail) > c.retryMaxDur
-		if exceeded || (maxAttempts > 0 && attempts >= maxAttempts) {
-			util.Logger.Error("retryable error exceeded ceiling, dispatching as final failure",
+		if maxAttempts > 0 && attempts >= maxAttempts {
+			util.Logger.Error("retryable error exceeded RetryTimes, dispatching as final failure",
 				zap.String("task", c.taskCfg.Name),
 				zap.String("group", batch.GroupId),
-				zap.Duration("elapsed", time.Since(firstFail)),
 				zap.Int("attempts", attempts))
 			c.dispatchFailure(batch, "transient_exhausted", err)
 			return

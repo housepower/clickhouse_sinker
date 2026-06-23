@@ -4,6 +4,8 @@
 分支:`feature/error-bypass`
 状态:设计已评审,待落实现计划
 
+> 更新(2026-06-23):RetryMaxDuration 已废弃,重试上限改为仅由 RetryTimes(默认 3)兜底。
+
 ## 1. 背景与目标
 
 clickhouse_sinker 当前对写入失败的处理过于粗暴:`loopWrite` 不区分错误类型,

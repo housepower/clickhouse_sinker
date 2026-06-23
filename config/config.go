@@ -118,8 +118,6 @@ type ClickHouseConfig struct {
 	// Whether skip verify clickhouse-server cert
 	InsecureSkipVerify bool
 	RetryTimes         int // <=0 means retry infinitely
-	// 瞬时错误重试总时长上限,如 "30m";留空默认 30m。与 RetryTimes 取先到者。
-	RetryMaxDuration string `json:"retryMaxDuration,omitempty"`
 	// 追加到内置可重试白名单的 ClickHouse 错误码。
 	RetryableErrorCodes []int32 `json:"retryableErrorCodes,omitempty"`
 	// 强制归为"不可重试"的 ClickHouse 错误码(优先级高于白名单)。
@@ -371,9 +369,6 @@ func (cfg *Config) Normallize(constructGroup bool, httpAddr string, cred util.Cr
 
 	if cfg.Clickhouse.RetryTimes <= 0 {
 		cfg.Clickhouse.RetryTimes = defaultRetryTimes
-	}
-	if cfg.Clickhouse.RetryMaxDuration == "" {
-		cfg.Clickhouse.RetryMaxDuration = "30m"
 	}
 	if cfg.Clickhouse.MaxOpenConns <= 0 {
 		cfg.Clickhouse.MaxOpenConns = defaultMaxOpenConns
