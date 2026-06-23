@@ -71,6 +71,10 @@ type Sinker struct {
 	// when membership actually changes, instead of every 10s ticker.
 	lastTopicDropped map[string]bool
 	lastTableDropped map[string]bool
+
+	// brokenTasks 存放因不可重试错误而需要被隔离的 task 名称及原因。
+	// sync.Map 零值可直接使用，无需额外初始化。
+	brokenTasks sync.Map // taskName(string) -> reason(string)
 }
 
 // NewSinker get an instance of sinker with the task list
@@ -359,6 +363,7 @@ func (s *Sinker) applyConfig(newCfg *config.Config) (err error) {
 	}
 	s.filterMissingTopics(newCfg)
 	s.filterMissingTables(newCfg)
+	s.filterBrokenTasks(newCfg)
 	if s.curCfg == nil {
 		// The first time invoking of applyConfig
 		err = s.applyFirstConfig(newCfg)
@@ -637,6 +642,32 @@ func dropTasksFromCfg(cfg *config.Config, droppedNames map[string]bool) {
 		}
 	}
 	cfg.Tasks = keptTasks
+}
+
+// MarkTaskBroken 记录某 task 因不可重试错误需被隔离。下一次 applyConfig
+// 的 filterBrokenTasks 会把它从生效配置中剔除，保住兄弟 task。
+// 使用 LoadOrStore 确保每个 task 只打一次 Warn，避免日志刷屏。
+func (s *Sinker) MarkTaskBroken(name, reason string) {
+	if _, loaded := s.brokenTasks.LoadOrStore(name, reason); !loaded {
+		if util.Logger != nil {
+			util.Logger.Warn("task marked broken, will be quarantined on next reload",
+				zap.String("task", name), zap.String("reason", reason))
+		}
+	}
+}
+
+// filterBrokenTasks 从 newCfg 中移除所有已标记 broken 的 task，
+// 复用 dropTasksFromCfg 保持与 filterMissingTopics/filterMissingTables 一致的移除语义。
+func (s *Sinker) filterBrokenTasks(newCfg *config.Config) {
+	dropped := make(map[string]bool)
+	s.brokenTasks.Range(func(k, _ any) bool {
+		dropped[k.(string)] = true
+		return true
+	})
+	if len(dropped) == 0 {
+		return
+	}
+	dropTasksFromCfg(newCfg, dropped)
 }
 
 func (s *Sinker) applyFirstConfig(newCfg *config.Config) (err error) {

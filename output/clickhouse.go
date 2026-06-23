@@ -23,6 +23,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -87,6 +88,12 @@ type ClickHouse struct {
 	mux         sync.Mutex
 	taskDone    *sync.Cond
 	SortingKeys []*model.ColumnWithType
+
+	// onTaskBroken 由 Task 7(THROW 策略)在不可重试写入失败时调用，
+	// 触发 Sinker.MarkTaskBroken 将该 task 隔离。
+	onTaskBroken func(reason string)
+	// broken 标记该 ClickHouse 实例是否已触发隔离，防止重复触发。
+	broken atomic.Bool
 }
 
 type DistTblInfo struct {
@@ -116,6 +123,12 @@ func NewClickHouse(cfg *config.Config, taskCfg *config.TaskConfig) *ClickHouse {
 	ck := &ClickHouse{cfg: cfg, taskCfg: taskCfg}
 	ck.taskDone = sync.NewCond(&ck.mux)
 	return ck
+}
+
+// SetOnTaskBroken 注册回调函数。Task 7(THROW 策略)在不可重试写入失败时调用此回调，
+// 通知 Sinker 将该 task 隔离，避免影响其他兄弟 task。
+func (c *ClickHouse) SetOnTaskBroken(fn func(reason string)) {
+	c.onTaskBroken = fn
 }
 
 // Init the clickhouse intance

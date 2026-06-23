@@ -88,6 +88,12 @@ func cloneTask(s *Service, newGroup *Consumer) (service *Service) {
 // NewTaskService creates an instance of new tasks with kafka, clickhouse and paser instances
 func NewTaskService(cfg *config.Config, taskCfg *config.TaskConfig, c *Consumer) (service *Service) {
 	ck := output.NewClickHouse(cfg, taskCfg)
+	// 接线隔离回调：THROW 策略写入失败时，通知 Sinker 将该 task 隔离。
+	taskName := taskCfg.Name
+	sinker := c.sinker
+	ck.SetOnTaskBroken(func(reason string) {
+		sinker.MarkTaskBroken(taskName, reason)
+	})
 	pp, err := parser.NewParserPool(taskCfg.Parser, taskCfg.CsvFormat, taskCfg.Delimiter, taskCfg.TimeZone, taskCfg.TimeUnit, taskCfg.Fields)
 	if err != nil {
 		util.Logger.Fatal("failed to create task", zap.String("group", c.grpConfig.Name), zap.String("task", taskCfg.Name), zap.Error(err))
