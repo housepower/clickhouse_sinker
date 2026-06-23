@@ -133,6 +133,34 @@ var (
 		},
 		[]string{"task"},
 	)
+	MsgsDroppedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: prefix + "msgs_dropped_total",
+			Help: "num of msgs dropped on non-retryable write failure (IGNORE / deadletter fallback)",
+		},
+		[]string{"task", "class"},
+	)
+	MsgsDeadLetteredTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: prefix + "msgs_dead_lettered_total",
+			Help: "num of msgs bypassed to the dead-letter kafka topic",
+		},
+		[]string{"task", "class"},
+	)
+	DeadLetterErrorsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: prefix + "dead_letter_errors_total",
+			Help: "num of failures when writing to the dead-letter topic",
+		},
+		[]string{"task"},
+	)
+	TaskQuarantinedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: prefix + "task_quarantined_total",
+			Help: "num of times a task was quarantined (THROW strategy)",
+		},
+		[]string{"task", "reason"},
+	)
 )
 
 func init() {
@@ -150,6 +178,10 @@ func init() {
 	prometheus.MustRegister(WriteSeriesDropQuota)
 	prometheus.MustRegister(WriteSeriesDropUnchanged)
 	prometheus.MustRegister(WriteSeriesSucceed)
+	prometheus.MustRegister(MsgsDroppedTotal)
+	prometheus.MustRegister(MsgsDeadLetteredTotal)
+	prometheus.MustRegister(DeadLetterErrorsTotal)
+	prometheus.MustRegister(TaskQuarantinedTotal)
 	prometheus.MustRegister(collectors.NewBuildInfoCollector())
 }
 
@@ -244,6 +276,10 @@ func (p *Pusher) reconnect() {
 		Collector(WriteSeriesDropQuota).
 		Collector(WriteSeriesDropUnchanged).
 		Collector(WriteSeriesSucceed).
+		Collector(MsgsDroppedTotal).
+		Collector(MsgsDeadLetteredTotal).
+		Collector(DeadLetterErrorsTotal).
+		Collector(TaskQuarantinedTotal).
 		Collector(collectors.NewGoCollector()).
 		Collector(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{})).
 		Grouping("instance", p.instance).Format(expfmt.FmtText)
