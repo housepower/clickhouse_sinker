@@ -45,8 +45,17 @@ func TestDeadLetterSendBatchPayload(t *testing.T) {
 	}
 	h := fp.sent[0]
 	if h["task"] != "t1" || h["table"] != "db.tb" || h["error_class"] != "data" ||
-		h["topic"] != "in" || h["partition"] != "3" || h["offset"] != "100" {
+		h["topic"] != "in" || h["partition"] != "3" || h["offset"] != "100" ||
+		h["error_msg"] != "code: 53" {
 		t.Fatalf("bad headers: %#v", h)
+	}
+}
+
+func TestDeadLetterSendBatchEmptyMsgs(t *testing.T) {
+	s := newTestSink(&fakeProducer{})
+	b := &model.Batch{RealSize: 0, Msgs: nil}
+	if err := s.SendBatch(b, "data", "x"); err == nil {
+		t.Fatal("expected error when batch has no raw msgs")
 	}
 }
 

@@ -44,7 +44,7 @@ type DeadLetterSink struct {
 }
 
 // NewDeadLetterSink 根据任务配置构建 DeadLetterSink,并可选自动建 topic。
-func NewDeadLetterSink(taskName, table string, cfg *config.WriteFailureConfig) (*DeadLetterSink, error) {
+func NewDeadLetterSink(taskName, table string, cfg *config.WriteFailureConfig) (sink *DeadLetterSink, err error) {
 	if len(cfg.BootstrapServers) == 0 || cfg.TopicName == "" {
 		return nil, errors.Newf("dead-letter requires bootstrapServers and topicName for task %s", taskName)
 	}
@@ -52,6 +52,11 @@ func NewDeadLetterSink(taskName, table string, cfg *config.WriteFailureConfig) (
 	if err != nil {
 		return nil, errors.Wrapf(err, "create dead-letter producer for task %s", taskName)
 	}
+	defer func() {
+		if err != nil {
+			cl.Close()
+		}
+	}()
 	if cfg.AutoCreateTopic {
 		parts := cfg.AutoCreateTopicPartitions
 		if parts <= 0 {
@@ -68,7 +73,8 @@ func NewDeadLetterSink(taskName, table string, cfg *config.WriteFailureConfig) (
 				zap.String("task", taskName), zap.String("topic", cfg.TopicName), zap.Error(err))
 		}
 	}
-	return &DeadLetterSink{taskName: taskName, table: table, topic: cfg.TopicName, prod: &kgoProducer{cl: cl}}, nil
+	sink = &DeadLetterSink{taskName: taskName, table: table, topic: cfg.TopicName, prod: &kgoProducer{cl: cl}}
+	return sink, nil
 }
 
 // SendBatch 把整批原始消息逐条投递到死信 topic。任一条失败即返回错误,
