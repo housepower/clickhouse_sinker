@@ -16,6 +16,7 @@ limitations under the License.
 package output
 
 import (
+	"context"
 	"encoding/json"
 	"expvar"
 	"fmt"
@@ -27,7 +28,6 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/avast/retry-go/v4"
 	"github.com/housepower/clickhouse_sinker/config"
 	"github.com/housepower/clickhouse_sinker/model"
 	"github.com/housepower/clickhouse_sinker/pool"
@@ -35,10 +35,12 @@ import (
 	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/thanos-io/thanos/pkg/errors"
 	"go.uber.org/zap"
+	"golang.org/x/time/rate"
 )
 
 var (
 	ErrTblNotExist     = errors.Newf("table doesn't exist")
+	errBrokenTask      = errors.Newf("task quarantined, short-circuiting writes")
 	selectSQLTemplate  = `select name, type, default_kind from system.columns where database = '%s' and table = '%s'`
 	referedSQLTemplate = `SELECT 
     current_col.default_expression,
@@ -94,6 +96,14 @@ type ClickHouse struct {
 	onTaskBroken func(reason string)
 	// broken 标记该 ClickHouse 实例是否已触发隔离，防止重复触发。
 	broken atomic.Bool
+	// lifecycleCtx teardown 取消源,由 Sinker 注入;loopWrite 重试等待用。
+	lifecycleCtx context.Context
+
+	retryMaxDur    time.Duration
+	retryableCodes map[int32]bool
+	fatalCodes     map[int32]bool
+	deadLetter     *DeadLetterSink
+	limiter        *rate.Limiter
 }
 
 type DistTblInfo struct {
@@ -131,9 +141,28 @@ func (c *ClickHouse) SetOnTaskBroken(fn func(reason string)) {
 	c.onTaskBroken = fn
 }
 
+// SetLifecycleCtx 注入 teardown 取消源;loopWrite 重试等待被取消时可快速退出,避免卡死优雅关闭。
+func (c *ClickHouse) SetLifecycleCtx(ctx context.Context) { c.lifecycleCtx = ctx }
+
 // Init the clickhouse intance
 func (c *ClickHouse) Init() (err error) {
-	return c.initSchema()
+	if err = c.initSchema(); err != nil {
+		return
+	}
+	c.retryableCodes = buildCodeSet(c.cfg.Clickhouse.RetryableErrorCodes)
+	c.fatalCodes = buildCodeSet(c.cfg.Clickhouse.FatalErrorCodes)
+	c.limiter = rate.NewLimiter(rate.Every(10*time.Second), 1)
+	if d, e := time.ParseDuration(c.cfg.Clickhouse.RetryMaxDuration); e == nil && d > 0 {
+		c.retryMaxDur = d
+	} else {
+		c.retryMaxDur = 30 * time.Minute
+	}
+	if c.taskCfg.WriteFailure != nil && c.taskCfg.WriteFailure.Strategy == config.WriteFailureWriteToKafka {
+		if c.deadLetter, err = NewDeadLetterSink(c.taskCfg.Name, c.dbName+"."+c.TableName, c.taskCfg.WriteFailure); err != nil {
+			return
+		}
+	}
+	return
 }
 
 // Drain drains flying batchs
@@ -150,6 +179,13 @@ func (c *ClickHouse) Drain() {
 
 // Send a batch to clickhouse
 func (c *ClickHouse) Send(batch *model.Batch, traceId string) {
+	// 任务已被隔离:短路写入,防止无意义积压。
+	if c.broken.Load() {
+		c.dispatchFailure(batch, "quarantined", errBrokenTask)
+		batch.Wg.Done()
+		util.Rs.Dec(int64(batch.RealSize))
+		return
+	}
 	sc := pool.GetShardConn(batch.BatchIdx)
 	if err := sc.SubmitTask(func() {
 		c.loopWrite(batch, sc, traceId)
@@ -273,9 +309,64 @@ func (c *ClickHouse) write(batch *model.Batch, sc *pool.ShardConn, dbVer *int) (
 	return
 }
 
+// sleepWithCtx 睡 d 或在 ctx 取消时提前返回。返回 false 表示被取消。
+func sleepWithCtx(ctx context.Context, d time.Duration) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+func (c *ClickHouse) writeFailureStrategy() string {
+	if c.taskCfg.WriteFailure != nil && c.taskCfg.WriteFailure.Strategy != "" {
+		return c.taskCfg.WriteFailure.Strategy
+	}
+	return config.WriteFailureIgnore
+}
+
+// dispatchFailure 按 per-task 策略处置一批最终写失败的数据。
+func (c *ClickHouse) dispatchFailure(batch *model.Batch, label string, err error) {
+	name := c.taskCfg.Name
+	n := float64(batch.RealSize)
+	switch c.writeFailureStrategy() {
+	case config.WriteFailureThrow:
+		c.broken.Store(true)
+		if c.onTaskBroken != nil {
+			c.onTaskBroken(label)
+		}
+		statistics.TaskQuarantinedTotal.WithLabelValues(name, label).Inc()
+		statistics.MsgsDroppedTotal.WithLabelValues(name, label).Add(n)
+		if c.limiter.Allow() {
+			util.Logger.Warn("THROW: quarantining task on non-retryable write failure",
+				zap.String("task", name), zap.String("class", label), zap.Error(err))
+		}
+	case config.WriteFailureWriteToKafka:
+		if c.deadLetter != nil {
+			if e := c.deadLetter.SendBatch(batch, label, err.Error()); e == nil {
+				statistics.MsgsDeadLetteredTotal.WithLabelValues(name, label).Add(n)
+				return
+			} else if c.limiter.Allow() {
+				util.Logger.Warn("dead-letter write failed, falling back to drop",
+					zap.String("task", name), zap.Error(e))
+			}
+			statistics.DeadLetterErrorsTotal.WithLabelValues(name).Inc()
+		}
+		statistics.MsgsDroppedTotal.WithLabelValues(name, label).Add(n)
+	default: // IGNORE
+		statistics.MsgsDroppedTotal.WithLabelValues(name, label).Add(n)
+		if c.limiter.Allow() {
+			util.Logger.Warn("IGNORE: dropping batch on non-retryable write failure",
+				zap.String("task", name), zap.String("class", label), zap.Error(err))
+		}
+	}
+}
+
 // LoopWrite will dead loop to write the records
 func (c *ClickHouse) loopWrite(batch *model.Batch, sc *pool.ShardConn, traceId string) {
-	var retrycount int
 	var dbVer int
 
 	util.LogTrace(traceId, util.TraceKindWriteStart, zap.Int("realsize", batch.RealSize))
@@ -283,67 +374,86 @@ func (c *ClickHouse) loopWrite(batch *model.Batch, sc *pool.ShardConn, traceId s
 		util.Rs.Dec(int64(batch.RealSize))
 		util.LogTrace(traceId, util.TraceKindWriteEnd, zap.Int("success", batch.RealSize))
 	}()
-	times := c.cfg.Clickhouse.RetryTimes
-	if times <= 0 {
-		times = 0
-	}
-	// Reroute is only safe when the task has no business-meaning sharding key:
-	// with a shardingKey, identical inputs must always land on the same shard,
-	// so we keep retrying the failed shard. SortingKeys also impose business
-	// sharding (the virtual __shardingkey column is hashed from them in
-	// task.go), so they disqualify reroute too. Only pure offset-based round
-	// robin (no shardingKey AND no SortingKeys) is free to move shards.
+
 	canReroute := c.cfg.Clickhouse.SkipUnavailableShards &&
 		c.taskCfg.ShardingKey == "" &&
 		len(c.SortingKeys) == 0
 	currentSc := sc
-	if err := retry.Do(
-		func() error { return c.write(batch, currentSc, &dbVer) },
-		retry.LastErrorOnly(true),
-		retry.Attempts(uint(times)),
-		retry.Delay(10*time.Second),
-		retry.MaxDelay(1*time.Minute),
-		retry.OnRetry(func(n uint, err error) {
-			retrycount++
-			util.Logger.Error("flush batch failed",
-				zap.String("task", c.taskCfg.Name),
-				zap.String("group", batch.GroupId),
-				zap.Int("try", int(retrycount)),
-				zap.Error(err))
-			statistics.FlushMsgsErrorTotal.WithLabelValues(c.taskCfg.Name).Add(float64(batch.RealSize))
-			// Only the "all replicas of this shard are down" case is reroutable;
-			// other failures (bad SQL, broken table, parse errors) repeat on
-			// every shard, so let the regular retry+abandon flow handle them.
-			if canReroute && errors.Is(err, pool.ErrAllReplicasDown) {
-				currentSc.MarkUnhealthy()
-				if next := pool.PickHealthyShardSkipping(batch.BatchIdx, currentSc); next != nil {
-					util.Logger.Warn("rerouting batch to healthy shard",
-						zap.String("task", c.taskCfg.Name),
-						zap.String("group", batch.GroupId),
-						zap.String("from", currentSc.GetReplica()),
-						zap.String("to", next.GetReplica()))
-					currentSc = next
-					dbVer = 0
-				} else {
-					util.Logger.Warn("no healthy shard available for reroute; keep retrying same shard",
-						zap.String("task", c.taskCfg.Name),
-						zap.String("group", batch.GroupId))
-				}
-			}
-		}),
-	); err != nil {
-		// Don't Fatal — that kills the whole process for a single bad batch,
-		// which is exactly what users saw when the platform dropped a CK
-		// table out from under sinker. Log loudly and abandon this batch so
-		// batch.Wg.Done() can fire, the commit goroutine unblocks, and the
-		// table precheck on the next reload tick gets a chance to remove
-		// the offending task without taking sibling tasks down.
-		util.Logger.Error("ClickHouse.loopWrite gave up after retries, abandoning batch",
+
+	var firstFail time.Time
+	backoff := 10 * time.Second
+	attempts := 0
+	maxAttempts := c.cfg.Clickhouse.RetryTimes // <=0 表示不按次数限制
+
+	// 使用 lifecycleCtx 做重试等待取消源;若未注入则退化为不可取消。
+	ctx := c.lifecycleCtx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	for {
+		err := c.write(batch, currentSc, &dbVer)
+		if err == nil {
+			return
+		}
+		class, label := classifyError(err, c.retryableCodes, c.fatalCodes)
+
+		if class == ClassFatal {
+			c.dispatchFailure(batch, label, err)
+			return
+		}
+
+		// ClassRetryable
+		attempts++
+		statistics.FlushMsgsErrorTotal.WithLabelValues(c.taskCfg.Name).Add(float64(batch.RealSize))
+		util.Logger.Error("flush batch failed (retryable)",
 			zap.String("task", c.taskCfg.Name),
 			zap.String("group", batch.GroupId),
-			zap.Int("rows", batch.RealSize),
+			zap.Int("try", attempts),
 			zap.Error(err))
-		statistics.FlushMsgsErrorTotal.WithLabelValues(c.taskCfg.Name).Add(float64(batch.RealSize))
+
+		// reroute:整分片不可用且可重路由时换健康分片
+		if canReroute && errors.Is(err, pool.ErrAllReplicasDown) {
+			currentSc.MarkUnhealthy()
+			if next := pool.PickHealthyShardSkipping(batch.BatchIdx, currentSc); next != nil {
+				util.Logger.Warn("rerouting batch to healthy shard",
+					zap.String("task", c.taskCfg.Name),
+					zap.String("group", batch.GroupId),
+					zap.String("from", currentSc.GetReplica()),
+					zap.String("to", next.GetReplica()))
+				currentSc = next
+				dbVer = 0
+			} else {
+				util.Logger.Warn("no healthy shard available for reroute; keep retrying same shard",
+					zap.String("task", c.taskCfg.Name),
+					zap.String("group", batch.GroupId))
+			}
+		}
+
+		if firstFail.IsZero() {
+			firstFail = time.Now()
+		}
+		exceeded := time.Since(firstFail) > c.retryMaxDur
+		if exceeded || (maxAttempts > 0 && attempts >= maxAttempts) {
+			util.Logger.Error("retryable error exceeded ceiling, dispatching as final failure",
+				zap.String("task", c.taskCfg.Name),
+				zap.String("group", batch.GroupId),
+				zap.Duration("elapsed", time.Since(firstFail)),
+				zap.Int("attempts", attempts))
+			c.dispatchFailure(batch, "transient_exhausted", err)
+			return
+		}
+
+		if !sleepWithCtx(ctx, backoff) {
+			// ctx 取消(teardown):放弃重试,不卡死。
+			return
+		}
+		if backoff < time.Minute {
+			backoff *= 2
+			if backoff > time.Minute {
+				backoff = time.Minute
+			}
+		}
 	}
 }
 

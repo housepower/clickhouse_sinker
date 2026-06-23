@@ -94,6 +94,7 @@ func NewTaskService(cfg *config.Config, taskCfg *config.TaskConfig, c *Consumer)
 	ck.SetOnTaskBroken(func(reason string) {
 		sinker.MarkTaskBroken(taskName, reason)
 	})
+	ck.SetLifecycleCtx(c.sinker.ctx)
 	pp, err := parser.NewParserPool(taskCfg.Parser, taskCfg.CsvFormat, taskCfg.Delimiter, taskCfg.TimeZone, taskCfg.TimeUnit, taskCfg.Fields)
 	if err != nil {
 		util.Logger.Fatal("failed to create task", zap.String("group", c.grpConfig.Name), zap.String("task", taskCfg.Name), zap.Error(err))
