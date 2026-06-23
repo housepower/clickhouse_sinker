@@ -26,7 +26,9 @@ type MsgRow struct {
 }
 
 type Batch struct {
-	Rows     *Rows
+	Rows *Rows
+	// Msgs 与 *Rows 1:1 对齐,携带原始 kafka 消息以支持死信重放;可能为 nil。
+	Msgs     []*InputMessage
 	BatchIdx int64
 	GroupId  string
 	RealSize int

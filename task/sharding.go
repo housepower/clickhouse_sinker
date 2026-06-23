@@ -123,6 +123,7 @@ type Sharder struct {
 	shards  int
 	mux     sync.Mutex
 	msgBuf  []*model.Rows
+	msgMsgs [][]*model.InputMessage // 与 msgBuf 各 shard 1:1 对齐
 }
 
 func NewSharder(service *Service) (sh *Sharder, err error) {
@@ -135,13 +136,35 @@ func NewSharder(service *Service) (sh *Sharder, err error) {
 		service: service,
 		policy:  policy,
 		shards:  shards,
-		msgBuf:  make([]*model.Rows, shards),
 	}
+	sh.reset(shards)
+	return
+}
+
+// reset 重建所有 shard 的缓冲。调用者需持有 mux(或在构造期单线程)。
+func (sh *Sharder) reset(shards int) {
+	sh.msgBuf = make([]*model.Rows, shards)
+	sh.msgMsgs = make([][]*model.InputMessage, shards)
 	for i := 0; i < shards; i++ {
 		rs := make(model.Rows, 0)
 		sh.msgBuf[i] = &rs
+		sh.msgMsgs[i] = make([]*model.InputMessage, 0)
 	}
-	return
+}
+
+// putRaw 追加一行及其原始消息到指定 shard。调用者需持有 mux。
+func (sh *Sharder) putRaw(shard int, row *model.Row, msg *model.InputMessage) {
+	*sh.msgBuf[shard] = append(*sh.msgBuf[shard], row)
+	sh.msgMsgs[shard] = append(sh.msgMsgs[shard], msg)
+}
+
+// takeShard 取出并清空指定 shard 的缓冲。调用者需持有 mux。
+func (sh *Sharder) takeShard(i int) (*model.Rows, []*model.InputMessage) {
+	rows, msgs := sh.msgBuf[i], sh.msgMsgs[i]
+	rs := make(model.Rows, 0, len(*rows))
+	sh.msgBuf[i] = &rs
+	sh.msgMsgs[i] = make([]*model.InputMessage, 0, len(msgs))
+	return rows, msgs
 }
 
 func (sh *Sharder) Calc(row *model.Row, offset int64) (int, error) {
@@ -151,8 +174,7 @@ func (sh *Sharder) Calc(row *model.Row, offset int64) (int, error) {
 func (sh *Sharder) PutElement(msgRow *model.MsgRow) {
 	sh.mux.Lock()
 	defer sh.mux.Unlock()
-	rows := sh.msgBuf[msgRow.Shard]
-	*rows = append(*rows, msgRow.Row)
+	sh.putRaw(msgRow.Shard, msgRow.Row, msgRow.Msg)
 	statistics.ShardMsgs.WithLabelValues(sh.service.taskCfg.Name).Inc()
 }
 
@@ -168,12 +190,14 @@ func (sh *Sharder) Flush(c context.Context, wg *sync.WaitGroup, rmap map[int32]*
 		util.Logger.Debug("flush records to ck")
 		taskCfg := sh.service.taskCfg
 		batchId, _ := nanoid.New()
-		for i, rows := range sh.msgBuf {
-			realSize := len(*rows)
+		for i := range sh.msgBuf {
+			realSize := len(*sh.msgBuf[i])
 			if realSize > 0 {
 				msgCnt += realSize
+				rows, msgs := sh.takeShard(i)
 				batch := &model.Batch{
 					Rows:     rows,
+					Msgs:     msgs,
 					BatchIdx: int64(i),
 					GroupId:  batchId,
 					RealSize: realSize,
@@ -181,8 +205,6 @@ func (sh *Sharder) Flush(c context.Context, wg *sync.WaitGroup, rmap map[int32]*
 				}
 				batch.Wg.Add(1)
 				sh.service.clickhouse.Send(batch, traceId)
-				rs := make(model.Rows, 0, realSize)
-				sh.msgBuf[i] = &rs
 			}
 		}
 		if msgCnt > 0 {
