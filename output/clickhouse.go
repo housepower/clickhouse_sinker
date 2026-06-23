@@ -157,11 +157,24 @@ func (c *ClickHouse) Init() (err error) {
 		c.retryMaxDur = 30 * time.Minute
 	}
 	if c.taskCfg.WriteFailure != nil && c.taskCfg.WriteFailure.Strategy == config.WriteFailureWriteToKafka {
+		if c.deadLetter != nil {
+			c.deadLetter.Close()
+			c.deadLetter = nil
+		}
 		if c.deadLetter, err = NewDeadLetterSink(c.taskCfg.Name, c.dbName+"."+c.TableName, c.taskCfg.WriteFailure); err != nil {
 			return
 		}
 	}
 	return
+}
+
+// Close 释放该 task 持有的资源(目前是死信 producer)。仅在 task/consumer 被永久移除时调用,
+// 不可在 restart 路径调用(restart 复用同一 ClickHouse 实例且不会重新 Init)。
+func (c *ClickHouse) Close() {
+	if c.deadLetter != nil {
+		c.deadLetter.Close()
+		c.deadLetter = nil
+	}
 }
 
 // Drain drains flying batchs

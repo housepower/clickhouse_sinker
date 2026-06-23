@@ -337,6 +337,12 @@ func (s *Sinker) stopAllTasks() {
 	}
 	wg.Wait()
 	util.Logger.Info("stopped all consumers")
+	for _, c := range s.consumers {
+		c.tasks.Range(func(_, v any) bool {
+			v.(*Service).clickhouse.Close()
+			return true
+		})
+	}
 
 	select {
 	case s.stopCommitCh <- struct{}{}:
@@ -780,8 +786,10 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 		}
 		// 1) stop consumers no longer with newcfg
 		var wg sync.WaitGroup
+		var stoppedConsumers []*Consumer
 		for _, v := range deleteConsumers {
 			c := s.consumers[v]
+			stoppedConsumers = append(stoppedConsumers, c)
 			if c.state.Load() == util.StateRunning {
 				wg.Add(1)
 				go func(c *Consumer) {
@@ -792,6 +800,12 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 			delete(s.consumers, v)
 		}
 		wg.Wait()
+		for _, c := range stoppedConsumers {
+			c.tasks.Range(func(_, v any) bool {
+				v.(*Service).clickhouse.Close()
+				return true
+			})
+		}
 
 		// 2) fire up new consumers
 		// Record the new config

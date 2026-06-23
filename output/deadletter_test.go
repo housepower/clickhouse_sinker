@@ -2,6 +2,7 @@ package output
 
 import (
 	"errors"
+	"strconv"
 	"testing"
 	"time"
 
@@ -48,6 +49,10 @@ func TestDeadLetterSendBatchPayload(t *testing.T) {
 		h["topic"] != "in" || h["partition"] != "3" || h["offset"] != "100" ||
 		h["error_msg"] != "code: 53" {
 		t.Fatalf("bad headers: %#v", h)
+	}
+	wantTs := strconv.FormatInt(ts.UnixMilli(), 10)
+	if h["ts"] != wantTs {
+		t.Fatalf("bad ts header: got %q, want %q", h["ts"], wantTs)
 	}
 }
 

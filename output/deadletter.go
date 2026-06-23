@@ -97,6 +97,9 @@ func (s *DeadLetterSink) SendBatch(b *model.Batch, label, errMsg string) error {
 			"partition":   strconv.Itoa(m.Partition),
 			"offset":      strconv.FormatInt(m.Offset, 10),
 		}
+		if m.Timestamp != nil {
+			headers["ts"] = strconv.FormatInt(m.Timestamp.UnixMilli(), 10)
+		}
 		if err := s.prod.Produce(s.topic, m.Key, m.Value, headers); err != nil {
 			return errors.Wrapf(err, "produce to dead-letter topic %s", s.topic)
 		}
