@@ -28,7 +28,9 @@ func TestWriteFailureDefaults(t *testing.T) {
 		Tasks:      []*TaskConfig{{Name: "t1", Topic: "tp", TableName: "tb"}},
 	}
 	// Normallize 触发 parseConfig 默认值填充（三参数形式：constructGroup=false, httpAddr="", cred=空）
-	_ = cfg.Normallize(false, "", util.Credentials{})
+	if err := cfg.Normallize(false, "", util.Credentials{}); err != nil {
+		t.Fatalf("Normallize failed: %v", err)
+	}
 	if cfg.Clickhouse.RetryMaxDuration != "30m" {
 		t.Fatalf("RetryMaxDuration default = %q, want 30m", cfg.Clickhouse.RetryMaxDuration)
 	}

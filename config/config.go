@@ -121,9 +121,9 @@ type ClickHouseConfig struct {
 	// 瞬时错误重试总时长上限,如 "30m";留空默认 30m。与 RetryTimes 取先到者。
 	RetryMaxDuration string `json:"retryMaxDuration,omitempty"`
 	// 追加到内置可重试白名单的 ClickHouse 错误码。
-	RetryableErrorCodes []int `json:"retryableErrorCodes,omitempty"`
+	RetryableErrorCodes []int32 `json:"retryableErrorCodes,omitempty"`
 	// 强制归为"不可重试"的 ClickHouse 错误码(优先级高于白名单)。
-	FatalErrorCodes []int `json:"fatalErrorCodes,omitempty"`
+	FatalErrorCodes []int32 `json:"fatalErrorCodes,omitempty"`
 	MaxOpenConns    int
 	// SkipUnavailableShards, when true and the task has no shardingKey, lets the
 	// writer reroute a batch to a healthy shard if every replica of its target
