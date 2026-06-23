@@ -118,7 +118,13 @@ type ClickHouseConfig struct {
 	// Whether skip verify clickhouse-server cert
 	InsecureSkipVerify bool
 	RetryTimes         int // <=0 means retry infinitely
-	MaxOpenConns       int
+	// 瞬时错误重试总时长上限,如 "30m";留空默认 30m。与 RetryTimes 取先到者。
+	RetryMaxDuration string `json:"retryMaxDuration,omitempty"`
+	// 追加到内置可重试白名单的 ClickHouse 错误码。
+	RetryableErrorCodes []int `json:"retryableErrorCodes,omitempty"`
+	// 强制归为"不可重试"的 ClickHouse 错误码(优先级高于白名单)。
+	FatalErrorCodes []int `json:"fatalErrorCodes,omitempty"`
+	MaxOpenConns    int
 	// SkipUnavailableShards, when true and the task has no shardingKey, lets the
 	// writer reroute a batch to a healthy shard if every replica of its target
 	// shard is unreachable. Only takes effect for tasks without business-meaning
@@ -145,6 +151,24 @@ type Discovery struct {
 	CheckInterval int
 	UpdatedBy     string
 	UpdatedAt     time.Time
+}
+
+const (
+	WriteFailureThrow        = "THROW"
+	WriteFailureIgnore       = "IGNORE"
+	WriteFailureWriteToKafka = "WRITE_TO_KAFKA"
+)
+
+// WriteFailureConfig 控制不可重试写入失败的 per-task 处置方式。
+type WriteFailureConfig struct {
+	// THROW(停掉该 task)| IGNORE(丢弃,默认)| WRITE_TO_KAFKA(旁路死信)
+	Strategy string `json:"writeFailureStrategy"`
+	// 仅 WRITE_TO_KAFKA 用:死信 kafka 集群(独立于输入端)。
+	BootstrapServers                 []string `json:"bootstrapServers,omitempty"`
+	AutoCreateTopic                  bool     `json:"autoCreateTopic,omitempty"`
+	AutoCreateTopicPartitions        int32    `json:"autoCreateTopicPartitions,omitempty"`
+	AutoCreateTopicReplicationFactor int16    `json:"autoCreateTopicReplicationFactor,omitempty"`
+	TopicName                        string   `json:"topicName,omitempty"`
 }
 
 // TaskConfig parameters
@@ -202,6 +226,8 @@ type TaskConfig struct {
 	MaxFetchSize  int     `json:"maxFetchSize,omitempty"`
 	TimeZone      string  `json:"timeZone"`
 	TimeUnit      float64 `json:"timeUnit"`
+	// WriteFailure 控制不可重试写入失败的处置方式,nil 时默认 IGNORE。
+	WriteFailure *WriteFailureConfig `json:"writeFailure,omitempty"`
 }
 
 type GroupConfig struct {
@@ -345,6 +371,9 @@ func (cfg *Config) Normallize(constructGroup bool, httpAddr string, cred util.Cr
 
 	if cfg.Clickhouse.RetryTimes <= 0 {
 		cfg.Clickhouse.RetryTimes = defaultRetryTimes
+	}
+	if cfg.Clickhouse.RetryMaxDuration == "" {
+		cfg.Clickhouse.RetryMaxDuration = "30m"
 	}
 	if cfg.Clickhouse.MaxOpenConns <= 0 {
 		cfg.Clickhouse.MaxOpenConns = defaultMaxOpenConns
