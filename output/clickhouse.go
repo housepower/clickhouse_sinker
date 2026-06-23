@@ -40,7 +40,6 @@ import (
 
 var (
 	ErrTblNotExist     = errors.Newf("table doesn't exist")
-	errBrokenTask      = errors.Newf("task quarantined, short-circuiting writes")
 	selectSQLTemplate  = `select name, type, default_kind from system.columns where database = '%s' and table = '%s'`
 	referedSQLTemplate = `SELECT 
     current_col.default_expression,
@@ -179,9 +178,9 @@ func (c *ClickHouse) Drain() {
 
 // Send a batch to clickhouse
 func (c *ClickHouse) Send(batch *model.Batch, traceId string) {
-	// 任务已被隔离:短路写入,防止无意义积压。
+	// 任务已被隔离:静默丢弃后续批次,不重复触发 THROW 副作用。
 	if c.broken.Load() {
-		c.dispatchFailure(batch, "quarantined", errBrokenTask)
+		statistics.MsgsDroppedTotal.WithLabelValues(c.taskCfg.Name, "quarantined").Add(float64(batch.RealSize))
 		batch.Wg.Done()
 		util.Rs.Dec(int64(batch.RealSize))
 		return
@@ -354,6 +353,9 @@ func (c *ClickHouse) dispatchFailure(batch *model.Batch, label string, err error
 					zap.String("task", name), zap.Error(e))
 			}
 			statistics.DeadLetterErrorsTotal.WithLabelValues(name).Inc()
+		} else if c.limiter.Allow() {
+			util.Logger.Warn("WRITE_TO_KAFKA configured but no dead-letter sink available, dropping batch",
+				zap.String("task", name), zap.String("class", label))
 		}
 		statistics.MsgsDroppedTotal.WithLabelValues(name, label).Add(n)
 	default: // IGNORE
