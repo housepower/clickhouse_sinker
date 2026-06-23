@@ -649,10 +649,8 @@ func dropTasksFromCfg(cfg *config.Config, droppedNames map[string]bool) {
 // 使用 LoadOrStore 确保每个 task 只打一次 Warn，避免日志刷屏。
 func (s *Sinker) MarkTaskBroken(name, reason string) {
 	if _, loaded := s.brokenTasks.LoadOrStore(name, reason); !loaded {
-		if util.Logger != nil {
-			util.Logger.Warn("task marked broken, will be quarantined on next reload",
-				zap.String("task", name), zap.String("reason", reason))
-		}
+		util.Logger.Warn("task marked broken, will be quarantined on next reload",
+			zap.String("task", name), zap.String("reason", reason))
 	}
 }
 

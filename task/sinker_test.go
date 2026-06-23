@@ -4,9 +4,12 @@ import (
 	"testing"
 
 	"github.com/housepower/clickhouse_sinker/config"
+	"github.com/housepower/clickhouse_sinker/util"
+	"go.uber.org/zap"
 )
 
 func TestFilterBrokenTasks(t *testing.T) {
+	util.Logger = zap.NewNop()
 	s := &Sinker{}
 	s.MarkTaskBroken("bad", "structural")
 	newCfg := &config.Config{
