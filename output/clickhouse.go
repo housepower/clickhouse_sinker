@@ -352,14 +352,22 @@ func (c *ClickHouse) dispatchFailure(batch *model.Batch, label string, err error
 		}
 	case config.WriteFailureWriteToKafka:
 		if c.deadLetter != nil {
-			if e := c.deadLetter.SendBatch(batch, label, err.Error()); e == nil {
-				statistics.MsgsDeadLetteredTotal.WithLabelValues(name, label).Add(n)
+			produced, e := c.deadLetter.SendBatch(batch, label, err.Error())
+			if produced > 0 {
+				statistics.MsgsDeadLetteredTotal.WithLabelValues(name, label).Add(float64(produced))
+			}
+			if e == nil {
 				return
-			} else if c.limiter.Allow() {
-				util.Logger.Warn("dead-letter write failed, falling back to drop",
-					zap.String("task", name), zap.Error(e))
 			}
 			statistics.DeadLetterErrorsTotal.WithLabelValues(name).Inc()
+			if c.limiter.Allow() {
+				util.Logger.Warn("dead-letter write partially/fully failed, dropping remainder",
+					zap.String("task", name), zap.Int("dead_lettered", produced), zap.Error(e))
+			}
+			if dropped := batch.RealSize - produced; dropped > 0 {
+				statistics.MsgsDroppedTotal.WithLabelValues(name, label).Add(float64(dropped))
+			}
+			return
 		} else if c.limiter.Allow() {
 			util.Logger.Warn("WRITE_TO_KAFKA configured but no dead-letter sink available, dropping batch",
 				zap.String("task", name), zap.String("class", label))

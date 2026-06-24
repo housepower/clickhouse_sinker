@@ -77,12 +77,12 @@ func NewDeadLetterSink(taskName, table string, cfg *config.WriteFailureConfig) (
 	return sink, nil
 }
 
-// SendBatch 把整批原始消息逐条投递到死信 topic。任一条失败即返回错误,
-// 由调用方兜底(降级为丢弃)。
-func (s *DeadLetterSink) SendBatch(b *model.Batch, label, errMsg string) error {
+// SendBatch 把整批原始消息逐条投递到死信 topic。返回已成功投递的条数和第一个错误。
+// 部分成功时 produced > 0 且 err != nil；调用方应分别计入 dead-lettered 和 dropped。
+func (s *DeadLetterSink) SendBatch(b *model.Batch, label, errMsg string) (produced int, err error) {
 	if len(b.Msgs) == 0 {
 		// 没有贯通原始字节(理论上不应发生),无可旁路。
-		return errors.Newf("dead-letter batch has no raw msgs (task %s)", s.taskName)
+		return 0, errors.Newf("dead-letter batch has no raw msgs (task %s)", s.taskName)
 	}
 	for _, m := range b.Msgs {
 		if m == nil {
@@ -100,11 +100,12 @@ func (s *DeadLetterSink) SendBatch(b *model.Batch, label, errMsg string) error {
 		if m.Timestamp != nil {
 			headers["ts"] = strconv.FormatInt(m.Timestamp.UnixMilli(), 10)
 		}
-		if err := s.prod.Produce(s.topic, m.Key, m.Value, headers); err != nil {
-			return errors.Wrapf(err, "produce to dead-letter topic %s", s.topic)
+		if e := s.prod.Produce(s.topic, m.Key, m.Value, headers); e != nil {
+			return produced, errors.Wrapf(e, "produce to dead-letter topic %s", s.topic)
 		}
+		produced++
 	}
-	return nil
+	return produced, nil
 }
 
 // Close 释放底层 Kafka 生产者资源。

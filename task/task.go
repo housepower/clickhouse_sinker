@@ -92,7 +92,7 @@ func NewTaskService(cfg *config.Config, taskCfg *config.TaskConfig, c *Consumer)
 	taskName := taskCfg.Name
 	sinker := c.sinker
 	ck.SetOnTaskBroken(func(reason string) {
-		sinker.MarkTaskBroken(taskName, reason)
+		sinker.MarkTaskBroken(taskName, reason, taskCfg)
 	})
 	ck.SetLifecycleCtx(c.sinker.ctx)
 	pp, err := parser.NewParserPool(taskCfg.Parser, taskCfg.CsvFormat, taskCfg.Delimiter, taskCfg.TimeZone, taskCfg.TimeUnit, taskCfg.Fields)

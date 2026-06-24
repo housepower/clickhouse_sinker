@@ -74,7 +74,14 @@ type Sinker struct {
 
 	// brokenTasks 存放因不可重试错误而需要被隔离的 task 名称及原因。
 	// sync.Map 零值可直接使用，无需额外初始化。
-	brokenTasks sync.Map // taskName(string) -> reason(string)
+	brokenTasks sync.Map // taskName(string) -> brokenInfo
+}
+
+// brokenInfo 记录一个被隔离 task 的原因及隔离发生时的配置快照。
+// 配置快照用于判断后续 reload 是否"改过配置"(运维已修复),从而解除隔离。
+type brokenInfo struct {
+	reason string
+	cfg    *config.TaskConfig
 }
 
 // NewSinker get an instance of sinker with the task list
@@ -653,19 +660,34 @@ func dropTasksFromCfg(cfg *config.Config, droppedNames map[string]bool) {
 // MarkTaskBroken 记录某 task 因不可重试错误需被隔离。下一次 applyConfig
 // 的 filterBrokenTasks 会把它从生效配置中剔除，保住兄弟 task。
 // 使用 LoadOrStore 确保每个 task 只打一次 Warn，避免日志刷屏。
-func (s *Sinker) MarkTaskBroken(name, reason string) {
-	if _, loaded := s.brokenTasks.LoadOrStore(name, reason); !loaded {
+// cfg 是隔离发生时的配置快照，用于判断后续 reload 是否"改过配置"。
+func (s *Sinker) MarkTaskBroken(name, reason string, cfg *config.TaskConfig) {
+	if _, loaded := s.brokenTasks.LoadOrStore(name, brokenInfo{reason: reason, cfg: cfg}); !loaded {
 		util.Logger.Warn("task marked broken, will be quarantined on next reload",
 			zap.String("task", name), zap.String("reason", reason))
 	}
 }
 
-// filterBrokenTasks 从 newCfg 中移除所有已标记 broken 的 task，
+// filterBrokenTasks 从 newCfg 中移除所有已标记 broken 的 task。
+// 若某 task 在新配置中出现且配置较隔离时发生了变化，视为运维已修复，解除隔离。
 // 复用 dropTasksFromCfg 保持与 filterMissingTopics/filterMissingTables 一致的移除语义。
 func (s *Sinker) filterBrokenTasks(newCfg *config.Config) {
+	newByName := make(map[string]*config.TaskConfig, len(newCfg.Tasks))
+	for _, t := range newCfg.Tasks {
+		newByName[t.Name] = t
+	}
 	dropped := make(map[string]bool)
-	s.brokenTasks.Range(func(k, _ any) bool {
-		dropped[k.(string)] = true
+	s.brokenTasks.Range(func(k, v any) bool {
+		name := k.(string)
+		info := v.(brokenInfo)
+		// 若该 task 在新配置中出现且配置较隔离时发生了变化,视为运维已修复,解除隔离(不再过滤)。
+		if nt, ok := newByName[name]; ok && info.cfg != nil && !reflect.DeepEqual(nt, info.cfg) {
+			s.brokenTasks.Delete(name)
+			util.Logger.Info("quarantined task config changed, clearing broken mark to retry",
+				zap.String("task", name))
+			return true
+		}
+		dropped[name] = true
 		return true
 	})
 	if len(dropped) == 0 {

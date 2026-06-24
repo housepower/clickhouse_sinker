@@ -38,8 +38,12 @@ func TestDeadLetterSendBatchPayload(t *testing.T) {
 			{Topic: "in", Partition: 3, Offset: 101, Value: []byte("v1"), Timestamp: &ts},
 		},
 	}
-	if err := s.SendBatch(b, "data", "code: 53"); err != nil {
+	produced, err := s.SendBatch(b, "data", "code: 53")
+	if err != nil {
 		t.Fatalf("SendBatch err: %v", err)
+	}
+	if produced != 2 {
+		t.Fatalf("produced %d, want 2", produced)
 	}
 	if len(fp.sent) != 2 {
 		t.Fatalf("produced %d, want 2", len(fp.sent))
@@ -59,7 +63,7 @@ func TestDeadLetterSendBatchPayload(t *testing.T) {
 func TestDeadLetterSendBatchEmptyMsgs(t *testing.T) {
 	s := newTestSink(&fakeProducer{})
 	b := &model.Batch{RealSize: 0, Msgs: nil}
-	if err := s.SendBatch(b, "data", "x"); err == nil {
+	if _, err := s.SendBatch(b, "data", "x"); err == nil {
 		t.Fatal("expected error when batch has no raw msgs")
 	}
 }
@@ -67,7 +71,7 @@ func TestDeadLetterSendBatchEmptyMsgs(t *testing.T) {
 func TestDeadLetterSendBatchFailurePropagates(t *testing.T) {
 	s := newTestSink(&fakeProducer{failNext: true})
 	b := &model.Batch{RealSize: 1, Msgs: []*model.InputMessage{{Value: []byte("v")}}}
-	if err := s.SendBatch(b, "unknown", "x"); err == nil {
+	if _, err := s.SendBatch(b, "unknown", "x"); err == nil {
 		t.Fatal("expected error so caller can fall back to drop")
 	}
 }
