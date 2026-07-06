@@ -48,7 +48,7 @@ run: pre
 
 .PHONY: release
 release:
-	goreleaser release --skip-publish --clean
+	goreleaser release --clean --skip=publish,validate
 
 .PHONY: docker-build
 docker-build: release

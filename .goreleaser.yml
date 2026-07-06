@@ -1,10 +1,7 @@
-# This is an example goreleaser.yaml file with some sane defaults.
-# Make sure to check the documentation at http://goreleaser.com
+version: 2
 before:
   hooks:
-    # You may remove this if you don't use go modules.
     - go mod download
-    # you may remove this if you don't need go generate
     - go generate ./...
 builds:
   - id: clickhouse_sinker
@@ -15,7 +12,7 @@ builds:
     goarch:
       - amd64
       - arm64
-    main: cmd/clickhouse_sinker/main.go
+    main: ./cmd/clickhouse_sinker
     binary: clickhouse_sinker
   - id: nacos_publish_config
     env:
@@ -25,22 +22,15 @@ builds:
     goarch:
       - amd64
       - arm64
-    main: cmd/nacos_publish_config/main.go
+    main: ./cmd/nacos_publish_config
     binary: nacos_publish_config
-archives:
-  - replacements:
-      darwin: Darwin
-      linux: Linux
-      windows: Windows
-      386: i386
-      amd64: x86_64
 checksum:
-  name_template: 'checksums.txt'
+  name_template: checksums.txt
 snapshot:
-  name_template: "{{ .Tag }}-next"
+  version_template: "{{ .Tag }}-next"
 changelog:
   sort: asc
   filters:
     exclude:
-      - '^docs:'
-      - '^test:'
+      - "^docs:"
+      - "^test:"
