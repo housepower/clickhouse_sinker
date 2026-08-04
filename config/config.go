@@ -129,9 +129,9 @@ type ClickHouseConfig struct {
 	// sharding (shardingKey == ""); tasks with a shardingKey keep the strict
 	// shard mapping. Name mirrors ClickHouse's own skip_unavailable_shards.
 	SkipUnavailableShards bool
-	ReadTimeout        int
-	AsyncInsert        bool
-	AsyncSettings      struct {
+	ReadTimeout           int
+	AsyncInsert           bool
+	AsyncSettings         struct {
 		// refers to https://clickhouse.com/docs/en/operations/settings/settings#async-insert
 		AsyncInsertMaxDataSize    int `json:"async_insert_max_data_size,omitempty"`
 		AsyncInsertMaxQueryNumber int `json:"async_insert_max_query_number,omitempty"` // 450
@@ -189,7 +189,18 @@ type TaskConfig struct {
 	// AutoSchema will auto fetch the schema from clickhouse
 	AutoSchema     bool
 	ExcludeColumns []string
-	Dims           []struct {
+	// IgnoreDefaultColumns, when true, skips columns that carry a ClickHouse
+	// DEFAULT expression (default_kind == "DEFAULT") during schema auto-fetch.
+	// Such columns are then left out of the INSERT so ClickHouse fills the
+	// default itself, instead of the sinker writing a zero value for a field
+	// that is absent from the message (e.g. "__storage_time__ DateTime DEFAULT
+	// now()" gets now() rather than the 1970 epoch).
+	// NOTE: this affects EVERY DEFAULT column on both the metric and series
+	// tables (including "__ttl__ DateTime DEFAULT now()"); enable it only when
+	// you want ClickHouse defaults for all of them. To skip just specific
+	// columns, use ExcludeColumns instead.
+	IgnoreDefaultColumns bool
+	Dims                 []struct {
 		Name       string
 		Type       string
 		SourceName string

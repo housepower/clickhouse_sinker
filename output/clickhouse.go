@@ -491,7 +491,7 @@ func (c *ClickHouse) initSeriesSchema(conn *pool.Conn) (err error) {
 	}
 
 	var seriesDims []*model.ColumnWithType
-	if seriesDims, err = getDims(c.dbName, c.seriesTbl, nil, c.taskCfg.Parser, conn); err != nil {
+	if seriesDims, err = getDims(c.dbName, c.seriesTbl, nil, c.taskCfg.IgnoreDefaultColumns, c.taskCfg.Parser, conn); err != nil {
 		if errors.Is(err, ErrTblNotExist) {
 			err = errors.Wrapf(err, "Please create series table for %s.%s", c.dbName, c.TableName)
 			return
@@ -644,7 +644,7 @@ func (c *ClickHouse) initSchema() (err error) {
 		return
 	}
 	if c.taskCfg.AutoSchema {
-		if c.Dims, err = getDims(c.dbName, c.TableName, c.taskCfg.ExcludeColumns, c.taskCfg.Parser, conn); err != nil {
+		if c.Dims, err = getDims(c.dbName, c.TableName, c.taskCfg.ExcludeColumns, c.taskCfg.IgnoreDefaultColumns, c.taskCfg.Parser, conn); err != nil {
 			return
 		}
 	} else {
