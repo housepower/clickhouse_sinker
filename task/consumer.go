@@ -84,7 +84,12 @@ func (c *Consumer) start() {
 	c.ctx, c.cancel = context.WithCancel(context.Background())
 	c.inputer = input.NewKafkaFranz()
 	c.state.Store(util.StateRunning)
-	util.Rs.Reset()
+	// Don't Rs.Reset() here: when multiple consumers start in the same
+	// applyConfig loop, each Reset wipes the previous consumer's in-flight
+	// accounting, effectively disabling poolSize back-pressure exactly when
+	// it's needed most (parallel earliest startup with large lag).
+	// applyConfig already resets once at the top of every reload, which is
+	// the only legitimate global-reset point.
 	if err := c.inputer.Init(c.sinker.curCfg, c.grpConfig, c.fetchesCh, c.cleanupFn); err == nil {
 		go c.inputer.Run()
 		go c.processFetch()
@@ -228,6 +233,11 @@ func (c *Consumer) processFetch() {
 
 			var wg sync.WaitGroup
 			var err error
+			// batched counts records that successfully entered at least one task's batch.
+			// loopWrite Dec's batched records via batch.RealSize when the batch settles;
+			// records that never reached a batch (no task match, Put failure, or abandoned
+			// after error) won't get that Dec, so we reconcile after wg.Wait().
+			var batched int64
 			wg.Add(concurrency)
 			for i := 0; i < concurrency; i++ {
 				go func() {
@@ -255,25 +265,36 @@ func (c *Consumer) processFetch() {
 							}
 						}
 
+						matched, putFailed := false, false
 						c.tasks.Range(func(key, value any) bool {
 							tsk := value.(*Service)
 							if (tablename != "" && tsk.clickhouse.TableName == tablename) || tsk.taskCfg.Topic == rec.Topic {
 								//bufLength++
 								atomic.AddInt64(&bufLength, 1)
+								matched = true
 								if e := tsk.Put(msg, traceId, flushFn); e != nil {
 									atomic.StoreInt64(&done, items)
 									err = e
-									// decrise the error record
-									util.Rs.Dec(1)
+									putFailed = true
 									return false
 								}
 							}
 							return true
 						})
+						if matched && !putFailed {
+							atomic.AddInt64(&batched, 1)
+						}
 					}
 				}()
 			}
 			wg.Wait()
+
+			// Reconcile Rs accounting: every record was Inc'd at poll time, but only
+			// records that entered a batch will be Dec'd by loopWrite. Release the
+			// rest so the global rate limiter doesn't drift permanently positive.
+			if leaked := items - atomic.LoadInt64(&batched); leaked > 0 {
+				util.Rs.Dec(leaked)
+			}
 
 			// record the latest offset in order
 			// assume the c.state was reset to stopped when facing error, so that further fetch won't get processed

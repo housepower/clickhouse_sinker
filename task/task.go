@@ -220,7 +220,9 @@ func (service *Service) Put(msg *model.InputMessage, traceId string, flushFn fun
 				util.Logger.Fatal("clickhouse.ChangeSchema failed", zap.String("task", taskCfg.Name), zap.Error(err))
 			}
 			cloneTask(service, nil)
-			util.Rs.Reset()
+			// Don't Rs.Reset() here: a single task's schema change shouldn't wipe
+			// the global record pool accounting that every other task depends on
+			// for back-pressure.
 			return fmt.Errorf("consumer restart required due to new key")
 		}
 	}
