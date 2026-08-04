@@ -47,6 +47,18 @@ var (
 		},
 		[]string{"task"},
 	)
+	// MsgsDropTotal counts messages that were neither written nor returned as a
+	// hard error - e.g. dropped while the task awaits a schema change. The reason
+	// label keeps these silent drops observable without flooding the log. Labels
+	// are deliberately kept to a bounded set (task name + a fixed reason enum);
+	// never add a label whose value comes from message content.
+	MsgsDropTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: prefix + "msgs_drop_total",
+			Help: "total num of msgs dropped without being written",
+		},
+		[]string{"task", "reason"},
+	)
 	FlushMsgsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: prefix + "flush_msgs_total",
@@ -166,6 +178,7 @@ var (
 func init() {
 	prometheus.MustRegister(ConsumeMsgsTotal)
 	prometheus.MustRegister(ParseMsgsErrorTotal)
+	prometheus.MustRegister(MsgsDropTotal)
 	prometheus.MustRegister(FlushMsgsTotal)
 	prometheus.MustRegister(FlushMsgsErrorTotal)
 	prometheus.MustRegister(ConsumeOffsets)

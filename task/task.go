@@ -58,10 +58,15 @@ type Service struct {
 	warnKeys   sync.Map
 	cntNewKeys int32 // size of newKeys
 
-	sharder  *Sharder
-	limiter  *rate.Limiter //作用：控制打日志的频率
-	offShift int64
-	consumer *Consumer
+	sharder *Sharder
+	limiter *rate.Limiter //作用：控制打日志的频率
+	// dropLimiter is deliberately separate from limiter: silently-dropped
+	// messages can fire continuously while a task awaits a schema change, and
+	// sharing one bucket would starve the parse-error logs above (and vice
+	// versa), hiding the very signal each is meant to surface.
+	dropLimiter *rate.Limiter
+	offShift    int64
+	consumer    *Consumer
 }
 
 // cloneTask create a new task by stealing members from s instead of creating a new one
@@ -130,6 +135,7 @@ func (service *Service) Init() (err error) {
 	service.idxSerID = service.clickhouse.IdxSerID
 	service.nameKey = service.clickhouse.NameKey
 	service.limiter = rate.NewLimiter(rate.Every(10*time.Second), 1)
+	service.dropLimiter = rate.NewLimiter(rate.Every(10*time.Second), 1)
 	//service.offShift = int64(util.GetShift(taskCfg.BufferSize))
 	service.offShift = int64(taskCfg.BufferSize)
 
@@ -237,6 +243,23 @@ func (service *Service) Put(msg *model.InputMessage, traceId string, flushFn fun
 			msgRow.Shard = int(msgRow.Msg.Offset * (int64(msgRow.Msg.Partition + 1)) >> service.offShift % int64(service.sharder.shards))
 		}
 		service.sharder.PutElement(&msgRow)
+	} else {
+		// The message is neither written nor returned as a hard error. Surface it
+		// so a wedged task (e.g. cntNewKeys stuck > 0 because a schema change can
+		// never settle) doesn't fail silently. The metric is always bumped; the
+		// log is rate-limited via the dedicated dropLimiter.
+		cnt := atomic.LoadInt32(&service.cntNewKeys)
+		reason := "consumer_not_running"
+		if cnt != 0 {
+			reason = "awaiting_schema_change"
+		}
+		statistics.MsgsDropTotal.WithLabelValues(taskCfg.Name, reason).Inc()
+		if service.dropLimiter.Allow() {
+			util.Logger.Warn("message dropped without being written",
+				zap.String("task", taskCfg.Name), zap.String("reason", reason),
+				zap.String("topic", msg.Topic), zap.Int("partition", msg.Partition),
+				zap.Int64("offset", msg.Offset), zap.Int32("cntNewKeys", cnt))
+		}
 	}
 
 	return nil

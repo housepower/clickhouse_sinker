@@ -276,6 +276,15 @@ func (c *Consumer) processFetch() {
 									atomic.StoreInt64(&done, items)
 									err = e
 									putFailed = true
+									// This aborts the rest of the fetch batch; without a
+									// log it fails completely silently. Rate-limited via the
+									// task's dropLimiter to avoid flooding.
+									if tsk.dropLimiter.Allow() {
+										util.Logger.Warn("Put failed, aborting this fetch batch",
+											zap.String("task", tsk.taskCfg.Name), zap.String("topic", rec.Topic),
+											zap.Int32("partition", rec.Partition), zap.Int64("offset", rec.Offset),
+											zap.Error(e))
+									}
 									return false
 								}
 							}
