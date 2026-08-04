@@ -771,18 +771,48 @@ func (c *ClickHouse) ChangeSchema(newKeys *sync.Map) (err error) {
 			strVal = fmt.Sprintf("Nullable(%v)", strVal)
 		}
 
-		if c.taskCfg.PrometheusSchema && intVal == model.String {
-			alterSeries = append(alterSeries, fmt.Sprintf("ADD COLUMN IF NOT EXISTS `%s` %s", strKey, strVal))
-		} else {
-			if c.taskCfg.PrometheusSchema && intVal > model.String {
+		if c.taskCfg.PrometheusSchema {
+			switch {
+			case intVal > model.String:
+				// Object/Map/IPv4/IPv6 等复杂类型不能作为指标值
 				util.Logger.Fatal("unsupported metric value type", zap.String("type", strVal), zap.String("name", strKey), zap.String("task", c.taskCfg.Name))
+			case intVal == model.Float64 || (intVal == model.Int64 && strKey != c.DimMgmtID):
+				// 多指标仅支持float64和int64
+				alterMetric = append(alterMetric, fmt.Sprintf("ADD COLUMN IF NOT EXISTS `%s` %s", strKey, strVal))
+			case intVal == model.Int64 && strKey == c.DimMgmtID:
+				// __mgmt_id__ 已是固定的 series 列，无需新增
+			default:
+				// 其余类型（String/DateTime/Bool/...）在 Prometheus 模型里都是 label，
+				// 统一作为 String 列加到 series 表。否则像 "addtimestamp":"2026-05-11 10:46:52"
+				// 这种值像时间戳/布尔的 label，会被 GetNewKeys 判为新列、却在这里既不进
+				// series 也不进 metric，导致永久重初始化循环。
+				labelType := "String"
+				if !taskCfg.DynamicSchema.NotNullable {
+					labelType = "Nullable(String)"
+				}
+				alterSeries = append(alterSeries, fmt.Sprintf("ADD COLUMN IF NOT EXISTS `%s` %s", strKey, labelType))
 			}
+		} else {
 			alterMetric = append(alterMetric, fmt.Sprintf("ADD COLUMN IF NOT EXISTS `%s` %s", strKey, strVal))
 		}
 		return true
 	})
 	if err != nil {
 		return
+	}
+
+	// Decisive low-frequency signal: new keys were detected but none of them
+	// could be turned into a column. This is exactly the condition that silently
+	// spins the reinit loop and wedges a task, so log it unconditionally (it
+	// fires at most once per schema-change attempt, no rate limit needed).
+	if i > 0 && len(alterSeries) == 0 && len(alterMetric) == 0 {
+		var keys []string
+		newKeys.Range(func(key, value interface{}) bool {
+			keys = append(keys, fmt.Sprintf("%v(%s)", key, model.GetTypeName(value.(int))))
+			return true
+		})
+		util.Logger.Warn("detected new keys but materialized none into any table; messages keep retriggering schema change",
+			zap.String("task", taskCfg.Name), zap.Strings("newKeys", keys))
 	}
 
 	sc := pool.GetShardConn(0)
