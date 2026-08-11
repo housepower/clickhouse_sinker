@@ -224,6 +224,15 @@ type TaskConfig struct {
 	PrometheusSchema bool
 	// fields match PromLabelsBlackList are not considered as labels. Requires PrometheusSchema be true.
 	PromLabelsBlackList string // the regexp of black list
+	// PromLabelsArray declares a pair of Array(String) columns in the series table
+	// holding parallel label keys/values: __labels_key__[i] pairs with
+	// __labels_value__[i]. Once set, the "labels" JSON is built solely from this
+	// pair and scalar String columns no longer contribute to it. This keeps the
+	// series table from growing one column per label key. Requires PrometheusSchema be true.
+	PromLabelsArray struct {
+		KeyColumn   string
+		ValueColumn string
+	} `json:"promLabelsArray,omitempty"`
 
 	// ShardingKey is the column name to which sharding against
 	ShardingKey string `json:"shardingKey,omitempty"`
@@ -518,8 +527,15 @@ func (cfg *Config) normallizeTask(taskCfg *TaskConfig) (err error) {
 	if taskCfg.PrometheusSchema {
 		taskCfg.DynamicSchema.Enable = true
 		taskCfg.AutoSchema = true
+		if (taskCfg.PromLabelsArray.KeyColumn == "") != (taskCfg.PromLabelsArray.ValueColumn == "") {
+			err = errors.Newf("promLabelsArray requires both keyColumn and valueColumn to be set, got keyColumn=%q valueColumn=%q",
+				taskCfg.PromLabelsArray.KeyColumn, taskCfg.PromLabelsArray.ValueColumn)
+			return
+		}
 	} else {
 		taskCfg.PromLabelsBlackList = ""
+		taskCfg.PromLabelsArray.KeyColumn = ""
+		taskCfg.PromLabelsArray.ValueColumn = ""
 	}
 	if taskCfg.DynamicSchema.Enable {
 		taskCfg.AutoSchema = true

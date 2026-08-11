@@ -152,3 +152,48 @@ ALTER TABLE <db>.<metric>_series
 - 消息中 `all_tags` 这类 Object 字段的直接消费。它与双数组内容等价，属于冗余，
   使用方可用 `excludeColumns` 或 `dynamicSchema.blackList` 挡掉
 - `config.go:518` 中 `PrometheusSchema=true` 强制开启 `DynamicSchema` 的既有逻辑
+
+## 已知限制与后续工作
+
+以下几条来自实现完成后的 Codex 代码审查，经复核确认属实，但按使用方决定**本次不修**，
+留作后续工作。前两条是本次改动之前就存在的行为，不是本次引入的回归。
+
+### 1. 存量 series 不会被回填（运维影响最大的一条）
+
+`AllowWriteSeries` 只在 series 的 `sid`/`mid` 是新的或发生变化时才允许写 series 行。
+因此开启 `promLabelsArray` 后：
+
+- 存量 series 的 `labels` 列保持旧值，新增的 `Array(String)` 列为空；
+- 只有新出现的 series、或 `__mgmt_id__` 发生变化的 series 才走新逻辑。
+
+若需要存量数据也具备数组列，必须另行做一次数据迁移。同理，数组长度不匹配的告警
+只对进入 `newSeries` 路径的消息生效，已知 series 上的畸形数组不会被检查到。
+
+### 2. `detectNameKey` 可能选中非 metric 名列
+
+`detectNameKey` 取 series 表固定三列之后的第一个标量 `String` 列作为 metric 名列，
+不看列名。若 `objectType` 这类元数据列排在 `__name__` 之前，`NameKey` 会被设成
+`objectType`，后果是 `__name__` 反被当作普通 label 写进 `labels` JSON，而 `objectType`
+被错误排除。
+
+对启用了 `promLabelsArray` 且 `__name__` 不在数组内的任务没有实际影响（此时 nameKey
+过滤对数组不起作用），但对未启用数组的 prometheusSchema 任务是活的缺陷。
+
+建议修法：优先精确匹配名为 `__name__` 的列，找不到时再退化到现有的 opentsdb 启发式。
+同时 `task/task_test.go` 目前硬编码 `nameKey: "__name__"`，绕过了真实探测路径，
+修复时应补一个走 `detectNameKey` 的回归测试。
+
+### 3. `strconv.Quote` 不保证产出合法 JSON
+
+`buildLabelsJSON` 沿用历史实现使用 `strconv.Quote`。它对控制字符输出 Go 风格转义
+（如 `\x01`）、对无效 UTF-8 输出 `\xNN`，这两者都不是合法 JSON。label 值含控制字节时，
+`labels` 列会成为非法 JSON，下游 `JSONExtract` 解析失败。
+
+未改动的原因：本次的硬约束是 `labels` 输出与历史实现逐字节一致。改用 JSON 转义会让
+新老数据在字节层面不一致，属于需要单独评估的兼容性变更。
+
+### 4. 文档中的 DDL 未覆盖集群部署
+
+`docs/configuration/config.md` 给出的 `ALTER TABLE` 只作用于单表单机。集群部署下需要
+所有分片的本地 series 表都先加好列，否则可能在一个分片上初始化成功、写另一个分片时失败。
+sinker 自身的 `ChangeSchema` 使用的是 `ON CLUSTER`，文档应与之对齐。

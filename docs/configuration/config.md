@@ -173,6 +173,18 @@
     // Requires PrometheusSchema be true.
     "promLabelsBlackList": "",
 
+    // promLabelsArray declares a pair of Array(String) columns in the series table
+    // holding parallel label keys/values: __labels_key__[i] pairs with __labels_value__[i].
+    // Once set, the "labels" JSON is built solely from this pair, and scalar String
+    // columns no longer contribute to it. This keeps the series table from growing one
+    // column per label key when upstream label cardinality is high.
+    // Both columns must be pre-created as Array(String); they are not created automatically.
+    // Requires prometheusSchema be true.
+    "promLabelsArray": {
+        "keyColumn": "__labels_key__",
+        "valueColumn": "__labels_value__"
+    },
+
     // shardingKey is the column name to which sharding against
     "shardingKey": "",
     // shardingStripe take effect if the sharding key is numerical
@@ -204,4 +216,12 @@
   // It is recommended that recordPoolSize be 3 or 4 times the bufferSize, for the backpressure mechanism, to avoid using too much memory.
   "recordPoolSize": 1048576
 }
+```
+
+Before using `promLabelsArray`, manually add this pair of columns to the series table (sinker does not create them automatically):
+
+```sql
+ALTER TABLE <db>.<metric>_series
+  ADD COLUMN IF NOT EXISTS `__labels_key__`   Array(String),
+  ADD COLUMN IF NOT EXISTS `__labels_value__` Array(String);
 ```

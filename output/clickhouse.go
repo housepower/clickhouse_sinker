@@ -68,6 +68,10 @@ type ClickHouse struct {
 	Dims      []*model.ColumnWithType
 	NumDims   int
 	IdxSerID  int
+	// IdxLblKey/IdxLblVal 是 promLabelsArray 那对 Array(String) 列在 Dims 中的绝对下标，
+	// 未启用时为 -1。
+	IdxLblKey int
+	IdxLblVal int
 	NameKey   string
 	cfg       *config.Config
 	taskCfg   *config.TaskConfig
@@ -480,6 +484,7 @@ func (c *ClickHouse) getSeriesDims(dims []*model.ColumnWithType, conn *pool.Conn
 }
 
 func (c *ClickHouse) initSeriesSchema(conn *pool.Conn) (err error) {
+	c.IdxLblKey, c.IdxLblVal = -1, -1
 	if !c.taskCfg.PrometheusSchema {
 		c.IdxSerID = -1
 		return
@@ -542,15 +547,16 @@ func (c *ClickHouse) initSeriesSchema(conn *pool.Conn) (err error) {
 		err = errors.Newf(`First columns of %s are expect to be %s Int64, %s Int64, labels String".`, c.seriesTbl, c.DimSerID, c.DimMgmtID)
 		return
 	}
-	c.NameKey = "__name__" // prometheus uses internal "__name__" label for metric name
-	for i := len(expSeriesDims); i < len(seriesDims); i++ {
-		serDim := seriesDims[i]
-		if serDim.Type.Type == model.String {
-			c.NameKey = serDim.Name // opentsdb uses "metric" tag for metric name
-			break
-		}
-	}
+	// prometheus uses internal "__name__" label for metric name;
+	// opentsdb uses a custom string column instead.
+	c.NameKey = detectNameKey(seriesDims, len(expSeriesDims))
 	c.Dims = append(c.Dims, seriesDims[1:]...)
+
+	if c.IdxLblKey, c.IdxLblVal, err = locatePromLabelsArray(c.Dims, c.IdxSerID+3,
+		c.taskCfg.PromLabelsArray.KeyColumn, c.taskCfg.PromLabelsArray.ValueColumn); err != nil {
+		err = errors.Wrapf(err, "table %s.%s", c.dbName, c.seriesTbl)
+		return
+	}
 
 	// Generate SQL for series INSERT
 	if c.cfg.Clickhouse.Protocol == clickhouse.HTTP.String() {
@@ -997,6 +1003,51 @@ func (c *ClickHouse) ensureShardingkey(conn *pool.Conn, tblName string, parser s
 			if err = conn.Exec(query); err != nil {
 				return
 			}
+		}
+	}
+	return
+}
+
+// detectNameKey 找出承载 metric 名的列：prometheus 用内建 label "__name__"，
+// opentsdb 则用一个自定义的字符串列。从 start 起取第一个标量 String 列。
+// Array(String) 的 Type.Type 同样是 String，必须排除，否则 __labels_key__ 这类
+// 容器列会被错认成 metric 名列。
+func detectNameKey(seriesDims []*model.ColumnWithType, start int) string {
+	for i := start; i < len(seriesDims); i++ {
+		serDim := seriesDims[i]
+		if serDim.Type.Type == model.String && !serDim.Type.Array {
+			return serDim.Name
+		}
+	}
+	return "__name__"
+}
+
+// locatePromLabelsArray 在 dims[start:] 中定位 promLabelsArray 声明的那对列，返回它们的
+// 绝对下标。keyCol 与 valCol 均为空表示功能未启用，返回 -1,-1,nil。
+// 校验放在 Init 期而非运行期，配错立刻失败，不留到线上写数据时才炸。
+func locatePromLabelsArray(dims []*model.ColumnWithType, start int, keyCol, valCol string) (idxKey, idxVal int, err error) {
+	idxKey, idxVal = -1, -1
+	if keyCol == "" && valCol == "" {
+		return
+	}
+	for i := start; i < len(dims); i++ {
+		switch dims[i].Name {
+		case keyCol:
+			idxKey = i
+		case valCol:
+			idxVal = i
+		}
+	}
+	if idxKey < 0 || idxVal < 0 {
+		err = errors.Newf("promLabelsArray columns %q/%q not found in the series table (they must be declared after the fixed series columns)", keyCol, valCol)
+		idxKey, idxVal = -1, -1
+		return
+	}
+	for _, i := range []int{idxKey, idxVal} {
+		if t := dims[i].Type; t.Type != model.String || !t.Array {
+			err = errors.Newf("promLabelsArray column %q shall be Array(String)", dims[i].Name)
+			idxKey, idxVal = -1, -1
+			return
 		}
 	}
 	return

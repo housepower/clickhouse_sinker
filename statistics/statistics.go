@@ -59,6 +59,16 @@ var (
 		},
 		[]string{"task", "reason"},
 	)
+	// PromLabelsArrayMismatch counts label array elements discarded because the
+	// key and value arrays had different lengths. A mismatch is an upstream ETL
+	// bug that silently loses labels, so it must stay observable.
+	PromLabelsArrayMismatch = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: prefix + "prom_labels_array_mismatch_total",
+			Help: "total num of label array elements dropped due to key/value length mismatch",
+		},
+		[]string{"task"},
+	)
 	FlushMsgsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: prefix + "flush_msgs_total",
@@ -179,6 +189,7 @@ func init() {
 	prometheus.MustRegister(ConsumeMsgsTotal)
 	prometheus.MustRegister(ParseMsgsErrorTotal)
 	prometheus.MustRegister(MsgsDropTotal)
+	prometheus.MustRegister(PromLabelsArrayMismatch)
 	prometheus.MustRegister(FlushMsgsTotal)
 	prometheus.MustRegister(FlushMsgsErrorTotal)
 	prometheus.MustRegister(ConsumeOffsets)
