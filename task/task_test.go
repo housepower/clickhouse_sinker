@@ -1,6 +1,7 @@
 package task
 
 import (
+	"os"
 	"regexp"
 	"testing"
 	"time"
@@ -9,8 +10,20 @@ import (
 	"github.com/housepower/clickhouse_sinker/model"
 	"github.com/housepower/clickhouse_sinker/output"
 	"github.com/housepower/clickhouse_sinker/parser"
+	"github.com/housepower/clickhouse_sinker/util"
 	"golang.org/x/time/rate"
 )
+
+// TestMain initializes the package-global util.Logger before running any test
+// in this package. Several tests here exercise code paths (e.g. metric2Row ->
+// output.(*ClickHouse).AllowWriteSeries) that log through util.Logger; without
+// this, running a single test in isolation panics on a nil logger instead of
+// producing a test result. util.InitLogger is idempotent, so this is safe even
+// when other tests in the package also initialize the logger.
+func TestMain(m *testing.M) {
+	util.InitLogger([]string{"stdout"})
+	os.Exit(m.Run())
+}
 
 const arraySample = `{
 	"__name__": "kubernetes.controller_manager.queue_work_unfinished_duration.sec",
