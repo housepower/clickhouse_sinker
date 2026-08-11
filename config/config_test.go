@@ -35,3 +35,56 @@ func TestWriteFailureDefaults(t *testing.T) {
 		t.Fatalf("RetryTimes default = %d, want 3", cfg.Clickhouse.RetryTimes)
 	}
 }
+
+func newPromTaskCfg(keyCol, valCol string, promSchema bool) *Config {
+	return &Config{
+		Clickhouse: ClickHouseConfig{Hosts: [][]string{{"127.0.0.1"}}, Port: 9000, DB: "default", Cluster: "abc"},
+		Kafka:      KafkaConfig{Brokers: "127.0.0.1:9092"},
+		Tasks: []*TaskConfig{{
+			Name:             "t1",
+			Topic:            "tp",
+			TableName:        "tb",
+			Parser:           "fastjson",
+			PrometheusSchema: promSchema,
+			PromLabelsArray: struct {
+				KeyColumn   string
+				ValueColumn string
+			}{KeyColumn: keyCol, ValueColumn: valCol},
+		}},
+	}
+}
+
+func TestPromLabelsArrayBothSet(t *testing.T) {
+	cfg := newPromTaskCfg("__labels_key__", "__labels_value__", true)
+	if err := cfg.Normallize(false, "", util.Credentials{}); err != nil {
+		t.Fatalf("Normallize failed: %v", err)
+	}
+	if cfg.Tasks[0].PromLabelsArray.KeyColumn != "__labels_key__" {
+		t.Fatalf("KeyColumn = %q, want __labels_key__", cfg.Tasks[0].PromLabelsArray.KeyColumn)
+	}
+}
+
+func TestPromLabelsArrayOnlyKeyColumnRejected(t *testing.T) {
+	cfg := newPromTaskCfg("__labels_key__", "", true)
+	if err := cfg.Normallize(false, "", util.Credentials{}); err == nil {
+		t.Fatal("Normallize should reject promLabelsArray with only keyColumn set")
+	}
+}
+
+func TestPromLabelsArrayOnlyValueColumnRejected(t *testing.T) {
+	cfg := newPromTaskCfg("", "__labels_value__", true)
+	if err := cfg.Normallize(false, "", util.Credentials{}); err == nil {
+		t.Fatal("Normallize should reject promLabelsArray with only valueColumn set")
+	}
+}
+
+func TestPromLabelsArrayClearedWithoutPrometheusSchema(t *testing.T) {
+	cfg := newPromTaskCfg("__labels_key__", "__labels_value__", false)
+	if err := cfg.Normallize(false, "", util.Credentials{}); err != nil {
+		t.Fatalf("Normallize failed: %v", err)
+	}
+	got := cfg.Tasks[0].PromLabelsArray
+	if got.KeyColumn != "" || got.ValueColumn != "" {
+		t.Fatalf("PromLabelsArray = %+v, want cleared when prometheusSchema is false", got)
+	}
+}
