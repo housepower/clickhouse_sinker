@@ -184,17 +184,7 @@
         "keyColumn": "__labels_key__",
         "valueColumn": "__labels_value__"
     },
-```
 
-使用 `promLabelsArray` 前需要手工在 series 表建好这对列（sinker 不会自动创建）：
-
-```sql
-ALTER TABLE <db>.<metric>_series
-  ADD COLUMN IF NOT EXISTS `__labels_key__`   Array(String),
-  ADD COLUMN IF NOT EXISTS `__labels_value__` Array(String);
-```
-
-```json
     // shardingKey is the column name to which sharding against
     "shardingKey": "",
     // shardingStripe take effect if the sharding key is numerical
@@ -226,4 +216,12 @@ ALTER TABLE <db>.<metric>_series
   // It is recommended that recordPoolSize be 3 or 4 times the bufferSize, for the backpressure mechanism, to avoid using too much memory.
   "recordPoolSize": 1048576
 }
+```
+
+使用 `promLabelsArray` 前需要手工在 series 表建好这对列（sinker 不会自动创建）：
+
+```sql
+ALTER TABLE <db>.<metric>_series
+  ADD COLUMN IF NOT EXISTS `__labels_key__`   Array(String),
+  ADD COLUMN IF NOT EXISTS `__labels_value__` Array(String);
 ```
