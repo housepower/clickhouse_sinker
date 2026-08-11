@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"math"
 	"regexp"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -49,6 +48,11 @@ type Service struct {
 
 	idxSerID int
 	nameKey  string
+	// idxLblKey/idxLblVal 是 promLabelsArray 那对 Array(String) 列在 dims 中的下标，
+	// 未启用时为 -1。启用后 labels JSON 只由这对数组生成。
+	idxLblKey int
+	idxLblVal int
+	lblFilter labelFilter
 
 	shardingKey    string
 	shardingStripe uint64
@@ -134,6 +138,9 @@ func (service *Service) Init() (err error) {
 	service.numDims = len(service.dims)
 	service.idxSerID = service.clickhouse.IdxSerID
 	service.nameKey = service.clickhouse.NameKey
+	service.idxLblKey = service.clickhouse.IdxLblKey
+	service.idxLblVal = service.clickhouse.IdxLblVal
+	service.lblFilter = labelFilter{nameKey: service.nameKey, blkList: service.lblBlkList}
 	service.limiter = rate.NewLimiter(rate.Every(10*time.Second), 1)
 	service.dropLimiter = rate.NewLimiter(rate.Every(10*time.Second), 1)
 	//service.offShift = int64(util.GetShift(taskCfg.BufferSize))
@@ -285,21 +292,38 @@ func (service *Service) metric2Row(metric model.Metric, msg *model.InputMessage)
 		}
 		row = append(row, seriesID) // __series_id__
 		if newSeries {
-			var labels []string
+			var pairs []labelPair
+			useArray := service.idxLblKey >= 0
 			row = append(row, mgmtID, nil) // __mgmt_id__, labels
 			for i := service.idxSerID + 3; i < service.numDims; i++ {
 				dim := service.dims[i]
 				val := model.GetValueByType(metric, dim)
 				row = append(row, val)
-				if val != nil && dim.Type.Type == model.String && dim.Name != service.nameKey && dim.Name != "le" && (service.lblBlkList == nil || !service.lblBlkList.MatchString(dim.Name)) {
-					// "labels" JSON excludes "le", so that "labels" can be used as group key for histogram queries.
-					if !(service.taskCfg.DynamicSchema.NotNullable && val == "") {
-						labelVal := val.(string)
-						labels = append(labels, fmt.Sprintf(`%s: %s`, strconv.Quote(dim.Name), strconv.Quote(labelVal)))
+				// 启用 promLabelsArray 后 labels 只认数组，标量列照常落各自的列但不进 JSON。
+				// Array(String) 的 Type.Type 也是 String，必须显式排除，否则下面的
+				// val.(string) 会对 []string panic。
+				if useArray || val == nil || dim.Type.Type != model.String || dim.Type.Array {
+					continue
+				}
+				if service.taskCfg.DynamicSchema.NotNullable && val == "" {
+					continue
+				}
+				pairs = append(pairs, labelPair{key: dim.Name, val: val.(string)})
+			}
+			if useArray {
+				keys, _ := row[service.idxLblKey].([]string)
+				vals, _ := row[service.idxLblVal].([]string)
+				var dropped int
+				if pairs, dropped = pairLabelArrays(keys, vals); dropped != 0 {
+					statistics.PromLabelsArrayMismatch.WithLabelValues(service.taskCfg.Name).Add(float64(dropped))
+					if service.limiter.Allow() {
+						util.Logger.Warn("promLabelsArray key/value length mismatch, extra elements dropped",
+							zap.String("task", service.taskCfg.Name),
+							zap.Int("keys", len(keys)), zap.Int("values", len(vals)))
 					}
 				}
 			}
-			row[service.idxSerID+2] = fmt.Sprintf("{%s}", strings.Join(labels, ", "))
+			row[service.idxSerID+2] = buildLabelsJSON(pairs, service.lblFilter)
 		}
 		return &row
 	} else {
