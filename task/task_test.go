@@ -63,9 +63,9 @@ func newArrayTestService(t *testing.T, lblFilter labelFilter, withArray bool) *S
 		lblFilter:  lblFilter,
 		idxLblKey:  -1,
 		idxLblVal:  -1,
-		// metric2Row 在数组长度不匹配时会用 limiter 限流打日志，手工装配时必须给上，
+		// metric2Row 在数组长度不匹配时会用 lblLimiter 限流打日志，手工装配时必须给上，
 		// 否则那条分支一走到就 nil pointer。
-		limiter: rate.NewLimiter(rate.Every(10*time.Second), 1),
+		lblLimiter: rate.NewLimiter(rate.Every(10*time.Second), 1),
 	}
 	if withArray {
 		svc.idxLblKey = 5

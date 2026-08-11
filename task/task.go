@@ -69,8 +69,14 @@ type Service struct {
 	// sharing one bucket would starve the parse-error logs above (and vice
 	// versa), hiding the very signal each is meant to surface.
 	dropLimiter *rate.Limiter
-	offShift    int64
-	consumer    *Consumer
+	// lblLimiter is deliberately separate from both limiter and dropLimiter: a
+	// promLabelsArray key/value length mismatch is a persistent upstream ETL
+	// defect that fires on every new series, and sharing a bucket with the
+	// parse-error or drop logs would let a burst of either silence this signal
+	// (or vice versa) exactly when something is wrong.
+	lblLimiter *rate.Limiter
+	offShift   int64
+	consumer   *Consumer
 }
 
 // cloneTask create a new task by stealing members from s instead of creating a new one
@@ -143,6 +149,7 @@ func (service *Service) Init() (err error) {
 	service.lblFilter = labelFilter{nameKey: service.nameKey, blkList: service.lblBlkList}
 	service.limiter = rate.NewLimiter(rate.Every(10*time.Second), 1)
 	service.dropLimiter = rate.NewLimiter(rate.Every(10*time.Second), 1)
+	service.lblLimiter = rate.NewLimiter(rate.Every(10*time.Second), 1)
 	//service.offShift = int64(util.GetShift(taskCfg.BufferSize))
 	service.offShift = int64(taskCfg.BufferSize)
 
@@ -316,7 +323,7 @@ func (service *Service) metric2Row(metric model.Metric, msg *model.InputMessage)
 				var dropped int
 				if pairs, dropped = pairLabelArrays(keys, vals); dropped != 0 {
 					statistics.PromLabelsArrayMismatch.WithLabelValues(service.taskCfg.Name).Add(float64(dropped))
-					if service.limiter.Allow() {
+					if service.lblLimiter.Allow() {
 						util.Logger.Warn("promLabelsArray key/value length mismatch, extra elements dropped",
 							zap.String("task", service.taskCfg.Name),
 							zap.Int("keys", len(keys)), zap.Int("values", len(vals)))

@@ -218,7 +218,7 @@
 }
 ```
 
-使用 `promLabelsArray` 前需要手工在 series 表建好这对列（sinker 不会自动创建）：
+Before using `promLabelsArray`, manually add this pair of columns to the series table (sinker does not create them automatically):
 
 ```sql
 ALTER TABLE <db>.<metric>_series
