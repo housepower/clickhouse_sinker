@@ -62,3 +62,28 @@ func TestIntervalsOfNilConfigUsesLoopDefaults(t *testing.T) {
 		t.Fatalf("got %+v, want %+v", got, want)
 	}
 }
+
+// The /state and /live handlers read the config from HTTP goroutines while Run
+// replaces it. Run with -race: GetCurrentConfig must not read s.curCfg.
+func TestGetCurrentConfigIsSafeForOtherGoroutines(t *testing.T) {
+	s := &Sinker{}
+	if s.GetCurrentConfig() != nil {
+		t.Fatal("no config is published before the first apply")
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 1000; i++ {
+			cfg := loopCfg(config.DefaultMaxPollIntervalMs, 60, 3600)
+			s.curCfg = cfg // what applyConfig does on the Run goroutine
+			s.publishConfig()
+		}
+	}()
+	for i := 0; i < 1000; i++ {
+		_ = s.GetCurrentConfig()
+	}
+	<-done
+	if s.GetCurrentConfig() != s.curCfg {
+		t.Fatal("GetCurrentConfig must return the last applied config")
+	}
+}

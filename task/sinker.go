@@ -25,6 +25,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -51,14 +52,16 @@ var (
 
 // Sinker object maintains number of task for each partition
 type Sinker struct {
-	curCfg   *config.Config
-	cmdOps   *util.CmdOptions
-	httpAddr string
-	numCfg   int
-	pusher   *statistics.Pusher
-	rcm      *cm.Manager
-	ctx      context.Context
-	cancel   context.CancelFunc
+	curCfg *config.Config // owned by the Run goroutine
+	// published is curCfg for other goroutines (the /state and /live handlers).
+	published atomic.Pointer[config.Config]
+	cmdOps    *util.CmdOptions
+	httpAddr  string
+	numCfg    int
+	pusher    *statistics.Pusher
+	rcm       *cm.Manager
+	ctx       context.Context
+	cancel    context.CancelFunc
 
 	consumers         map[string]*Consumer
 	commitsCh         chan *Commit
@@ -108,8 +111,14 @@ func (s *Sinker) Init() (err error) {
 	return
 }
 
+// GetCurrentConfig is safe to call from any goroutine.
 func (s *Sinker) GetCurrentConfig() *config.Config {
-	return s.curCfg
+	return s.published.Load()
+}
+
+// publishConfig makes curCfg visible to GetCurrentConfig. Run goroutine only.
+func (s *Sinker) publishConfig() {
+	s.published.Store(s.curCfg)
 }
 
 // Run is the mainloop to get and apply config
@@ -436,6 +445,7 @@ func (s *Sinker) applyConfig(newCfg *config.Config) (err error) {
 	}
 	s.curCfg.ActiveSeriesRange = newCfg.ActiveSeriesRange
 	s.curCfg.ReloadSeriesMapInterval = newCfg.ReloadSeriesMapInterval
+	s.publishConfig()
 	return
 }
 
