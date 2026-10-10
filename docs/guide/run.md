@@ -6,7 +6,7 @@ Note: Ensure `clickhouse-server` and `kafka` work before running clickhouse_sink
 
 ## Configs
 
-There are two ways to get config: a local single config, or Nacos.
+There are two ways to get config: a local single config, or a config center (Nacos, etcd or Apollo).
 
 - For local file:
 
@@ -15,6 +15,33 @@ There are two ways to get config: a local single config, or Nacos.
 - For Nacos:
 
   `clickhouse_sinker --nacos-addr 127.0.0.1:8848 --nacos-username nacos --nacos-password nacos --nacos-dataid test_auto_schema`
+
+- For etcd (the key must exist, e.g. `etcdctl put /clickhouse_sinker/prod "$(cat conf.hjson)"`):
+
+  `clickhouse_sinker --etcd-endpoints 10.0.0.1:2379,10.0.0.2:2379 --etcd-key /clickhouse_sinker/prod`
+
+  TLS: `--etcd-ca-file` alone for one-way TLS, plus `--etcd-cert-file` and `--etcd-key-file` for mutual TLS.
+
+- For Apollo, put the whole config into a txt or json namespace:
+
+  `clickhouse_sinker --apollo-meta http://apollo-config:8080 --apollo-app-id sinker --apollo-namespace clickhouse_sinker.txt`
+
+  ClickHouse cluster discovery writes `clickhouse.hosts` back to the config center. With Apollo this needs the Portal
+  Open API: `--apollo-portal`, `--apollo-token`, `--apollo-env` and `--apollo-operator`, all four or none. The token's
+  third-party app needs modify and release permission on the namespace, the operator must be an existing Portal user,
+  and write-back cannot work when the namespace requires different users to modify and release. Write-back is skipped,
+  with a warning, while the namespace has unreleased edits.
+
+Only one of `--nacos-dataid`, `--etcd-key` and `--apollo-namespace` may be set.
+
+Every option can also be given as an environment variable: upper case, `-` replaced by `_`, prefixed with `SINKER_`,
+e.g. `SINKER_ETCD_KEY`. Options that existed before the prefix also accept the unprefixed name, e.g. `NACOS_ADDR`.
+
+Write-back re-encodes the config, so comments and formatting in the config center are lost.
+
+Nacos enforces the compare-and-swap (`casMd5`) used by write-back only when it runs with an external MySQL datasource.
+Standalone Nacos with the embedded Derby storage ignores `casMd5`, so there write-back is best-effort (read the latest
+config, then write; the window is milliseconds), like Apollo.
 
 Read more detail descriptions of config in [here](../configuration/config.html)
 

@@ -1,5 +1,25 @@
 # Changelog
 
+#### Unreleased
+
+Breaking Changes:
+
+- Nacos server 2.x is required: nacos-sdk-go is upgraded to v2, which talks gRPC on HTTP port + 1000.
+- Task assignment among instances (`--nacos-service-name`) is removed. Every instance runs all tasks, and Kafka
+  consumer groups balance partitions among instances. `--nacos-service-name` and the config fields `assignment`,
+  `kafka.assignInterval`, `kafka.calcLagInterval`, `kafka.rebalanceByLags` are ignored with a warning.
+
+New Features:
+
+- etcd and Apollo config backends.
+- Environment variables accept the `SINKER_` prefix; new options only accept the prefixed name.
+
+Improvements:
+
+- ClickHouse cluster discovery patches only `clickhouse.hosts` on the latest config, so concurrent edits are no
+  longer overwritten.
+- Discovery write-back to Nacos is compare-and-swap only when Nacos uses an external MySQL datasource; embedded Derby ignores casMd5.
+
 #### Version 3.0.8 (2023-08-xx)
 
 Improvements:

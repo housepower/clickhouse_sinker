@@ -27,6 +27,19 @@ The flow is like this:
 - Commit offset back to Kafka
 
 
+## Config management
+
+The config is one hjson document, loaded from a local file or from a config center: Nacos (`--nacos-dataid`),
+etcd (`--etcd-key`) or Apollo (`--apollo-namespace`). A config center is polled every 10 seconds and changes are
+applied by diff.
+
+Backends implement a byte-level `Source` (read) and optionally a `Writer` (`config_manager/manager.go`).
+`Manager` does the hjson encoding. Writes are read-modify-write on the latest content: etcd uses compare-and-swap
+(ModRevision) with retries, and so does Nacos (casMd5), but Nacos CAS is strict only with an external MySQL datasource
+(embedded Derby ignores casMd5, making write-back best-effort). Apollo has no compare-and-swap and refuses to release
+while the namespace has unreleased edits. ClickHouse cluster discovery uses this to patch only `clickhouse.hosts`, so
+edits made by others in the meantime survive.
+
 ## Task scheduling
 
 Every clickhouse_sinker instance runs all tasks in its config. To scale out, start more instances with the same config: instances consuming the same task share its consumer group, and Kafka balances the topic partitions among them. A heavy task can therefore be spread over as many instances as its topic has partitions.

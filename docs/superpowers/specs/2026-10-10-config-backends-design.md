@@ -277,6 +277,9 @@ config_manager/
   无影响;master 上仍用 nacos 1.x 的开源用户升级后会连不上。写进 CHANGELOG 的 breaking changes。
 - **Apollo 无 CAS**:Open API 无版本校验,"读最新 → 写"之间仍有毫秒级窗口;
   discovery 写回本身很少发生(只在 shard 变化时),接受。
+- **nacos 内嵌存储不校验 casMd5**:单机模式内嵌 Derby 时 casMd5 被忽略(Task 7 实测:错误 md5 发布照样成功),
+  只有外部 MySQL 存储时 CAS 才严格;Derby 上退化为与 Apollo 相同的尽力而为。冲突文案实测为
+  "Cas publish fail,server md5 may have changed."。CAS 集成测试用 SINKER_IT_NACOS_CAS=1 开启,需 MySQL 存储的 nacos。
 - **Apollo 未发布修改检测依赖内容比较**:需在客户的 Apollo 版本上确认
   `releases/latest` 接口可用、`content` 字段比较可靠;实现时先对照客户版本的 Open API 文档。
 - **Apollo 发布审核**:开启"修改与发布不能为同一人"时无法写回,只能作为部署前置要求,代码保证报错清晰。
