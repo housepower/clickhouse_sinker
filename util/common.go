@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -99,9 +100,55 @@ func redactSecrets(v reflect.Value) {
 			redactSecrets(f)
 		case f.Kind() == reflect.String && f.String() != "" && f.CanSet():
 			n := t.Field(i).Name
-			if strings.HasSuffix(n, "Password") || strings.HasSuffix(n, "Secret") || strings.HasSuffix(n, "Token") {
+			if isSecretName(n) {
 				f.SetString("******")
 			}
+		}
+	}
+}
+
+func isSecretName(name string) bool {
+	return strings.HasSuffix(name, "Password") || strings.HasSuffix(name, "Secret") || strings.HasSuffix(name, "Token")
+}
+
+// RedactedForLog returns v as a generic JSON value with secrets masked: string
+// values under keys ending in Password, Secret or Token, and every value of a
+// "Security" map (raw Kafka properties such as sasl.jaas.config embed
+// passwords). v itself is not modified.
+func RedactedForLog(v any) any {
+	bs, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Sprintf("<not loggable: %v>", err)
+	}
+	var out any
+	if err = json.Unmarshal(bs, &out); err != nil {
+		return fmt.Sprintf("<not loggable: %v>", err)
+	}
+	redactJSON(out)
+	return out
+}
+
+func redactJSON(v any) {
+	switch t := v.(type) {
+	case map[string]any:
+		for k, val := range t {
+			if s, ok := val.(string); ok && s != "" && isSecretName(k) {
+				t[k] = "******"
+				continue
+			}
+			if props, ok := val.(map[string]any); ok && k == "Security" {
+				for pk, pv := range props {
+					if s, ok := pv.(string); ok && s != "" {
+						props[pk] = "******"
+					}
+				}
+				continue
+			}
+			redactJSON(val)
+		}
+	case []any:
+		for _, e := range t {
+			redactJSON(e)
 		}
 	}
 }
