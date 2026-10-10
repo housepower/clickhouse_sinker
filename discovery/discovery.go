@@ -3,7 +3,7 @@ package discovery
 import (
 	"errors"
 	"fmt"
-	"sort"
+	"slices"
 	"sync"
 	"time"
 
@@ -47,6 +47,9 @@ func NewDiscovery(cfg *config.Config, m *cm.Manager) *Discovery {
 }
 
 func (d *Discovery) SetConfig(conf config.Config) {
+	// conf is a shallow copy of the sinker's current config; own the hosts so
+	// nothing here can reorder the caller's slices.
+	conf.Clickhouse.Hosts = cloneHosts(conf.Clickhouse.Hosts)
 	d.config = &conf
 	d.enabled = conf.Discovery.Enabled
 }
@@ -164,8 +167,6 @@ func diffShards(old, new Shards) bool {
 	if len(old) != len(new) {
 		return true
 	}
-	// sort.Sort(old)
-	// sort.Sort(new)
 	for i := range old {
 		if diffReplicas(old[i], new[i]) {
 			return true
@@ -174,16 +175,22 @@ func diffShards(old, new Shards) bool {
 	return false
 }
 
+// diffReplicas compares replicas regardless of order without touching its
+// arguments, which alias the sinker's current config.
 func diffReplicas(old, new []string) bool {
 	if len(old) != len(new) {
 		return true
 	}
-	sort.Sort(sort.StringSlice(old))
-	sort.Sort(sort.StringSlice(new))
-	for i := range old {
-		if old[i] != new[i] {
-			return true
-		}
+	return !slices.Equal(slices.Sorted(slices.Values(old)), slices.Sorted(slices.Values(new)))
+}
+
+func cloneHosts(hosts [][]string) [][]string {
+	if hosts == nil {
+		return nil
 	}
-	return false
+	out := make([][]string, len(hosts))
+	for i, replicas := range hosts {
+		out[i] = slices.Clone(replicas)
+	}
+	return out
 }

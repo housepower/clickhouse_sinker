@@ -152,3 +152,20 @@ func TestIsEnabledNeedsWritableBackend(t *testing.T) {
 		t.Fatal("writable backend with discovery enabled must be enabled")
 	}
 }
+
+// A discovery round must not reorder the sinker's current config in place:
+// applyConfig compares it with the next polled config and would restart every
+// task when only the replica order differs.
+func TestDiscoveryKeepsCurrentConfigUntouched(t *testing.T) {
+	cur := config.Config{Clickhouse: config.ClickHouseConfig{Hosts: [][]string{{"ch2", "ch1"}}}}
+	b := &memBackend{content: []byte(`{clickhouse: {hosts: [["ch2", "ch1"]]}, kafka: {brokers: "k"}}`)}
+	d := NewDiscovery(nil, cm.NewManager("mem", b, b))
+	d.SetConfig(cur) // Sinker.runDiscovery passes *s.curCfg by value
+	shards := Shards{{"ch1", "ch2"}}
+	if err := d.applyShards(shards); err != nil {
+		t.Fatal(err)
+	}
+	assert.Equal(t, [][]string{{"ch2", "ch1"}}, cur.Clickhouse.Hosts, "current config reordered in place")
+	assert.Equal(t, Shards{{"ch1", "ch2"}}, shards, "discovered shards reordered in place")
+	assert.Equal(t, 0, b.writes, "same replicas in a different order are not a change")
+}
