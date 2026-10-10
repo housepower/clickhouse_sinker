@@ -3,6 +3,7 @@ package rcm
 import (
 	"context"
 	"reflect"
+	"sync"
 	"time"
 
 	"github.com/housepower/clickhouse_sinker/config"
@@ -15,11 +16,31 @@ import (
 	"go.uber.org/zap"
 )
 
+// The admin client is shared by the /state and /live handlers, the main
+// loop's topic precheck and Manager.Close. kafkaMu guards these globals; the
+// client itself is used outside the lock, so a concurrent close only makes
+// that call fail with ErrClientClosed.
 var (
+	kafkaMu     sync.Mutex
 	theCl       *kgo.Client
 	theAdm      *kadm.Client
 	kafkaConfig *config.KafkaConfig
 )
+
+// adminClient returns the shared admin client for kconf, creating it when there
+// is none or the Kafka config changed.
+func adminClient(kconf config.KafkaConfig) (*kadm.Client, error) {
+	kafkaMu.Lock()
+	defer kafkaMu.Unlock()
+	if theAdm == nil || !reflect.DeepEqual(&kconf, kafkaConfig) {
+		cleanupKafkaClientLocked()
+		if err := newClient(kconf); err != nil {
+			return nil, err
+		}
+		kafkaConfig = &kconf
+	}
+	return theAdm, nil
+}
 
 type StateLag struct {
 	State string
@@ -28,20 +49,16 @@ type StateLag struct {
 
 // GetTaskStateAndLags get state and lag of all tasks.
 func GetTaskStateAndLags(cfg *config.Config) (stateLags map[string]StateLag, err error) {
-	kconf := cfg.Kafka
-	if !reflect.DeepEqual(&kconf, kafkaConfig) {
-		cleanupKafkaClient()
-		if err = newClient(cfg.Kafka); err != nil {
-			return
-		}
-		kafkaConfig = &kconf
+	var adm *kadm.Client
+	if adm, err = adminClient(cfg.Kafka); err != nil {
+		return
 	}
 
 	stateLags = make(map[string]StateLag, len(cfg.Tasks))
 	for _, taskCfg := range cfg.Tasks {
 		var state string
 		var totalLags int64
-		if state, totalLags, err = getStateAndLag(theAdm, taskCfg.Topic, taskCfg.ConsumerGroup); err != nil {
+		if state, totalLags, err = getStateAndLag(adm, taskCfg.Topic, taskCfg.ConsumerGroup); err != nil {
 			// skip this task, report -1 as its lag
 			util.Logger.Error("retrieve lag failed", zap.String("task", taskCfg.Name), zap.Error(err))
 			statistics.ConsumeLags.WithLabelValues(taskCfg.ConsumerGroup, taskCfg.Topic, taskCfg.Name).Set(float64(-1))
@@ -58,19 +75,15 @@ func GetTaskStateAndLags(cfg *config.Config) (stateLags map[string]StateLag, err
 // outright; callers should fall back to "don't filter anything" in that case to
 // avoid blocking startup on a transient Kafka issue.
 func ListExistingTopics(kfkCfg *config.KafkaConfig) (existing map[string]bool, err error) {
-	kconf := *kfkCfg
-	if !reflect.DeepEqual(&kconf, kafkaConfig) {
-		cleanupKafkaClient()
-		if err = newClient(kconf); err != nil {
-			return
-		}
-		kafkaConfig = &kconf
+	adm, err := adminClient(*kfkCfg)
+	if err != nil {
+		return
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	details, err := theAdm.ListTopics(ctx)
+	details, err := adm.ListTopics(ctx)
 	if err != nil {
 		err = errors.Wrapf(err, "")
 		return
@@ -86,6 +99,13 @@ func ListExistingTopics(kfkCfg *config.KafkaConfig) (existing map[string]bool, e
 }
 
 func cleanupKafkaClient() {
+	kafkaMu.Lock()
+	defer kafkaMu.Unlock()
+	cleanupKafkaClientLocked()
+}
+
+func cleanupKafkaClientLocked() {
+	kafkaConfig = nil
 	if theCl != nil {
 		theCl.Close()
 		theCl = nil
