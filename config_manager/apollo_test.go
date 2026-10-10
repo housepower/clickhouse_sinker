@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -122,5 +123,22 @@ func TestApolloOptionsValidateRead(t *testing.T) {
 		if err := o.validateRead(); err == nil {
 			t.Fatalf("%+v must be rejected", o)
 		}
+	}
+}
+
+// agollo reads ./<appId>-<namespace>.json on sync failure even with
+// IsBackupConfig=false; start-up must not accept that stale file.
+func TestApolloSourceIgnoresDiskBackup(t *testing.T) {
+	t.Chdir(t.TempDir())
+	stale := `{"appId":"sinker","cluster":"default","namespaceName":"` + testApolloNS +
+		`","releaseKey":"1","configurations":{"content":"{stale: true}"}}`
+	if err := os.WriteFile("sinker-"+testApolloNS+".json", []byte(stale), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	src, err := NewApolloSource(ApolloOptions{Meta: "http://127.0.0.1:1", AppID: "sinker", Namespace: testApolloNS})
+	if err == nil {
+		got, _ := src.Fetch(context.Background())
+		src.Close()
+		t.Fatalf("start must fail instead of loading the disk backup, fetched %q", got)
 	}
 }
