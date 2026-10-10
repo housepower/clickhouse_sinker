@@ -80,15 +80,28 @@ func New(cmdOps *util.CmdOptions) (*Manager, error) {
 			Cluster:   cmdOps.ApolloCluster,
 			Namespace: cmdOps.ApolloNamespace,
 			Secret:    cmdOps.ApolloSecret,
+			Portal:    cmdOps.ApolloPortal,
+			Token:     cmdOps.ApolloToken,
+			Env:       cmdOps.ApolloEnv,
+			Operator:  cmdOps.ApolloOperator,
+		}
+		writable, err := o.writeConfigured()
+		if err != nil {
+			return nil, err
 		}
 		src, err := NewApolloSource(o)
 		if err != nil {
 			return nil, err
 		}
+		var w Writer
+		if writable {
+			w = newApolloOpenAPI(o)
+		}
 		util.Logger.Info("get config from apollo",
 			zap.String("meta", o.Meta), zap.String("appId", o.AppID),
-			zap.String("cluster", o.cluster()), zap.String("namespace", o.Namespace))
-		return NewManager("apollo", src, nil), nil
+			zap.String("cluster", o.cluster()), zap.String("namespace", o.Namespace),
+			zap.Bool("writable", writable))
+		return NewManager("apollo", src, w), nil
 	}
 	return nil, nil
 }

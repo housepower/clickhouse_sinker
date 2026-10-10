@@ -74,6 +74,10 @@ type CmdOptions struct {
 	ApolloCluster    string
 	ApolloNamespace  string
 	ApolloSecret     string
+	ApolloPortal     string
+	ApolloToken      string
+	ApolloEnv        string
+	ApolloOperator   string
 	Encrypt          string
 
 	Credentials

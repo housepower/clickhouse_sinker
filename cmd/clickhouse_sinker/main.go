@@ -93,6 +93,10 @@ func initCmdOptions() {
 	util.EnvStringVarPrefixed(&cmdOps.ApolloCluster, "apollo-cluster")
 	util.EnvStringVarPrefixed(&cmdOps.ApolloNamespace, "apollo-namespace")
 	util.EnvStringVarPrefixed(&cmdOps.ApolloSecret, "apollo-secret")
+	util.EnvStringVarPrefixed(&cmdOps.ApolloPortal, "apollo-portal")
+	util.EnvStringVarPrefixed(&cmdOps.ApolloToken, "apollo-token")
+	util.EnvStringVarPrefixed(&cmdOps.ApolloEnv, "apollo-env")
+	util.EnvStringVarPrefixed(&cmdOps.ApolloOperator, "apollo-operator")
 
 	util.EnvStringVar(&cmdOps.ClickhouseUsername, "clickhouse-username")
 	util.EnvStringVar(&cmdOps.ClickhousePassword, "clickhouse-password")
@@ -132,6 +136,10 @@ func initCmdOptions() {
 	flag.StringVar(&cmdOps.ApolloCluster, "apollo-cluster", cmdOps.ApolloCluster, "Apollo cluster")
 	flag.StringVar(&cmdOps.ApolloNamespace, "apollo-namespace", cmdOps.ApolloNamespace, "Apollo txt/json namespace holding the config, e.g. clickhouse_sinker.txt")
 	flag.StringVar(&cmdOps.ApolloSecret, "apollo-secret", cmdOps.ApolloSecret, "Apollo access key secret")
+	flag.StringVar(&cmdOps.ApolloPortal, "apollo-portal", cmdOps.ApolloPortal, "Apollo Portal address, enables write-back with the other --apollo-* Open API options")
+	flag.StringVar(&cmdOps.ApolloToken, "apollo-token", cmdOps.ApolloToken, "Apollo Open API token")
+	flag.StringVar(&cmdOps.ApolloEnv, "apollo-env", cmdOps.ApolloEnv, "Apollo env for the Open API, e.g. PRO")
+	flag.StringVar(&cmdOps.ApolloOperator, "apollo-operator", cmdOps.ApolloOperator, "existing Apollo Portal user recorded as modifier and releaser")
 
 	flag.StringVar(&cmdOps.ClickhouseUsername, "clickhouse-username", cmdOps.ClickhouseUsername, "clickhouse username")
 	flag.StringVar(&cmdOps.ClickhousePassword, "clickhouse-password", cmdOps.ClickhousePassword, "clickhouse password")
