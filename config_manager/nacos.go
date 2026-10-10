@@ -20,8 +20,15 @@ import (
 )
 
 // nacosCASConflictMsg is part of the error nacos 2.x returns when casMd5 no
-// longer matches. Pinned by TestNacosCASConflictDetected (integration).
+// longer matches ("Cas publish fail,server md5 may have changed."). Pinned by
+// TestNacosCASConflictDetected (integration). Note nacos with embedded storage
+// (standalone Derby) ignores casMd5, so the CAS is only strict with an
+// external MySQL datasource.
 const nacosCASConflictMsg = "Cas publish fail"
+
+// nacosNotFoundMsg is what nacos-sdk-go v2 returns from GetConfig for a dataId
+// that does not exist yet (error code 300).
+const nacosNotFoundMsg = "config data not exist"
 
 type NacosOptions struct {
 	Addr        string // comma-separated host[:port], port defaults to 8848
@@ -108,8 +115,14 @@ func (n *Nacos) Update(ctx context.Context, fn UpdateFunc) error {
 // empty version, which publishes without CAS (first-time creation).
 func (n *Nacos) read(ctx context.Context) ([]byte, string, error) {
 	bs, err := n.Fetch(ctx)
-	if err != nil || len(bs) == 0 {
-		return bs, "", err
+	if err != nil {
+		if strings.Contains(err.Error(), nacosNotFoundMsg) {
+			return nil, "", nil
+		}
+		return nil, "", err
+	}
+	if len(bs) == 0 {
+		return bs, "", nil
 	}
 	sum := md5.Sum(bs)
 	return bs, hex.EncodeToString(sum[:]), nil
