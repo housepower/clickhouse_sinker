@@ -90,7 +90,7 @@ func (c *Consumer) start() {
 	// it's needed most (parallel earliest startup with large lag).
 	// applyConfig already resets once at the top of every reload, which is
 	// the only legitimate global-reset point.
-	if err := c.inputer.Init(c.sinker.curCfg, c.grpConfig, c.fetchesCh, c.cleanupFn); err == nil {
+	if err := c.inputer.Init(c.sinker.GetCurrentConfig(), c.grpConfig, c.fetchesCh, c.cleanupFn); err == nil {
 		go c.inputer.Run()
 		go c.processFetch()
 	} else {
@@ -197,7 +197,7 @@ func (c *Consumer) processFetch() {
 		recMap = make(model.RecordMap)
 	}
 
-	bufThreshold := c.grpConfig.BufferSize * len(c.sinker.curCfg.Clickhouse.Hosts) * 4 / 5
+	bufThreshold := c.grpConfig.BufferSize * len(c.sinker.GetCurrentConfig().Clickhouse.Hosts) * 4 / 5
 	if bufThreshold > MaxCountInBuf {
 		bufThreshold = MaxCountInBuf
 	}

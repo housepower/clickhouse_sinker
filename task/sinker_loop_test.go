@@ -2,9 +2,9 @@ package task
 
 import (
 	"testing"
-	"time"
 
 	"github.com/housepower/clickhouse_sinker/config"
+	"github.com/housepower/clickhouse_sinker/util"
 )
 
 func loopCfg(maxPollMs, discoverySec, reloadSec int) *config.Config {
@@ -14,41 +14,24 @@ func loopCfg(maxPollMs, discoverySec, reloadSec int) *config.Config {
 	return cfg
 }
 
-func newTestTickers() loopTickers {
-	return loopTickers{
-		poll:         time.NewTicker(time.Hour),
-		discovery:    time.NewTicker(time.Hour),
-		reloadSeries: time.NewTicker(time.Hour),
-	}
-}
-
-// An unchanged config must not reset the max.poll.interval ticker: resetting it
-// on every 10s config poll means it never fires.
-func TestLoopTickersUnchangedConfigResetsNothing(t *testing.T) {
-	tk := newTestTickers()
+// An unchanged interval must not re-arm its ticker: re-arming it on every 10s
+// config poll means it never fires.
+func TestLoopTickersRearmOnlyWhatChanged(t *testing.T) {
+	tk := newLoopTickers(intervalsOf(loopCfg(300000, 60, 3600)))
 	defer tk.stop()
-	cfg := loopCfg(config.DefaultMaxPollIntervalMs, config.DefaultDiscoveryIntervalSec, 3600)
-	poll, discovery, reload := tk.reset(intervalsOf(cfg), intervalsOf(cfg))
-	if poll || discovery || reload {
-		t.Fatalf("reset poll=%v discovery=%v reload=%v, want none", poll, discovery, reload)
-	}
-}
-
-func TestLoopTickersResetOnlyWhatChanged(t *testing.T) {
-	tk := newTestTickers()
-	defer tk.stop()
-	old := intervalsOf(loopCfg(300000, 60, 3600))
 	cases := []struct {
 		name                    string
 		cfg                     *config.Config
 		poll, discovery, reload bool
 	}{
+		{"unchanged", loopCfg(300000, 60, 3600), false, false, false},
 		{"max poll", loopCfg(600000, 60, 3600), true, false, false},
-		{"discovery", loopCfg(300000, 30, 3600), false, true, false},
-		{"reload series", loopCfg(300000, 60, 1800), false, false, true},
+		{"same again", loopCfg(600000, 60, 3600), false, false, false},
+		{"discovery", loopCfg(600000, 120, 3600), false, true, false},
+		{"reload series", loopCfg(600000, 120, 1800), false, false, true},
 	}
 	for _, c := range cases {
-		poll, discovery, reload := tk.reset(old, intervalsOf(c.cfg))
+		poll, discovery, reload := tk.rearm(intervalsOf(c.cfg))
 		if poll != c.poll || discovery != c.discovery || reload != c.reload {
 			t.Fatalf("%s: got poll=%v discovery=%v reload=%v", c.name, poll, discovery, reload)
 		}
@@ -75,8 +58,7 @@ func TestGetCurrentConfigIsSafeForOtherGoroutines(t *testing.T) {
 		defer close(done)
 		for i := 0; i < 1000; i++ {
 			cfg := loopCfg(config.DefaultMaxPollIntervalMs, 60, 3600)
-			s.curCfg = cfg // what applyConfig does on the Run goroutine
-			s.publishConfig()
+			s.setCurrentConfig(cfg) // what applyConfig does on the Run goroutine
 		}
 	}()
 	for i := 0; i < 1000; i++ {
@@ -85,5 +67,40 @@ func TestGetCurrentConfigIsSafeForOtherGoroutines(t *testing.T) {
 	<-done
 	if s.GetCurrentConfig() != s.curCfg {
 		t.Fatal("GetCurrentConfig must return the last applied config")
+	}
+}
+
+// A config change that touches only the discovery section must reach the
+// current config: the discovery round reads its switch and interval there.
+func TestApplyConfigTakesDiscoveryChanges(t *testing.T) {
+	t.Setenv("SKIP_TOPIC_PRECHECK", "1")
+	t.Setenv("SKIP_TABLE_PRECHECK", "1")
+	mk := func(enabled bool, interval int) *config.Config {
+		cfg := &config.Config{
+			Clickhouse: config.ClickHouseConfig{Hosts: [][]string{{"127.0.0.1"}}, Port: 9000, DB: "default"},
+			Kafka:      config.KafkaConfig{Brokers: "127.0.0.1:9092"},
+			Discovery:  config.Discovery{Enabled: enabled, CheckInterval: interval},
+			Groups:     map[string]*config.GroupConfig{},
+		}
+		if err := cfg.Normallize(true, util.Credentials{}); err != nil {
+			t.Fatal(err)
+		}
+		return cfg
+	}
+	s := NewSinker(nil, "", &util.CmdOptions{})
+	s.setCurrentConfig(mk(false, 60))
+	tk := newLoopTickers(intervalsOf(s.curCfg))
+	defer tk.stop()
+	for round := 0; round < 3; round++ {
+		if err := s.applyConfig(mk(true, 120)); err != nil {
+			t.Fatal(err)
+		}
+		if got := s.curCfg.Discovery; !got.Enabled || got.CheckInterval != 120 {
+			t.Fatalf("round %d: current discovery config %+v, want enabled every 120s", round, got)
+		}
+		_, discovery, _ := tk.rearm(intervalsOf(s.curCfg))
+		if discovery != (round == 0) {
+			t.Fatalf("round %d: discovery ticker re-armed=%v, want only on the first round", round, discovery)
+		}
 	}
 }

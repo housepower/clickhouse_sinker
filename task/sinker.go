@@ -52,8 +52,9 @@ var (
 
 // Sinker object maintains number of task for each partition
 type Sinker struct {
-	curCfg *config.Config // owned by the Run goroutine
-	// published is curCfg for other goroutines (the /state and /live handlers).
+	// curCfg is read and written by the Run goroutine only; other goroutines
+	// (HTTP handlers, consumers) use GetCurrentConfig.
+	curCfg    *config.Config
 	published atomic.Pointer[config.Config]
 	cmdOps    *util.CmdOptions
 	httpAddr  string
@@ -116,9 +117,11 @@ func (s *Sinker) GetCurrentConfig() *config.Config {
 	return s.published.Load()
 }
 
-// publishConfig makes curCfg visible to GetCurrentConfig. Run goroutine only.
-func (s *Sinker) publishConfig() {
-	s.published.Store(s.curCfg)
+// setCurrentConfig adopts cfg and publishes it before any consumer started for
+// it can ask. Run goroutine only.
+func (s *Sinker) setCurrentConfig(cfg *config.Config) {
+	s.curCfg = cfg
+	s.published.Store(cfg)
 }
 
 // Run is the mainloop to get and apply config
@@ -228,12 +231,11 @@ func (s *Sinker) Run() {
 					util.Logger.Error("newCfg.Normallize failed", zap.Error(err))
 					continue
 				}
-				old := intervalsOf(s.curCfg)
 				if err = s.applyConfig(newCfg); err != nil {
 					util.Logger.Error("s.applyConfig failed", zap.Error(err))
-					continue
 				}
-				tickers.reset(old, intervalsOf(newCfg))
+				// Also after a failure: curCfg may have been adopted partway.
+				tickers.rearm(intervalsOf(s.curCfg))
 			case c := <-s.consumerRestartCh:
 				// only restart the consumer which was not changed in applyAnotherConfig
 				util.Logger.Info("consumer going to restart", zap.String("consumer", c.grpConfig.Name))
@@ -312,36 +314,42 @@ func intervalsOf(cfg *config.Config) loopIntervals {
 	}
 }
 
+// loopTickers remembers the intervals its tickers run with, so re-arming
+// compares against what is actually armed rather than against a config that
+// may have been adopted only partway.
 type loopTickers struct {
+	armed        loopIntervals
 	poll         *time.Ticker
 	discovery    *time.Ticker
 	reloadSeries *time.Ticker
 }
 
-func newLoopTickers(iv loopIntervals) loopTickers {
-	return loopTickers{
+func newLoopTickers(iv loopIntervals) *loopTickers {
+	return &loopTickers{
+		armed:        iv,
 		poll:         time.NewTicker(time.Duration(iv.maxPollMs) * time.Millisecond),
 		discovery:    time.NewTicker(time.Duration(iv.discoverySec) * time.Second),
 		reloadSeries: time.NewTicker(time.Duration(iv.reloadSeriesSec) * time.Second),
 	}
 }
 
-// reset re-arms only the tickers whose interval changed. Resetting a ticker on
+// rearm resets only the tickers whose interval changed. Resetting a ticker on
 // every config poll would keep it from ever firing.
-func (t loopTickers) reset(old, new loopIntervals) (poll, discovery, reloadSeries bool) {
-	if poll = old.maxPollMs != new.maxPollMs; poll {
-		t.poll.Reset(time.Duration(new.maxPollMs) * time.Millisecond)
+func (t *loopTickers) rearm(iv loopIntervals) (poll, discovery, reloadSeries bool) {
+	if poll = t.armed.maxPollMs != iv.maxPollMs; poll {
+		t.poll.Reset(time.Duration(iv.maxPollMs) * time.Millisecond)
 	}
-	if discovery = old.discoverySec != new.discoverySec; discovery {
-		t.discovery.Reset(time.Duration(new.discoverySec) * time.Second)
+	if discovery = t.armed.discoverySec != iv.discoverySec; discovery {
+		t.discovery.Reset(time.Duration(iv.discoverySec) * time.Second)
 	}
-	if reloadSeries = old.reloadSeriesSec != new.reloadSeriesSec; reloadSeries {
-		t.reloadSeries.Reset(time.Duration(new.reloadSeriesSec) * time.Second)
+	if reloadSeries = t.armed.reloadSeriesSec != iv.reloadSeriesSec; reloadSeries {
+		t.reloadSeries.Reset(time.Duration(iv.reloadSeriesSec) * time.Second)
 	}
+	t.armed = iv
 	return
 }
 
-func (t loopTickers) stop() {
+func (t *loopTickers) stop() {
 	t.poll.Stop()
 	t.discovery.Stop()
 	t.reloadSeries.Stop()
@@ -446,9 +454,10 @@ func (s *Sinker) applyConfig(newCfg *config.Config) (err error) {
 		// applyFirstConfig failed before adopting newCfg; Run retries or exits.
 		return
 	}
+	// Settings that take effect without restarting tasks.
 	s.curCfg.ActiveSeriesRange = newCfg.ActiveSeriesRange
 	s.curCfg.ReloadSeriesMapInterval = newCfg.ReloadSeriesMapInterval
-	s.publishConfig()
+	s.curCfg.Discovery = newCfg.Discovery
 	return
 }
 
@@ -765,7 +774,7 @@ func (s *Sinker) applyFirstConfig(newCfg *config.Config) (err error) {
 	go s.commitFn()
 
 	// 3. Generate, initialize and run task
-	s.curCfg = newCfg
+	s.setCurrentConfig(newCfg)
 	for group, grpCfg := range newCfg.Groups {
 		c := newConsumer(s, grpCfg)
 		for _, tsk := range grpCfg.Configs {
@@ -808,7 +817,7 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 
 		// 4. Generate, initialize and run task
 		var tasksToStart []string
-		s.curCfg = newCfg
+		s.setCurrentConfig(newCfg)
 		for group, grpCfg := range newCfg.Groups {
 			c := newConsumer(s, grpCfg)
 			for _, tsk := range grpCfg.Configs {
@@ -888,7 +897,7 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 
 		// 2) fire up new consumers
 		// Record the new config
-		s.curCfg = newCfg
+		s.setCurrentConfig(newCfg)
 		for _, v := range newCfg.Groups {
 			if s.consumers[v.Name] == nil {
 				c := newConsumer(s, v)
