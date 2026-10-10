@@ -136,29 +136,48 @@ func NewTLSConfig(caCertFiles, clientCertFile, clientKeyFile string, insecureSki
 	return &tlsConfig, nil
 }
 
+// EnvPrefix namespaces sinker's environment variables so that names owned by
+// other software (APOLLO_META, ETCD_*) are never picked up by accident.
+const EnvPrefix = "SINKER_"
+
+func envKey(key string) string {
+	return strings.ReplaceAll(strings.ToUpper(key), "-", "_")
+}
+
+// lookupEnv prefers SINKER_<KEY> and falls back to the legacy unprefixed <KEY>.
+func lookupEnv(key string) (string, bool) {
+	k := envKey(key)
+	if v, ok := os.LookupEnv(EnvPrefix + k); ok {
+		return v, true
+	}
+	return os.LookupEnv(k)
+}
+
 func EnvStringVar(value *string, key string) {
-	realKey := strings.ReplaceAll(strings.ToUpper(key), "-", "_")
-	val, found := os.LookupEnv(realKey)
-	if found {
-		*value = val
+	if v, ok := lookupEnv(key); ok {
+		*value = v
 	}
 }
 
 func EnvIntVar(value *int, key string) {
-	realKey := strings.ReplaceAll(strings.ToUpper(key), "-", "_")
-	val, found := os.LookupEnv(realKey)
-	if found {
-		valInt, err := strconv.Atoi(val)
-		if err == nil {
-			*value = valInt
+	if v, ok := lookupEnv(key); ok {
+		if i, err := strconv.Atoi(v); err == nil {
+			*value = i
 		}
 	}
 }
 
 func EnvBoolVar(value *bool, key string) {
-	realKey := strings.ReplaceAll(strings.ToUpper(key), "-", "_")
-	if _, found := os.LookupEnv(realKey); found {
+	if _, ok := lookupEnv(key); ok {
 		*value = true
+	}
+}
+
+// EnvStringVarPrefixed only honors SINKER_<KEY>. Options added after the prefix
+// was introduced use it, so there is no unprefixed name to collide with.
+func EnvStringVarPrefixed(value *string, key string) {
+	if v, ok := os.LookupEnv(EnvPrefix + envKey(key)); ok {
+		*value = v
 	}
 }
 
