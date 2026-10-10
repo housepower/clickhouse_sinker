@@ -1,6 +1,7 @@
 package task
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/housepower/clickhouse_sinker/config"
@@ -102,5 +103,45 @@ func TestApplyConfigTakesDiscoveryChanges(t *testing.T) {
 		if discovery != (round == 0) {
 			t.Fatalf("round %d: discovery ticker re-armed=%v, want only on the first round", round, discovery)
 		}
+	}
+}
+
+// If loading the series maps fails after the config was adopted (e.g.
+// ClickHouse unreachable), the next unchanged poll must retry starting the
+// consumers instead of leaving the sinker idle until the config changes.
+func TestApplyConfigRetriesConsumerStart(t *testing.T) {
+	t.Setenv("SKIP_TOPIC_PRECHECK", "1")
+	t.Setenv("SKIP_TABLE_PRECHECK", "1")
+	mk := func() *config.Config {
+		cfg := &config.Config{
+			Clickhouse: config.ClickHouseConfig{Hosts: [][]string{{"127.0.0.1"}}, Port: 9000, DB: "default"},
+			Kafka:      config.KafkaConfig{Brokers: "127.0.0.1:9092"},
+			Groups:     map[string]*config.GroupConfig{},
+		}
+		if err := cfg.Normallize(true, util.Credentials{}); err != nil {
+			t.Fatal(err)
+		}
+		return cfg
+	}
+	s := NewSinker(nil, "", &util.CmdOptions{})
+	loads := 0
+	s.loadSeries = func() error {
+		loads++
+		if loads == 1 {
+			return errors.New("clickhouse unreachable")
+		}
+		return nil
+	}
+	if err := s.applyConfig(mk()); err == nil {
+		t.Fatal("first apply: want the series load error")
+	}
+	if err := s.applyConfig(mk()); err != nil {
+		t.Fatalf("second apply should retry and succeed: %v", err)
+	}
+	if loads != 2 {
+		t.Fatalf("series loaded %d times, want 2", loads)
+	}
+	if err := s.applyConfig(mk()); err != nil || loads != 2 {
+		t.Fatalf("third apply: err=%v loads=%d; nothing is pending any more", err, loads)
 	}
 }

@@ -56,13 +56,18 @@ type Sinker struct {
 	// (HTTP handlers, consumers) use GetCurrentConfig.
 	curCfg    *config.Config
 	published atomic.Pointer[config.Config]
-	cmdOps    *util.CmdOptions
-	httpAddr  string
-	numCfg    int
-	pusher    *statistics.Pusher
-	rcm       *cm.Manager
-	ctx       context.Context
-	cancel    context.CancelFunc
+	// loadSeries is initBmSeries; a field so tests can make it fail.
+	loadSeries func() error
+	// pendingStart: the current config was adopted but its consumers are not
+	// running yet because loading the series maps failed.
+	pendingStart bool
+	cmdOps       *util.CmdOptions
+	httpAddr     string
+	numCfg       int
+	pusher       *statistics.Pusher
+	rcm          *cm.Manager
+	ctx          context.Context
+	cancel       context.CancelFunc
 
 	consumers         map[string]*Consumer
 	commitsCh         chan *Commit
@@ -105,6 +110,7 @@ func NewSinker(rcm *cm.Manager, http string, cmd *util.CmdOptions) *Sinker {
 		lastTopicDropped:  make(map[string]bool),
 		lastTableDropped:  make(map[string]bool),
 	}
+	s.loadSeries = s.initBmSeries
 	return s
 }
 
@@ -449,6 +455,9 @@ func (s *Sinker) applyConfig(newCfg *config.Config) (err error) {
 		!reflect.DeepEqual(newCfg.Kafka, s.curCfg.Kafka) ||
 		!reflect.DeepEqual(newCfg.Tasks, s.curCfg.Tasks) {
 		err = s.applyAnotherConfig(newCfg)
+	} else if s.pendingStart {
+		util.Logger.Info("retrying to start consumers")
+		err = s.startConsumers()
 	}
 	if s.curCfg == nil {
 		// applyFirstConfig failed before adopting newCfg; Run retries or exits.
@@ -762,6 +771,21 @@ func (s *Sinker) filterBrokenTasks(newCfg *config.Config) {
 	dropTasksFromCfg(newCfg, dropped)
 }
 
+// startConsumers loads the series maps, then starts every consumer. On failure
+// it sets pendingStart and applyConfig retries on the next poll; re-running the
+// whole apply instead would start a second commitFn.
+func (s *Sinker) startConsumers() (err error) {
+	if err = s.loadSeries(); err != nil {
+		s.pendingStart = true
+		return
+	}
+	for _, c := range s.consumers {
+		c.start()
+	}
+	s.pendingStart = false
+	return
+}
+
 func (s *Sinker) applyFirstConfig(newCfg *config.Config) (err error) {
 	util.Logger.Info("going to apply the first config", zap.Any("config", newCfg))
 	// 1. Initialize clickhouse connections
@@ -787,11 +811,8 @@ func (s *Sinker) applyFirstConfig(newCfg *config.Config) (err error) {
 		s.consumers[group] = c
 	}
 
-	if err = s.initBmSeries(); err != nil {
+	if err = s.startConsumers(); err != nil {
 		return
-	}
-	for _, c := range s.consumers {
-		c.start()
 	}
 
 	util.Logger.Info("applied the first config")
@@ -831,11 +852,8 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 			s.consumers[group] = c
 		}
 
-		if err = s.initBmSeries(); err != nil {
+		if err = s.startConsumers(); err != nil {
 			return
-		}
-		for _, c := range s.consumers {
-			c.start()
 		}
 
 		util.Logger.Info("started tasks", zap.Reflect("tasks", tasksToStart))
@@ -912,11 +930,8 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 			}
 		}
 
-		if err = s.initBmSeries(); err != nil {
+		if err = s.startConsumers(); err != nil {
 			return
-		}
-		for _, c := range s.consumers {
-			c.start()
 		}
 	}
 	util.Logger.Info("applied another config", zap.Int("number", s.numCfg))
