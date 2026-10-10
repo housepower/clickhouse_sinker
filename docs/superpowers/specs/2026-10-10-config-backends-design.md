@@ -47,7 +47,7 @@
 | nacos SDK | 升级到 `nacos-sdk-go/v2 v2.2.5`(与 cell、ckman 一致),以获得 `casMd5` |
 | Apollo 存储格式 | 整份 hjson 放在 txt/json 类型的 namespace(如 `clickhouse_sinker.txt`),内容在固定 key `content` 下 |
 | Apollo 写入 | 走 Portal Open API(修改 + 发布);配置了 Portal 参数才可写,否则只读 |
-| 启动参数 | 按后端加前缀,沿用 `--nacos-*` 风格,每个参数同时支持同名环境变量 |
+| 启动参数 | 按后端加前缀,沿用 `--nacos-*` 风格;环境变量统一加 `SINKER_` 前缀(新参数只认前缀,现有参数兼容无前缀) |
 | 变更感知 | 沿用 10 秒轮询 |
 
 ## 4. 组件设计
@@ -160,9 +160,55 @@ func (m *Manager) Close() error
 
 - 各后端的其他必填参数(etcd 的 endpoints,Apollo 的 meta、app-id)在构造时校验,缺失报错退出。
 - 新参数加入 `util.CmdOptions`;`Gsypt.Unmarshal` 遍历整个结构体,`--etcd-password`、
-  `--apollo-token` 自动支持 `ENC(...)`。
+  `--apollo-secret`、`--apollo-token` 自动支持 `ENC(...)`。
 
-### 4.6 接入点
+### 4.6 启动参数与环境变量
+
+定义方式沿用 `initCmdOptions()` 的三层覆盖:结构体默认值 → 环境变量 → 命令行,
+最后 `Gsypt.Unmarshal` 解密。
+
+**环境变量统一加 `SINKER_` 前缀**(避免与 Apollo 客户端生态的 `APOLLO_*`、etcd server 的 `ETCD_*` 撞名):
+
+- 新参数**只认**带前缀的名字(如 `SINKER_ETCD_ENDPOINTS`),不回退到无前缀名,否则撞名问题依旧。
+- 现有参数**两种都认**:先查 `SINKER_<NAME>`,没有再查原来的 `<NAME>`(如 `NACOS_ADDR`、`LOG_LEVEL`),
+  现有部署不用改。
+- 实现:`util.EnvStringVar` / `EnvIntVar` / `EnvBoolVar` 改为先查前缀再回退;另加
+  `EnvStringVarPrefixed` 只查前缀,供新参数使用。名称转换规则不变(大写,`-` → `_`)。
+
+**etcd**(`--etcd-key` 非空即选 etcd)
+
+| 参数 | 环境变量 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `--etcd-endpoints` | `SINKER_ETCD_ENDPOINTS` | 空 | 逗号分隔;选 etcd 时必填 |
+| `--etcd-key` | `SINKER_ETCD_KEY` | 空 | 存配置的 key |
+| `--etcd-username` | `SINKER_ETCD_USERNAME` | 空 | |
+| `--etcd-password` | `SINKER_ETCD_PASSWORD` | 空 | 支持 `ENC(...)` |
+| `--etcd-ca-file` | `SINKER_ETCD_CA_FILE` | 空 | 只给 CA 为单向 TLS |
+| `--etcd-cert-file` | `SINKER_ETCD_CERT_FILE` | 空 | 与 key-file 同给为双向 TLS |
+| `--etcd-key-file` | `SINKER_ETCD_KEY_FILE` | 空 | |
+
+**Apollo 读**(`--apollo-namespace` 非空即选 Apollo)
+
+| 参数 | 环境变量 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `--apollo-meta` | `SINKER_APOLLO_META` | 空 | Config Service / Meta Server 地址;必填 |
+| `--apollo-app-id` | `SINKER_APOLLO_APP_ID` | 空 | 必填 |
+| `--apollo-cluster` | `SINKER_APOLLO_CLUSTER` | `default` | |
+| `--apollo-namespace` | `SINKER_APOLLO_NAMESPACE` | 空 | 如 `clickhouse_sinker.txt` |
+| `--apollo-secret` | `SINKER_APOLLO_SECRET` | 空 | 访问密钥,支持 `ENC(...)` |
+
+**Apollo 写**(四个全配才可写;部分配置启动报错;全不配为只读)
+
+| 参数 | 环境变量 | 说明 |
+| --- | --- | --- |
+| `--apollo-portal` | `SINKER_APOLLO_PORTAL` | Portal 地址 |
+| `--apollo-token` | `SINKER_APOLLO_TOKEN` | 第三方应用 token,支持 `ENC(...)` |
+| `--apollo-env` | `SINKER_APOLLO_ENV` | 如 `PRO` |
+| `--apollo-operator` | `SINKER_APOLLO_OPERATOR` | 须为 Portal 中存在的用户 |
+
+**nacos**:`--nacos-*` 参数不变;环境变量新增 `SINKER_NACOS_*` 写法,原 `NACOS_*` 继续有效。
+
+### 4.7 接入点
 
 - `cmd/clickhouse_sinker/main.go`:构造 nacos `properties` 的整段替换为 `rcm.New(&cmdOps)`。
 - `task/sinker.go`:`s.rcm` 类型改为 `*rcm.Manager`;主循环不变;`Close()` 中 `Stop()` → `Close()`。
@@ -177,7 +223,7 @@ func (m *Manager) Close() error
 - `cmd/nacos_publish_config`:改用 `NewNacos` 和 `Update`(fn 忽略 old,整份写入);
   结束时的 `GetConfig` 回读校验保留。
 
-### 4.7 文件组织
+### 4.8 文件组织
 
 ```
 config_manager/
@@ -197,6 +243,8 @@ config_manager/
 - `Manager`:fake Source/Writer 覆盖 hjson 编解码、`changed=false` 不写、`ErrNoChange` /
   `ErrPendingChanges` 透传。
 - `select.go`:表驱动——各后端单独设置、全不设、两个同设、必填缺失、Apollo 写参数部分配置。
+- 环境变量:现有参数 `SINKER_X` 优先于 `X`、只设 `X` 仍生效;新参数只设无前缀名(如 `ETCD_KEY`)时不生效。
+  测试用 `t.Setenv`,不污染进程环境。
 - discovery:fake 中的"最新配置"比 discovery 手里的副本多一个 task,写回后该 task 必须仍在。
   这条直接对应本次要解决的并发覆盖问题。
 - Apollo:`httptest` 模拟 Config Service(agollo 直连)和 Portal Open API;覆盖正常修改+发布、
