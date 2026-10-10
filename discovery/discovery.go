@@ -1,14 +1,17 @@
 package discovery
 
 import (
+	"errors"
 	"fmt"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/housepower/clickhouse_sinker/config"
 	cm "github.com/housepower/clickhouse_sinker/config_manager"
 	"github.com/housepower/clickhouse_sinker/pool"
 	"github.com/housepower/clickhouse_sinker/util"
+	"go.uber.org/zap"
 )
 
 var (
@@ -16,11 +19,11 @@ var (
 )
 
 type Discovery struct {
-	enabled bool
-	config  *config.Config
-	conn    *pool.Conn
-	ncm     cm.RemoteConfManager
-	rcm     bool
+	enabled      bool
+	config       *config.Config
+	conn         *pool.Conn
+	m            *cm.Manager
+	warnReadOnly sync.Once
 }
 
 type Replicas []string
@@ -39,12 +42,8 @@ func (r Shards) Len() int {
 	return len(r)
 }
 
-func NewDiscovery(cfg *config.Config, ncm cm.RemoteConfManager, rcm bool) *Discovery {
-	return &Discovery{
-		config: cfg,
-		ncm:    ncm,
-		rcm:    rcm,
-	}
+func NewDiscovery(cfg *config.Config, m *cm.Manager) *Discovery {
+	return &Discovery{config: cfg, m: m}
 }
 
 func (d *Discovery) SetConfig(conf config.Config) {
@@ -53,7 +52,18 @@ func (d *Discovery) SetConfig(conf config.Config) {
 }
 
 func (d *Discovery) IsEnabled() bool {
-	return d.enabled && d.rcm
+	if !d.enabled {
+		return false
+	}
+	if !d.m.Writable() {
+		// The discovery switch is hot-reloaded with the config, so this is
+		// checked on every round rather than only at startup.
+		d.warnReadOnly.Do(func() {
+			util.Logger.Warn("discovery is enabled but the config backend is not writable, discovery is skipped")
+		})
+		return false
+	}
+	return true
 }
 
 func (d *Discovery) GetCKConn() error {
@@ -106,20 +116,32 @@ func (d *Discovery) Dispatcher() error {
 		return nil
 	}
 	util.Logger.Debug(fmt.Sprintf("discovery: shards: %#v", shards))
-	if diffShards(shards, hosts2shards(d.config.Clickhouse.Hosts)) {
-		util.Logger.Info(fmt.Sprintf("discovery: shards changed, old: %v, new: %v", d.config.Clickhouse.Hosts, shards))
-		d.config.Clickhouse.Hosts = shards2hosts(shards)
-		d.Publish()
-	} else {
-		util.Logger.Info("discovery: shards not changed")
-	}
-	return nil
+	return d.applyShards(shards)
 }
 
-func (d *Discovery) Publish() {
-	d.config.Discovery.UpdatedBy = "discovery-changed"
-	d.config.Discovery.UpdatedAt = time.Now()
-	d.ncm.PublishConfig(d.config)
+// applyShards writes discovered shards back to the config center. It patches
+// only clickhouse.hosts on the latest config, so edits made by others since
+// d.config was loaded survive.
+func (d *Discovery) applyShards(shards Shards) error {
+	if !diffShards(shards, hosts2shards(d.config.Clickhouse.Hosts)) {
+		util.Logger.Info("discovery: shards not changed")
+		return nil
+	}
+	util.Logger.Info(fmt.Sprintf("discovery: shards changed, old: %v, new: %v", d.config.Clickhouse.Hosts, shards))
+	err := d.m.UpdateConfig(func(c *config.Config) bool {
+		if !diffShards(shards, hosts2shards(c.Clickhouse.Hosts)) {
+			return false // already written, e.g. by another sinker instance
+		}
+		c.Clickhouse.Hosts = shards2hosts(shards)
+		c.Discovery.UpdatedBy = "discovery-changed"
+		c.Discovery.UpdatedAt = time.Now()
+		return true
+	})
+	if errors.Is(err, cm.ErrPendingChanges) {
+		util.Logger.Warn("discovery: config center has unreleased changes, retry next round", zap.Error(err))
+		return nil
+	}
+	return err
 }
 
 func hosts2shards(hosts [][]string) Shards {

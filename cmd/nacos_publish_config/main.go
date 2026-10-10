@@ -16,6 +16,7 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -53,18 +54,6 @@ var (
 	kafkaUsername      = flag.String("kafka-username", "", "kafka username")
 	kafkaPassword      = flag.String("kafka-password", "", "kafka password")
 )
-
-// Empty is not valid namespaceID
-func getProperties() map[string]interface{} {
-	properties := make(map[string]interface{}, 6)
-	properties["serverAddrs"] = *nacosAddr
-	properties["username"] = *nacosUsername
-	properties["password"] = *nacosPassword
-	properties["namespaceId"] = *nacosNamespaceID
-	properties["group"] = *nacosGroup
-	properties["dataId"] = *nacosDataID
-	return properties
-}
 
 func PublishSinkerConfig() {
 	var err error
@@ -105,21 +94,38 @@ func PublishSinkerConfig() {
 		cfg.Clickhouse.MaxOpenConns = *maxOpenConns
 	}
 
-	ncm := cm.NacosConfManager{}
-	properties := getProperties()
-	if err = ncm.Init(properties); err != nil {
-		util.Logger.Fatal("ncm.Init failed", zap.Error(err))
+	n, err := cm.NewNacos(cm.NacosOptions{
+		Addr:        *nacosAddr,
+		Username:    *nacosUsername,
+		Password:    *nacosPassword,
+		NamespaceID: *nacosNamespaceID,
+		Group:       *nacosGroup,
+		DataID:      *nacosDataID,
+		CacheDir:    "nacos_cache",
+	})
+	if err != nil {
+		util.Logger.Fatal("cm.NewNacos failed", zap.Error(err))
 	}
+	defer n.Close()
 
-	if err = ncm.PublishConfig(cfg); err != nil {
-		util.Logger.Fatal("ncm.PublishConfig failed", zap.Error(err))
+	var bs []byte
+	if bs, err = cm.EncodeConfig(cfg); err != nil {
+		util.Logger.Fatal("cm.EncodeConfig failed", zap.Error(err))
+	}
+	// Publishing the whole file is the purpose of this tool, so old content is ignored.
+	if err = n.Update(context.Background(), func([]byte) ([]byte, error) { return bs, nil }); err != nil {
+		util.Logger.Fatal("publish config failed", zap.Error(err))
+	}
+	// Decode what was published so properties with default values are no longer nil.
+	if cfg, err = cm.DecodeConfig(bs); err != nil {
+		util.Logger.Fatal("cm.DecodeConfig failed", zap.Error(err))
 	}
 	util.Logger.Info("sleep a while")
 	time.Sleep(10 * time.Second)
 
 	var newCfg *config.Config
-	if newCfg, err = ncm.GetConfig(); err != nil {
-		util.Logger.Fatal("ncm.GetConfig failed", zap.Error(err))
+	if newCfg, err = cm.NewManager("nacos", n, n).GetConfig(); err != nil {
+		util.Logger.Fatal("GetConfig failed", zap.Error(err))
 	}
 	if !reflect.DeepEqual(newCfg, cfg) {
 		util.Logger.Fatal("BUG: got different config", zap.Reflect("cfg", cfg), zap.Reflect("newCfg", newCfg))

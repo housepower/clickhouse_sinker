@@ -56,7 +56,7 @@ type Sinker struct {
 	httpAddr string
 	numCfg   int
 	pusher   *statistics.Pusher
-	rcm      cm.RemoteConfManager
+	rcm      *cm.Manager
 	ctx      context.Context
 	cancel   context.CancelFunc
 
@@ -85,7 +85,7 @@ type brokenInfo struct {
 }
 
 // NewSinker get an instance of sinker with the task list
-func NewSinker(rcm cm.RemoteConfManager, http string, cmd *util.CmdOptions) *Sinker {
+func NewSinker(rcm *cm.Manager, http string, cmd *util.CmdOptions) *Sinker {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Sinker{
 		rcm:               rcm,
@@ -198,7 +198,7 @@ func (s *Sinker) Run() {
 			}
 		}
 	} else {
-		sd := discovery.NewDiscovery(s.curCfg, s.rcm, s.rcm != nil)
+		sd := discovery.NewDiscovery(s.curCfg, s.rcm)
 		// Golang <-time.After() is not garbage collected before expiry.
 		ticker := time.NewTicker(10 * time.Second)
 		defer ticker.Stop()
@@ -285,14 +285,7 @@ func (s *Sinker) Run() {
 					}
 				}
 			case <-sdTicker.C:
-				sd.SetConfig(*s.curCfg)
-				if sd.IsEnabled() {
-					if err = sd.GetCKConn(); err == nil {
-						if err = sd.Dispatcher(); err != nil {
-							util.Logger.Error("sd.Dispatcher failed", zap.Error(err))
-						}
-					}
-				}
+				s.runDiscovery(sd)
 			}
 		}
 	}
@@ -300,11 +293,32 @@ func (s *Sinker) Run() {
 	s.exitCh <- struct{}{}
 }
 
+// runDiscovery runs one ClickHouse cluster discovery round. curCfg stays nil
+// until the first config is applied, e.g. while the config center is unreachable.
+func (s *Sinker) runDiscovery(sd *discovery.Discovery) {
+	if s.curCfg == nil {
+		return
+	}
+	sd.SetConfig(*s.curCfg)
+	if !sd.IsEnabled() {
+		return
+	}
+	if err := sd.GetCKConn(); err != nil {
+		util.Logger.Error("sd.GetCKConn failed", zap.Error(err))
+		return
+	}
+	if err := sd.Dispatcher(); err != nil {
+		util.Logger.Error("sd.Dispatcher failed", zap.Error(err))
+	}
+}
+
 // Close shutdown task
 func (s *Sinker) Close() {
 	// 1. Stop rcm
 	if s.rcm != nil {
-		s.rcm.Stop()
+		if err := s.rcm.Close(); err != nil {
+			util.Logger.Error("failed to close config backend", zap.Error(err))
+		}
 		s.rcm = nil
 	}
 	// 2. Quit Run mainloop

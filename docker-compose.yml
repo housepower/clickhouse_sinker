@@ -49,10 +49,16 @@ services:
     security_opt:
       - label:disable
   nacos:
-    image: nacos/nacos-server:1.4.1
+    image: nacos/nacos-server:v2.2.3
     container_name: nacos-standalone
     environment:
     - PREFER_HOST_MODE=hostname
     - MODE=standalone
+    - NACOS_AUTH_ENABLE=false
+    - NACOS_AUTH_TOKEN=U2lua2VyVGVzdE9ubHlOb3RBUmVhbFNlY3JldDAxMjM0NTY3ODk=
+    - NACOS_AUTH_IDENTITY_KEY=serverIdentity
+    - NACOS_AUTH_IDENTITY_VALUE=security
     ports:
     - "58848:8848"
+    # v2 SDK dials gRPC at HTTP port + 1000, i.e. 58848 + 1000 on the host side.
+    - "59848:9848"

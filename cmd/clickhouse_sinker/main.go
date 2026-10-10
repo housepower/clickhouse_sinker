@@ -23,7 +23,6 @@ import (
 	"net/http"
 	"net/http/pprof"
 	"os"
-	"path/filepath"
 	"strings"
 
 	cm "github.com/housepower/clickhouse_sinker/config_manager"
@@ -241,35 +240,12 @@ func main() {
 				"every instance runs all tasks and Kafka consumer groups balance partitions among instances")
 		}
 
-		var rcm cm.RemoteConfManager
-		var properties map[string]interface{}
-		logDir := "."
-		logPaths := strings.Split(cmdOps.LogPaths, ",")
-		for _, logPath := range logPaths {
-			if logPath != "stdout" && logPath != "stderr" {
-				logDir, _ = filepath.Split(logPath)
-			}
+		rcm, err := cm.New(&cmdOps)
+		if err != nil {
+			util.Logger.Fatal("failed to set up config backend", zap.Error(err))
 		}
-		logDir, _ = filepath.Abs(logDir)
-		if cmdOps.NacosDataID != "" {
-			util.Logger.Info(fmt.Sprintf("get config from nacos serverAddrs %s, namespaceId %s, group %s, dataId %s",
-				cmdOps.NacosAddr, cmdOps.NacosNamespaceID, cmdOps.NacosGroup, cmdOps.NacosDataID))
-			rcm = &cm.NacosConfManager{}
-			properties = make(map[string]interface{}, 8)
-			properties["serverAddrs"] = cmdOps.NacosAddr
-			properties["username"] = cmdOps.NacosUsername
-			properties["password"] = cmdOps.NacosPassword
-			properties["namespaceId"] = cmdOps.NacosNamespaceID
-			properties["group"] = cmdOps.NacosGroup
-			properties["dataId"] = cmdOps.NacosDataID
-			properties["logDir"] = logDir
-		} else {
+		if rcm == nil {
 			util.Logger.Info(fmt.Sprintf("get config from local file %s", cmdOps.LocalCfgFile))
-		}
-		if rcm != nil {
-			if err := rcm.Init(properties); err != nil {
-				util.Logger.Fatal("rcm.Init failed", zap.Error(err))
-			}
 		}
 		runner = task.NewSinker(rcm, httpAddr, &cmdOps)
 		return runner.Init()

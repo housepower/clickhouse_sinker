@@ -1,134 +1,139 @@
 package rcm
 
 import (
-	"path/filepath"
+	"context"
+	"crypto/md5"
+	"encoding/hex"
+	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 
-	"github.com/hjson/hjson-go/v4"
-	"github.com/housepower/clickhouse_sinker/config"
-	"github.com/housepower/clickhouse_sinker/util"
-	"github.com/nacos-group/nacos-sdk-go/clients"
-	"github.com/nacos-group/nacos-sdk-go/clients/config_client"
-	"github.com/nacos-group/nacos-sdk-go/common/constant"
-	"github.com/nacos-group/nacos-sdk-go/vo"
-	"github.com/thanos-io/thanos/pkg/errors"
+	"github.com/nacos-group/nacos-sdk-go/v2/clients"
+	"github.com/nacos-group/nacos-sdk-go/v2/clients/config_client"
+	"github.com/nacos-group/nacos-sdk-go/v2/common/constant"
+	"github.com/nacos-group/nacos-sdk-go/v2/common/logger"
+	"github.com/nacos-group/nacos-sdk-go/v2/vo"
 	"go.uber.org/zap"
+
+	"github.com/housepower/clickhouse_sinker/util"
 )
 
-var _ RemoteConfManager = (*NacosConfManager)(nil)
+// nacosCASConflictMsg is part of the error nacos 2.x returns when casMd5 no
+// longer matches. Pinned by TestNacosCASConflictDetected (integration).
+const nacosCASConflictMsg = "Cas publish fail"
 
-type NacosConfManager struct {
-	configClient config_client.IConfigClient
-	group        string
-	dataID       string
+type NacosOptions struct {
+	Addr        string // comma-separated host[:port], port defaults to 8848
+	Username    string
+	Password    string
+	NamespaceID string // Neither DEFAULT_NAMESPACE_ID("public") nor namespace name work!
+	Group       string // Empty means DEFAULT_GROUP
+	DataID      string
+	CacheDir    string
 }
 
-func (ncm *NacosConfManager) Init(properties map[string]interface{}) (err error) {
+// Nacos is a Source and Writer backed by one nacos dataId.
+type Nacos struct {
+	client config_client.IConfigClient
+	group  string
+	dataID string
+}
+
+var (
+	_ Source = (*Nacos)(nil)
+	_ Writer = (*Nacos)(nil)
+)
+
+func parseNacosServers(addr string) ([]constant.ServerConfig, error) {
 	var sc []constant.ServerConfig
-	serverAddrs := strings.Split(properties["serverAddrs"].(string), ",")
-	for _, serverAddr := range serverAddrs {
-		serverAddrFields := strings.SplitN(serverAddr, ":", 2)
-		var nacosPort uint64 = 8848
-		if len(serverAddrFields) >= 2 {
-			if nacosPort, err = strconv.ParseUint(serverAddrFields[1], 10, 64); err != nil {
-				err = errors.Wrapf(err, "invalid nacos serverAddrs")
-				return
+	for _, serverAddr := range strings.Split(addr, ",") {
+		fields := strings.SplitN(strings.TrimSpace(serverAddr), ":", 2)
+		var port uint64 = 8848
+		if len(fields) == 2 {
+			var err error
+			if port, err = strconv.ParseUint(fields[1], 10, 64); err != nil {
+				return nil, fmt.Errorf("invalid nacos address %q: %w", serverAddr, err)
 			}
 		}
-		sc = append(sc, constant.ServerConfig{
-			IpAddr: serverAddrFields[0],
-			Port:   nacosPort,
-		})
+		sc = append(sc, constant.ServerConfig{IpAddr: fields[0], Port: port})
 	}
+	return sc, nil
+}
 
-	var namespaceID string //Neither DEFAULT_NAMESPACE_ID("public") nor namespace name work!
-	logDir := "."
-	group := constant.DEFAULT_GROUP //Empty string doesn't work!
-	if pop, ok := properties["namespaceId"]; ok {
-		namespaceID, _ = pop.(string)
+func NewNacos(o NacosOptions) (*Nacos, error) {
+	if o.DataID == "" {
+		return nil, errors.New("nacos: --nacos-dataid is required")
 	}
-	if pop, ok := properties["group"]; ok {
-		group, _ = pop.(string)
+	sc, err := parseNacosServers(o.Addr)
+	if err != nil {
+		return nil, fmt.Errorf("nacos: %w", err)
 	}
-	if pop, ok := properties["logDir"]; ok {
-		logDir, _ = pop.(string)
-	}
-	if logDir, err = filepath.Abs(logDir); err != nil {
-		return errors.Wrapf(err, "")
+	group := o.Group
+	if group == "" {
+		group = constant.DEFAULT_GROUP
 	}
 	cc := constant.ClientConfig{
-		NamespaceId:         namespaceID,
-		TimeoutMs:           5000,
-		ListenInterval:      10000,
+		NamespaceId:         o.NamespaceID,
+		TimeoutMs:           uint64(opTimeout.Milliseconds()),
 		NotLoadCacheAtStart: true,
-		CacheDir:            filepath.Join(logDir, "nacos_cache"),
-		CustomLogger:        &NacosLogger{util.Logger.Sugar()},
-		Username:            properties["username"].(string),
-		Password:            properties["password"].(string),
+		CacheDir:            o.CacheDir,
+		LogDir:              o.CacheDir,
+		Username:            o.Username,
+		Password:            o.Password,
 	}
-
-	ncm.configClient, err = clients.CreateConfigClient(map[string]interface{}{
-		"serverConfigs": sc,
-		"clientConfig":  cc,
-	})
+	client, err := clients.NewConfigClient(vo.NacosClientParam{ClientConfig: &cc, ServerConfigs: sc})
 	if err != nil {
-		err = errors.Wrapf(err, "")
-		return
+		return nil, fmt.Errorf("nacos: create client: %w", err)
 	}
-
-	ncm.group = group
-	if pop, ok := properties["dataId"]; ok {
-		ncm.dataID, _ = pop.(string)
-	}
-	return
+	// Creating the client initializes nacos' own logger, so route it into the
+	// sinker log only afterwards.
+	logger.SetLogger(&NacosLogger{util.Logger.Sugar()})
+	return &Nacos{client: client, group: group, dataID: o.DataID}, nil
 }
 
-func (ncm *NacosConfManager) GetConfig() (conf *config.Config, err error) {
-	var content string
-	content, err = ncm.configClient.GetConfig(vo.ConfigParam{
-		DataId: ncm.dataID,
-		Group:  ncm.group,
-	})
+func (n *Nacos) Fetch(ctx context.Context) ([]byte, error) {
+	content, err := n.client.GetConfig(vo.ConfigParam{DataId: n.dataID, Group: n.group})
 	if err != nil {
-		err = errors.Wrapf(err, "")
-		return
+		return nil, fmt.Errorf("dataId %s group %s: %w", n.dataID, n.group, err)
 	}
-	conf = &config.Config{Groups: make(map[string]*config.GroupConfig)}
-	if err = hjson.Unmarshal([]byte(content), conf); err != nil {
-		err = errors.Wrapf(err, "")
-		return
-	}
-	return
+	return []byte(content), nil
 }
 
-func (ncm *NacosConfManager) PublishConfig(conf *config.Config) (err error) {
-	util.Logger.Info("publish config to nacos")
-	var bs []byte
-	if bs, err = hjson.Marshal(*conf); err != nil {
-		err = errors.Wrapf(err, "")
-		return
-	}
-	content := string(bs)
-	_, err = ncm.configClient.PublishConfig(vo.ConfigParam{
-		DataId:  ncm.dataID,
-		Group:   ncm.group,
-		Content: content,
-	})
-	if err != nil {
-		err = errors.Wrapf(err, "")
-		return
-	}
-	// update the conf so that properties with default values are no longer nil
-	if err = hjson.Unmarshal(bs, conf); err != nil {
-		err = errors.Wrapf(err, "")
-	}
-	return
+func (n *Nacos) Update(ctx context.Context, fn UpdateFunc) error {
+	return updateWithCAS(ctx, fn, n.read, n.write)
 }
 
-func (ncm *NacosConfManager) Stop() {
-	cleanupKafkaClient()
-	util.Logger.Info("stopped nacos config manager")
+// read returns the content with its md5 as version. A missing dataId gives an
+// empty version, which publishes without CAS (first-time creation).
+func (n *Nacos) read(ctx context.Context) ([]byte, string, error) {
+	bs, err := n.Fetch(ctx)
+	if err != nil || len(bs) == 0 {
+		return bs, "", err
+	}
+	sum := md5.Sum(bs)
+	return bs, hex.EncodeToString(sum[:]), nil
+}
+
+func (n *Nacos) write(ctx context.Context, content []byte, casMd5 string) (bool, error) {
+	_, err := n.client.PublishConfig(vo.ConfigParam{
+		DataId:  n.dataID,
+		Group:   n.group,
+		Content: string(content),
+		CasMd5:  casMd5,
+	})
+	if err != nil {
+		if strings.Contains(err.Error(), nacosCASConflictMsg) {
+			return true, nil
+		}
+		return false, fmt.Errorf("dataId %s group %s: %w", n.dataID, n.group, err)
+	}
+	return false, nil
+}
+
+func (n *Nacos) Close() error {
+	n.client.CloseClient()
+	return nil
 }
 
 type NacosLogger struct {
