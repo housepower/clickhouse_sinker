@@ -106,57 +106,68 @@ func bodySnippet(body []byte) string {
 	return string(body[:max]) + "...(truncated)"
 }
 
-// current returns the latest edited content and whether it differs from the
-// latest release, i.e. someone has unreleased edits in this namespace.
-func (c *apolloOpenAPI) current(ctx context.Context) (string, bool, error) {
+// current returns the latest edited content, whether it differs from the
+// latest release (someone has unreleased edits in this namespace), and who
+// made the latest edit.
+func (c *apolloOpenAPI) current(ctx context.Context) (content string, pending bool, modifiedBy string, err error) {
 	var ns struct {
 		Items []struct {
-			Key   string `json:"key"`
-			Value string `json:"value"`
+			Key                      string `json:"key"`
+			Value                    string `json:"value"`
+			DataChangeLastModifiedBy string `json:"dataChangeLastModifiedBy"`
 		} `json:"items"`
 	}
-	if err := c.do(ctx, http.MethodGet, c.nsURL, nil, &ns); err != nil {
-		return "", false, err
+	if err = c.do(ctx, http.MethodGet, c.nsURL, nil, &ns); err != nil {
+		return
 	}
-	var content string
 	for _, it := range ns.Items {
 		if it.Key == apolloContentKey {
-			content = it.Value
+			content, modifiedBy = it.Value, it.DataChangeLastModifiedBy
 		}
 	}
 	var rel struct {
 		Configurations map[string]string `json:"configurations"`
 	}
-	if err := c.do(ctx, http.MethodGet, c.nsURL+"/releases/latest", nil, &rel); err != nil {
-		return "", false, err
+	if err = c.do(ctx, http.MethodGet, c.nsURL+"/releases/latest", nil, &rel); err != nil {
+		return
 	}
-	return content, content != rel.Configurations[apolloContentKey], nil
+	pending = content != rel.Configurations[apolloContentKey]
+	return
 }
 
 func (c *apolloOpenAPI) Update(ctx context.Context, fn UpdateFunc) error {
-	old, pending, err := c.current(ctx)
+	old, pending, modifiedBy, err := c.current(ctx)
 	if err != nil {
 		return fmt.Errorf("namespace %s: %w", c.ns, err)
 	}
-	if pending {
-		// Releasing now would also release someone else's half-done edits.
+	// An unreleased edit by our own operator is a previous write-back whose
+	// release failed; finish it. Anyone else's would be released along with
+	// ours, so leave those alone. (An operator account shared with people
+	// defeats this check.)
+	ours := pending && modifiedBy == c.operator
+	if pending && !ours {
 		return fmt.Errorf("namespace %s: %w", c.ns, ErrPendingChanges)
 	}
 	neu, err := fn([]byte(old))
+	if errors.Is(err, ErrNoChange) {
+		neu, err = []byte(old), nil
+	}
 	if err != nil {
 		return err
 	}
-	if string(neu) == old {
+	if string(neu) == old && !ours {
 		return nil
 	}
-	item := map[string]string{
-		"key":                      apolloContentKey,
-		"value":                    string(neu),
-		"dataChangeCreatedBy":      c.operator,
-		"dataChangeLastModifiedBy": c.operator,
-	}
-	if err = c.do(ctx, http.MethodPut, c.nsURL+"/items/"+apolloContentKey+"?createIfNotExists=true", item, nil); err != nil {
-		return fmt.Errorf("namespace %s: modify: %w", c.ns, err)
+	if string(neu) != old {
+		item := map[string]string{
+			"key":                      apolloContentKey,
+			"value":                    string(neu),
+			"dataChangeCreatedBy":      c.operator,
+			"dataChangeLastModifiedBy": c.operator,
+		}
+		if err = c.do(ctx, http.MethodPut, c.nsURL+"/items/"+apolloContentKey+"?createIfNotExists=true", item, nil); err != nil {
+			return fmt.Errorf("namespace %s: modify: %w", c.ns, err)
+		}
 	}
 	release := map[string]string{
 		"releaseTitle":   time.Now().Format("20060102150405") + "-clickhouse_sinker",
@@ -164,7 +175,7 @@ func (c *apolloOpenAPI) Update(ctx context.Context, fn UpdateFunc) error {
 		"releasedBy":     c.operator,
 	}
 	if err = c.do(ctx, http.MethodPost, c.nsURL+"/releases", release, nil); err != nil {
-		return fmt.Errorf("namespace %s: modification committed but NOT released, release it in Apollo Portal: %w", c.ns, err)
+		return fmt.Errorf("namespace %s: modification committed but NOT released, the next write-back retries the release: %w", c.ns, err)
 	}
 	return nil
 }

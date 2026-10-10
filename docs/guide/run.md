@@ -30,7 +30,9 @@ There are two ways to get config: a local single config, or a config center (Nac
   Open API: `--apollo-portal`, `--apollo-token`, `--apollo-env` and `--apollo-operator`, all four or none. The token's
   third-party app needs modify and release permission on the namespace, the operator must be an existing Portal user,
   and write-back cannot work when the namespace requires different users to modify and release. Write-back is skipped,
-  with a warning, while the namespace has unreleased edits.
+  with a warning, while the namespace has unreleased edits by anyone other than the operator; an unreleased edit by the
+  operator (a write-back whose release failed) is released by the next write-back. Use an operator account that people
+  do not edit with.
 
 Only one of `--nacos-dataid`, `--etcd-key` and `--apollo-namespace` may be set.
 

@@ -15,6 +15,7 @@ import (
 type fakePortal struct {
 	mu          sync.Mutex
 	edited      string // latest item value, possibly unreleased
+	modifiedBy  string // who made the latest item change
 	released    string
 	failRelease bool
 	puts        int
@@ -24,7 +25,7 @@ type fakePortal struct {
 }
 
 func newFakePortal(t *testing.T, edited, released string) *fakePortal {
-	p := &fakePortal{edited: edited, released: released}
+	p := &fakePortal{edited: edited, released: released, modifiedBy: "alice"}
 	p.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p.mu.Lock()
 		defer p.mu.Unlock()
@@ -38,12 +39,15 @@ func newFakePortal(t *testing.T, edited, released string) *fakePortal {
 		case r.Method == http.MethodGet && strings.HasSuffix(path, "/releases/latest"):
 			_ = json.NewEncoder(w).Encode(map[string]any{"configurations": map[string]string{apolloContentKey: p.released}})
 		case r.Method == http.MethodGet:
-			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]string{{"key": apolloContentKey, "value": p.edited}}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]string{{
+				"key": apolloContentKey, "value": p.edited, "dataChangeLastModifiedBy": p.modifiedBy,
+			}}})
 		case r.Method == http.MethodPut && strings.HasSuffix(path, "/items/"+apolloContentKey):
 			var item map[string]string
 			_ = json.NewDecoder(r.Body).Decode(&item)
 			p.lastItem = item
 			p.edited = item["value"]
+			p.modifiedBy = item["dataChangeLastModifiedBy"]
 			p.puts++
 		case r.Method == http.MethodPost && strings.HasSuffix(path, "/releases"):
 			if p.failRelease {
@@ -171,5 +175,37 @@ func TestApolloOptionsPlainHTTPPortal(t *testing.T) {
 		if got := (ApolloOptions{Portal: portal}).plainHTTPPortal(); got != want {
 			t.Fatalf("plainHTTPPortal(%q) = %v, want %v", portal, got, want)
 		}
+	}
+}
+
+// A previous write-back that was modified but not released leaves an
+// unreleased edit by our own operator. The next write-back must release it,
+// even when it has nothing new to add, instead of waiting for it forever.
+func TestApolloOpenAPIReleasesOwnPendingEdit(t *testing.T) {
+	p := newFakePortal(t, "patched", "old")
+	p.modifiedBy = "apollo" // testOpenAPIOptions' operator
+	w := newApolloOpenAPI(testOpenAPIOptions(p.srv.URL))
+	var seen string
+	err := w.Update(context.Background(), func(old []byte) ([]byte, error) {
+		seen = string(old)
+		return nil, ErrNoChange
+	})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if seen != "patched" || p.released != "patched" || p.puts != 0 {
+		t.Fatalf("seen=%q released=%q puts=%d; want our pending edit released as is", seen, p.released, p.puts)
+	}
+}
+
+func TestApolloOpenAPIReleaseAfterOwnPendingEditChanges(t *testing.T) {
+	p := newFakePortal(t, "patched", "old")
+	p.modifiedBy = "apollo"
+	w := newApolloOpenAPI(testOpenAPIOptions(p.srv.URL))
+	if err := w.Update(context.Background(), func([]byte) ([]byte, error) { return []byte("patched-again"), nil }); err != nil {
+		t.Fatal(err)
+	}
+	if p.released != "patched-again" {
+		t.Fatalf("released=%q, want patched-again", p.released)
 	}
 }

@@ -37,7 +37,7 @@ Backends implement a byte-level `Source` (read) and optionally a `Writer` (`conf
 `Manager` does the hjson encoding. Writes are read-modify-write on the latest content: etcd uses compare-and-swap
 (ModRevision) with retries, and so does Nacos (casMd5), but Nacos CAS is strict only with an external MySQL datasource
 (embedded Derby ignores casMd5, making write-back best-effort). Apollo has no compare-and-swap and refuses to release
-while the namespace has unreleased edits. ClickHouse cluster discovery uses this to patch only `clickhouse.hosts`, so
+while the namespace has unreleased edits by someone other than the write-back operator. ClickHouse cluster discovery uses this to patch only `clickhouse.hosts`, so
 edits made by others in the meantime survive.
 
 ## Task scheduling
