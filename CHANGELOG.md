@@ -28,9 +28,22 @@ Bug Fixes:
   current config in place and the next config poll restarted all tasks.
 - With a config center (Nacos, etcd, Apollo), the max.poll.interval watchdog never ran: its ticker was reset on
   every config poll.
+- The max.poll.interval watchdog no longer restarts (and rebalances) consumers that are only idle or paused by the
+  record pool limit, and it restarts every expired consumer instead of only the last one found. A consumer paused by
+  the record pool limit no longer spins a CPU core.
+- Changing only the `discovery` section of a config center config now takes effect; before, the switch was ignored
+  and a new `checkInterval` stopped discovery from running.
+- When loading the series maps from ClickHouse fails while applying a config, the next config poll retries starting
+  the consumers instead of leaving the sinker idle until the config changes.
 - The shared Kafka admin client behind `/state`, `/live` and the topic precheck is now safe to use concurrently, and
   a probe after shutdown no longer hits a nil client.
-- Secrets (passwords, Apollo token and secret) are redacted in the startup log of command options.
+- Secrets are redacted in the startup log of command options and in the log of each config being applied.
+- An Apollo write-back whose release failed is released by the next write-back instead of blocking all later ones.
+
+Behavior Changes:
+
+- Discovery write-back stores the config as indented JSON (valid hjson too) instead of hjson, so Apollo json
+  namespaces stay valid JSON.
 
 #### Version 3.0.8 (2023-08-xx)
 
