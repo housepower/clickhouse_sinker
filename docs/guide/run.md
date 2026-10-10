@@ -37,7 +37,7 @@ Only one of `--nacos-dataid`, `--etcd-key` and `--apollo-namespace` may be set.
 Every option can also be given as an environment variable: upper case, `-` replaced by `_`, prefixed with `SINKER_`,
 e.g. `SINKER_ETCD_KEY`. Options that existed before the prefix also accept the unprefixed name, e.g. `NACOS_ADDR`.
 
-Write-back re-encodes the config, so comments and formatting in the config center are lost.
+Write-back stores the whole config as indented JSON (valid hjson too), so comments and formatting in the config center are lost.
 
 Nacos enforces the compare-and-swap (`casMd5`) used by write-back only when it runs with an external MySQL datasource.
 Standalone Nacos with the embedded Derby storage ignores `casMd5`, so there write-back is best-effort (read the latest

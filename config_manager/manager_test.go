@@ -2,6 +2,7 @@ package rcm
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -241,5 +242,28 @@ func TestManagerCloseNil(t *testing.T) {
 	var m *Manager
 	if err := m.Close(); err != nil {
 		t.Fatalf("Close on nil manager: %v", err)
+	}
+}
+
+// Write-back output must be valid JSON: Apollo json namespaces and other
+// readers of the stored config expect it, and JSON is valid hjson as well.
+func TestEncodeConfigIsJSONAndRoundTrips(t *testing.T) {
+	cfg, err := DecodeConfig([]byte(twoTasks))
+	if err != nil {
+		t.Fatal(err)
+	}
+	bs, err := EncodeConfig(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !json.Valid(bs) {
+		t.Fatalf("not JSON:\n%s", bs)
+	}
+	back, err := DecodeConfig(bs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if back.Kafka.Brokers != "k:9092" || len(back.Tasks) != 2 || back.Clickhouse.Hosts[0][0] != "ch1" {
+		t.Fatalf("round trip lost data: %+v", back)
 	}
 }

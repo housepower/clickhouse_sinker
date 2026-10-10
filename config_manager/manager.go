@@ -3,6 +3,7 @@ package rcm
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -128,8 +129,10 @@ func DecodeConfig(bs []byte) (*config.Config, error) {
 	return cfg, nil
 }
 
+// EncodeConfig renders cfg as indented JSON: valid hjson for DecodeConfig, and
+// still valid content for an Apollo json namespace or any JSON reader.
 func EncodeConfig(cfg *config.Config) ([]byte, error) {
-	bs, err := hjson.Marshal(*cfg)
+	bs, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return nil, fmt.Errorf("encode config: %w", err)
 	}

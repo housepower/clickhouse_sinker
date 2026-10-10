@@ -86,7 +86,7 @@ type Manager struct {
 func (m *Manager) GetConfig() (*config.Config, error)  // Fetch + hjson.Unmarshal
 func (m *Manager) Writable() bool                      // w != nil
 // UpdateConfig 在最新配置上应用 mutate 再写回。mutate 返回 false 时不写。
-// 内部:w.Update(ctx, func(old) { 解析 old → mutate → hjson.Marshal })。
+// 内部:w.Update(ctx, func(old) { 解析 old → mutate → json.MarshalIndent })。
 func (m *Manager) UpdateConfig(mutate func(*config.Config) (changed bool)) error
 func (m *Manager) Close() error
 ```
@@ -94,8 +94,8 @@ func (m *Manager) Close() error
 - 删除 `rcm.go` 和 `RemoteConfManager` 接口、`Init(map)`、`PublishConfig`。
 - `GetConfig` 与 `UpdateConfig` 的每次后端调用都带 5 秒超时,避免配置中心卡住时拖住 sinker 主循环。
 - 所有错误都包上后端名与 key/namespace,便于排查。
-- 写回的内容是 `hjson.Marshal` 的输出,会丢掉配置中心里手写的注释和排版。nacos 现状如此,
-  本次不处理,写进文档。
+- 写回的内容是 `json.MarshalIndent` 的输出(JSON 同时是合法 hjson;Apollo json namespace 也能接受),
+  会丢掉配置中心里手写的注释和排版,写进文档。
 
 ### 4.2 nacos 后端(`config_manager/nacos.go`,改)
 
