@@ -203,16 +203,7 @@ func (s *Sinker) Run() {
 					}
 				}
 			case <-pollTicker.C:
-				consumerName := input.Walk(s.curCfg.Kafka.Properties.MaxPollInterval)
-				if consumerName != "" {
-					if consumer, ok := s.consumers[consumerName]; ok {
-						util.Logger.Warn("consumer restarted because of max.poll.interval.ms changed", zap.String("consumer", consumerName), zap.Int("max.poll.interval.ms", s.curCfg.Kafka.Properties.MaxPollInterval))
-						go func() {
-							consumer.stop()
-							s.consumerRestartCh <- consumer
-						}()
-					}
-				}
+				s.restartExpiredConsumers(s.curCfg.Kafka.Properties.MaxPollInterval)
 			}
 		}
 	} else {
@@ -275,17 +266,7 @@ func (s *Sinker) Run() {
 				if s.curCfg == nil {
 					continue
 				}
-				maxPollMs := s.curCfg.Kafka.Properties.MaxPollInterval
-				consumerName := input.Walk(maxPollMs)
-				if consumerName != "" {
-					if consumer, ok := s.consumers[consumerName]; ok {
-						util.Logger.Warn("consumer restarted because of max.poll.interval.ms changed", zap.String("consumer", consumerName), zap.Int("max.poll.interval.ms", maxPollMs))
-						go func() {
-							consumer.stop()
-							s.consumerRestartCh <- consumer
-						}()
-					}
-				}
+				s.restartExpiredConsumers(s.curCfg.Kafka.Properties.MaxPollInterval)
 			case <-tickers.discovery.C:
 				s.runDiscovery(sd)
 			}
@@ -293,6 +274,23 @@ func (s *Sinker) Run() {
 	}
 
 	s.exitCh <- struct{}{}
+}
+
+// restartExpiredConsumers restarts every consumer whose poll loop has not
+// reported in within maxPollMs. Run goroutine only.
+func (s *Sinker) restartExpiredConsumers(maxPollMs int) {
+	for _, name := range input.Walk(maxPollMs) {
+		consumer, ok := s.consumers[name]
+		if !ok {
+			continue
+		}
+		util.Logger.Warn("consumer did not poll within max.poll.interval.ms, restarting it",
+			zap.String("consumer", name), zap.Int("max.poll.interval.ms", maxPollMs))
+		go func() {
+			consumer.stop()
+			s.consumerRestartCh <- consumer
+		}()
+	}
 }
 
 // loopIntervals are the config values that set the remote-config main loop's

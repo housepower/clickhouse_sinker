@@ -40,8 +40,10 @@ func Leave(consumerId string) {
 	consumerPoller.Delete(consumerId)
 }
 
-func Walk(maxPollInterval int) string {
-	var consumerName string
+// Walk removes every consumer that has not polled within maxPollInterval ms
+// and returns their consumer group names; the caller restarts them.
+func Walk(maxPollInterval int) []string {
+	var expired []string
 	util.Logger.Debug("consumer poller walk started")
 	consumerPoller.Range(func(k, v any) bool {
 		poller := v.(Poller)
@@ -50,11 +52,11 @@ func Walk(maxPollInterval int) string {
 			zap.Time("active", poller.active))
 		if time.Since(poller.active) > time.Duration(maxPollInterval)*time.Millisecond {
 			util.Logger.Warn("consumer group expired", zap.String("consumerId", k.(string)), zap.String("consumerName", poller.consumerName))
-			consumerName = poller.consumerName
+			expired = append(expired, poller.consumerName)
 			//poller.client.LeaveGroup()
 			Leave(k.(string))
 		}
 		return true
 	})
-	return consumerName
+	return expired
 }

@@ -186,6 +186,18 @@ func GetFranzConfig(kfkCfg *config.KafkaConfig) (opts []kgo.Opt, err error) {
 	return
 }
 
+const (
+	// idlePollTimeout bounds each poll. PollRecords otherwise blocks until
+	// records arrive, and an idle consumer would look stuck to the
+	// max.poll.interval watchdog (minimum 30s), which then restarts it and
+	// rebalances its group. The watchdog should only catch a poll loop that
+	// really stopped, e.g. one blocked handing fetches over.
+	idlePollTimeout = 10 * time.Second
+	// pausePollInterval is how often a consumer paused by the global record
+	// pool limit checks whether it may poll again.
+	pausePollInterval = 100 * time.Millisecond
+)
+
 // kafka main loop
 func (k *KafkaFranz) Run() {
 	k.wgRun.Add(1)
@@ -200,19 +212,32 @@ LOOP:
 					zap.Int64("realSize", util.Rs.Get()))
 				lastPauseLog = now
 			}
+			// Back-pressure, not a stuck consumer: keep the max.poll.interval
+			// watchdog quiet, and wait instead of spinning on Allow().
+			OnConsumerPoll(k.consumerId)
 			select {
 			case <-k.ctx.Done():
 				break LOOP
-			default:
+			case <-time.After(pausePollInterval):
 			}
 			continue
 		}
 		traceId := util.GenTraceId()
 		util.LogTrace(traceId, util.TraceKindFetchStart, zap.String("consumer group", k.grpConfig.Name), zap.Int("buffersize", k.grpConfig.MaxFetchSize))
-		fetches := k.cl.PollRecords(k.ctx, k.grpConfig.MaxFetchSize)
+		pollCtx, cancelPoll := context.WithTimeout(k.ctx, idlePollTimeout)
+		fetches := k.cl.PollRecords(pollCtx, k.grpConfig.MaxFetchSize)
+		cancelPoll()
 		err := fetches.Err()
 		if fetches == nil || fetches.IsClientClosed() || errors.Is(err, context.Canceled) {
 			break
+		}
+		if errors.Is(err, context.DeadlineExceeded) && k.ctx.Err() == nil {
+			// Our idle poll timeout, not a fetch error.
+			err = nil
+			if fetches.NumRecords() == 0 {
+				OnConsumerPoll(k.consumerId)
+				continue
+			}
 		}
 		if err != nil {
 			err = errors.Wrapf(err, "")
