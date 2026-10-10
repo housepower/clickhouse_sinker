@@ -62,3 +62,12 @@ services:
     - "58848:8848"
     # v2 SDK dials gRPC at HTTP port + 1000, i.e. 58848 + 1000 on the host side.
     - "59848:9848"
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.17
+    container_name: etcd
+    command:
+    - etcd
+    - --listen-client-urls=http://0.0.0.0:2379
+    - --advertise-client-urls=http://127.0.0.1:2379
+    ports:
+    - "52379:2379"

@@ -16,6 +16,8 @@ func TestSelectBackend(t *testing.T) {
 	}{
 		{name: "local file", ops: util.CmdOptions{}, want: ""},
 		{name: "nacos", ops: util.CmdOptions{NacosDataID: "d"}, want: "nacos"},
+		{name: "etcd", ops: util.CmdOptions{EtcdKey: "/k"}, want: "etcd"},
+		{name: "nacos and etcd", ops: util.CmdOptions{NacosDataID: "d", EtcdKey: "/k"}, wantErr: "--nacos-dataid, --etcd-key"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

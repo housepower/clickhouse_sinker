@@ -62,6 +62,13 @@ type CmdOptions struct {
 	NacosPassword    string
 	NacosDataID      string
 	NacosServiceName string // Deprecated: task assignment has been removed, ignored
+	EtcdEndpoints    string
+	EtcdKey          string
+	EtcdUsername     string
+	EtcdPassword     string
+	EtcdCAFile       string
+	EtcdCertFile     string
+	EtcdKeyFile      string
 	Encrypt          string
 
 	Credentials

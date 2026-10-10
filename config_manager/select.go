@@ -17,6 +17,9 @@ func selectBackend(cmdOps *util.CmdOptions) (string, error) {
 	if cmdOps.NacosDataID != "" {
 		names, flags = append(names, "nacos"), append(flags, "--nacos-dataid")
 	}
+	if cmdOps.EtcdKey != "" {
+		names, flags = append(names, "etcd"), append(flags, "--etcd-key")
+	}
 	if len(names) > 1 {
 		return "", fmt.Errorf("only one config backend may be configured, got %s", strings.Join(flags, ", "))
 	}
@@ -51,6 +54,22 @@ func New(cmdOps *util.CmdOptions) (*Manager, error) {
 			zap.String("addr", cmdOps.NacosAddr), zap.String("namespaceId", cmdOps.NacosNamespaceID),
 			zap.String("group", cmdOps.NacosGroup), zap.String("dataId", cmdOps.NacosDataID))
 		return NewManager("nacos", n, n), nil
+	case "etcd":
+		e, err := NewEtcd(EtcdOptions{
+			Endpoints: cmdOps.EtcdEndpoints,
+			Key:       cmdOps.EtcdKey,
+			Username:  cmdOps.EtcdUsername,
+			Password:  cmdOps.EtcdPassword,
+			CAFile:    cmdOps.EtcdCAFile,
+			CertFile:  cmdOps.EtcdCertFile,
+			KeyFile:   cmdOps.EtcdKeyFile,
+		})
+		if err != nil {
+			return nil, err
+		}
+		util.Logger.Info("get config from etcd",
+			zap.String("endpoints", cmdOps.EtcdEndpoints), zap.String("key", cmdOps.EtcdKey))
+		return NewManager("etcd", e, e), nil
 	}
 	return nil, nil
 }
