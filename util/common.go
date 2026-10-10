@@ -61,7 +61,7 @@ type CmdOptions struct {
 	NacosUsername    string
 	NacosPassword    string
 	NacosDataID      string
-	NacosServiceName string // participate in assignment management if not empty
+	NacosServiceName string // Deprecated: task assignment has been removed, ignored
 	Encrypt          string
 
 	Credentials

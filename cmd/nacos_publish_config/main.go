@@ -79,7 +79,7 @@ func PublishSinkerConfig() {
 		return
 	}
 
-	if err = cfg.Normallize(false, "", util.Credentials{
+	if err = cfg.Normallize(false, util.Credentials{
 		ClickhouseUsername: *clickhouseUsername,
 		ClickhousePassword: *clickhousePassword,
 		KafkaUsername:      *kafkaUsername,

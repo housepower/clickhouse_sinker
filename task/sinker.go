@@ -138,11 +138,7 @@ func (s *Sinker) Run() {
 			return
 		}
 
-		ha := ""
-		if s.cmdOps.NacosServiceName != "" {
-			ha = s.httpAddr
-		}
-		if err = newCfg.Normallize(true, ha, s.cmdOps.Credentials); err != nil {
+		if err = newCfg.Normallize(true, s.cmdOps.Credentials); err != nil {
 			util.Logger.Fatal("newCfg.Normallize failed", zap.Error(err))
 			return
 		}
@@ -202,9 +198,6 @@ func (s *Sinker) Run() {
 			}
 		}
 	} else {
-		if s.cmdOps.NacosServiceName != "" {
-			go s.rcm.Run()
-		}
 		sd := discovery.NewDiscovery(s.curCfg, s.rcm, s.rcm != nil)
 		// Golang <-time.After() is not garbage collected before expiry.
 		ticker := time.NewTicker(10 * time.Second)
@@ -229,11 +222,7 @@ func (s *Sinker) Run() {
 					util.Logger.Error("s.rcm.GetConfig failed", zap.Error(err))
 					continue
 				}
-				ha := ""
-				if s.cmdOps.NacosServiceName != "" {
-					ha = s.httpAddr
-				}
-				if err = newCfg.Normallize(true, ha, s.cmdOps.Credentials); err != nil {
+				if err = newCfg.Normallize(true, s.cmdOps.Credentials); err != nil {
 					util.Logger.Error("newCfg.Normallize failed", zap.Error(err))
 					continue
 				}
@@ -382,16 +371,11 @@ func (s *Sinker) applyConfig(newCfg *config.Config) (err error) {
 		err = s.applyFirstConfig(newCfg)
 	} else if !reflect.DeepEqual(newCfg.Clickhouse, s.curCfg.Clickhouse) ||
 		!reflect.DeepEqual(newCfg.Kafka, s.curCfg.Kafka) ||
-		!reflect.DeepEqual(newCfg.Tasks, s.curCfg.Tasks) ||
-		!reflect.DeepEqual(newCfg.Assignment.Map, s.curCfg.Assignment.Map) {
+		!reflect.DeepEqual(newCfg.Tasks, s.curCfg.Tasks) {
 		err = s.applyAnotherConfig(newCfg)
 	}
 	s.curCfg.ActiveSeriesRange = newCfg.ActiveSeriesRange
 	s.curCfg.ReloadSeriesMapInterval = newCfg.ReloadSeriesMapInterval
-
-	if len(s.consumers) == 0 && s.cmdOps.NacosServiceName != "" {
-		util.Logger.Warn("No task fetched from Nacos, make sure the program is running with correct commandline option!")
-	}
 	return
 }
 
@@ -773,7 +757,7 @@ func (s *Sinker) applyAnotherConfig(newCfg *config.Config) (err error) {
 		}
 
 		util.Logger.Info("started tasks", zap.Reflect("tasks", tasksToStart))
-	} else if !reflect.DeepEqual(newCfg.Tasks, s.curCfg.Tasks) || !reflect.DeepEqual(newCfg.Assignment.Map, s.curCfg.Assignment.Map) {
+	} else if !reflect.DeepEqual(newCfg.Tasks, s.curCfg.Tasks) {
 		// Find the consumer difference
 		var deleteConsumers []string
 		for name, c := range s.consumers {

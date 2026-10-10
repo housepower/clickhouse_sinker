@@ -42,7 +42,7 @@ func GetTaskStateAndLags(cfg *config.Config) (stateLags map[string]StateLag, err
 		var state string
 		var totalLags int64
 		if state, totalLags, err = getStateAndLag(theAdm, taskCfg.Topic, taskCfg.ConsumerGroup); err != nil {
-			// skip this task for now, wait next assign cycle
+			// skip this task, report -1 as its lag
 			util.Logger.Error("retrieve lag failed", zap.String("task", taskCfg.Name), zap.Error(err))
 			statistics.ConsumeLags.WithLabelValues(taskCfg.ConsumerGroup, taskCfg.Topic, taskCfg.Name).Set(float64(-1))
 			continue

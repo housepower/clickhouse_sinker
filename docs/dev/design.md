@@ -29,15 +29,11 @@ The flow is like this:
 
 ## Task scheduling
 
-The clickhouse-server configuration item `max_concurrent_queries`(default 100) is the maximum number of simultaneously processed queries related to MergeTree table. If the number of concurrent INSERT is close to `max_concurrent_queries`, the user queries(`SELECT`) could fail due to the limit.
+Every clickhouse_sinker instance runs all tasks in its config. To scale out, start more instances with the same config: instances consuming the same task share its consumer group, and Kafka balances the topic partitions among them. A heavy task can therefore be spread over as many instances as its topic has partitions.
 
-If the clickhouse-server is big, ingesting data to >=100 MergeTree tables via clickhouse_sinker bring pressure to the Clickhouse cluster. On the other side, large number of clickhouse_sinker instances requires lots of CPU/MEM resources.
+clickhouse_sinker used to register instances with Nacos (`--nacos-service-name`) and let one instance assign each task to exactly one instance by message lag. That has been removed:
 
-The solution is, clickhouse_sinker instances coordinate with each other to assign tasks among themselves.
+- A task could only run on one instance, so a task too heavy for a single instance had no way to scale out.
+- Every re-assignment (config change, instance up/down, lag timer) restarted consumers, which triggered Kafka consumer group rebalances on top of Kafka's own balancing.
 
-The task scheduling procedure:
-
-- Some platform(Kubernetes, Yarn, etc.) start several clickhouse_sinker instances and may start/stop instances dynamically. Every clickhouse_sinker instance registers with Nacos as a single service(CLI option `--nacos-service-name`).
-- Someone publish(add/delete/modify) a list of tasks(with empty assignment) to Nacos.
-- The first clickhouse_sinker(per instance's ip+port) instance(named scheduler) is responsible to generate and publish task assignments regularly. The task list and assignment consist of the whole config. The task list change, service change, and task lag change will trigger another assignment. The scheduler ensures Each clickhouse_innker instance's total lag be balanced.
-- Each clickhouse_sinker reloads the config regularly. This may start/stop tasks. clickhouse_sinker stops tasks gracefully so that there's no message lost/duplication during task transferring.
+`--nacos-service-name` and the config fields `assignment`, `kafka.assignInterval`, `kafka.calcLagInterval` and `kafka.rebalanceByLags` are still accepted but ignored, with a warning at startup. Nacos is still supported as a config source (`--nacos-dataid`).

@@ -107,7 +107,7 @@ func initCmdOptions() {
 		`nacos namespace ID. Neither DEFAULT_NAMESPACE_ID("public") nor namespace name work! When namespace is 'public', fill in the blank string here!`)
 	flag.StringVar(&cmdOps.NacosGroup, "nacos-group", cmdOps.NacosGroup, `nacos group name. Empty string doesn't work!`)
 	flag.StringVar(&cmdOps.NacosDataID, "nacos-dataid", cmdOps.NacosDataID, "nacos dataid")
-	flag.StringVar(&cmdOps.NacosServiceName, "nacos-service-name", cmdOps.NacosServiceName, "nacos service name")
+	flag.StringVar(&cmdOps.NacosServiceName, "nacos-service-name", cmdOps.NacosServiceName, "deprecated and ignored, task assignment has been removed")
 
 	flag.StringVar(&cmdOps.ClickhouseUsername, "clickhouse-username", cmdOps.ClickhouseUsername, "clickhouse username")
 	flag.StringVar(&cmdOps.ClickhousePassword, "clickhouse-password", cmdOps.ClickhousePassword, "clickhouse password")
@@ -236,6 +236,11 @@ func main() {
 			}()
 		}
 
+		if cmdOps.NacosServiceName != "" {
+			util.Logger.Warn("--nacos-service-name is deprecated and ignored: task assignment has been removed, " +
+				"every instance runs all tasks and Kafka consumer groups balance partitions among instances")
+		}
+
 		var rcm cm.RemoteConfManager
 		var properties map[string]interface{}
 		logDir := "."
@@ -257,7 +262,6 @@ func main() {
 			properties["namespaceId"] = cmdOps.NacosNamespaceID
 			properties["group"] = cmdOps.NacosGroup
 			properties["dataId"] = cmdOps.NacosDataID
-			properties["serviceName"] = cmdOps.NacosServiceName
 			properties["logDir"] = logDir
 		} else {
 			util.Logger.Info(fmt.Sprintf("get config from local file %s", cmdOps.LocalCfgFile))
@@ -265,11 +269,6 @@ func main() {
 		if rcm != nil {
 			if err := rcm.Init(properties); err != nil {
 				util.Logger.Fatal("rcm.Init failed", zap.Error(err))
-			}
-			if cmdOps.NacosServiceName != "" {
-				if err := rcm.Register(httpHost, httpPort); err != nil {
-					util.Logger.Fatal("rcm.Init failed", zap.Error(err))
-				}
 			}
 		}
 		runner = task.NewSinker(rcm, httpAddr, &cmdOps)

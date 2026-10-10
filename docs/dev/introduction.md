@@ -22,7 +22,7 @@ Refers to [design](./design.md) for how it works.
 - Tolerate replica single-point-failure.
 - At-least-once delivery guarantee.
 - Config management with local file or Nacos.
-- One clickhouse_sinker instance assign tasks to all instances in balance of message lag (by config `nacos-service-name`).
+- Scale out by running more instances with the same config, Kafka consumer groups balance partitions among them.
 
 ## Supported data types
 

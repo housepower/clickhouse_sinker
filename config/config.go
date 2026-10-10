@@ -21,6 +21,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -39,12 +40,15 @@ type Config struct {
 	Discovery               Discovery
 	Task                    *TaskConfig
 	Tasks                   []*TaskConfig
-	Assignment              Assignment
 	LogLevel                string
 	LogTrace                bool
 	RecordPoolSize          int64
 	ReloadSeriesMapInterval int
 	ActiveSeriesRange       int
+
+	// Deprecated: task assignment among instances has been removed. Kept only so
+	// that existing configs still parse; Normallize clears it with a warning.
+	Assignment *Assignment `json:",omitempty"`
 
 	Groups map[string]*GroupConfig `json:"-"`
 }
@@ -98,9 +102,12 @@ type KafkaConfig struct {
 			DisablePAFXFAST    bool
 		}
 	}
-	AssignInterval  int
-	CalcLagInterval int
-	RebalanceByLags bool
+
+	// Deprecated: task assignment among instances has been removed. Kept only so
+	// that existing configs still parse; Normallize clears them with a warning.
+	AssignInterval  int  `json:",omitempty"`
+	CalcLagInterval int  `json:",omitempty"`
+	RebalanceByLags bool `json:",omitempty"`
 }
 
 // ClickHouseConfig configuration parameters
@@ -258,6 +265,7 @@ type GroupConfig struct {
 	Configs       map[string]*TaskConfig
 }
 
+// Deprecated: see Config.Assignment.
 type Assignment struct {
 	Version   int
 	UpdatedAt int64               // timestamp when created
@@ -283,8 +291,6 @@ const (
 	defaultRebalanceTimeoutMs         = 600000  // 10 min
 	defaultRequestTimeoutOverheadMs   = 300000  // 5 min
 	DefaultMaxPollIntervalMs          = 3600000 // 1 hour
-	defaultAssignIntervalMin          = 5       // 5min
-	defaultCalcLagIntervalMin         = 10      // 10min
 	DefaultDiscoveryIntervalSec       = 60      // 1min
 )
 
@@ -306,7 +312,8 @@ func ParseLocalCfgFile(cfgPath string) (cfg *Config, err error) {
 }
 
 // Normalize and validate configuration
-func (cfg *Config) Normallize(constructGroup bool, httpAddr string, cred util.Credentials) (err error) {
+func (cfg *Config) Normallize(constructGroup bool, cred util.Credentials) (err error) {
+	cfg.clearDeprecated()
 	if cred.ClickhouseUsername != "" {
 		cfg.Clickhouse.Username = cred.ClickhouseUsername
 	}
@@ -374,12 +381,6 @@ func (cfg *Config) Normallize(constructGroup bool, httpAddr string, cred util.Cr
 	if cfg.Kafka.Properties.MaxPollInterval < 30000 {
 		cfg.Kafka.Properties.MaxPollInterval = 30000
 	}
-	if cfg.Kafka.AssignInterval == 0 {
-		cfg.Kafka.AssignInterval = defaultAssignIntervalMin
-	}
-	if cfg.Kafka.CalcLagInterval == 0 {
-		cfg.Kafka.CalcLagInterval = defaultCalcLagIntervalMin
-	}
 	if cfg.Discovery.CheckInterval == 0 {
 		cfg.Discovery.CheckInterval = DefaultDiscoveryIntervalSec
 	}
@@ -418,9 +419,6 @@ func (cfg *Config) Normallize(constructGroup bool, httpAddr string, cred util.Cr
 			return
 		}
 		if constructGroup {
-			if httpAddr != "" && !cfg.IsAssigned(httpAddr, taskCfg.Name) {
-				continue
-			}
 			gCfg, ok := cfg.Groups[taskCfg.ConsumerGroup]
 			if !ok {
 				gCfg = &GroupConfig{
@@ -629,16 +627,23 @@ func (cfg *Config) convertKfkSecurity() {
 	}
 }
 
-func (cfg *Config) IsAssigned(instance, task string) (assigned bool) {
-	if taskNames, ok := cfg.Assignment.Map[instance]; ok {
-		for _, taskName := range taskNames {
-			if taskName == task {
-				assigned = true
-				return
-			}
-		}
+var deprecatedWarnOnce sync.Once
+
+// clearDeprecated drops the leftovers of the removed task assignment feature.
+// Normallize runs on every config poll, so the warning is logged once per process.
+func (cfg *Config) clearDeprecated() {
+	if cfg.Assignment == nil && cfg.Kafka.AssignInterval == 0 &&
+		cfg.Kafka.CalcLagInterval == 0 && !cfg.Kafka.RebalanceByLags {
+		return
 	}
-	return
+	deprecatedWarnOnce.Do(func() {
+		util.Logger.Warn("task assignment has been removed, ignoring deprecated config: " +
+			"assignment, kafka.assignInterval, kafka.calcLagInterval, kafka.rebalanceByLags")
+	})
+	cfg.Assignment = nil
+	cfg.Kafka.AssignInterval = 0
+	cfg.Kafka.CalcLagInterval = 0
+	cfg.Kafka.RebalanceByLags = false
 }
 
 func readConfig(config string) map[string]string {

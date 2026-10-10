@@ -10,10 +10,5 @@ type RemoteConfManager interface {
 	GetConfig() (conf *config.Config, err error)
 	// PublishConfig publishs the config.
 	PublishConfig(conf *config.Config) (err error)
-	Register(ip string, port int) (err error)
-	Deregister(ip string, port int) (err error)
-
-	// Assignment loop
-	Run()
 	Stop()
 }

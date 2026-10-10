@@ -1,25 +1,16 @@
 package rcm
 
 import (
-	"context"
-	"fmt"
-	"math"
 	"path/filepath"
-	"reflect"
-	"sort"
 	"strconv"
 	"strings"
-	"sync"
-	"time"
 
 	"github.com/hjson/hjson-go/v4"
 	"github.com/housepower/clickhouse_sinker/config"
 	"github.com/housepower/clickhouse_sinker/util"
 	"github.com/nacos-group/nacos-sdk-go/clients"
 	"github.com/nacos-group/nacos-sdk-go/clients/config_client"
-	"github.com/nacos-group/nacos-sdk-go/clients/naming_client"
 	"github.com/nacos-group/nacos-sdk-go/common/constant"
-	"github.com/nacos-group/nacos-sdk-go/model"
 	"github.com/nacos-group/nacos-sdk-go/vo"
 	"github.com/thanos-io/thanos/pkg/errors"
 	"go.uber.org/zap"
@@ -29,24 +20,8 @@ var _ RemoteConfManager = (*NacosConfManager)(nil)
 
 type NacosConfManager struct {
 	configClient config_client.IConfigClient
-	namingClient naming_client.INamingClient
 	group        string
 	dataID       string
-	serviceName  string
-	instance     string // ip:port
-
-	// state of assignment loop
-	ctx      context.Context
-	cancel   context.CancelFunc
-	wg       sync.WaitGroup
-	mux      sync.Mutex //protect curInsts, curCfg, curVer
-	curInsts []string
-	curCfg   *config.Config
-	curVer   int
-}
-
-func toInstanceID(ip string, port int) string {
-	return fmt.Sprintf("%s:%d", ip, port)
 }
 
 func (ncm *NacosConfManager) Init(properties map[string]interface{}) (err error) {
@@ -101,23 +76,11 @@ func (ncm *NacosConfManager) Init(properties map[string]interface{}) (err error)
 		err = errors.Wrapf(err, "")
 		return
 	}
-	ncm.namingClient, err = clients.CreateNamingClient(map[string]interface{}{
-		"serverConfigs": sc,
-		"clientConfig":  cc,
-	})
-	if err != nil {
-		err = errors.Wrapf(err, "")
-		return
-	}
 
 	ncm.group = group
 	if pop, ok := properties["dataId"]; ok {
 		ncm.dataID, _ = pop.(string)
 	}
-	if pop, ok := properties["serviceName"]; ok {
-		ncm.serviceName, _ = pop.(string)
-	}
-	ncm.ctx, ncm.cancel = context.WithCancel(context.Background())
 	return
 }
 
@@ -163,317 +126,9 @@ func (ncm *NacosConfManager) PublishConfig(conf *config.Config) (err error) {
 	return
 }
 
-func (ncm *NacosConfManager) Register(ip string, port int) (err error) {
-	_, err = ncm.namingClient.RegisterInstance(vo.RegisterInstanceParam{
-		Ip:          ip,
-		Port:        uint64(port),
-		ServiceName: ncm.serviceName,
-		GroupName:   ncm.group,
-		Enable:      true,
-		Healthy:     true,
-		Ephemeral:   true,
-	})
-	if err != nil {
-		err = errors.Wrapf(err, "")
-	}
-	ncm.instance = toInstanceID(ip, port)
-	return
-}
-
-func (ncm *NacosConfManager) Deregister(ip string, port int) (err error) {
-	_, err = ncm.namingClient.DeregisterInstance(
-		vo.DeregisterInstanceParam{
-			Ip:          ip,
-			Port:        uint64(port),
-			ServiceName: ncm.serviceName,
-			GroupName:   ncm.group,
-			Ephemeral:   true,
-		})
-	if err != nil {
-		err = errors.Wrapf(err, "")
-	}
-	return
-}
-
-func (ncm *NacosConfManager) Run() {
-	var err error
-	ncm.wg.Add(1)
-	defer ncm.wg.Done()
-	// Assign the first time
-	util.Logger.Debug("assign first")
-	if err = ncm.assign(); err != nil {
-		util.Logger.Error("first assign failed", zap.Error(err))
-	}
-
-	// Listen to service and config change, and assign if necessary
-	configParam := vo.ConfigParam{
-		DataId:   ncm.dataID,
-		Group:    ncm.group,
-		OnChange: ncm.configOnChange,
-	}
-	if err = ncm.configClient.ListenConfig(configParam); err != nil {
-		util.Logger.Fatal("ncm.configClient.ListenConfig failed with permanent error", zap.Error(err))
-	}
-
-	subParam := vo.SubscribeParam{
-		GroupName:         ncm.group,
-		ServiceName:       ncm.serviceName,
-		SubscribeCallback: ncm.serviceOnChange,
-	}
-	if err = ncm.namingClient.Subscribe(&subParam); err != nil {
-		util.Logger.Fatal("ncm.namingClient.Subscribe failed with permanent error", zap.Error(err))
-	}
-
-	if ncm.curCfg.Kafka.RebalanceByLags {
-		// Assign regularly to handle lag change
-		ticker := time.NewTicker(time.Duration(ncm.curCfg.Kafka.AssignInterval) * time.Minute)
-		defer ticker.Stop()
-		lagticker := time.NewTicker(time.Duration(ncm.curCfg.Kafka.CalcLagInterval) * time.Second)
-		defer lagticker.Stop()
-	LOOP_FOR:
-		for {
-			select {
-			case <-ncm.ctx.Done():
-				util.Logger.Info("NacosConfManager.Run quit due to context has been canceled")
-				break LOOP_FOR
-			case <-ticker.C:
-				util.Logger.Debug("assign triggered by 5 min timer")
-				if err := ncm.assign(); err != nil {
-					util.Logger.Error("assign failed", zap.Error(err))
-				} else {
-					lagticker.Reset(10 * time.Second)
-				}
-			case <-lagticker.C:
-				if err := ncm.calculateGroupLag(); err != nil {
-					util.Logger.Error("calculate lag failed", zap.Error(err))
-				}
-			}
-		}
-	}
-}
-
 func (ncm *NacosConfManager) Stop() {
-	ncm.cancel()
-	ncm.wg.Wait()
-	var err error
-	configParam := vo.ConfigParam{
-		DataId:   ncm.dataID,
-		Group:    ncm.group,
-		OnChange: ncm.configOnChange,
-	}
-	if err = ncm.configClient.CancelListenConfig(configParam); err != nil {
-		util.Logger.Error("ncm.configClient.CancelListenConfig failed", zap.Error(err))
-	}
-
-	subParam := vo.SubscribeParam{
-		GroupName:         ncm.group,
-		ServiceName:       ncm.serviceName,
-		SubscribeCallback: ncm.serviceOnChange,
-	}
-	if err = ncm.namingClient.Unsubscribe(&subParam); err != nil {
-		util.Logger.Error("ncm.namingClient.Unsubscribe failed", zap.Error(err))
-	}
 	cleanupKafkaClient()
-
 	util.Logger.Info("stopped nacos config manager")
-}
-
-func (ncm *NacosConfManager) configOnChange(namespace, group, dataID, data string) {
-	if group != ncm.group || dataID != ncm.dataID {
-		return
-	}
-	util.Logger.Debug("assign triggered by config change")
-	if err := ncm.assign(); err != nil {
-		util.Logger.Error("configOnChange failed", zap.Error(err))
-	}
-}
-
-func (ncm *NacosConfManager) serviceOnChange(services []model.SubscribeService, err error) {
-	if err != nil {
-		return
-	}
-	util.Logger.Debug("assign triggered by service change")
-	if err = ncm.assign(); err != nil {
-		util.Logger.Error("serviceOnChange failed", zap.Error(err))
-	}
-}
-
-type InstanceAssignment struct {
-	Instance string
-	TotalLag int64
-	TaskLags []TaskLag
-}
-
-type TaskLag struct {
-	Task string
-	Lag  int64
-}
-
-func (ncm *NacosConfManager) assign() (err error) {
-	ncm.mux.Lock()
-	defer ncm.mux.Unlock()
-	getServiceParam := vo.GetServiceParam{
-		GroupName:   ncm.group,
-		ServiceName: ncm.serviceName,
-	}
-	var service model.Service
-	if service, err = ncm.namingClient.GetService(getServiceParam); err != nil {
-		err = errors.Wrapf(err, "ncm.namingClient.GetService failed")
-		return
-	}
-	var newInsts []string
-	for _, inst := range service.Hosts {
-		newInsts = append(newInsts, toInstanceID(inst.Ip, int(inst.Port)))
-	}
-	sort.Strings(newInsts)
-	if newInsts == nil || newInsts[0] != ncm.instance {
-		// Only the first instance is capable to assgin
-		return
-	}
-
-	var newCfg *config.Config
-	if newCfg, err = ncm.GetConfig(); err != nil {
-		err = errors.Wrapf(err, "ncm.GetConfig failed")
-		return
-	}
-	if reflect.DeepEqual(ncm.curInsts, newInsts) &&
-		reflect.DeepEqual(ncm.curCfg.Tasks, newCfg.Tasks) &&
-		reflect.DeepEqual(ncm.curCfg.Task, newCfg.Task) &&
-		ncm.curCfg.Assignment.UpdatedBy == ncm.instance &&
-		time.Unix(ncm.curCfg.Assignment.UpdatedAt, 0).Add(10*time.Minute).After(time.Now()) {
-		util.Logger.Info("Both instances and config are up-to-date, and the config was published by myself in less than 10 minutes.")
-		return
-	}
-
-	instAgs := make([]*InstanceAssignment, len(newInsts))
-	if ncm.curCfg.Kafka.RebalanceByLags {
-		var stateLags map[string]StateLag
-		if stateLags, err = GetTaskStateAndLags(newCfg); err != nil {
-			return
-		}
-		util.Logger.Debug(fmt.Sprintf("task state and lags %+v", stateLags))
-
-		var validTasks []string
-		for _, taskCfg := range newCfg.Tasks {
-			// make sure all tasks get properly assigned
-			validTasks = append(validTasks, taskCfg.Name)
-			if _, ok := stateLags[taskCfg.Name]; !ok {
-				stateLags[taskCfg.Name] = StateLag{State: "NA", Lag: 0}
-			}
-		}
-		sort.Slice(validTasks, func(i, j int) bool {
-			taskNameI := validTasks[i]
-			lagI := stateLags[taskNameI].Lag
-			taskNameJ := validTasks[j]
-			lagJ := stateLags[taskNameJ].Lag
-			return (lagI > lagJ) || (lagI == lagJ && taskNameI < taskNameJ)
-		})
-
-		for i, instance := range newInsts {
-			instAgs[i] = &InstanceAssignment{
-				Instance: instance,
-			}
-		}
-		// distribute tasks in snake way
-		for idxTask := 0; idxTask < len(validTasks); idxTask++ {
-			idxInst := idxTask % len(newInsts)
-			if (idxTask/len(newInsts))%2 == 1 {
-				idxInst = len(newInsts) - 1 - idxInst
-			}
-			taskName := validTasks[idxTask]
-			taskLag := stateLags[taskName].Lag
-			instAg := instAgs[idxInst]
-			instAg.TotalLag += taskLag
-			instAg.TaskLags = append(instAg.TaskLags, TaskLag{Task: taskName, Lag: taskLag})
-		}
-		// balance
-		if len(newInsts) >= 2 && len(validTasks) > len(newInsts) {
-			last := len(newInsts) - 1
-			for {
-				sort.Slice(instAgs, func(i, j int) bool {
-					return (instAgs[i].TotalLag > instAgs[j].TotalLag) || (instAgs[i].TotalLag == instAgs[j].TotalLag && instAgs[i].Instance < instAgs[j].Instance)
-				})
-				diffLag := float64(instAgs[0].TotalLag - instAgs[last].TotalLag)
-				diffLagAbs := math.Abs(diffLag)
-				if diffLag == 0.0 {
-					break
-				}
-				var moved bool
-				for idx := 0; idx < len(instAgs[0].TaskLags); idx++ {
-					movingTask := instAgs[0].TaskLags[idx]
-					if math.Abs(diffLag-float64(2*movingTask.Lag)) < diffLagAbs {
-						instAgs[0].TotalLag -= movingTask.Lag
-						instAgs[last].TotalLag += movingTask.Lag
-						instAgs[0].TaskLags = append(instAgs[0].TaskLags[:idx], instAgs[0].TaskLags[idx+1:]...)
-						instAgs[last].TaskLags = append(instAgs[last].TaskLags, movingTask)
-						sort.Slice(instAgs[last].TaskLags, func(i, j int) bool {
-							return instAgs[last].TaskLags[i].Lag > instAgs[last].TaskLags[j].Lag
-						})
-						moved = true
-						break
-					}
-				}
-				if !moved {
-					break
-				}
-			}
-		}
-	} else {
-		var validTasks []string
-		for _, taskCfg := range newCfg.Tasks {
-			// make sure all tasks get properly assigned
-			validTasks = append(validTasks, taskCfg.Name)
-		}
-		for i, instance := range newInsts {
-			instAgs[i] = &InstanceAssignment{
-				Instance: instance,
-			}
-		}
-		// distribute tasks in snake way
-		for idxTask := 0; idxTask < len(validTasks); idxTask++ {
-			idxInst := idxTask % len(newInsts)
-			if (idxTask/len(newInsts))%2 == 1 {
-				idxInst = len(newInsts) - 1 - idxInst
-			}
-			taskName := validTasks[idxTask]
-			instAg := instAgs[idxInst]
-			instAg.TaskLags = append(instAg.TaskLags, TaskLag{Task: taskName})
-		}
-	}
-
-	// publish assignment
-	newVer := ncm.curVer + 1
-	util.Logger.Debug("going to publish assignment", zap.Int("version", newVer), zap.Reflect("assignment", instAgs))
-	newCfg.Assignment.Map = make(map[string][]string)
-	for _, instAg := range instAgs {
-		var tasks []string
-		for _, taskLag := range instAg.TaskLags {
-			tasks = append(tasks, taskLag.Task)
-		}
-		sort.Strings(tasks)
-		newCfg.Assignment.Map[instAg.Instance] = tasks
-	}
-	newCfg.Assignment.Version = newVer
-	newCfg.Assignment.UpdatedBy = ncm.instance
-	newCfg.Assignment.UpdatedAt = time.Now().Unix()
-	if err = ncm.PublishConfig(newCfg); err != nil {
-		return
-	}
-	ncm.curCfg = newCfg
-	ncm.curInsts = newInsts
-	ncm.curVer = newVer
-
-	return
-}
-
-func (ncm *NacosConfManager) calculateGroupLag() (err error) {
-	if len(ncm.curInsts) == 0 || ncm.curCfg == nil || ncm.curInsts[0] != ncm.instance {
-		// Only the first instance is capable to report the lag
-		return
-	}
-	_, err = GetTaskStateAndLags(ncm.curCfg)
-
-	return
 }
 
 type NacosLogger struct {
