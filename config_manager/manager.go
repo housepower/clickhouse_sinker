@@ -107,9 +107,13 @@ func (m *Manager) UpdateConfig(mutate func(*config.Config) bool) error {
 	return nil
 }
 
+// Close is nil-safe like Writable.
 func (m *Manager) Close() error {
 	// The lag admin client in lags.go used to be closed by NacosConfManager.Stop.
 	cleanupKafkaClient()
+	if m == nil {
+		return nil
+	}
 	return m.src.Close()
 }
 

@@ -106,9 +106,13 @@ func NewNacos(o NacosOptions) (*Nacos, error) {
 func (n *Nacos) Fetch(ctx context.Context) ([]byte, error) {
 	content, err := n.client.GetConfig(vo.ConfigParam{DataId: n.dataID, Group: n.group})
 	if err != nil {
-		return nil, fmt.Errorf("dataId %s group %s: %w", n.dataID, n.group, err)
+		return nil, n.wrap(err)
 	}
 	return []byte(content), nil
+}
+
+func (n *Nacos) wrap(err error) error {
+	return fmt.Errorf("dataId %s group %s: %w", n.dataID, n.group, err)
 }
 
 func (n *Nacos) Update(ctx context.Context, fn UpdateFunc) error {
@@ -118,13 +122,15 @@ func (n *Nacos) Update(ctx context.Context, fn UpdateFunc) error {
 // read returns the content with its md5 as version. A missing dataId gives an
 // empty version, which publishes without CAS (first-time creation).
 func (n *Nacos) read(ctx context.Context) ([]byte, string, error) {
-	bs, err := n.Fetch(ctx)
+	content, err := n.client.GetConfig(vo.ConfigParam{DataId: n.dataID, Group: n.group})
 	if err != nil {
+		// Match the server's own message, before our wrapping adds the dataId.
 		if strings.Contains(err.Error(), nacosNotFoundMsg) {
 			return nil, "", nil
 		}
-		return nil, "", err
+		return nil, "", n.wrap(err)
 	}
+	bs := []byte(content)
 	if len(bs) == 0 {
 		return bs, "", nil
 	}
@@ -143,7 +149,7 @@ func (n *Nacos) write(ctx context.Context, content []byte, casMd5 string) (bool,
 		if strings.Contains(err.Error(), nacosCASConflictMsg) {
 			return true, nil
 		}
-		return false, fmt.Errorf("dataId %s group %s: %w", n.dataID, n.group, err)
+		return false, n.wrap(err)
 	}
 	return false, nil
 }

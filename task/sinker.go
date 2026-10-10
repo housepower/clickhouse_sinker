@@ -375,11 +375,10 @@ func (s *Sinker) Close() {
 	<-s.exitCh
 	// 2. Stop tasks gracefully.
 	s.stopAllTasks()
-	// 3. Stop rcm
-	if s.rcm != nil {
-		if err := s.rcm.Close(); err != nil {
-			util.Logger.Error("failed to close config backend", zap.Error(err))
-		}
+	// 3. Stop rcm. Nil-safe; in local file mode it still closes the shared
+	// Kafka admin client used by /state and /live.
+	if err := s.rcm.Close(); err != nil {
+		util.Logger.Error("failed to close config backend", zap.Error(err))
 	}
 	// 4. Stop pusher
 	if s.pusher != nil {

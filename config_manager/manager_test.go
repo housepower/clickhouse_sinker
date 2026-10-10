@@ -235,3 +235,11 @@ func TestUpdateWithCASBackoffHonorsDeadline(t *testing.T) {
 		t.Fatalf("backoff ignored the deadline, took %v", elapsed)
 	}
 }
+
+// Local file mode holds a nil *Manager; Close must be as nil-safe as Writable.
+func TestManagerCloseNil(t *testing.T) {
+	var m *Manager
+	if err := m.Close(); err != nil {
+		t.Fatalf("Close on nil manager: %v", err)
+	}
+}
