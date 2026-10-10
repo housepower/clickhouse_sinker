@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/housepower/clickhouse_sinker/config"
 	"github.com/housepower/clickhouse_sinker/util"
@@ -197,5 +198,40 @@ func TestUpdateWithCASStopsOnCanceledContext(t *testing.T) {
 	}
 	if writes != 1 {
 		t.Fatalf("write called %d times, want 1", writes)
+	}
+}
+
+// Conflicts are retried with a growing pause: nacos serves reads from a dump
+// that lags its database, so an immediate re-read is often still stale.
+func TestUpdateWithCASBacksOffBetweenAttempts(t *testing.T) {
+	defer func(b time.Duration) { casBackoff = b }(casBackoff)
+	casBackoff = 10 * time.Millisecond
+	read := func(context.Context) ([]byte, string, error) { return []byte("old"), "v", nil }
+	write := func(context.Context, []byte, string) (bool, error) { return true, nil }
+	start := time.Now()
+	err := updateWithCAS(context.Background(), func([]byte) ([]byte, error) { return []byte("new"), nil }, read, write)
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("want ErrConflict, got %v", err)
+	}
+	// 3 retries pause 10+20+30ms.
+	if elapsed := time.Since(start); elapsed < 60*time.Millisecond {
+		t.Fatalf("retries took %v, want at least 60ms of backoff", elapsed)
+	}
+}
+
+func TestUpdateWithCASBackoffHonorsDeadline(t *testing.T) {
+	defer func(b time.Duration) { casBackoff = b }(casBackoff)
+	casBackoff = time.Hour
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	read := func(context.Context) ([]byte, string, error) { return []byte("old"), "v", nil }
+	write := func(context.Context, []byte, string) (bool, error) { return true, nil }
+	start := time.Now()
+	err := updateWithCAS(ctx, func([]byte) ([]byte, error) { return []byte("new"), nil }, read, write)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("want context.DeadlineExceeded, got %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("backoff ignored the deadline, took %v", elapsed)
 	}
 }

@@ -20,6 +20,11 @@ const (
 	casMaxRetries = 3
 )
 
+// casBackoff is the pause before the first retry; retry n waits n*casBackoff
+// (200+400+600ms, well inside opTimeout). nacos serves reads from a dump that
+// lags its database, so re-reading at once after a conflict is often stale.
+var casBackoff = 200 * time.Millisecond
+
 var (
 	// ErrNoChange is returned by an UpdateFunc that has nothing to write.
 	ErrNoChange = errors.New("config unchanged")
@@ -134,6 +139,13 @@ func updateWithCAS(ctx context.Context, fn UpdateFunc,
 	read func(context.Context) ([]byte, string, error),
 	write func(context.Context, []byte, string) (bool, error)) error {
 	for attempt := 0; attempt <= casMaxRetries; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(time.Duration(attempt) * casBackoff):
+			}
+		}
 		if err := ctx.Err(); err != nil {
 			return err
 		}
