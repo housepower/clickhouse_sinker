@@ -59,6 +59,7 @@ func initCmdOptions() {
 		NacosGroup:    "DEFAULT_GROUP",
 		NacosUsername: "nacos",
 		NacosPassword: "nacos",
+		ApolloCluster: "default",
 		Encrypt:       "",
 	}
 
@@ -87,6 +88,11 @@ func initCmdOptions() {
 	util.EnvStringVarPrefixed(&cmdOps.EtcdCAFile, "etcd-ca-file")
 	util.EnvStringVarPrefixed(&cmdOps.EtcdCertFile, "etcd-cert-file")
 	util.EnvStringVarPrefixed(&cmdOps.EtcdKeyFile, "etcd-key-file")
+	util.EnvStringVarPrefixed(&cmdOps.ApolloMeta, "apollo-meta")
+	util.EnvStringVarPrefixed(&cmdOps.ApolloAppID, "apollo-app-id")
+	util.EnvStringVarPrefixed(&cmdOps.ApolloCluster, "apollo-cluster")
+	util.EnvStringVarPrefixed(&cmdOps.ApolloNamespace, "apollo-namespace")
+	util.EnvStringVarPrefixed(&cmdOps.ApolloSecret, "apollo-secret")
 
 	util.EnvStringVar(&cmdOps.ClickhouseUsername, "clickhouse-username")
 	util.EnvStringVar(&cmdOps.ClickhousePassword, "clickhouse-password")
@@ -121,6 +127,11 @@ func initCmdOptions() {
 	flag.StringVar(&cmdOps.EtcdCAFile, "etcd-ca-file", cmdOps.EtcdCAFile, "etcd CA file, enables TLS")
 	flag.StringVar(&cmdOps.EtcdCertFile, "etcd-cert-file", cmdOps.EtcdCertFile, "etcd client cert file, set with --etcd-key-file for mutual TLS")
 	flag.StringVar(&cmdOps.EtcdKeyFile, "etcd-key-file", cmdOps.EtcdKeyFile, "etcd client key file")
+	flag.StringVar(&cmdOps.ApolloMeta, "apollo-meta", cmdOps.ApolloMeta, "Apollo config service or meta server address")
+	flag.StringVar(&cmdOps.ApolloAppID, "apollo-app-id", cmdOps.ApolloAppID, "Apollo appId")
+	flag.StringVar(&cmdOps.ApolloCluster, "apollo-cluster", cmdOps.ApolloCluster, "Apollo cluster")
+	flag.StringVar(&cmdOps.ApolloNamespace, "apollo-namespace", cmdOps.ApolloNamespace, "Apollo txt/json namespace holding the config, e.g. clickhouse_sinker.txt")
+	flag.StringVar(&cmdOps.ApolloSecret, "apollo-secret", cmdOps.ApolloSecret, "Apollo access key secret")
 
 	flag.StringVar(&cmdOps.ClickhouseUsername, "clickhouse-username", cmdOps.ClickhouseUsername, "clickhouse username")
 	flag.StringVar(&cmdOps.ClickhousePassword, "clickhouse-password", cmdOps.ClickhousePassword, "clickhouse password")

@@ -69,6 +69,11 @@ type CmdOptions struct {
 	EtcdCAFile       string
 	EtcdCertFile     string
 	EtcdKeyFile      string
+	ApolloMeta       string
+	ApolloAppID      string
+	ApolloCluster    string
+	ApolloNamespace  string
+	ApolloSecret     string
 	Encrypt          string
 
 	Credentials

@@ -20,6 +20,9 @@ func selectBackend(cmdOps *util.CmdOptions) (string, error) {
 	if cmdOps.EtcdKey != "" {
 		names, flags = append(names, "etcd"), append(flags, "--etcd-key")
 	}
+	if cmdOps.ApolloNamespace != "" {
+		names, flags = append(names, "apollo"), append(flags, "--apollo-namespace")
+	}
 	if len(names) > 1 {
 		return "", fmt.Errorf("only one config backend may be configured, got %s", strings.Join(flags, ", "))
 	}
@@ -70,6 +73,22 @@ func New(cmdOps *util.CmdOptions) (*Manager, error) {
 		util.Logger.Info("get config from etcd",
 			zap.String("endpoints", cmdOps.EtcdEndpoints), zap.String("key", cmdOps.EtcdKey))
 		return NewManager("etcd", e, e), nil
+	case "apollo":
+		o := ApolloOptions{
+			Meta:      cmdOps.ApolloMeta,
+			AppID:     cmdOps.ApolloAppID,
+			Cluster:   cmdOps.ApolloCluster,
+			Namespace: cmdOps.ApolloNamespace,
+			Secret:    cmdOps.ApolloSecret,
+		}
+		src, err := NewApolloSource(o)
+		if err != nil {
+			return nil, err
+		}
+		util.Logger.Info("get config from apollo",
+			zap.String("meta", o.Meta), zap.String("appId", o.AppID),
+			zap.String("cluster", o.cluster()), zap.String("namespace", o.Namespace))
+		return NewManager("apollo", src, nil), nil
 	}
 	return nil, nil
 }
