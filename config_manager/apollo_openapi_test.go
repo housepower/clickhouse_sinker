@@ -143,3 +143,33 @@ func TestApolloWriteConfigured(t *testing.T) {
 		t.Fatalf("partial: want error listing the flags, got %v", err)
 	}
 }
+
+// An HTML login page or proxy error must not flood the log line.
+func TestApolloOpenAPIErrorBodyIsTruncated(t *testing.T) {
+	big := strings.Repeat("x", 4096)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, big, http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+	w := newApolloOpenAPI(testOpenAPIOptions(srv.URL))
+	err := w.Update(context.Background(), func(old []byte) ([]byte, error) { return old, nil })
+	if err == nil {
+		t.Fatal("want an error for HTTP 401")
+	}
+	if len(err.Error()) > 1024 || !strings.Contains(err.Error(), "HTTP 401") || !strings.Contains(err.Error(), "truncated") {
+		t.Fatalf("error not truncated (len %d): %.200s", len(err.Error()), err)
+	}
+}
+
+func TestApolloOptionsPlainHTTPPortal(t *testing.T) {
+	for portal, want := range map[string]bool{
+		"http://portal:8070":  true,
+		"HTTP://portal:8070":  true,
+		"https://portal:8070": false,
+		"":                    false,
+	} {
+		if got := (ApolloOptions{Portal: portal}).plainHTTPPortal(); got != want {
+			t.Fatalf("plainHTTPPortal(%q) = %v, want %v", portal, got, want)
+		}
+	}
+}

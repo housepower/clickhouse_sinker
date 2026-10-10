@@ -32,6 +32,11 @@ func (o ApolloOptions) writeConfigured() (bool, error) {
 		"must be set together to enable write-back")
 }
 
+// plainHTTPPortal reports whether the Open API token would travel unencrypted.
+func (o ApolloOptions) plainHTTPPortal() bool {
+	return strings.HasPrefix(strings.ToLower(o.Portal), "http://")
+}
+
 // apolloOpenAPI writes a namespace through the Apollo Portal Open API.
 // Apollo has no compare-and-swap, so Update reads the latest content right
 // before writing and refuses to run when someone has unreleased edits.
@@ -80,14 +85,25 @@ func (c *apolloOpenAPI) do(ctx context.Context, method, u string, body, out any)
 	defer resp.Body.Close()
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode >= http.StatusMultipleChoices {
-		return fmt.Errorf("%s %s: HTTP %d: %s", method, u, resp.StatusCode, bytes.TrimSpace(respBody))
+		return fmt.Errorf("%s %s: HTTP %d: %s", method, u, resp.StatusCode, bodySnippet(respBody))
 	}
 	if out != nil && len(bytes.TrimSpace(respBody)) > 0 {
 		if err = json.Unmarshal(respBody, out); err != nil {
-			return fmt.Errorf("%s %s: decode response: %w", method, u, err)
+			return fmt.Errorf("%s %s: decode response %s: %w", method, u, bodySnippet(respBody), err)
 		}
 	}
 	return nil
+}
+
+// bodySnippet keeps error messages short when the Portal (or a proxy in front
+// of it) answers with an HTML page.
+func bodySnippet(body []byte) string {
+	const max = 512
+	body = bytes.TrimSpace(body)
+	if len(body) <= max {
+		return string(body)
+	}
+	return string(body[:max]) + "...(truncated)"
 }
 
 // current returns the latest edited content and whether it differs from the

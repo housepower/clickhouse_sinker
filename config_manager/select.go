@@ -95,6 +95,10 @@ func New(cmdOps *util.CmdOptions) (*Manager, error) {
 		}
 		var w Writer
 		if writable {
+			if o.plainHTTPPortal() {
+				util.Logger.Warn("--apollo-portal uses plain http, the Open API token is sent unencrypted",
+					zap.String("portal", o.Portal))
+			}
 			w = newApolloOpenAPI(o)
 		}
 		util.Logger.Info("get config from apollo",
