@@ -443,6 +443,10 @@ func (s *Sinker) applyConfig(newCfg *config.Config) (err error) {
 		!reflect.DeepEqual(newCfg.Tasks, s.curCfg.Tasks) {
 		err = s.applyAnotherConfig(newCfg)
 	}
+	if s.curCfg == nil {
+		// applyFirstConfig failed before adopting newCfg; Run retries or exits.
+		return
+	}
 	s.curCfg.ActiveSeriesRange = newCfg.ActiveSeriesRange
 	s.curCfg.ReloadSeriesMapInterval = newCfg.ReloadSeriesMapInterval
 	s.publishConfig()
