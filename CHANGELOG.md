@@ -22,6 +22,16 @@ Improvements:
   longer overwritten.
 - Discovery write-back to Nacos is compare-and-swap only when Nacos uses an external MySQL datasource; embedded Derby ignores casMd5.
 
+Bug Fixes:
+
+- With discovery enabled and a shard's replicas not listed in sorted order, every discovery round reordered the
+  current config in place and the next config poll restarted all tasks.
+- With a config center (Nacos, etcd, Apollo), the max.poll.interval watchdog never ran: its ticker was reset on
+  every config poll.
+- The shared Kafka admin client behind `/state`, `/live` and the topic precheck is now safe to use concurrently, and
+  a probe after shutdown no longer hits a nil client.
+- Secrets (passwords, Apollo token and secret) are redacted in the startup log of command options.
+
 #### Version 3.0.8 (2023-08-xx)
 
 Improvements:
