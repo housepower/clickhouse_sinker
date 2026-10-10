@@ -171,7 +171,7 @@ func init() {
 	if cmdOps.ShowVer {
 		os.Exit(0)
 	}
-	util.Logger.Info("parsed command options:", zap.Reflect("opts", cmdOps))
+	util.Logger.Info("parsed command options:", zap.Reflect("opts", cmdOps.Redacted()))
 }
 
 func main() {

@@ -8,6 +8,8 @@ Breaking Changes:
 - Task assignment among instances (`--nacos-service-name`) is removed. Every instance runs all tasks, and Kafka
   consumer groups balance partitions among instances. `--nacos-service-name` and the config fields `assignment`,
   `kafka.assignInterval`, `kafka.calcLagInterval`, `kafka.rebalanceByLags` are ignored with a warning.
+- The `ConsumeLags` metric is no longer refreshed on a timer (that was part of task assignment); it is updated when
+  `/state` or `/live` is requested.
 
 New Features:
 

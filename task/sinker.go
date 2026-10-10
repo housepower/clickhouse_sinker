@@ -129,7 +129,7 @@ func (s *Sinker) Run() {
 
 	if s.rcm == nil {
 		if _, err := os.Stat(s.cmdOps.LocalCfgFile); err != nil {
-			util.Logger.Fatal("expect --local-cfg-file or --nacos-dataid")
+			util.Logger.Fatal("expect --local-cfg-file, --nacos-dataid, --etcd-key or --apollo-namespace")
 			return
 		}
 
@@ -314,18 +314,19 @@ func (s *Sinker) runDiscovery(sd *discovery.Discovery) {
 
 // Close shutdown task
 func (s *Sinker) Close() {
-	// 1. Stop rcm
+	// 1. Quit Run mainloop. The config backend must stay open until Run has
+	// exited: Run and discovery still call into it (and into the shared Kafka
+	// admin client that Manager.Close tears down).
+	s.cancel()
+	<-s.exitCh
+	// 2. Stop tasks gracefully.
+	s.stopAllTasks()
+	// 3. Stop rcm
 	if s.rcm != nil {
 		if err := s.rcm.Close(); err != nil {
 			util.Logger.Error("failed to close config backend", zap.Error(err))
 		}
-		s.rcm = nil
 	}
-	// 2. Quit Run mainloop
-	s.cancel()
-	<-s.exitCh
-	// 3. Stop tasks gracefully.
-	s.stopAllTasks()
 	// 4. Stop pusher
 	if s.pusher != nil {
 		s.pusher.Stop()

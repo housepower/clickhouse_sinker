@@ -84,10 +84,14 @@ func NewNacos(o NacosOptions) (*Nacos, error) {
 		NamespaceId:         o.NamespaceID,
 		TimeoutMs:           uint64(opTimeout.Milliseconds()),
 		NotLoadCacheAtStart: true,
-		CacheDir:            o.CacheDir,
-		LogDir:              o.CacheDir,
-		Username:            o.Username,
-		Password:            o.Password,
+		// Without this GetConfig silently returns the local snapshot when the
+		// server is unreachable; the poll loop already keeps the current config
+		// on fetch errors.
+		DisableUseSnapShot: true,
+		CacheDir:           o.CacheDir,
+		LogDir:             o.CacheDir,
+		Username:           o.Username,
+		Password:           o.Password,
 	}
 	client, err := clients.NewConfigClient(vo.NacosClientParam{ClientConfig: &cc, ServerConfigs: sc})
 	if err != nil {

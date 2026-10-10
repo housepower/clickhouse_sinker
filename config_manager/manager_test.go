@@ -180,3 +180,22 @@ func TestUpdateWithCASSkipsIdenticalContent(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestUpdateWithCASStopsOnCanceledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	writes := 0
+	read := func(context.Context) ([]byte, string, error) { return []byte("old"), "v", nil }
+	write := func(context.Context, []byte, string) (bool, error) {
+		writes++
+		cancel()
+		return true, nil
+	}
+	err := updateWithCAS(ctx, func([]byte) ([]byte, error) { return []byte("new"), nil }, read, write)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("want context.Canceled, got %v", err)
+	}
+	if writes != 1 {
+		t.Fatalf("write called %d times, want 1", writes)
+	}
+}

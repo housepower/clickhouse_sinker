@@ -134,6 +134,9 @@ func updateWithCAS(ctx context.Context, fn UpdateFunc,
 	read func(context.Context) ([]byte, string, error),
 	write func(context.Context, []byte, string) (bool, error)) error {
 	for attempt := 0; attempt <= casMaxRetries; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		old, version, err := read(ctx)
 		if err != nil {
 			return err

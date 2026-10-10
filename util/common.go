@@ -83,6 +83,29 @@ type CmdOptions struct {
 	Credentials
 }
 
+// Redacted returns a copy of o in which every non-empty string field whose name
+// ends in Password, Secret or Token is replaced by "******". Safe for logging.
+func (o CmdOptions) Redacted() CmdOptions {
+	redactSecrets(reflect.ValueOf(&o).Elem())
+	return o
+}
+
+func redactSecrets(v reflect.Value) {
+	t := v.Type()
+	for i := 0; i < v.NumField(); i++ {
+		f := v.Field(i)
+		switch {
+		case f.Kind() == reflect.Struct:
+			redactSecrets(f)
+		case f.Kind() == reflect.String && f.String() != "" && f.CanSet():
+			n := t.Field(i).Name
+			if strings.HasSuffix(n, "Password") || strings.HasSuffix(n, "Secret") || strings.HasSuffix(n, "Token") {
+				f.SetString("******")
+			}
+		}
+	}
+}
+
 type Credentials struct {
 	ClickhouseUsername  string
 	ClickhousePassword  string
