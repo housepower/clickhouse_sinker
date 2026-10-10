@@ -152,3 +152,18 @@ func TestDeprecatedAssignmentConfigIgnored(t *testing.T) {
 		}
 	}
 }
+
+// A non-positive discovery interval would panic the main loop's ticker reset.
+func TestDiscoveryCheckIntervalNonPositiveUsesDefault(t *testing.T) {
+	cfg := &Config{
+		Clickhouse: ClickHouseConfig{Hosts: [][]string{{"127.0.0.1"}}, Port: 9000, DB: "default"},
+		Kafka:      KafkaConfig{Brokers: "127.0.0.1:9092"},
+		Discovery:  Discovery{CheckInterval: -5},
+	}
+	if err := cfg.Normallize(false, util.Credentials{}); err != nil {
+		t.Fatalf("Normallize failed: %v", err)
+	}
+	if cfg.Discovery.CheckInterval != DefaultDiscoveryIntervalSec {
+		t.Fatalf("CheckInterval = %d, want %d", cfg.Discovery.CheckInterval, DefaultDiscoveryIntervalSec)
+	}
+}

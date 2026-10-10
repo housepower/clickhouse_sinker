@@ -381,7 +381,7 @@ func (cfg *Config) Normallize(constructGroup bool, cred util.Credentials) (err e
 	if cfg.Kafka.Properties.MaxPollInterval < 30000 {
 		cfg.Kafka.Properties.MaxPollInterval = 30000
 	}
-	if cfg.Discovery.CheckInterval == 0 {
+	if cfg.Discovery.CheckInterval <= 0 {
 		cfg.Discovery.CheckInterval = DefaultDiscoveryIntervalSec
 	}
 	if cfg.Kafka.MaxConcurrentFetches <= 0 {

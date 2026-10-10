@@ -202,15 +202,8 @@ func (s *Sinker) Run() {
 		// Golang <-time.After() is not garbage collected before expiry.
 		ticker := time.NewTicker(10 * time.Second)
 		defer ticker.Stop()
-		curInterval := 3600
-		reloadBmSeriesTicker := time.NewTicker(time.Second * time.Duration(curInterval))
-		defer reloadBmSeriesTicker.Stop()
-		pollInterval := config.DefaultMaxPollIntervalMs
-		pollTicker := time.NewTicker(time.Duration(pollInterval) * time.Millisecond)
-		defer pollTicker.Stop()
-		sdInterval := config.DefaultDiscoveryIntervalSec
-		sdTicker := time.NewTicker(time.Duration(sdInterval) * time.Second)
-		defer sdTicker.Stop()
+		tickers := newLoopTickers(intervalsOf(nil))
+		defer tickers.stop()
 	WORKLOOP:
 		for {
 			select {
@@ -226,24 +219,12 @@ func (s *Sinker) Run() {
 					util.Logger.Error("newCfg.Normallize failed", zap.Error(err))
 					continue
 				}
-				if s.curCfg != nil {
-					pollInterval = s.curCfg.Kafka.Properties.MaxPollInterval
-					sdInterval = s.curCfg.Discovery.CheckInterval
-					curInterval = s.curCfg.ReloadSeriesMapInterval
-				}
+				old := intervalsOf(s.curCfg)
 				if err = s.applyConfig(newCfg); err != nil {
 					util.Logger.Error("s.applyConfig failed", zap.Error(err))
 					continue
 				}
-				if curInterval != newCfg.Kafka.Properties.MaxPollInterval {
-					pollTicker.Reset(time.Duration(newCfg.Kafka.Properties.MaxPollInterval) * time.Millisecond)
-				}
-				if sdInterval != newCfg.Discovery.CheckInterval {
-					sdTicker.Reset(time.Duration(newCfg.Discovery.CheckInterval) * time.Second)
-				}
-				if curInterval != newCfg.ReloadSeriesMapInterval {
-					reloadBmSeriesTicker.Reset(time.Second * time.Duration(newCfg.ReloadSeriesMapInterval))
-				}
+				tickers.reset(old, intervalsOf(newCfg))
 			case c := <-s.consumerRestartCh:
 				// only restart the consumer which was not changed in applyAnotherConfig
 				util.Logger.Info("consumer going to restart", zap.String("consumer", c.grpConfig.Name))
@@ -261,7 +242,7 @@ func (s *Sinker) Run() {
 					util.Logger.Info("consumer restarted when applying another config",
 						zap.String("consumer", c.grpConfig.Name))
 				}
-			case <-reloadBmSeriesTicker.C:
+			case <-tickers.reloadSeries.C:
 				needReload := false
 				output.SeriesQuotas.Range(func(key, value any) bool {
 					needReload = true
@@ -273,24 +254,88 @@ func (s *Sinker) Run() {
 						util.Logger.Error("reloadBmSeries failed", zap.Error(err))
 					}
 				}
-			case <-pollTicker.C:
-				consumerName := input.Walk(curInterval)
+			case <-tickers.poll.C:
+				if s.curCfg == nil {
+					continue
+				}
+				maxPollMs := s.curCfg.Kafka.Properties.MaxPollInterval
+				consumerName := input.Walk(maxPollMs)
 				if consumerName != "" {
 					if consumer, ok := s.consumers[consumerName]; ok {
-						util.Logger.Warn("consumer restarted because of max.poll.interval.ms changed", zap.String("consumer", consumerName), zap.Int("max.poll.interval.ms", curInterval))
+						util.Logger.Warn("consumer restarted because of max.poll.interval.ms changed", zap.String("consumer", consumerName), zap.Int("max.poll.interval.ms", maxPollMs))
 						go func() {
 							consumer.stop()
 							s.consumerRestartCh <- consumer
 						}()
 					}
 				}
-			case <-sdTicker.C:
+			case <-tickers.discovery.C:
 				s.runDiscovery(sd)
 			}
 		}
 	}
 
 	s.exitCh <- struct{}{}
+}
+
+// loopIntervals are the config values that set the remote-config main loop's
+// ticker periods.
+type loopIntervals struct {
+	maxPollMs       int
+	discoverySec    int
+	reloadSeriesSec int
+}
+
+// intervalsOf returns the intervals of cfg, or the loop's initial ones while no
+// config has been applied yet.
+func intervalsOf(cfg *config.Config) loopIntervals {
+	if cfg == nil {
+		return loopIntervals{
+			maxPollMs:       config.DefaultMaxPollIntervalMs,
+			discoverySec:    config.DefaultDiscoveryIntervalSec,
+			reloadSeriesSec: 3600,
+		}
+	}
+	return loopIntervals{
+		maxPollMs:       cfg.Kafka.Properties.MaxPollInterval,
+		discoverySec:    cfg.Discovery.CheckInterval,
+		reloadSeriesSec: cfg.ReloadSeriesMapInterval,
+	}
+}
+
+type loopTickers struct {
+	poll         *time.Ticker
+	discovery    *time.Ticker
+	reloadSeries *time.Ticker
+}
+
+func newLoopTickers(iv loopIntervals) loopTickers {
+	return loopTickers{
+		poll:         time.NewTicker(time.Duration(iv.maxPollMs) * time.Millisecond),
+		discovery:    time.NewTicker(time.Duration(iv.discoverySec) * time.Second),
+		reloadSeries: time.NewTicker(time.Duration(iv.reloadSeriesSec) * time.Second),
+	}
+}
+
+// reset re-arms only the tickers whose interval changed. Resetting a ticker on
+// every config poll would keep it from ever firing.
+func (t loopTickers) reset(old, new loopIntervals) (poll, discovery, reloadSeries bool) {
+	if poll = old.maxPollMs != new.maxPollMs; poll {
+		t.poll.Reset(time.Duration(new.maxPollMs) * time.Millisecond)
+	}
+	if discovery = old.discoverySec != new.discoverySec; discovery {
+		t.discovery.Reset(time.Duration(new.discoverySec) * time.Second)
+	}
+	if reloadSeries = old.reloadSeriesSec != new.reloadSeriesSec; reloadSeries {
+		t.reloadSeries.Reset(time.Duration(new.reloadSeriesSec) * time.Second)
+	}
+	return
+}
+
+func (t loopTickers) stop() {
+	t.poll.Stop()
+	t.discovery.Stop()
+	t.reloadSeries.Stop()
 }
 
 // runDiscovery runs one ClickHouse cluster discovery round. curCfg stays nil
