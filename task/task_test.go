@@ -178,3 +178,24 @@ func TestMetric2RowArrayLengthMismatchTruncates(t *testing.T) {
 		t.Fatalf("labels = %s, want %s", got, want)
 	}
 }
+
+// splitTableName must honor the db prefix on a task's TableName and fall back
+// to the configured default database when absent — the table precheck matches
+// tables per database, so a wrong split drops healthy tasks.
+func TestSplitTableName(t *testing.T) {
+	cases := []struct {
+		table, defaultDB, wantDB, wantTable string
+	}{
+		{"jax_env.http_server_log_ck_zsc_local", "default", "jax_env", "http_server_log_ck_zsc_local"},
+		{"http_server_log", "default", "default", "http_server_log"},
+		{".leading_dot_table", "default", "default", ".leading_dot_table"},
+		{"db.a.b", "default", "db", "a.b"},
+	}
+	for _, c := range cases {
+		db, table := splitTableName(c.table, c.defaultDB)
+		if db != c.wantDB || table != c.wantTable {
+			t.Fatalf("splitTableName(%q, %q) = (%q, %q), want (%q, %q)",
+				c.table, c.defaultDB, db, table, c.wantDB, c.wantTable)
+		}
+	}
+}

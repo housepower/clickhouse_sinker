@@ -477,7 +477,14 @@ func (s *Sinker) filterMissingTables(newCfg *config.Config) {
 	if len(newCfg.Groups) == 0 {
 		return
 	}
-	existing, err := listExistingTables(&newCfg.Clickhouse)
+	databases := make(map[string]bool)
+	for _, gCfg := range newCfg.Groups {
+		for _, tCfg := range gCfg.Configs {
+			db, _ := splitTableName(tCfg.TableName, newCfg.Clickhouse.DB)
+			databases[db] = true
+		}
+	}
+	existing, err := listExistingTables(&newCfg.Clickhouse, databases)
 	if err != nil {
 		util.Logger.Warn("table precheck skipped: failed to list ClickHouse tables, applying all tasks as-is",
 			zap.Error(err))
@@ -493,11 +500,8 @@ func (s *Sinker) filterMissingTables(newCfg *config.Config) {
 	for groupName, gCfg := range newCfg.Groups {
 		droppedTasks := []string{}
 		for taskName, tCfg := range gCfg.Configs {
-			tableName := tCfg.TableName
-			if idx := strings.Index(tableName, "."); idx > 0 {
-				tableName = tableName[idx+1:]
-			}
-			if !existing[tableName] {
+			db, table := splitTableName(tCfg.TableName, newCfg.Clickhouse.DB)
+			if !existing[db+"."+table] {
 				delete(gCfg.Configs, taskName)
 				droppedTasks = append(droppedTasks, taskName)
 				droppedNames[taskName] = true
@@ -552,13 +556,23 @@ func (s *Sinker) filterMissingTables(newCfg *config.Config) {
 }
 
 // listExistingTables opens a short-lived ClickHouse connection to enumerate
-// the tables in the configured database. It deliberately does NOT use the
-// global pool.ShardConn so it can run before applyFirstConfig has initialized
-// the cluster connection.
-func listExistingTables(chCfg *config.ClickHouseConfig) (map[string]bool, error) {
+// the tables in the given databases (typically every database referenced by
+// some task's db-qualified TableName, plus the configured default database).
+// It returns a set keyed by "db.table" so tasks can be matched against their
+// own database. It deliberately does NOT use the global pool.ShardConn so it
+// can run before applyFirstConfig has initialized the cluster connection.
+func listExistingTables(chCfg *config.ClickHouseConfig, databases map[string]bool) (map[string]bool, error) {
 	if len(chCfg.Hosts) == 0 || len(chCfg.Hosts[0]) == 0 {
 		return nil, errors.Newf("no clickhouse hosts configured")
 	}
+	if len(databases) == 0 {
+		databases = map[string]bool{chCfg.DB: true}
+	}
+	dbList := make([]string, 0, len(databases))
+	for db := range databases {
+		dbList = append(dbList, db)
+	}
+	sort.Strings(dbList)
 	addr := fmt.Sprintf("%s:%d", chCfg.Hosts[0][0], chCfg.Port)
 	proto := clickhouse.Native
 	if chCfg.Protocol == clickhouse.HTTP.String() {
@@ -586,7 +600,12 @@ func listExistingTables(chCfg *config.ClickHouseConfig) (map[string]bool, error)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	rows, err := conn.Query(ctx, "SELECT name FROM system.tables WHERE database = ?", chCfg.DB)
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(dbList)), ",")
+	args := make([]interface{}, len(dbList))
+	for i, db := range dbList {
+		args[i] = db
+	}
+	rows, err := conn.Query(ctx, "SELECT database, name FROM system.tables WHERE database IN ("+placeholders+")", args...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "")
 	}
@@ -594,13 +613,24 @@ func listExistingTables(chCfg *config.ClickHouseConfig) (map[string]bool, error)
 
 	existing := make(map[string]bool)
 	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
+		var db, name string
+		if err := rows.Scan(&db, &name); err != nil {
 			return nil, errors.Wrapf(err, "")
 		}
-		existing[name] = true
+		existing[db+"."+name] = true
 	}
 	return existing, nil
+}
+
+// splitTableName splits an optionally db-qualified table name into its
+// database and bare table name. A task without a db prefix falls back to the
+// configured default database. Mirrors the db/table handling used when
+// building INSERT statements.
+func splitTableName(tableName, defaultDB string) (db, table string) {
+	if idx := strings.Index(tableName, "."); idx > 0 {
+		return tableName[:idx], tableName[idx+1:]
+	}
+	return defaultDB, tableName
 }
 
 // filterMissingTopics drops tasks whose topic is absent on the Kafka cluster.
