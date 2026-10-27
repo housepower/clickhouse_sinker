@@ -20,6 +20,8 @@ func TestSelectBackend(t *testing.T) {
 		{name: "nacos and etcd", ops: util.CmdOptions{NacosDataID: "d", EtcdKey: "/k"}, wantErr: "--nacos-dataid, --etcd-key"},
 		{name: "apollo", ops: util.CmdOptions{ApolloNamespace: "n"}, want: "apollo"},
 		{name: "etcd and apollo", ops: util.CmdOptions{EtcdKey: "/k", ApolloNamespace: "n"}, wantErr: "--etcd-key, --apollo-namespace"},
+		{name: "http", ops: util.CmdOptions{HttpUrls: "http://a/cfg"}, want: "http"},
+		{name: "http and nacos", ops: util.CmdOptions{HttpUrls: "http://a/cfg", NacosDataID: "d"}, wantErr: "--nacos-dataid, --http-urls"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

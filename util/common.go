@@ -75,34 +75,41 @@ type CmdOptions struct {
 	HTTPHost string
 	HTTPPort int // 0 means a randomly chosen port.
 
-	PushGatewayAddrs string
-	PushInterval     int
-	LocalCfgFile     string
-	NacosAddr        string
-	NacosNamespaceID string
-	NacosGroup       string
-	NacosUsername    string
-	NacosPassword    string
-	NacosDataID      string
-	NacosServiceName string // Deprecated: task assignment has been removed, ignored
-	EtcdEndpoints    string
-	EtcdKey          string
-	EtcdUsername     string
-	EtcdPassword     string
-	EtcdCAFile       string
-	EtcdCertFile     string
-	EtcdKeyFile      string
-	ApolloMeta       string
-	ApolloAppID      string
-	ApolloCluster    string
-	ApolloNamespace  string
-	ApolloSecret     string
-	ApolloPortal     string
-	ApolloToken      string
-	ApolloEnv        string
-	ApolloOperator   string
-	Encrypt          string
-	EncryptAlgorithm string // "AESWITHHEXANDBASE64" (default) or "SM4"
+	PushGatewayAddrs       string
+	PushInterval           int
+	LocalCfgFile           string
+	NacosAddr              string
+	NacosNamespaceID       string
+	NacosGroup             string
+	NacosUsername          string
+	NacosPassword          string
+	NacosDataID            string
+	NacosServiceName       string // Deprecated: task assignment has been removed, ignored
+	EtcdEndpoints          string
+	EtcdKey                string
+	EtcdUsername           string
+	EtcdPassword           string
+	EtcdCAFile             string
+	EtcdCertFile           string
+	EtcdKeyFile            string
+	ApolloMeta             string
+	ApolloAppID            string
+	ApolloCluster          string
+	ApolloNamespace        string
+	ApolloSecret           string
+	ApolloPortal           string
+	ApolloToken            string
+	ApolloEnv              string
+	ApolloOperator         string
+	HttpUrls               string // comma-separated config service URLs, tried in order
+	HttpNamespace          string // query param appended to every config URL
+	HttpDataID             string // query param appended to every config URL
+	HttpGroup              string // query param appended to every config URL
+	HttpHeaders            string `gsypt:"-"` // semicolon-separated "Key: Value" pairs, sent verbatim; may carry credentials
+	HttpConfigPath         string // gjson path of the config in a JSON response; empty means the body is the config
+	HttpInsecureSkipVerify bool
+	Encrypt                string
+	EncryptAlgorithm       string // "AESWITHHEXANDBASE64" (default) or "SM4"
 
 	Credentials
 }
@@ -131,7 +138,8 @@ func redactSecrets(v reflect.Value) {
 }
 
 func isSecretName(name string) bool {
-	return strings.HasSuffix(name, "Password") || strings.HasSuffix(name, "Secret") || strings.HasSuffix(name, "Token")
+	return strings.HasSuffix(name, "Password") || strings.HasSuffix(name, "Secret") ||
+		strings.HasSuffix(name, "Token") || strings.HasSuffix(name, "Headers")
 }
 
 // RedactedForLog returns v as a generic JSON value with secrets masked: string
@@ -287,6 +295,13 @@ func EnvBoolVar(value *bool, key string) {
 func EnvStringVarPrefixed(value *string, key string) {
 	if v, ok := os.LookupEnv(EnvPrefix + envKey(key)); ok {
 		*value = v
+	}
+}
+
+// EnvBoolVarPrefixed is the bool counterpart of EnvStringVarPrefixed.
+func EnvBoolVarPrefixed(value *bool, key string) {
+	if _, ok := os.LookupEnv(EnvPrefix + envKey(key)); ok {
+		*value = true
 	}
 }
 

@@ -99,6 +99,13 @@ func initCmdOptions() {
 	util.EnvStringVarPrefixed(&cmdOps.ApolloToken, "apollo-token")
 	util.EnvStringVarPrefixed(&cmdOps.ApolloEnv, "apollo-env")
 	util.EnvStringVarPrefixed(&cmdOps.ApolloOperator, "apollo-operator")
+	util.EnvStringVarPrefixed(&cmdOps.HttpUrls, "http-urls")
+	util.EnvStringVarPrefixed(&cmdOps.HttpNamespace, "http-namespace")
+	util.EnvStringVarPrefixed(&cmdOps.HttpDataID, "http-data-id")
+	util.EnvStringVarPrefixed(&cmdOps.HttpGroup, "http-group")
+	util.EnvStringVarPrefixed(&cmdOps.HttpHeaders, "http-headers")
+	util.EnvStringVarPrefixed(&cmdOps.HttpConfigPath, "http-config-path")
+	util.EnvBoolVarPrefixed(&cmdOps.HttpInsecureSkipVerify, "http-insecure-skip-verify")
 
 	util.EnvStringVar(&cmdOps.ClickhouseUsername, "clickhouse-username")
 	util.EnvStringVar(&cmdOps.ClickhousePassword, "clickhouse-password")
@@ -144,6 +151,14 @@ func initCmdOptions() {
 	flag.StringVar(&cmdOps.ApolloToken, "apollo-token", cmdOps.ApolloToken, "Apollo Open API token")
 	flag.StringVar(&cmdOps.ApolloEnv, "apollo-env", cmdOps.ApolloEnv, "Apollo env for the Open API, e.g. PRO")
 	flag.StringVar(&cmdOps.ApolloOperator, "apollo-operator", cmdOps.ApolloOperator, "existing Apollo Portal user recorded as modifier and releaser")
+
+	flag.StringVar(&cmdOps.HttpUrls, "http-urls", cmdOps.HttpUrls, "a list of comma-separated config service URLs; each is GET in turn until one returns the config")
+	flag.StringVar(&cmdOps.HttpNamespace, "http-namespace", cmdOps.HttpNamespace, "query param appended to every config URL")
+	flag.StringVar(&cmdOps.HttpDataID, "http-data-id", cmdOps.HttpDataID, "query param appended to every config URL")
+	flag.StringVar(&cmdOps.HttpGroup, "http-group", cmdOps.HttpGroup, "query param appended to every config URL")
+	flag.StringVar(&cmdOps.HttpHeaders, "http-headers", cmdOps.HttpHeaders, `semicolon-separated "Key: Value" header pairs sent verbatim with every config request, e.g. "Authorization: Bearer xxx"`)
+	flag.StringVar(&cmdOps.HttpConfigPath, "http-config-path", cmdOps.HttpConfigPath, `gjson path of the config inside a JSON response, e.g. "data.config"; empty means the response body is the config`)
+	flag.BoolVar(&cmdOps.HttpInsecureSkipVerify, "http-insecure-skip-verify", cmdOps.HttpInsecureSkipVerify, "skip TLS certificate verification for https config URLs")
 
 	flag.StringVar(&cmdOps.ClickhouseUsername, "clickhouse-username", cmdOps.ClickhouseUsername, "clickhouse username")
 	flag.StringVar(&cmdOps.ClickhousePassword, "clickhouse-password", cmdOps.ClickhousePassword, "clickhouse password")

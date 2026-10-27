@@ -44,10 +44,24 @@ Usage of ./clickhouse_sinker:
     	etcd password
   -etcd-username string
     	etcd username
+  -http-config-path string
+	gjson path of the config inside a JSON response, e.g. "data.config"; empty means the response body is the config
+  -http-data-id string
+	query param appended to every config URL
+  -http-group string
+	query param appended to every config URL
+  -http-headers string
+	semicolon-separated "Key: Value" header pairs sent verbatim with every config request, e.g. "Authorization: Bearer xxx"
   -http-host string
     	http host to bind to
+  -http-insecure-skip-verify
+	skip TLS certificate verification for https config URLs
+  -http-namespace string
+	query param appended to every config URL
   -http-port int
     	http listen port
+  -http-urls string
+	a list of comma-separated config service URLs; each is GET in turn until one returns the config
   -kafka-gssapi-password string
     	kafka GSSAPI password
   -kafka-gssapi-username string

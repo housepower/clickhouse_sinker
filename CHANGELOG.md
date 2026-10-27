@@ -21,6 +21,11 @@ New Features:
 - Environment variables accept the `SINKER_` prefix; new options only accept the prefixed name.
 - Log rotation is configurable via the `logMaxSize` (MB per file) and `logMaxBackups` (rotated files to keep) config
   fields, defaulting to the historical 100 and 10, and applied on config reload without a restart.
+- HTTP config backend (read-only): `--http-urls` takes a comma-separated list of config service URLs, each GET in turn
+  until one answers 200 with a non-empty body; when every URL fails the current config is kept. `--http-namespace`,
+  `--http-data-id` and `--http-group` are appended to every URL as query params, `--http-headers` sends extra headers
+  (e.g. authentication) verbatim, `--http-config-path` unwraps the config from a JSON response (a gjson path such as
+  `data.config`; a text response is the config itself), and `--http-insecure-skip-verify` accepts self-signed certs.
 
 Improvements:
 

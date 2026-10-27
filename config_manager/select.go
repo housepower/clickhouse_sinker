@@ -23,6 +23,9 @@ func selectBackend(cmdOps *util.CmdOptions) (string, error) {
 	if cmdOps.ApolloNamespace != "" {
 		names, flags = append(names, "apollo"), append(flags, "--apollo-namespace")
 	}
+	if cmdOps.HttpUrls != "" {
+		names, flags = append(names, "http"), append(flags, "--http-urls")
+	}
 	if len(names) > 1 {
 		return "", fmt.Errorf("only one config backend may be configured, got %s", strings.Join(flags, ", "))
 	}
@@ -106,6 +109,21 @@ func New(cmdOps *util.CmdOptions) (*Manager, error) {
 			zap.String("cluster", o.cluster()), zap.String("namespace", o.Namespace),
 			zap.Bool("writable", writable))
 		return NewManager("apollo", src, w), nil
+	case "http":
+		h, err := NewHTTP(HTTPOptions{
+			URLs:               cmdOps.HttpUrls,
+			Namespace:          cmdOps.HttpNamespace,
+			DataID:             cmdOps.HttpDataID,
+			Group:              cmdOps.HttpGroup,
+			Headers:            cmdOps.HttpHeaders,
+			ConfigPath:         cmdOps.HttpConfigPath,
+			InsecureSkipVerify: cmdOps.HttpInsecureSkipVerify,
+		})
+		if err != nil {
+			return nil, err
+		}
+		util.Logger.Info("get config from http", zap.Strings("urls", h.URLs()))
+		return NewManager("http", h, nil), nil
 	}
 	return nil, nil
 }

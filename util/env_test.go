@@ -45,3 +45,17 @@ func TestEnvStringVarPrefixedIgnoresUnprefixed(t *testing.T) {
 		t.Fatalf("got %q, want /sinker", v)
 	}
 }
+
+func TestEnvBoolVarPrefixedIgnoresUnprefixed(t *testing.T) {
+	t.Setenv("HTTP_INSECURE_SKIP_VERIFY", "")
+	v := false
+	EnvBoolVarPrefixed(&v, "http-insecure-skip-verify")
+	if v {
+		t.Fatal("unprefixed HTTP_INSECURE_SKIP_VERIFY must be ignored")
+	}
+	t.Setenv("SINKER_HTTP_INSECURE_SKIP_VERIFY", "")
+	EnvBoolVarPrefixed(&v, "http-insecure-skip-verify")
+	if !v {
+		t.Fatal("SINKER_HTTP_INSECURE_SKIP_VERIFY should set the flag")
+	}
+}
