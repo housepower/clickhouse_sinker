@@ -24,6 +24,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/thanos-io/thanos v0.33.0
 	github.com/tidwall/gjson v1.17.0
+	github.com/tjfoc/gmsm v1.4.1
 	github.com/troian/healthcheck v0.1.4-0.20200127040058-c373fb6a0dc1
 	github.com/twmb/franz-go v1.17.1
 	github.com/twmb/franz-go/pkg/kadm v1.10.0

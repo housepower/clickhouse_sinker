@@ -28,6 +28,8 @@ Usage of ./clickhouse_sinker:
     	clickhouse username
   -e string
     	encrypt password
+  -encrypt-algorithm string
+    	algorithm for -e and for decrypting ENC() secrets: AESWITHHEXANDBASE64 or SM4 (SM4 needs the SINKER_SM4_KEY env) (default "AESWITHHEXANDBASE64")
   -etcd-ca-file string
     	etcd CA file, enables TLS
   -etcd-cert-file string

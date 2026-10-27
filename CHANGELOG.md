@@ -13,6 +13,10 @@ Breaking Changes:
 
 New Features:
 
+- SM4 encryption for `ENC(...)` secrets: `--encrypt-algorithm SM4` (or `SINKER_ENCRYPT_ALGORITHM`) switches both `-e`
+  and the decryption of secrets in command options and config content. The SM4 key comes from the `SINKER_SM4_KEY`
+  environment variable (16 raw bytes or 32 hex characters). The default stays AES, existing setups are unchanged; one
+  instance uses one algorithm, re-encrypt every `ENC(...)` value when switching.
 - etcd and Apollo config backends.
 - Environment variables accept the `SINKER_` prefix; new options only accept the prefixed name.
 - Log rotation is configurable via the `logMaxSize` (MB per file) and `logMaxBackups` (rotated files to keep) config

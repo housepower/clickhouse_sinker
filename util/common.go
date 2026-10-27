@@ -102,6 +102,7 @@ type CmdOptions struct {
 	ApolloEnv        string
 	ApolloOperator   string
 	Encrypt          string
+	EncryptAlgorithm string // "AESWITHHEXANDBASE64" (default) or "SM4"
 
 	Credentials
 }
