@@ -205,6 +205,10 @@
 
   // log level, possible value: "debug", "info", "warn", "error", "dpanic", "panic", "fatal". Default to "info".
   "logLevel": "debug",
+  // rotation of the log files in --log-paths: rotate a file once it reaches "logMaxSize" megabytes,
+  // keep at most "logMaxBackups" rotated files. Default to 100 and 10. Applied on config reload.
+  "logMaxSize": 100,
+  "logMaxBackups": 10,
   // The Series table may contain hundreds of columns, and writing this table every time a datapoint is persisted can result in significant
   // performance overhead. This should be unnecessary since the lables from the same timeseries usually do not change(mid could be an exception).
   // Therefore, it would be reasonable to keep the map between "sid" and "mid" in cache to avoid frequent write operations. To optimize the memory

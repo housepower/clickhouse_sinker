@@ -47,6 +47,37 @@ func TestWriteFailureDefaults(t *testing.T) {
 	}
 }
 
+func TestLogRotationDefaults(t *testing.T) {
+	newCfg := func() *Config {
+		return &Config{
+			Clickhouse: ClickHouseConfig{Hosts: [][]string{{"127.0.0.1"}}, Port: 9000, DB: "default"},
+			Kafka:      KafkaConfig{Brokers: "127.0.0.1:9092"},
+			Tasks:      []*TaskConfig{{Name: "t1", Topic: "tp", TableName: "tb"}},
+		}
+	}
+
+	// Unset or non-positive values fall back to the defaults.
+	cfg := newCfg()
+	if err := cfg.Normallize(false, util.Credentials{}); err != nil {
+		t.Fatalf("Normallize failed: %v", err)
+	}
+	if cfg.LogMaxSize != util.DefaultLogRotation.MaxSize || cfg.LogMaxBackups != util.DefaultLogRotation.MaxBackups {
+		t.Fatalf("log rotation defaults = %dMB x %d, want %dMB x %d",
+			cfg.LogMaxSize, cfg.LogMaxBackups, util.DefaultLogRotation.MaxSize, util.DefaultLogRotation.MaxBackups)
+	}
+
+	// Explicit values are kept.
+	cfg = newCfg()
+	cfg.LogMaxSize = 50
+	cfg.LogMaxBackups = 3
+	if err := cfg.Normallize(false, util.Credentials{}); err != nil {
+		t.Fatalf("Normallize failed: %v", err)
+	}
+	if cfg.LogMaxSize != 50 || cfg.LogMaxBackups != 3 {
+		t.Fatalf("explicit log rotation = %dMB x %d, want 50MB x 3", cfg.LogMaxSize, cfg.LogMaxBackups)
+	}
+}
+
 func newPromTaskCfg(keyCol, valCol string, promSchema bool) *Config {
 	return &Config{
 		Clickhouse: ClickHouseConfig{Hosts: [][]string{{"127.0.0.1"}}, Port: 9000, DB: "default", Cluster: "abc"},

@@ -15,6 +15,8 @@ New Features:
 
 - etcd and Apollo config backends.
 - Environment variables accept the `SINKER_` prefix; new options only accept the prefixed name.
+- Log rotation is configurable via the `logMaxSize` (MB per file) and `logMaxBackups` (rotated files to keep) config
+  fields, defaulting to the historical 100 and 10, and applied on config reload without a restart.
 
 Improvements:
 

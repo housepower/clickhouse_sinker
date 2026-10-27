@@ -40,8 +40,30 @@ var (
 	Logger       *zap.Logger
 	logAtomLevel zap.AtomicLevel
 	logPaths     []string
+	logRotation  LogRotation
 	logTrace     bool
 )
+
+// LogRotation controls how an on-disk log file is rotated.
+type LogRotation struct {
+	MaxSize    int // megabytes per log file before rotation
+	MaxBackups int // number of rotated files to keep
+}
+
+// DefaultLogRotation keeps the historical behavior: 100MB per file, 10 backups.
+var DefaultLogRotation = LogRotation{MaxSize: 100, MaxBackups: 10}
+
+// normalized falls back to the defaults for non-positive values. In particular
+// MaxBackups <= 0 must not reach lumberjack, where 0 means "retain everything".
+func (r LogRotation) normalized() LogRotation {
+	if r.MaxSize <= 0 {
+		r.MaxSize = DefaultLogRotation.MaxSize
+	}
+	if r.MaxBackups <= 0 {
+		r.MaxBackups = DefaultLogRotation.MaxBackups
+	}
+	return r
+}
 
 type CmdOptions struct {
 	ShowVer  bool
@@ -318,11 +340,23 @@ func JksToPem(jksPath, jksPassword string, overwrite bool) (certPemPath, keyPemP
 }
 
 func InitLogger(newLogPaths []string) {
-	if reflect.DeepEqual(logPaths, newLogPaths) {
+	InitLoggerWithRotation(newLogPaths, DefaultLogRotation)
+}
+
+func InitLoggerWithRotation(newLogPaths []string, rotation LogRotation) {
+	rotation = rotation.normalized()
+	if reflect.DeepEqual(logPaths, newLogPaths) && logRotation == rotation {
 		return
 	}
+	// A rebuild must not silently reset the log level to info.
+	prevLevel := zapcore.InfoLevel
+	if Logger != nil {
+		prevLevel = logAtomLevel.Level()
+	}
 	logAtomLevel = zap.NewAtomicLevel()
+	logAtomLevel.SetLevel(prevLevel)
 	logPaths = newLogPaths
+	logRotation = rotation
 	var syncers []zapcore.WriteSyncer
 	for _, p := range logPaths {
 		switch p {
@@ -333,8 +367,8 @@ func InitLogger(newLogPaths []string) {
 		default:
 			writeFile := zapcore.AddSync(&lumberjack.Logger{
 				Filename:   p,
-				MaxSize:    100, // megabytes
-				MaxBackups: 10,
+				MaxSize:    rotation.MaxSize,
+				MaxBackups: rotation.MaxBackups,
 				LocalTime:  true,
 			})
 			syncers = append(syncers, writeFile)
@@ -358,6 +392,14 @@ func SetLogLevel(newLogLevel string) {
 			lvl = zap.InfoLevel
 		}
 		logAtomLevel.SetLevel(lvl)
+	}
+}
+
+// SetLogRotation applies a new rotation policy to the current logger, rebuilding
+// it when the policy changed. A no-op until InitLogger ran.
+func SetLogRotation(rotation LogRotation) {
+	if Logger != nil {
+		InitLoggerWithRotation(logPaths, rotation)
 	}
 }
 

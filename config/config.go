@@ -42,6 +42,8 @@ type Config struct {
 	Tasks                   []*TaskConfig
 	LogLevel                string
 	LogTrace                bool
+	LogMaxSize              int // megabytes per log file before rotation
+	LogMaxBackups           int // number of rotated log files to keep
 	RecordPoolSize          int64
 	ReloadSeriesMapInterval int
 	ActiveSeriesRange       int
@@ -454,6 +456,12 @@ func (cfg *Config) Normallize(constructGroup bool, cred util.Credentials) (err e
 	case "debug", "info", "warn", "error", "dpanic", "panic", "fatal":
 	default:
 		cfg.LogLevel = defaultLogLevel
+	}
+	if cfg.LogMaxSize <= 0 {
+		cfg.LogMaxSize = util.DefaultLogRotation.MaxSize
+	}
+	if cfg.LogMaxBackups <= 0 {
+		cfg.LogMaxBackups = util.DefaultLogRotation.MaxBackups
 	}
 	if cfg.ReloadSeriesMapInterval <= 0 {
 		cfg.ReloadSeriesMapInterval = defaultReloadSeriesMapIntervalSec
