@@ -172,7 +172,9 @@ func (gsypt *Gosypt) structHandle(rt reflect.Type, rv reflect.Value) (reflect.Va
 		rvf := rv.Field(i)
 
 		// Unexported fields can neither be inspected nor set through reflection.
-		if rtf.PkgPath != "" {
+		// Fields tagged `gsypt:"-"` are pass-through by contract (e.g. header
+		// values) and must not be decrypted even when they hold ENC(...).
+		if rtf.PkgPath != "" || rtf.Tag.Get("gsypt") == "-" {
 			continue
 		}
 
